@@ -7,8 +7,12 @@ import '../outcomes.css';
 
 export const appPageModules = new PluginPageModules();
 
-appPageModules.register(COSTS_PAGE_ID, createCostsPageModule({
+const removeCostsModule = appPageModules.register(COSTS_PAGE_ID, createCostsPageModule({
   read: fetchOutcomes,
   save: saveOutcomeAssessment,
   runHref: (repo, runId) => routeHref({ view: 'runs', repo, run: runId }),
 }));
+
+export function disableBuiltinPageModules(): void {
+  removeCostsModule();
+}

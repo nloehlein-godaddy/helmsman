@@ -28,6 +28,8 @@ export const TERMINOLOGY = {
   runs: { plain: 'Runs', pirate: 'Voyages' },
   dashboard: { plain: 'Dashboard', pirate: 'Helm' },
   costsOutcomes: { plain: 'Costs & Outcomes', pirate: 'Costs & Outcomes' },
+  pluginSafeMode: { plain: 'Optional plugin pages are disabled in UI safe mode.', pirate: 'Optional plugin pages are disabled in UI safe mode.' },
+  pluginCatalogFailed: { plain: 'Some plugin pages could not be loaded. Check the plugin catalog and restart.', pirate: 'Some plugin pages could not be loaded. Check the plugin catalog and restart.' },
   loadingPluginPage: { plain: 'Loading page…', pirate: 'Loading page…' },
   failedPluginPage: { plain: 'Could not load this page.', pirate: 'Could not load this page.' },
   unavailablePluginPage: { plain: 'Page unavailable', pirate: 'Page unavailable' },

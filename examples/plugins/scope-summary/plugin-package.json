@@ -1,0 +1,12 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 1,
+    "id": "example.scope-summary",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [{ "id": "page", "title": "External scope summary", "slots": ["helmsman/costs-page"], "panes": [] }]
+  },
+  "node": { "minMajor": 22, "maxMajorExclusive": 26 },
+  "entries": { "page": "page.js" }
+}

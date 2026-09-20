@@ -1,5 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isAppPagePath } from '../../src/logic/routes';
+import { appPages } from '../../src/plugins/builtins';
+import { loadPluginSnapshot, pluginDirectory } from './plugins/store';
+import { handlePluginRequest } from './plugins/http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -75,7 +78,11 @@ import type { AgentAdapter, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
 import type { JiraIssue } from '../types';
 
-process.loadEnvFile('.env');
+if (existsSync('.env')) process.loadEnvFile('.env');
+const pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1');
+for (const [slot, contribution] of Object.entries(pluginSnapshot.catalog.bindings)) appPages.select(slot, contribution);
+for (const plugin of pluginSnapshot.catalog.plugins) appPages.register(plugin.package.manifest);
+for (const error of pluginSnapshot.errors) process.stderr.write(`${error}\n`);
 const outboundMeter = createOutboundMeter();
 
 const PORT: number = Number(process.env.HELMSMAN_PORT ?? '8787');
@@ -677,6 +684,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   void (async () => {
     const url: URL = new URL(req.url ?? '/', `http://localhost:${PORT}`);
+    if (handlePluginRequest(req, res, url, pluginSnapshot)) return;
     if (url.pathname === '/api/webhooks/github' && req.method === 'POST') {
       try {
         const header = (name: string) => { const value = req.headers[name]; return typeof value === 'string' ? value : undefined; };

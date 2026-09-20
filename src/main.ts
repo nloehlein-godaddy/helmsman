@@ -17,7 +17,8 @@ import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
 import { appPages, COSTS_PAGE_SLOT } from './plugins/builtins';
-import { appPageModules } from './plugins/builtin-modules';
+import { appPageModules, disableBuiltinPageModules } from './plugins/builtin-modules';
+import { loadPluginCatalog } from './plugins/runtime';
 import { PluginPageHost } from './plugins/page-host';
 import type { PluginPageState } from './plugins/sdk';
 import { renderRunsView, renderRunHistory, type RunHistoryState } from './renderRuns';
@@ -3078,7 +3079,17 @@ export function bootstrap(): void {
   const view: DashboardView = new DashboardView(root);
   const boot: HTMLElement | null = document.getElementById('boot');
   const finishBoot: () => void = boot ? armBootScreen(boot) : (): void => {};
-  void view.start().then(finishBoot, finishBoot);
+  void loadPluginCatalog(appPages, appPageModules).then(async runtime => {
+    if (runtime.safeMode) disableBuiltinPageModules();
+    await view.start();
+    if (runtime.errors.length || runtime.safeMode) {
+      const status = document.createElement('div');
+      status.className = 'degraded-banner';
+      status.setAttribute('role', 'status');
+      status.textContent = runtime.errors.length ? term('pluginCatalogFailed') : term('pluginSafeMode');
+      root.prepend(status);
+    }
+  }).then(finishBoot, finishBoot);
 }
 
 if (import.meta.env.MODE !== 'test') bootstrap();

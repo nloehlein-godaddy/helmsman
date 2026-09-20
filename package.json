@@ -13,7 +13,8 @@
     "serve": "tsx server/helmsman/main.ts",
     "cmux:costs": "node scripts/cmux-codex-cost.mjs",
     "cmux:costs:install": "node scripts/install-cmux-codex-cost.mjs",
-    "cmux:costs:uninstall": "node scripts/install-cmux-codex-cost.mjs --uninstall"
+    "cmux:costs:uninstall": "node scripts/install-cmux-codex-cost.mjs --uninstall",
+    "plugins": "tsx server/helmsman/plugins/cli.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -26,6 +27,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3"
+    "better-sqlite3": "^13.0.3",
+    "es-module-lexer": "^2.3.2"
   }
 }

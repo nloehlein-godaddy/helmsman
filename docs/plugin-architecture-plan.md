@@ -2,7 +2,7 @@
 
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
-Status: Phase A page registration, generic page lifecycle, and built-in Costs UI extraction are implemented; the A/B milestone is not complete.
+Status: Phase A page lifecycle, Costs UI extraction, frontend package installation/loading, persistent bindings, and UI safe mode are implemented; the A/B milestone is not complete.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 
@@ -267,7 +267,7 @@ Do not begin broad extraction until this passes. Complete C's lifecycle, storage
 
 The first Phase A increment introduces validated, immutable page manifests and a shared route/slot registry. Costs uses this registry for navigation and its canonical URL. Its renderer and controller now live under `src/plugins/costs`, with injected read/save/link services, and mount through the same generic lifecycle as other in-process page modules. Browser and server page recognition share the same route definitions. Missing selections remain unavailable rather than selecting a fallback, and scope changes or disposal cancel pending Costs reads and writes. Failed saves preserve drafts, and edits no longer suppress refreshes or period changes.
 
-See [the experimental page-registry documentation](plugin-page-registry.md) for the current API and limitations. External package loading, persistent enablement/bindings, runnable backend distribution, archive packaging/installation, safe-start controls, and external frontend/backend samples remain outstanding before Phase A/B can be declared complete. The mount/update/refresh/dispose SDK is experimental and currently exercised by built-in composition and test modules; in-process module registration is not external installation.
+See [the experimental page-registry documentation](plugin-page-registry.md) for the current API and limitations. Frontend archive packaging/installation, persistent activation/bindings, immutable asset serving, lazy external module loading, and a separately packaged browser sample now work. UI safe mode skips optional page activation. See [package authoring and operations](plugin-packages.md). Runnable backend distribution, full safe-start controls that block provider-dependent recovery, isolated full-server installation, SDK distribution, and external Costs/backend pricing samples remain outstanding before Phase A/B can be declared complete. The mount/update/refresh/dispose SDK remains experimental.
 
 Validation includes manifest/registry/module/lifecycle unit tests, Costs draft and stale-request regressions, route and application integration tests, and a Playwright production-preview harness with mocked APIs and a reviewed Costs screenshot. This preview harness does not substitute for the later isolated backend-distribution test.
 
@@ -441,5 +441,13 @@ _Helmsman · not reported - not reported_
 ### Page lifecycle implementation review
 
 Two independent reviews covered registry/routing and Costs lifecycle/state behavior. The registry review found no material issues. The Costs review found draft loss after failed saves, late save failures affecting disposed or differently scoped pages, and refresh/period changes suppressed by an editing flag. The extracted controller now owns scoped, revisioned drafts and cancellable reads/writes; regression tests cover those cases. Generic host tests cover async mount retirement, serialized updates, module removal, hidden-page refresh, cleanup, and lifecycle failure containment. Follow-up review also fixed refresh waiters remaining blocked after a never-resolving lifecycle was retired, and contained asynchronous cleanup rejections. Post-commit review found that malformed successful assessment responses could clear drafts before rendering failed; response validation now rejects invalid or mismatched assessments before treating a save as successful.
+
+_Helmsman · not reported - not reported_
+
+### External page package implementation review
+
+Two independent reviews covered host lifecycle/routing and Costs API/controller boundaries. The host review found no material defects. The Costs review found incomplete summary validation admitting missing fields, malformed nested assessments, and nonnumeric counters into rendering. Validation now covers the consumed summary schema; regressions prove initial read errors remain recoverable and failed refreshes preserve drafts.
+
+The Phase A continuation adds bounded archives, an installation CLI, transactional activation/binding records, immutable assets, lazy browser imports, and a standalone sample. Follow-up review caught raw asset traversal being normalized into a page route before rejection; the HTTP handler now rejects those requests before SPA routing. Browser tests exercise copied external packages against the built frontend and real catalog/asset handlers. This does not replace the outstanding isolated runnable-server gate.
 
 _Helmsman · not reported - not reported_

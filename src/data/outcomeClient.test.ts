@@ -1,7 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchOutcomes, saveOutcomeAssessment } from './outcomeClient';
 
-const summary = { window: { from: '2026-01-01', to: '2026-01-30' }, repo: null, runs: 1, observedCostUsd: null, execution: {}, assessments: {}, outcomes: {}, daily: [], recentRuns: [] };
+const summary = {
+  window: { from: '2026-01-01', to: '2026-01-30' }, repo: null, runs: 1,
+  execution: { succeeded: 1, failed: 0, stopped: 0, running: 0 },
+  assessments: { complete: 0, partial: 0, failed: 0, 'not-assessed': 1 },
+  outcomes: { achieved: 0, partial: 0, 'not-achieved': 0, unknown: 1 },
+  knownCostUsd: null, observedCostUsd: null, runsWithKnownCost: 0, costCoverage: null,
+  averageCostUsd: null, averageDurationMs: null, runsWithDuration: 0,
+  inputTokens: null, cachedInputTokens: null, outputTokens: null, totalTokens: null,
+  linkedPrs: 0, unknownPrs: 0, stalePrs: 0, unavailablePrs: 0, publishedPrs: 0, reviewedPrs: 0, mergedPrs: 0,
+  costPerPublishedPrUsd: null, costPerReviewedPrUsd: null, costPerMergedPrUsd: null, correctionRounds: null,
+  failures: [], daily: [], recentRuns: [],
+};
+const day = { date: '2026-01-01', runs: 1, succeeded: 1, failed: 0, stopped: 0, running: 0,
+  knownCostUsd: null, observedCostUsd: 2, runsWithKnownCost: 0 };
+const run = { runId: 'run_1', repo: 'org/repo', status: 'succeeded', prNumber: null, startedAt: '',
+  durationMs: null, costUsd: null, observedCostUsd: 2, assessment: null };
+
 const assessment = { runId: 'run_1', state: 'complete' as const, outcome: 'achieved' as const, summary: 'Done', evidence: ['PR #1'], failureStage: null, correctionRounds: 0, updatedAt: '2026-09-20T12:00:00Z' };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -49,13 +65,38 @@ describe('outcomeClient', () => {
   });
 
   it('retains partial reported spend and rejects invalid reported amounts', async () => {
-    const mixed = { ...summary, observedCostUsd: 2, knownCostUsd: null, daily: [{ observedCostUsd: 2 }], recentRuns: [{ observedCostUsd: 2, costUsd: null }] };
+    const mixed = { ...summary, observedCostUsd: 2, knownCostUsd: null, daily: [day], recentRuns: [run] };
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(mixed))));
     await expect(fetchOutcomes(null, 7)).resolves.toMatchObject({ observedCostUsd: 2, knownCostUsd: null, recentRuns: [{ observedCostUsd: 2, costUsd: null }] });
     for (const invalid of [{ ...mixed, observedCostUsd: -1 }, { ...mixed, daily: [null] }, { ...mixed, recentRuns: [{ observedCostUsd: '2' }] }]) {
       vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(invalid))));
       await expect(fetchOutcomes(null, 7)).rejects.toThrow('invalid');
     }
+  });
+
+  it('rejects incomplete summaries and malformed nested display data before rendering', async () => {
+    const malformed = [
+      { window: undefined }, { window: { from: null, to: '2026-01-30' } }, { repo: [] },
+      { failures: undefined }, { failures: [null] }, { failures: [{ stage: 'tests', count: '<img src=x>' }] },
+      { runs: -1 }, { totalTokens: 0.5 }, { averageDurationMs: undefined }, { costCoverage: 1.1 },
+      { execution: {} }, { execution: { ...summary.execution, succeeded: '1' } },
+      { assessments: { ...summary.assessments, complete: null } }, { outcomes: {} },
+      { daily: [{ ...day, date: null }] }, { daily: [{ ...day, runs: '<img src=x>' }] },
+      { recentRuns: [{ ...run, runId: null }] }, { recentRuns: [{ ...run, status: 'unknown' }] },
+      { recentRuns: [{ ...run, assessment: { ...assessment, evidence: 'unexpected' } }] },
+      { recentRuns: [{ ...run, assessment: { ...assessment, correctionRounds: '\" onfocus=alert(1)' } }] },
+      { recentRuns: [{ ...run, assessment: { ...assessment, runId: 'another_run' } }] },
+    ];
+    for (const patch of malformed) {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...summary, ...patch }))));
+      await expect(fetchOutcomes(null, 30), JSON.stringify(patch)).rejects.toThrow('Outcomes response was invalid.');
+    }
+  });
+
+  it('accepts valid nested assessments and optional estimate metadata', async () => {
+    const body = { ...summary, daily: [day], recentRuns: [{ ...run, assessment }] };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body))));
+    await expect(fetchOutcomes(null, 30)).resolves.toEqual(body);
   });
 
   it('saves the complete assessment payload', async () => {

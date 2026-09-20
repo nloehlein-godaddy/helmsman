@@ -52,6 +52,7 @@ async function mockApi(page: Page): Promise<string[]> {
     if (!url.pathname.startsWith('/api/')) return route.continue();
     requests.push(url.pathname);
     let body: unknown = {};
+    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {} };
     if (url.pathname === '/api/context') body = { repos: ['org/a', 'org/b'], jiraBaseUrl: null, jiraEnabled: true };
     if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } };
     if (url.pathname === '/api/config') body = { config: {}, overridden: [] };
@@ -193,4 +194,14 @@ test('leaving Costs cancels a pending save without updating the next page', asyn
   await expect(page.locator('.outcome-runs')).toContainText('run_a');
   await expect(page.getByText('Late save failure', { exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+
+test('catalog failure keeps optional pages unavailable without substituting Costs', async ({ page }) => {
+  const requests = await mockApi(page);
+  await page.route('**/api/plugins/catalog', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+  await page.goto('/outcomes?repo=org/a');
+  await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
+  await expect(page.getByText('Some plugin pages could not be loaded. Check the plugin catalog and restart.', { exact: true })).toBeVisible();
+  expect(requests).not.toContain('/api/outcomes');
 });

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCostsPageModule, type CostsPageServices } from './page';
 import type { PluginPageInstance, PluginPageState } from '../sdk';
 import type { OutcomeAssessment, OutcomeSummary } from '../../data/outcomes';
-import { saveOutcomeAssessment } from '../../data/outcomeClient';
+import { fetchOutcomes, saveOutcomeAssessment } from '../../data/outcomeClient';
 
 const state: PluginPageState = { repo: 'org/a', themeId: 'default', pirateMode: false, visible: true, pane: null };
 const assessment: OutcomeAssessment = { runId: 'run_1', state: 'complete', outcome: 'unknown', summary: 'saved', evidence: [], failureStage: null, correctionRounds: null, updatedAt: '' };
@@ -27,6 +27,31 @@ const value = (root: HTMLElement, id = 'run_1') => form(root, id).querySelector<
 const submit = (root: HTMLElement, id = 'run_1') => form(root, id).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
 describe('Costs page lifecycle', () => {
+  it('shows an initial malformed read as a recoverable error without an unhandled rejection', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ...summary(), window: null })));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container, instance } = await mount({ read: fetchOutcomes });
+    await vi.waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toContain('Outcomes response was invalid.'));
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(summary())));
+    await instance.refresh?.();
+    expect(container.querySelector('[data-outcome-assessment="run_1"]')).not.toBeNull();
+  });
+
+  it('preserves the last good page and drafts when a refresh contains malformed nested assessments', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(summary())));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container, instance } = await mount({ read: fetchOutcomes });
+    await instance.refresh?.();
+    edit(container, 'Keep this unsaved draft');
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ ...summary(), recentRuns: [
+      { ...summary().recentRuns[0], assessment: { ...assessment, evidence: 'unexpected' } },
+    ] })));
+    await instance.refresh?.();
+    expect(container.querySelector('.outcome-inline-error')?.textContent).toBe('Outcomes response was invalid.');
+    expect(value(container)).toBe('Keep this unsaved draft');
+    expect(form(container, 'run_2')).not.toBeNull();
+  });
+
   it.each([
     { ...assessment, evidence: 'unexpected' },
     { ...assessment, runId: 'another_run' },

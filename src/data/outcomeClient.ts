@@ -7,34 +7,68 @@ function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+const EXECUTION_STATES = ['running', 'succeeded', 'failed', 'stopped'] as const;
+const nonNegativeNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+const nonNegativeInteger = (value: unknown): value is number => nonNegativeNumber(value) && Number.isSafeInteger(value);
+const nullableNumber = (value: unknown): boolean => value === null || nonNegativeNumber(value);
+const nullableInteger = (value: unknown): boolean => value === null || nonNegativeInteger(value);
+
+function validCounts(value: unknown, keys: readonly string[]): boolean {
+  const counts = record(value);
+  return counts !== null && keys.every(key => nonNegativeInteger(counts[key]));
+}
+
+function validEstimate(value: unknown): boolean {
+  if (value === undefined) return true;
+  const estimate = record(value);
+  if (!estimate) return false;
+  const amount = estimate.estimatedUnreportedCostUsd;
+  const estimated = estimate.estimatedUsageEvents;
+  const unreported = estimate.unreportedUsageEvents;
+  return nullableNumber(amount) && nonNegativeInteger(estimated) && nonNegativeInteger(unreported)
+    && unreported >= estimated && (estimated === 0 ? amount === null : amount !== null);
+}
+
+function validDay(value: unknown): boolean {
+  const day = record(value);
+  return day !== null && typeof day.date === 'string'
+    && validCounts(day, ['runs', 'runsWithKnownCost', ...EXECUTION_STATES])
+    && nullableNumber(day.knownCostUsd) && nullableNumber(day.observedCostUsd) && validEstimate(day.costEstimate);
+}
+
+function validRun(value: unknown): boolean {
+  const run = record(value);
+  return run !== null && typeof run.runId === 'string' && typeof run.repo === 'string'
+    && EXECUTION_STATES.some(state => state === run.status) && nullableInteger(run.prNumber)
+    && typeof run.startedAt === 'string' && nullableNumber(run.durationMs)
+    && nullableNumber(run.costUsd) && nullableNumber(run.observedCostUsd) && validEstimate(run.costEstimate)
+    && (run.assessment === null || validAssessment(run.assessment, run.runId));
+}
+
 function validSummary(value: unknown): value is OutcomeSummary {
   const source = record(value);
-  const validEstimate = (value: unknown): boolean => {
-    if (value === undefined) return true;
-    const estimate = record(value);
-    if (!estimate) return false;
-    const amount = estimate.estimatedUnreportedCostUsd;
-    const estimated = estimate.estimatedUsageEvents;
-    const unreported = estimate.unreportedUsageEvents;
-    return (amount === null || typeof amount === 'number' && Number.isFinite(amount) && amount >= 0)
-      && typeof estimated === 'number' && Number.isSafeInteger(estimated) && estimated >= 0
-      && typeof unreported === 'number' && Number.isSafeInteger(unreported) && unreported >= estimated
-      && (estimated === 0 ? amount === null : amount !== null);
-  };
-  const validObservedCost = (item: unknown): boolean => {
-    const data = record(item);
-    return data !== null && validEstimate(data.costEstimate) && (data.observedCostUsd === null || typeof data.observedCostUsd === 'number'
-      && Number.isFinite(data.observedCostUsd) && data.observedCostUsd >= 0);
-  };
-  return source !== null && typeof source.runs === 'number' && record(source.execution) !== null
-    && (source.costEstimate === undefined || (() => {
-      const estimate = record(source.costEstimate);
-      return estimate !== null && typeof estimate.runsWithoutUsage === 'number' && Number.isSafeInteger(estimate.runsWithoutUsage)
-        && estimate.runsWithoutUsage >= 0 && typeof estimate.rateSource === 'string' && typeof estimate.ratesAsOf === 'string';
-    })())
-    && record(source.assessments) !== null && record(source.outcomes) !== null
-    && validObservedCost(source) && Array.isArray(source.daily) && source.daily.every(validObservedCost)
-    && Array.isArray(source.recentRuns) && source.recentRuns.every(validObservedCost);
+  if (!source) return false;
+  const window = record(source.window);
+  const estimate = record(source.costEstimate);
+  return window !== null && typeof window.from === 'string' && typeof window.to === 'string'
+    && (source.repo === null || typeof source.repo === 'string')
+    && validCounts(source, ['runs', 'runsWithKnownCost', 'runsWithDuration', 'linkedPrs', 'unknownPrs',
+      'stalePrs', 'unavailablePrs', 'publishedPrs', 'reviewedPrs', 'mergedPrs'])
+    && validCounts(source.execution, EXECUTION_STATES)
+    && validCounts(source.assessments, ASSESSMENT_STATES) && validCounts(source.outcomes, TASK_OUTCOMES)
+    && ['knownCostUsd', 'observedCostUsd', 'averageCostUsd', 'averageDurationMs', 'costPerPublishedPrUsd',
+      'costPerReviewedPrUsd', 'costPerMergedPrUsd'].every(key => nullableNumber(source[key]))
+    && ['inputTokens', 'cachedInputTokens', 'outputTokens', 'totalTokens', 'correctionRounds'].every(key => nullableInteger(source[key]))
+    && (source.costCoverage === null || nonNegativeNumber(source.costCoverage) && source.costCoverage <= 1)
+    && validEstimate(source.costEstimate)
+    && (source.costEstimate === undefined || estimate !== null && nonNegativeInteger(estimate.runsWithoutUsage)
+      && typeof estimate.rateSource === 'string' && typeof estimate.ratesAsOf === 'string')
+    && Array.isArray(source.failures) && source.failures.every(value => {
+      const failure = record(value);
+      return failure !== null && typeof failure.stage === 'string' && nonNegativeInteger(failure.count);
+    })
+    && Array.isArray(source.daily) && source.daily.every(validDay)
+    && Array.isArray(source.recentRuns) && source.recentRuns.every(validRun);
 }
 
 export async function fetchOutcomes(repo: string | null, days: OutcomeWindow, signal?: AbortSignal): Promise<OutcomeSummary> {
