@@ -2,7 +2,7 @@
 import { expect, it } from 'vitest';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
-import { applicationRoot, runtimeModulePath, runtimeNodeArguments } from './runtime-paths';
+import { applicationRoot, isHostCoordinatorCommand, runtimeModulePath, runtimeNodeArguments } from './runtime-paths';
 
 it('resolves application assets independently of the working directory', () => {
   expect(applicationRoot()).toBe(fileURLToPath(new URL('../../', import.meta.url)));
@@ -21,4 +21,17 @@ it('retains TypeScript helper execution for development', () => {
   expect(args[0]).toBe('--import');
   expect(args[1]).toContain('tsx');
   expect(args[2]).toBe(fileURLToPath(new URL('./pre-pr-cli.ts', import.meta.url)));
+});
+
+it.each(['pre-pr-cli', 'docker-review-cli'].flatMap(name => ['ts', 'js'].flatMap(extension => [
+  `/app/server/helmsman/${name}.${extension}`, `C:\\app\\server\\helmsman\\${name}.${extension}`,
+  `${name}.${extension}`,
+])))('routes host coordinator %s locally for source and compiled installations', path => {
+  expect(isHostCoordinatorCommand({ cmd: 'node', args: [path, '{}'] })).toBe(true);
+  expect(isHostCoordinatorCommand({ cmd: path, args: [] })).toBe(true);
+});
+
+it.each(['/app/worker.js', 'C:\\app\\worker.ts', '/app/pre-pr-cli.js.map', '/app/not-pre-pr-cli.js',
+  '/app/docker-review-cli.ts/child.js', '/app/run-wrapper.mjs'])('leaves ordinary worker %s on its selected host', path => {
+  expect(isHostCoordinatorCommand({ cmd: 'node', args: [path] })).toBe(false);
 });

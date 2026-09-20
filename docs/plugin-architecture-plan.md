@@ -462,4 +462,6 @@ Costs is an explicit temporary host adapter: it shares the page lifecycle but st
 
 Completion validation passed: TypeScript and production build, 2,859 unit tests across 174 files, 10 browser/visual tests, six distribution checks, and two isolated production-server browser tests. Independent follow-up review confirmed that inventory validation and retained backups resolve the release replacement finding without remaining material issues.
 
+Post-commit review found Unix-only path checks in Docker coordinator routing and workspace cleanup. The follow-up uses shared coordinator recognition for both path separators, platform-aware workspace dispatch, and portable distribution assertions, with Windows-path regressions. All 48 focused runtime/Docker/adapter tests passed, followed by TypeScript/build and another full distribution validation run.
+
 _Helmsman · not reported - not reported_

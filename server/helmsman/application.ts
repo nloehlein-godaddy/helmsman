@@ -3,7 +3,7 @@ import { isAppPagePath } from '../../src/logic/routes';
 import { appPages } from '../../src/plugins/builtins';
 import { loadPluginSnapshot, pluginDirectory } from './plugins/store';
 import { handlePluginRequest } from './plugins/http';
-import { applicationRoot } from './runtime-paths';
+import { applicationRoot, isHostCoordinatorCommand } from './runtime-paths';
 import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -161,7 +161,7 @@ const selectedHost = await pickHost({ hasCmux, hasWezTerm, hasDocker, wrapperPat
 const localHost = detachedHost(WRAPPER);
 const host: RunHost = selectedHost.kind === 'docker' ? {
   kind: 'docker',
-  launch: spec => spec.args.some(arg => /\/(?:pre-pr|docker-review)-cli\.(?:ts|js)$/.test(arg)) ? localHost.launch(spec) : selectedHost.launch(spec),
+  launch: spec => isHostCoordinatorCommand(spec) ? localHost.launch(spec) : selectedHost.launch(spec),
   isAlive: ref => ref.kind === 'detached' ? localHost.isAlive(ref) : selectedHost.isAlive(ref),
   stop: async ref => {
     await (ref.kind === 'detached' ? localHost.stop(ref) : selectedHost.stop(ref));
@@ -210,7 +210,7 @@ function baseRunnerDeps(cfg: AppConfig, jira: JiraActions | null): Omit<RunnerDe
     createWorktree: (repo: string, id: string) => standaloneWorkspace(repo, id, 'fresh', () => createWorktree(AGENTS_ROOT, repo, id)),
     createWorktreeFromBranch: (repo: string, id: string, branch: string) => standaloneWorkspace(repo, id, 'branch', () => createWorktreeFromBranch(AGENTS_ROOT, repo, id, branch)),
     createReviewWorktree: (repo, id, number, headSha) => standaloneWorkspace(repo, id, 'review', () => createReviewWorktree(AGENTS_ROOT, repo, id, number, headSha), headSha),
-    removeWorktree: (repo: string, path: string) => path.startsWith(`${DOCKER_WORKSPACES}/`) ? removeDockerWorkspace(DOCKER_WORKSPACES, path) : removeWorktree(AGENTS_ROOT, repo, path),
+    removeWorktree: (repo: string, path: string) => path.startsWith(`${DOCKER_WORKSPACES}${sep}`) ? removeDockerWorkspace(DOCKER_WORKSPACES, path) : removeWorktree(AGENTS_ROOT, repo, path),
     now: () => new Date().toISOString(),
     jira,
     botAccountId: cfg.botAccountId ?? undefined,

@@ -13,3 +13,7 @@ export function runtimeNodeArguments(relative: string, moduleUrl: string): strin
   const entry = runtimeModulePath(relative, moduleUrl);
   return entry.endsWith('.ts') ? ['--import', import.meta.resolve('tsx'), entry] : [entry];
 }
+
+export function isHostCoordinatorCommand(command: { cmd: string; args: readonly string[] }): boolean {
+  return [command.cmd, ...command.args].some(path => /(?:^|[\\/])(?:pre-pr-cli|docker-review-cli)\.[jt]s$/.test(path));
+}

@@ -57,7 +57,7 @@ test('compiled workflow preparation finds its prompts and helpers outside the or
   const { stdout } = await isolated(['--input-type=module', '-e', `
     import assert from 'node:assert/strict';
     import { mkdir, writeFile, readFile } from 'node:fs/promises';
-    import { join } from 'node:path';
+    import { basename, join } from 'node:path';
     import { applicationRoot } from ${JSON.stringify(module('runtime-paths.js'))};
     import { prePrAdapter } from ${JSON.stringify(module('agents/pre-pr.js'))};
     import { dockerReviewAdapter } from ${JSON.stringify(module('agents/docker-review.js'))};
@@ -66,9 +66,9 @@ test('compiled workflow preparation finds its prompts and helpers outside the or
     const task = { ticketId: 'T-1', title: 'Example', repo: 'org/example', jiraBaseUrl: '' };
     const command = prePrAdapter(codexAdapter, process.cwd()).buildCommand(task);
     assert.equal(command.args.length, 2);
-    assert.ok(command.args[0].endsWith('/pre-pr-cli.js'));
+    assert.equal(basename(command.args[0]), 'pre-pr-cli.js');
     const review = dockerReviewAdapter(codexAdapter).buildCommand({ ...task, review: true, dockerExecution: {} });
-    assert.ok(review.args[0].endsWith('/docker-review-cli.js'));
+    assert.equal(basename(review.args[0]), 'docker-review-cli.js');
     await readFile(join(applicationRoot(), 'dist', 'index.html'));
     await readFile(join(applicationRoot(), 'server', 'helmsman', 'run-wrapper.mjs'));
     await readFile(join(applicationRoot(), 'server', 'helmsman', 'docker-gateway-relay.mjs'));

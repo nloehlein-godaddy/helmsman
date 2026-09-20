@@ -24,9 +24,11 @@ const inspected = (running: boolean, label: string = 'run_1', status = running ?
   State: { Running: running, Status: status }, Config: { Labels: { 'helmsman.runId': label } } }), code: 0 });
 
 describe('docker host', () => {
-  it.each(['pre-pr-cli.ts', 'docker-review-cli.ts', 'pre-pr-cli.js', 'docker-review-cli.js'])('rejects host-only %s coordinators before Docker or filesystem effects', async filename => {
+  it.each(['pre-pr-cli.ts', 'docker-review-cli.ts', 'pre-pr-cli.js', 'docker-review-cli.js'].flatMap(filename => [
+    `/app/server/helmsman/${filename}`, `C:\\app\\server\\helmsman\\${filename}`,
+  ]))('rejects host-only %s coordinators before Docker or filesystem effects', async path => {
     const { run, host, spec } = fixture();
-    await expect(host.launch({ ...spec, args: ['--import', 'tsx', `/app/server/helmsman/${filename}`, '{}'] })).rejects.toThrow('must execute on the host');
+    await expect(host.launch({ ...spec, args: ['--import', 'tsx', path, '{}'] })).rejects.toThrow('must execute on the host');
     expect(run).not.toHaveBeenCalled();
     expect(existsSync(spec.specPath)).toBe(false);
   });

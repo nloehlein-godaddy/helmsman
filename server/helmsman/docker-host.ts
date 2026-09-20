@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { copyFile, lstat, mkdir, readlink, symlink, writeFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { HostRef, LaunchSpec, RunHost } from './run-host';
+import { isHostCoordinatorCommand } from './runtime-paths';
 
 export type DockerRun = (argv: string[]) => Promise<{ stdout: string; code: number }>;
 const exec = promisify(execFile);
@@ -19,7 +20,7 @@ export function dockerHost(options: DockerHostOptions): RunHost {
     async launch(spec: LaunchSpec): Promise<HostRef> {
       if (!options.enabled) throw new Error('Docker run host is disabled');
       if (!safe(spec.runId) || !options.image) throw new Error('Invalid Docker run specification');
-      if ([spec.cmd, ...spec.args].some(arg => /(?:^|[\\/])(?:pre-pr-cli|docker-review-cli)\.[jt]s$/.test(arg))) {
+      if (isHostCoordinatorCommand(spec)) {
         throw new Error('Pre-PR and Docker review coordinators must execute on the host');
       }
       const git = await lstat(join(spec.cwd, '.git')).catch(() => null);
