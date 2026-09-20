@@ -36,3 +36,5 @@ dev.log
 
 # Playwright MCP session artifacts
 .playwright-mcp/
+playwright-report/
+test-results/

@@ -15,6 +15,8 @@ import { renderSlack } from './renderSlack';
 import { requestSlackReview, SlackReviewRequestError, type SlackReviewResult } from './data/slackReview';
 import './style.css';
 import { parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
+import { appPages } from './plugins/builtins';
+import { escapeHtml } from './logic/html';
 import { renderRunsView, renderRunHistory, type RunHistoryState } from './renderRuns';
 import { fetchRunHistory, RUN_HISTORY_PAGE_SIZE } from './data/runHistory';
 import { fetchOutcomes, saveOutcomeAssessment, OUTCOME_WINDOWS, type OutcomeWindow } from './data/outcomeClient';
@@ -24,7 +26,7 @@ import { mountClarifications } from './renderClarifications';
 import type { OutcomeSummary } from './data/outcomes';
 import './outcomes.css';
 import { loadDashboard, POLL_MS, LOCAL_POLL_MS, type DashboardResponse } from './data/live';
-import { renderAppShell, renderHelmHead, type HelmHeadOpts, renderDashboard, renderPrPanel, renderCmuxView, renderRunsDrawer, renderVoyageRetry, runTabStatus, renderTriageView, renderBugsView, renderConfigView, renderPrView, renderPrLists, renderRepoPrs, renderRecentPrRuns } from './render';
+import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderDashboard, renderPrPanel, renderCmuxView, renderRunsDrawer, renderVoyageRetry, runTabStatus, renderTriageView, renderBugsView, renderConfigView, renderPrView, renderPrLists, renderRepoPrs, renderRecentPrRuns } from './render';
 import type { RunTabView, PrViewState } from './render';
 import type { DashboardSnapshot } from './data/mock';
 import { fetchTriage, type TriageGroupsView } from './data/triage';
@@ -230,10 +232,12 @@ export class DashboardView {
   private outcomesLoading = false;
   private outcomesError: string | null = null;
   private outcomesSeq = 0;
+  private outcomesAbort: AbortController | null = null;
   private outcomesSavingRunId: string | null = null;
   private outcomesEditing = false;
   private campaigns: ReturnType<typeof mountCampaigns> | null = null;
   private clarifications: ReturnType<typeof mountClarifications> | null = null;
+  private unsubscribePages: (() => void) | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -383,6 +387,19 @@ export class DashboardView {
   }
 
   async start(): Promise<void> {
+    this.unsubscribePages ??= appPages.subscribe(() => {
+      if (this.destroyed) return;
+      const next = parseRoute(new URL(window.location.href));
+      if (this.view === 'outcomes' || this.view === 'plugin') {
+        if (next.view !== this.view || next.pluginPage !== this.route.pluginPage || next.pluginSlot !== this.route.pluginSlot) {
+          ++this.outcomesSeq;
+          void this.navigate(next, 'replace');
+        } else {
+          this.updateAddress(next, 'replace');
+          this.syncShell();
+        }
+      } else this.syncShell();
+    });
     void this.loadGreeting();
     window.addEventListener('popstate', this.onPopState);
     window.addEventListener('resize', this.onResize);
@@ -481,6 +498,11 @@ export class DashboardView {
     this.copyTimers.clear();
     this.cancelRunLogFlush();
     this.rootEvents.abort();
+    this.unsubscribePages?.();
+    this.unsubscribePages = null;
+    ++this.outcomesSeq;
+    this.outcomesAbort?.abort();
+    this.outcomesAbort = null;
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     if (this.refreshTimer !== null) clearInterval(this.refreshTimer);
@@ -510,7 +532,7 @@ export class DashboardView {
     this.route = parseRoute(new URL(href, window.location.origin));
     if (history === 'replace') window.history.replaceState(null, '', href);
     else if (history === 'push' && href !== window.location.pathname + window.location.search) window.history.pushState(null, '', href);
-    document.title = `${route.view === 'dashboard' ? term('dashboard') : route.view === 'prs' ? term('prs') : route.view === 'runs' ? term('runs') : route.view === 'outcomes' ? term('costsOutcomes') : route.view === 'campaigns' ? term('campaigns') : route.view === 'clarifications' ? term('clarifications') : route.view === 'cmux' ? 'Terminal' : route.view[0]!.toUpperCase() + route.view.slice(1)} · Helmsman`;
+    document.title = `${route.view === 'plugin' ? (route.pluginPage ? appPages.getPage(route.pluginPage)?.title : null) ?? term('unavailablePluginPage') : route.view === 'dashboard' ? term('dashboard') : route.view === 'prs' ? term('prs') : route.view === 'runs' ? term('runs') : route.view === 'outcomes' ? term('costsOutcomes') : route.view === 'campaigns' ? term('campaigns') : route.view === 'clarifications' ? term('clarifications') : route.view === 'cmux' ? 'Terminal' : route.view[0]!.toUpperCase() + route.view.slice(1)} · Helmsman`;
   }
 
   private async navigate(route: AppRoute, history: 'push' | 'replace' | 'none' = 'push'): Promise<void> {
@@ -539,6 +561,12 @@ export class DashboardView {
     this.cmuxCapturing = false;
     const scope = route.repo;
     const scopeChanged = this.selectedRepo !== scope;
+    if (scopeChanged || this.view === 'outcomes' && route.view !== 'outcomes') {
+      ++this.outcomesSeq;
+      this.outcomesAbort?.abort();
+      this.outcomesAbort = null;
+      this.outcomesLoading = false;
+    }
     if (scopeChanged) {
       ++this.runHistorySeq;
       this.runHistoryPending = null;
@@ -956,20 +984,27 @@ export class DashboardView {
   private paint(): void {
     const focused = document.activeElement;
     const focusedTab = focused instanceof HTMLAnchorElement && this.root.contains(focused) && focused.matches('.page-tab')
-      ? focused.dataset.view : null;
+      ? focused.id : null;
     const sameView = this.root.querySelector<HTMLElement>('.helm')?.dataset.page === this.view;
     this.paintView();
     this.paintRunRetries();
     this.syncPirateToggle();
     if (focusedTab) {
-      const view = sameView ? focusedTab : this.view;
       const tabs = Array.from(this.root.querySelectorAll<HTMLAnchorElement>('.page-tab'));
-      tabs.forEach(tab => { tab.tabIndex = tab.dataset.view === view ? 0 : -1; });
-      tabs.find(tab => tab.dataset.view === view)?.focus({ preventScroll: true });
+      const selected = (sameView ? tabs.find(tab => tab.id === focusedTab) : null)
+        ?? tabs.find(tab => tab.getAttribute('aria-selected') === 'true');
+      tabs.forEach(tab => { tab.tabIndex = tab === selected ? 0 : -1; });
+      selected?.focus({ preventScroll: true });
     }
   }
 
   private paintView(): void {
+    if (this.view === 'plugin') {
+      this.mountPage(renderAppShell(this.shellOptions(), `<section class="panel"><h1>${escapeHtml(term('unavailablePluginPage'))}</h1><p class="empty-note" role="status">${escapeHtml(term('unavailablePluginMessage'))}</p></section>`));
+      this.bindHeadControls();
+      this.rehomeRunDrawer();
+      return;
+    }
     if (this.view === 'todos') {
       this.mountPage(renderTodosView(this.todos, { ...this.shellOptions(), autoClaimEnabled: this.autoClaimRepos.includes(this.selectedRepo ?? '') }));
       this.bindHeadControls();
@@ -1112,6 +1147,7 @@ export class DashboardView {
     const snapshot = this.snapshotRepo === this.selectedRepo ? this.snapshot : null;
     return {
       active: this.view, repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId,
+      pluginPage: this.route.pluginPage, pluginSlot: this.route.pluginSlot,
       jiraEnabled: this.jiraEnabled,
       greetingName: this.greetingName,
       readout: {
@@ -1146,7 +1182,7 @@ export class DashboardView {
     const opts = this.shellOptions();
     shell.dataset.page = this.view;
     shell.className = `helm${this.view === 'dashboard' ? '' : ` ${this.view}-view`}`;
-    this.root.querySelector('#page-content')?.setAttribute('aria-labelledby', `page-tab-${this.view}`);
+    this.root.querySelector('#page-content')?.setAttribute('aria-labelledby', activePageTabId(opts));
     const template = document.createElement('template');
     template.innerHTML = renderHelmHead(opts);
     const repo = shell.querySelector<HTMLSelectElement>('.repo-select');
@@ -1439,13 +1475,17 @@ export class DashboardView {
   }
 
   private async loadOutcomes(): Promise<void> {
+    if (this.destroyed || this.view !== 'outcomes') return;
     const seq = ++this.outcomesSeq;
+    this.outcomesAbort?.abort();
+    const controller = new AbortController();
+    this.outcomesAbort = controller;
     const repo = this.selectedRepo;
     this.outcomesLoading = true;
     this.outcomesError = null;
     if (!this.outcomesEditing && !this.outcomesSavingRunId) this.paint();
     try {
-      const summary = await fetchOutcomes(repo, this.outcomeDays);
+      const summary = await fetchOutcomes(repo, this.outcomeDays, controller.signal);
       if (seq !== this.outcomesSeq || repo !== this.selectedRepo || this.view !== 'outcomes') return;
       this.outcomes = summary;
     } catch (error: unknown) {
@@ -1453,6 +1493,7 @@ export class DashboardView {
       this.outcomesError = error instanceof Error ? error.message : 'Could not load outcomes.';
     } finally {
       if (seq !== this.outcomesSeq || this.destroyed) return;
+      this.outcomesAbort = null;
       this.outcomesLoading = false;
       if (!this.outcomesEditing && !this.outcomesSavingRunId) this.paint();
     }

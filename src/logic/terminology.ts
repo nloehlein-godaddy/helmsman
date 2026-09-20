@@ -28,6 +28,8 @@ export const TERMINOLOGY = {
   runs: { plain: 'Runs', pirate: 'Voyages' },
   dashboard: { plain: 'Dashboard', pirate: 'Helm' },
   costsOutcomes: { plain: 'Costs & Outcomes', pirate: 'Costs & Outcomes' },
+  unavailablePluginPage: { plain: 'Page unavailable', pirate: 'Page unavailable' },
+  unavailablePluginMessage: { plain: 'This page is unavailable. Choose another view or restore its plugin.', pirate: 'This page is unavailable. Choose another view or restore its plugin.' },
   campaigns: { plain: 'Campaigns', pirate: 'Fleet Campaigns' },
   clarifications: { plain: 'Agent Questions', pirate: 'Agent Questions' },
   systemStatus: { plain: 'System status', pirate: 'Fleet status' },

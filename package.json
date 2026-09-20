@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:browser": "playwright test",
     "helmsman": "tsx server/helmsman/main.ts",
     "serve": "tsx server/helmsman/main.ts",
     "cmux:costs": "node scripts/cmux-codex-cost.mjs",
@@ -15,6 +16,7 @@
     "cmux:costs:uninstall": "node scripts/install-cmux-codex-cost.mjs --uninstall"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
     "jsdom": "^30.0.1",

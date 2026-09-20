@@ -2,7 +2,7 @@
 
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
-Status: Proposed implementation baseline; implementation has not started.
+Status: Implementation started with the Phase A page-registration foundation; the A/B milestone is not complete.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 
@@ -262,6 +262,14 @@ Plugin failures in these gates mean handled failures unless explicitly testing p
 Complete A/B: a narrow host boundary with an externally packaged Costs replacement and a small external pricing provider, installed against production without source edits or rebuilds. Include usable packaging/docs, route reloads, explicit replacement, settings/storage, and unchanged usage recording.
 
 Do not begin broad extraction until this passes. Complete C's lifecycle, storage, delivery, and recovery gates before extracting task providers. This proves both frontend and backend extensibility while keeping migration safety ahead of the features that depend on it.
+
+### Implementation progress
+
+The first Phase A increment introduces validated, immutable page manifests and a shared route/slot registry. Costs uses this registry for navigation and its canonical URL while retaining its existing host-side controller. Browser and server page recognition share the same route definitions. Missing selections remain unavailable rather than selecting a fallback, and leaving Costs cancels pending reads.
+
+See [the experimental page-registry documentation](plugin-page-registry.md) for the current API and limitations. Runtime plugin loading, persistent enablement/bindings, the mount/dispose SDK, runnable backend distribution, archive packaging/installation, safe-start controls, and external frontend/backend samples remain outstanding before Phase A/B can be declared complete. Metadata registration alone does not make Costs independently replaceable.
+
+The initial validation includes manifest/registry unit tests, route and application integration tests, and a Playwright production-preview harness with mocked APIs and a reviewed Costs screenshot. This preview harness does not substitute for the later isolated backend-distribution test.
 
 ## Review disposition
 

@@ -3,6 +3,7 @@ import { renderLocalGit } from './renderLocalGit';
 import { renderThemePreview } from './renderThemePreview';
 import { emptyLocalGit, type LocalGitState } from './data/localGit';
 import { routeHref, type PageView } from './logic/routes';
+import { appPages, COSTS_PAGE_ID, COSTS_PAGE_SLOT } from './plugins/builtins';
 import type { PrInboxState, PrListState } from './data/prLists';
 import type { DashboardSnapshot } from './data/mock';
 import { formatRelativeTime } from './logic/time';
@@ -232,7 +233,6 @@ const PAGE_TABS: { view: PageView; label: string }[] = [
   { view: 'cmux', label: 'Terminal' },
   { view: 'bugs', label: 'Bugs' },
   { view: 'runs', get label() { return term('runs'); } },
-  { view: 'outcomes', get label() { return term('costsOutcomes'); } },
   { view: 'campaigns', get label() { return term('campaigns'); } },
   { view: 'clarifications', get label() { return term('clarifications'); } },
   { view: 'config', label: 'Config' },
@@ -262,7 +262,39 @@ export interface HelmHeadOpts {
   repos: string[];
   selectedRepo: string | null;
   themeId: string;
+  pluginPage?: string;
+  pluginSlot?: string;
   readout: { running: number | null; queued: number | null; review: number | null } | null;
+}
+
+function pageTabs(opts: HelmHeadOpts) {
+  const tabs = PAGE_TABS.filter(t => t.view === 'todos' ? opts.jiraEnabled === false
+    : t.view === 'triage' || t.view === 'bugs' ? opts.jiraEnabled !== false : true).map(t => ({
+    ...t, id: `page-tab-${t.view}`, active: t.view === opts.active,
+    href: routeHref({ view: t.view, repo: opts.selectedRepo }),
+  }));
+  const costs = appPages.selected(COSTS_PAGE_SLOT);
+  const costsActive = opts.pluginSlot === COSTS_PAGE_SLOT || opts.pluginPage === costs.contributionId
+    || opts.active === 'outcomes' && !opts.pluginPage && costs.page?.contributionId === COSTS_PAGE_ID;
+  const costsTab = {
+    id: 'page-tab-outcomes', view: costs.page?.contributionId === COSTS_PAGE_ID ? 'outcomes' as const : 'plugin' as const,
+    label: costs.page?.contributionId === COSTS_PAGE_ID ? term('costsOutcomes') : costs.page?.title ?? term('costsOutcomes'),
+    active: costsActive, href: routeHref({ view: 'outcomes', repo: opts.selectedRepo }),
+  };
+  const campaignsIndex = tabs.findIndex(tab => tab.view === 'campaigns');
+  tabs.splice(campaignsIndex < 0 ? tabs.length : campaignsIndex, 0, costsTab);
+  if ((opts.active === 'plugin' || opts.active === 'outcomes') && !costsActive) {
+    const page = opts.pluginPage ? appPages.getPage(opts.pluginPage) : null;
+    tabs.push({ id: 'page-tab-plugin', view: opts.active, active: true,
+      label: page?.contributionId === COSTS_PAGE_ID ? term('costsOutcomes') : page?.title ?? term('unavailablePluginPage'),
+      href: routeHref({ view: opts.active, repo: opts.selectedRepo, pluginPage: opts.pluginPage }),
+    });
+  }
+  return tabs;
+}
+
+export function activePageTabId(opts: HelmHeadOpts): string {
+  return pageTabs(opts).find(tab => tab.active)?.id ?? `page-tab-${opts.active}`;
 }
 
 export function renderHelmHead(opts: HelmHeadOpts): string {
@@ -275,10 +307,9 @@ export function renderHelmHead(opts: HelmHeadOpts): string {
       ),
     )
     .join('');
-  const tabs: string = PAGE_TABS.filter(t => t.view === 'todos' ? opts.jiraEnabled === false
-    : t.view === 'triage' || t.view === 'bugs' ? opts.jiraEnabled !== false : true).map(
+  const tabs: string = pageTabs(opts).map(
     (t) =>
-      `<a class="page-tab view-toggle${t.view === opts.active ? ' is-active' : ''}" href="${esc(routeHref({ view: t.view, repo: opts.selectedRepo }))}" data-view="${t.view}" role="tab" id="page-tab-${t.view}" aria-selected="${t.view === opts.active}" aria-controls="page-content" tabindex="${t.view === opts.active ? 0 : -1}"${t.view === opts.active ? ' aria-current="page"' : ''}>${esc(t.label)}</a>`,
+      `<a class="page-tab view-toggle${t.active ? ' is-active' : ''}" href="${esc(t.href)}" data-view="${t.view}" role="tab" id="${t.id}" aria-selected="${t.active}" aria-controls="page-content" tabindex="${t.active ? 0 : -1}"${t.active ? ' aria-current="page"' : ''}>${esc(t.label)}</a>`,
   ).join('');
   const readout = `<div class="helm-readout mono" aria-label="${term('systemStatus')}">
     ${(['running', 'queued', 'review'] as const).map((key) => {
@@ -310,7 +341,7 @@ export function renderAppShell(opts: HelmHeadOpts, content: string): string {
   const running = opts.readout?.running ?? '—';
   return `<div class="helm${opts.active === 'dashboard' ? '' : ` ${opts.active}-view`}" data-page="${opts.active}">
     ${renderHelmHead(opts)}
-    <main class="page-content" id="page-content" role="tabpanel" aria-labelledby="page-tab-${opts.active}" tabindex="0">${content}</main>
+    <main class="page-content" id="page-content" role="tabpanel" aria-labelledby="${activePageTabId(opts)}" tabindex="0">${content}</main>
     <footer class="app-footer mono">
       <div class="operator-note">${ICON_LOCK}<span>${term('operatorNote')}</span></div>
       <div class="footer-meta">

@@ -1,4 +1,7 @@
-export type PageView = 'dashboard' | 'triage' | 'cmux' | 'bugs' | 'prs' | 'config' | 'runs' | 'todos' | 'outcomes' | 'campaigns' | 'clarifications';
+import { LEGACY_PAGE_ALIASES, LEGACY_PAGE_PATHS } from './pagePaths';
+import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT } from '../plugins/builtins';
+
+export type PageView = keyof typeof LEGACY_PAGE_PATHS | 'outcomes' | 'plugin';
 
 export interface AppRoute {
   view: PageView;
@@ -10,23 +13,11 @@ export interface AppRoute {
   mode: 'review' | 'rerun' | null;
   ticket: string | null;
   surface: string | null;
+  pluginPage?: string;
+  pluginSlot?: string;
 }
 
-const paths: Record<PageView, string> = {
-  dashboard: '/helm',
-  triage: '/triage',
-  cmux: '/terminal',
-  bugs: '/bugs',
-  prs: '/prs',
-  config: '/config',
-  runs: '/runs',
-  todos: '/todos',
-  outcomes: '/outcomes',
-  campaigns: '/campaigns',
-  clarifications: '/clarifications',
-};
-
-const panes: Record<PageView, readonly string[]> = {
+const panes: Record<keyof typeof LEGACY_PAGE_PATHS, readonly string[]> = {
   dashboard: ['newrun', 'backlog', 'underway', 'running', 'recent', 'repoprs', 'shipped', 'activity'],
   triage: ['backlog', 'todo', 'mine'],
   cmux: ['tabs', 'screen'],
@@ -35,7 +26,6 @@ const panes: Record<PageView, readonly string[]> = {
   config: ['local-git'],
   runs: ['recent', 'newrun', 'tasks'],
   todos: ['list', 'new'],
-  outcomes: ['summary', 'history'],
   campaigns: [],
   clarifications: [],
 };
@@ -68,9 +58,12 @@ function isSurfaceRef(value: string | null): boolean {
 
 export function parseRoute(url: URL): AppRoute {
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
-  const view = pathname === '/pr' ? 'prs'
-    : pathname === '/cmux' ? 'cmux'
-    : (Object.keys(paths) as PageView[]).find((page) => paths[page] === pathname) ?? 'dashboard';
+  const plugin = appPages.resolvePath(pathname);
+  const legacy = (Object.keys(LEGACY_PAGE_PATHS) as (keyof typeof LEGACY_PAGE_PATHS)[])
+    .find(page => LEGACY_PAGE_PATHS[page] === pathname);
+  const alias = Object.entries(LEGACY_PAGE_ALIASES).find(([path]) => path === pathname)?.[1];
+  const view: PageView = plugin ? plugin.page?.contributionId === COSTS_PAGE_ID ? 'outcomes' : 'plugin'
+    : legacy ?? alias ?? 'dashboard';
   const params = url.searchParams;
   const repo = validRepo(params.get('repo'));
   const supportsPrPanel = view === 'prs' || view === 'runs';
@@ -86,17 +79,39 @@ export function parseRoute(url: URL): AppRoute {
     view,
     repo,
     prRepo,
-    pane: pane && panes[view].includes(pane) ? pane : null,
+    pane: pane && (plugin?.page?.panes ?? (view === 'outcomes' || view === 'plugin' ? [] : panes[view])).includes(pane) ? pane : null,
     pr: prTarget ? positiveInteger(params.get('pr')) : null,
     run: run && /^[a-z\d_-]{1,128}$/i.test(run) ? run : null,
     mode: (view === 'runs' || view === 'prs') && (mode === 'review' || mode === 'rerun') ? mode : null,
-    ticket: ticket && /^[a-z][a-z\d_]{0,49}-[1-9]\d{0,14}$/i.test(ticket) ? ticket.toUpperCase() : null,
+    ticket: view !== 'plugin' && ticket && /^[a-z][a-z\d_]{0,49}-[1-9]\d{0,14}$/i.test(ticket) ? ticket.toUpperCase() : null,
     surface: view === 'cmux' && isSurfaceRef(surface) ? surface : null,
+    ...(plugin && (plugin.slotId === null || view === 'plugin') ? {
+      pluginPage: plugin.contributionId,
+      ...(plugin.slotId ? { pluginSlot: plugin.slotId } : {}),
+    } : {}),
   };
 }
 
+function routePath(route: Partial<AppRoute> & { view: PageView }): string {
+  if (route.view === 'plugin' || route.view === 'outcomes') {
+    if (route.pluginSlot === COSTS_PAGE_SLOT) return COSTS_PAGE_ALIAS;
+    if (route.pluginPage) {
+      const path = `/plugins/${route.pluginPage}`;
+      if (appPages.resolvePath(path)?.contributionId === route.pluginPage) return path;
+    }
+    return route.view === 'outcomes' ? COSTS_PAGE_ALIAS : LEGACY_PAGE_PATHS.dashboard;
+  }
+  return LEGACY_PAGE_PATHS[route.view];
+}
+
+export function isAppPagePath(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  return Object.values(LEGACY_PAGE_PATHS).some(value => value === path)
+    || Object.keys(LEGACY_PAGE_ALIASES).includes(path) || appPages.resolvePath(path) !== null;
+}
+
 export function routeHref(route: Partial<AppRoute> & { view: PageView }): string {
-  const url = new URL(paths[route.view], 'http://helmsman.local');
+  const url = new URL(routePath(route), 'http://helmsman.local');
   const keys = ['repo', 'prRepo', 'pane', 'pr', 'run', 'mode', 'ticket', 'surface'] as const;
   for (const key of keys) {
     const value = route[key];
@@ -109,5 +124,5 @@ export function routeHref(route: Partial<AppRoute> & { view: PageView }): string
     if (value !== null) params.set(key, String(value));
   }
   const query = params.toString();
-  return `${paths[normalized.view]}${query ? `?${query}` : ''}`;
+  return `${routePath(normalized)}${query ? `?${query}` : ''}`;
 }

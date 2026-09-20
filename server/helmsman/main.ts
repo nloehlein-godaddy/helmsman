@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { isAppPagePath } from '../../src/logic/routes';
 import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -830,7 +831,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.end(JSON.stringify(api.json));
       return;
     }
-    const isPage = /^\/(?:helm|triage|terminal|cmux|bugs|prs?|runs|config|todos|outcomes|campaigns|clarifications)?\/?$/.test(url.pathname);
+    const isPage = isAppPagePath(url.pathname);
     const rel: string = isPage ? '/index.html' : url.pathname;
     const file: string = normalize(join(DIST, rel));
     if (file.startsWith(DIST + sep) && existsSync(file)) {

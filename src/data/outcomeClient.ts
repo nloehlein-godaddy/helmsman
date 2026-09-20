@@ -37,10 +37,11 @@ function validSummary(value: unknown): value is OutcomeSummary {
     && Array.isArray(source.recentRuns) && source.recentRuns.every(validObservedCost);
 }
 
-export async function fetchOutcomes(repo: string | null, days: OutcomeWindow): Promise<OutcomeSummary> {
+export async function fetchOutcomes(repo: string | null, days: OutcomeWindow, signal?: AbortSignal): Promise<OutcomeSummary> {
   const params = new URLSearchParams({ days: String(days) });
   if (repo) params.set('repo', repo);
-  const response = await fetch(`/api/outcomes?${params}`, { signal: AbortSignal.timeout(10_000) });
+  const timeout = AbortSignal.timeout(10_000);
+  const response = await fetch(`/api/outcomes?${params}`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const error = record(body)?.error;
