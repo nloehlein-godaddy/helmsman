@@ -30,3 +30,28 @@ export interface PageResolution {
   readonly slotId: string | null;
   readonly page: RegisteredPluginPage | null;
 }
+
+export interface PluginPageState {
+  readonly repo: string | null;
+  readonly themeId: string;
+  readonly pirateMode: boolean;
+  readonly visible: boolean;
+  readonly pane: string | null;
+}
+
+export interface PluginPageContext {
+  readonly state: PluginPageState;
+  readonly signal: AbortSignal;
+  readonly navigate: (href: string) => void;
+  readonly onDispose: (cleanup: () => void) => void;
+}
+
+export interface PluginPageInstance {
+  update(state: PluginPageState): void | Promise<void>;
+  refresh?(): void | Promise<void>;
+  dispose(): void | Promise<void>;
+}
+
+export interface PluginPageModule {
+  mount(container: HTMLElement, context: PluginPageContext): PluginPageInstance | Promise<PluginPageInstance>;
+}

@@ -60,9 +60,9 @@ export interface AssessmentInput {
   correctionRounds: number | null;
 }
 
-export async function saveOutcomeAssessment(runId: string, input: AssessmentInput): Promise<OutcomeAssessment> {
+export async function saveOutcomeAssessment(runId: string, input: AssessmentInput, signal?: AbortSignal): Promise<OutcomeAssessment> {
   const response = await fetch(`/api/outcomes/${encodeURIComponent(runId)}/assessment`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: AbortSignal.timeout(10_000),
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
   });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {

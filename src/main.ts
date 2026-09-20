@@ -14,17 +14,16 @@ import { fetchSlack, markSlackNotificationRead, unavailableSlack, type SlackStat
 import { renderSlack } from './renderSlack';
 import { requestSlackReview, SlackReviewRequestError, type SlackReviewResult } from './data/slackReview';
 import './style.css';
-import { parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
-import { appPages } from './plugins/builtins';
+import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
+import { appPages, COSTS_PAGE_SLOT } from './plugins/builtins';
+import { appPageModules } from './plugins/builtin-modules';
+import { PluginPageHost } from './plugins/page-host';
+import type { PluginPageState } from './plugins/sdk';
 import { renderRunsView, renderRunHistory, type RunHistoryState } from './renderRuns';
 import { fetchRunHistory, RUN_HISTORY_PAGE_SIZE } from './data/runHistory';
-import { fetchOutcomes, saveOutcomeAssessment, OUTCOME_WINDOWS, type OutcomeWindow } from './data/outcomeClient';
-import { renderOutcomesView, type OutcomesViewState } from './renderOutcomes';
 import { mountCampaigns } from './renderCampaigns';
 import { mountClarifications } from './renderClarifications';
-import type { OutcomeSummary } from './data/outcomes';
-import './outcomes.css';
 import { loadDashboard, POLL_MS, LOCAL_POLL_MS, type DashboardResponse } from './data/live';
 import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderDashboard, renderPrPanel, renderCmuxView, renderRunsDrawer, renderVoyageRetry, runTabStatus, renderTriageView, renderBugsView, renderConfigView, renderPrView, renderPrLists, renderRepoPrs, renderRecentPrRuns } from './render';
 import type { RunTabView, PrViewState } from './render';
@@ -169,6 +168,7 @@ export class DashboardView {
   private repoPrsRepo: string | null | undefined = undefined;
   private readonly onVisibilityChange = (): void => {
     this.syncCmuxPolling();
+    if (this.isPluginPage()) this.paintPluginPage();
     if (document.hidden) this.cancelRunLogFlush();
     else this.scheduleRunLogFlush();
     if (!document.hidden) {
@@ -227,17 +227,11 @@ export class DashboardView {
   private slackSeq: number = 0;
   private slackReads = new Set<string>();
   private slackReviewRequests = new Map<string, { requestId: string; pending: boolean; error?: string; result?: SlackReviewResult }>();
-  private outcomes: OutcomeSummary | null = null;
-  private outcomeDays: OutcomeWindow = 30;
-  private outcomesLoading = false;
-  private outcomesError: string | null = null;
-  private outcomesSeq = 0;
-  private outcomesAbort: AbortController | null = null;
-  private outcomesSavingRunId: string | null = null;
-  private outcomesEditing = false;
   private campaigns: ReturnType<typeof mountCampaigns> | null = null;
   private clarifications: ReturnType<typeof mountClarifications> | null = null;
   private unsubscribePages: (() => void) | null = null;
+  private unsubscribePageModules: (() => void) | null = null;
+  private pageHost: PluginPageHost | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -328,12 +322,7 @@ export class DashboardView {
         return;
       }
       if (!(control instanceof HTMLSelectElement)) return;
-      if (this.view === 'outcomes' && control.matches('[data-outcome-days]')) {
-        const days = OUTCOME_WINDOWS.find(days => String(days) === control.value);
-        if (days === undefined) return;
-        this.outcomeDays = days;
-        void this.loadOutcomes();
-      } else if (this.view === 'triage' && control.matches('[data-triage-days]')) {
+      if (this.view === 'triage' && control.matches('[data-triage-days]')) {
         const days = TRIAGE_DATE_OPTIONS.find(days => String(days) === control.value);
         if (days === undefined) return;
         this.triageFilters.days = days;
@@ -355,16 +344,13 @@ export class DashboardView {
         this.themeId = control.value;
         applyTheme(this.themeId);
         saveThemeId(this.themeId);
+        if (this.isPluginPage()) this.paintPluginPage();
       }
     }, { capture: true, signal: this.rootEvents.signal });
     this.root.addEventListener('submit', (event: SubmitEvent): void => this.handleSubmit(event), { signal: this.rootEvents.signal });
     this.root.addEventListener('input', (event: Event): void => {
       const control = event.target;
       if (!(control instanceof HTMLElement)) return;
-      if (this.view === 'outcomes' && control.closest('[data-outcome-assessment]')) {
-        this.outcomesEditing = true;
-        return;
-      }
       if (this.view !== 'todos') return;
       if (control instanceof HTMLInputElement && control.matches('[data-todo-search]')) {
         this.todos.search = control.value;
@@ -392,19 +378,23 @@ export class DashboardView {
       const next = parseRoute(new URL(window.location.href));
       if (this.view === 'outcomes' || this.view === 'plugin') {
         if (next.view !== this.view || next.pluginPage !== this.route.pluginPage || next.pluginSlot !== this.route.pluginSlot) {
-          ++this.outcomesSeq;
           void this.navigate(next, 'replace');
         } else {
           this.updateAddress(next, 'replace');
           this.syncShell();
+          this.paintPluginPage();
         }
       } else this.syncShell();
+    });
+    this.unsubscribePageModules ??= appPageModules.subscribe(() => {
+      if (!this.destroyed && this.isPluginPage()) this.paintPluginPage();
     });
     void this.loadGreeting();
     window.addEventListener('popstate', this.onPopState);
     window.addEventListener('resize', this.onResize);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     const route = parseRoute(new URL(window.location.href));
+    this.route = route;
     this.selectedRepo = route.repo;
     this.view = route.view;
     if (route.view !== 'dashboard' && route.view !== 'prs') {
@@ -503,9 +493,10 @@ export class DashboardView {
     this.rootEvents.abort();
     this.unsubscribePages?.();
     this.unsubscribePages = null;
-    ++this.outcomesSeq;
-    this.outcomesAbort?.abort();
-    this.outcomesAbort = null;
+    this.unsubscribePageModules?.();
+    this.unsubscribePageModules = null;
+    this.pageHost?.dispose();
+    this.pageHost = null;
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     if (this.refreshTimer !== null) clearInterval(this.refreshTimer);
@@ -564,11 +555,9 @@ export class DashboardView {
     this.cmuxCapturing = false;
     const scope = route.repo;
     const scopeChanged = this.selectedRepo !== scope;
-    if (scopeChanged || this.view === 'outcomes' && route.view !== 'outcomes') {
-      ++this.outcomesSeq;
-      this.outcomesAbort?.abort();
-      this.outcomesAbort = null;
-      this.outcomesLoading = false;
+    if (route.view !== 'outcomes' && route.view !== 'plugin') {
+      this.pageHost?.dispose();
+      this.pageHost = null;
     }
     if (scopeChanged) {
       ++this.runHistorySeq;
@@ -599,9 +588,6 @@ export class DashboardView {
       ++this.localGitSeq;
       this.localGitPending = null;
       this.localGit = emptyLocalGit(scope);
-      ++this.outcomesSeq;
-      this.outcomes = null;
-      this.outcomesError = null;
     }
     this.selectedRepo = scope;
     saveRepoScope(scope);
@@ -629,7 +615,7 @@ export class DashboardView {
     if (route.view === 'triage') await this.loadTriage();
     else if (route.view === 'todos') await this.loadTodos();
     else if (route.view === 'bugs') await this.loadBugs();
-    else if (route.view === 'outcomes') await this.loadOutcomes();
+    else if (this.isPluginPage()) await this.pageHost?.refresh();
     else if (route.view === 'runs') historyLoad = this.loadRunHistory();
     else if (route.view === 'config') {
       await this.loadUiConfig();
@@ -816,8 +802,9 @@ export class DashboardView {
       await this.loadTodos();
     } else if (this.view === 'runs' && localDue && this.contentView === 'runs') {
       await this.loadRunHistory();
-    } else if (this.view === 'outcomes' && localDue && !this.outcomesEditing && !this.outcomesSavingRunId) {
-      void this.loadOutcomes();
+    } else if (this.isPluginPage() && localDue) {
+      this.paintPluginPage();
+      void this.pageHost?.refresh();
     }
     this.paintRunRetries();
   }
@@ -1001,11 +988,48 @@ export class DashboardView {
     }
   }
 
-  private paintView(): void {
-    if (this.view === 'plugin') {
+  private isPluginPage(): boolean {
+    return this.view === 'outcomes' || this.view === 'plugin';
+  }
+
+  private paintPluginPage(): void {
+    if (this.destroyed || !this.isPluginPage()) return;
+    const page = this.route.pluginSlot
+      ? appPages.selected(this.route.pluginSlot).page
+      : this.route.pluginPage ? appPages.getPage(this.route.pluginPage) : appPages.selected(COSTS_PAGE_SLOT).page;
+    const module = page ? appPageModules.get(page.contributionId) : null;
+    if (!page || !module) {
       this.mountPage(renderAppShell(this.shellOptions(), `<section class="panel"><h1>${escapeHtml(term('unavailablePluginPage'))}</h1><p class="empty-note" role="status">${escapeHtml(term('unavailablePluginMessage'))}</p></section>`));
-      this.bindHeadControls();
-      this.rehomeRunDrawer();
+    } else {
+      if (!this.pageHost) {
+        this.mountPage(renderAppShell(this.shellOptions(), '<div data-plugin-page-host></div>'));
+        const container = this.root.querySelector<HTMLElement>('[data-plugin-page-host]');
+        if (!container) return;
+        this.pageHost = new PluginPageHost(container, {
+          navigate: href => {
+            try {
+              const url = new URL(href, window.location.href);
+              if (url.origin === window.location.origin && isAppPagePath(url.pathname)) void this.navigate(parseRoute(url));
+            } catch { return; }
+          },
+          loadingMessage: () => term('loadingPluginPage'),
+          errorMessage: () => term('failedPluginPage'),
+        });
+      }
+      const state: PluginPageState = {
+        repo: this.selectedRepo, themeId: this.themeId, pirateMode: isPirateMode(),
+        visible: !document.hidden, pane: this.route.pane,
+      };
+      this.pageHost.show(page.contributionId, module, state);
+      this.syncShell();
+    }
+    this.bindHeadControls();
+    this.rehomeRunDrawer();
+  }
+
+  private paintView(): void {
+    if (this.isPluginPage()) {
+      this.paintPluginPage();
       return;
     }
     if (this.view === 'todos') {
@@ -1016,12 +1040,6 @@ export class DashboardView {
     }
     if (this.view === 'runs') {
       this.mountPage(renderRunsView(this.prView, { repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId, runs: this.historyRuns, history: this.runHistory }));
-      this.bindHeadControls();
-      this.rehomeRunDrawer();
-      return;
-    }
-    if (this.view === 'outcomes') {
-      this.mountPage(renderOutcomesView(this.outcomesState(), this.shellOptions()));
       this.bindHeadControls();
       this.rehomeRunDrawer();
       return;
@@ -1162,6 +1180,8 @@ export class DashboardView {
   }
 
   private mountPage(markup: string): void {
+    this.pageHost?.dispose();
+    this.pageHost = null;
     if (this.contentView === 'config') this.captureConfigDrafts();
     const template = document.createElement('template');
     template.innerHTML = markup;
@@ -1471,35 +1491,6 @@ export class DashboardView {
     const result = await fetchBugs(repo);
     if (seq !== this.bugsSeq || repo !== this.selectedRepo) return;
     this.bugsResponse = result;
-  }
-
-  private outcomesState(): OutcomesViewState {
-    return { summary: this.outcomes, days: this.outcomeDays, loading: this.outcomesLoading, error: this.outcomesError, savingRunId: this.outcomesSavingRunId };
-  }
-
-  private async loadOutcomes(): Promise<void> {
-    if (this.destroyed || this.view !== 'outcomes') return;
-    const seq = ++this.outcomesSeq;
-    this.outcomesAbort?.abort();
-    const controller = new AbortController();
-    this.outcomesAbort = controller;
-    const repo = this.selectedRepo;
-    this.outcomesLoading = true;
-    this.outcomesError = null;
-    if (!this.outcomesEditing && !this.outcomesSavingRunId) this.paint();
-    try {
-      const summary = await fetchOutcomes(repo, this.outcomeDays, controller.signal);
-      if (seq !== this.outcomesSeq || repo !== this.selectedRepo || this.view !== 'outcomes') return;
-      this.outcomes = summary;
-    } catch (error: unknown) {
-      if (seq !== this.outcomesSeq || repo !== this.selectedRepo || this.view !== 'outcomes') return;
-      this.outcomesError = error instanceof Error ? error.message : 'Could not load outcomes.';
-    } finally {
-      if (seq !== this.outcomesSeq || this.destroyed) return;
-      this.outcomesAbort = null;
-      this.outcomesLoading = false;
-      if (!this.outcomesEditing && !this.outcomesSavingRunId) this.paint();
-    }
   }
 
   private paintLocalGit(): void {
@@ -2140,12 +2131,8 @@ export class DashboardView {
   }
 
   private handleSubmit(event: SubmitEvent): void {
+    if (event.defaultPrevented) return;
     const target: EventTarget | null = event.target;
-    if (target instanceof HTMLFormElement && target.matches('[data-outcome-assessment]')) {
-      event.preventDefault();
-      void this.saveOutcomeAssessment(target);
-      return;
-    }
     if (target instanceof HTMLFormElement && target.matches('[data-todo-form]')) {
       event.preventDefault();
       void this.saveTodo(target);
@@ -2154,42 +2141,6 @@ export class DashboardView {
     if (!(target instanceof HTMLFormElement) || !target.classList.contains('cmux-send')) return;
     event.preventDefault();
     void this.withStableView(() => this.handleCmuxSend(target));
-  }
-
-  private async saveOutcomeAssessment(form: HTMLFormElement): Promise<void> {
-    const runId = form.dataset.outcomeAssessment;
-    if (!runId || !/^[a-z\d_-]{1,128}$/i.test(runId) || this.outcomesSavingRunId) return;
-    const data = new FormData(form);
-    const state = data.get('state');
-    const outcome = data.get('outcome');
-    if (!['complete', 'partial', 'failed', 'not-assessed'].includes(String(state)) || !['achieved', 'partial', 'not-achieved', 'unknown'].includes(String(outcome))) return;
-    const correctionRaw = String(data.get('correctionRounds') ?? '').trim();
-    const correctionRounds = correctionRaw === '' ? null : Number(correctionRaw);
-    if (correctionRounds !== null && (!Number.isSafeInteger(correctionRounds) || correctionRounds < 0)) {
-      const error = form.querySelector<HTMLElement>('.outcome-save-error');
-      if (error) error.textContent = 'Correction rounds must be a whole non-negative number.';
-      return;
-    }
-    this.outcomesSavingRunId = runId;
-    this.outcomesEditing = false;
-    this.paint();
-    try {
-      await saveOutcomeAssessment(runId, {
-        state: state as 'complete' | 'partial' | 'failed' | 'not-assessed',
-        outcome: outcome as 'achieved' | 'partial' | 'not-achieved' | 'unknown',
-        summary: String(data.get('summary') ?? '').trim(),
-        evidence: String(data.get('evidence') ?? '').split('\n').map(value => value.trim()).filter(Boolean),
-        failureStage: String(data.get('failureStage') ?? '').trim() || null,
-        correctionRounds,
-      });
-      this.outcomesSavingRunId = null;
-      await this.loadOutcomes();
-    } catch (error: unknown) {
-      this.outcomesSavingRunId = null;
-      this.outcomesError = error instanceof Error ? error.message : 'Could not save assessment.';
-      this.outcomesEditing = true;
-      this.paint();
-    }
   }
 
   private paintRunRetries(): void {
@@ -2253,6 +2204,7 @@ export class DashboardView {
   }
 
   private handleClick(event: MouseEvent): void {
+    if (event.defaultPrevented) return;
     const target: EventTarget | null = event.target;
     if (!(target instanceof Element)) return;
     const pirateToggle = target.closest<HTMLButtonElement>('[data-pirate-mode]');

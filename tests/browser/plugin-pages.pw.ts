@@ -116,3 +116,81 @@ test('shell navigation leaves and returns to Costs with scope intact', async ({ 
   await expect(page.locator('.repo-select')).toHaveValue('org/a');
   await expect(page.locator('.outcome-runs')).toContainText('run_a');
 });
+
+test('failed assessment saves preserve the draft and expanded details', async ({ page }) => {
+  await mockApi(page);
+  await page.route('**/api/outcomes/run_a/assessment', route => route.fulfill({
+    status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'Assessment could not be saved' }),
+  }));
+  await openCosts(page, '/plugins/helmsman.costs/page');
+  await page.getByText('Assess task outcome', { exact: true }).click();
+  const form = page.locator('[data-outcome-assessment="run_a"]');
+  await form.getByLabel('Assessment progress').selectOption('complete');
+  await form.getByLabel('Task outcome').selectOption('achieved');
+  await form.getByLabel('Summary (required)').fill('Completed the integration and checked failure paths.');
+  await form.getByRole('textbox', { name: /^Evidence/ }).fill('Unit tests\nPR #42');
+  await form.getByText('Failure and correction details (optional)').click();
+  await form.getByLabel('Where the task failed').fill('Initial test fixture');
+  await form.getByLabel('Correction rounds').fill('2');
+  await form.getByRole('button', { name: 'Save assessment' }).click();
+  await expect(form.getByRole('alert')).toHaveText('Assessment could not be saved');
+  await expect(form.getByLabel('Summary (required)')).toHaveValue('Completed the integration and checked failure paths.');
+  await expect(form.getByRole('textbox', { name: /^Evidence/ })).toHaveValue('Unit tests\nPR #42');
+  await expect(form.getByLabel('Assessment progress')).toHaveValue('complete');
+  await expect(form.getByLabel('Task outcome')).toHaveValue('achieved');
+  await expect(form.getByLabel('Where the task failed')).toBeVisible();
+  await expect(form.getByLabel('Where the task failed')).toHaveValue('Initial test fixture');
+  await expect(form.getByLabel('Correction rounds')).toHaveValue('2');
+  await expect(form.getByRole('button', { name: 'Save assessment' })).toBeEnabled();
+});
+
+test('changing the period refreshes Costs while preserving an assessment draft', async ({ page }) => {
+  await mockApi(page);
+  await page.route('**/api/outcomes?*', route => {
+    const url = new URL(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ...summary(url.searchParams.get('repo')), runs: Number(url.searchParams.get('days')),
+    }) });
+  });
+  await openCosts(page, '/plugins/helmsman.costs/page');
+  await page.getByText('Assess task outcome', { exact: true }).click();
+  const form = page.locator('[data-outcome-assessment="run_a"]');
+  await form.getByLabel('Summary (required)').fill('Keep this draft while changing the period.');
+  const period = page.getByLabel('Time period');
+  await period.focus();
+  await period.selectOption('90');
+  await expect(page.locator('.outcome-stat').first().locator('b')).toHaveText('90');
+  await expect(period).toHaveValue('90');
+  await expect(period).toBeFocused();
+  await expect(form.getByLabel('Summary (required)')).toBeVisible();
+  await expect(form.getByLabel('Summary (required)')).toHaveValue('Keep this draft while changing the period.');
+});
+
+test('leaving Costs cancels a pending save without updating the next page', async ({ page }) => {
+  await mockApi(page);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/outcomes/run_a/assessment', async route => {
+    await pending;
+    await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Late save failure' }) }).catch(() => {});
+  });
+  await openCosts(page, '/plugins/helmsman.costs/page');
+  await page.getByText('Assess task outcome', { exact: true }).click();
+  const form = page.locator('[data-outcome-assessment="run_a"]');
+  await form.getByLabel('Summary (required)').fill('Save while navigating away.');
+  const requested = page.waitForRequest(request => request.url().endsWith('/api/outcomes/run_a/assessment'));
+  await form.getByRole('button', { name: 'Save assessment' }).click();
+  await requested;
+  const aborted = page.waitForEvent('requestfailed', request => request.url().endsWith('/api/outcomes/run_a/assessment'));
+  await page.locator('.page-tab[data-view="runs"]').click();
+  release();
+  await aborted;
+  await expect(page.locator('.helm')).toHaveAttribute('data-page', 'runs');
+  await expect(page.getByText('Late save failure', { exact: true })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Costs & Outcomes' }).click();
+  await expect(page.locator('.outcome-runs')).toContainText('run_a');
+  await expect(page.getByText('Late save failure', { exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

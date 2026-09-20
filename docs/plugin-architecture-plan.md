@@ -2,7 +2,7 @@
 
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
-Status: Implementation started with the Phase A page-registration foundation; the A/B milestone is not complete.
+Status: Phase A page registration, generic page lifecycle, and built-in Costs UI extraction are implemented; the A/B milestone is not complete.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 
@@ -265,11 +265,11 @@ Do not begin broad extraction until this passes. Complete C's lifecycle, storage
 
 ### Implementation progress
 
-The first Phase A increment introduces validated, immutable page manifests and a shared route/slot registry. Costs uses this registry for navigation and its canonical URL while retaining its existing host-side controller. Browser and server page recognition share the same route definitions. Missing selections remain unavailable rather than selecting a fallback, and leaving Costs cancels pending reads.
+The first Phase A increment introduces validated, immutable page manifests and a shared route/slot registry. Costs uses this registry for navigation and its canonical URL. Its renderer and controller now live under `src/plugins/costs`, with injected read/save/link services, and mount through the same generic lifecycle as other in-process page modules. Browser and server page recognition share the same route definitions. Missing selections remain unavailable rather than selecting a fallback, and scope changes or disposal cancel pending Costs reads and writes. Failed saves preserve drafts, and edits no longer suppress refreshes or period changes.
 
-See [the experimental page-registry documentation](plugin-page-registry.md) for the current API and limitations. Runtime plugin loading, persistent enablement/bindings, the mount/dispose SDK, runnable backend distribution, archive packaging/installation, safe-start controls, and external frontend/backend samples remain outstanding before Phase A/B can be declared complete. Metadata registration alone does not make Costs independently replaceable.
+See [the experimental page-registry documentation](plugin-page-registry.md) for the current API and limitations. External package loading, persistent enablement/bindings, runnable backend distribution, archive packaging/installation, safe-start controls, and external frontend/backend samples remain outstanding before Phase A/B can be declared complete. The mount/update/refresh/dispose SDK is experimental and currently exercised by built-in composition and test modules; in-process module registration is not external installation.
 
-The initial validation includes manifest/registry unit tests, route and application integration tests, and a Playwright production-preview harness with mocked APIs and a reviewed Costs screenshot. This preview harness does not substitute for the later isolated backend-distribution test.
+Validation includes manifest/registry/module/lifecycle unit tests, Costs draft and stale-request regressions, route and application integration tests, and a Playwright production-preview harness with mocked APIs and a reviewed Costs screenshot. This preview harness does not substitute for the later isolated backend-distribution test.
 
 ## Review disposition
 
@@ -435,5 +435,11 @@ Make A/B one narrow, externally installable vertical slice. Move the lifecycle s
 - Restart with the recorded provider missing; preserve the process and worktree and expose a recoverable blocked condition.
 - Upgrade one plugin while another records usage; reject unsafe rollback without losing either feature’s writes.
 - Replay legacy Jira/Todo records and crash after remote success but before local acknowledgment; reconcile without changing the target provider or duplicating publication.
+
+_Helmsman · not reported - not reported_
+
+### Page lifecycle implementation review
+
+Two independent reviews covered registry/routing and Costs lifecycle/state behavior. The registry review found no material issues. The Costs review found draft loss after failed saves, late save failures affecting disposed or differently scoped pages, and refresh/period changes suppressed by an editing flag. The extracted controller now owns scoped, revisioned drafts and cancellable reads/writes; regression tests cover those cases. Generic host tests cover async mount retirement, serialized updates, module removal, hidden-page refresh, cleanup, and lifecycle failure containment. Follow-up review also fixed refresh waiters remaining blocked after a never-resolving lifecycle was retired, and contained asynchronous cleanup rejections.
 
 _Helmsman · not reported - not reported_

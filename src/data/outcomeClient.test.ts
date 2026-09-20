@@ -6,6 +6,18 @@ const summary = { window: { from: '2026-01-01', to: '2026-01-30' }, repo: null, 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('outcomeClient', () => {
+  it('propagates lifecycle cancellation to assessment writes', async () => {
+    let requestSignal: AbortSignal | null | undefined;
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => requestSignal?.addEventListener('abort', () => reject(requestSignal?.reason), { once: true }));
+    }));
+    const controller = new AbortController();
+    const saving = saveOutcomeAssessment('run_1', { state: 'complete', outcome: 'unknown', summary: 'Done', evidence: [], failureStage: null, correctionRounds: null }, controller.signal);
+    controller.abort();
+    await expect(saving).rejects.toMatchObject({ name: 'AbortError' });
+    expect(requestSignal?.aborted).toBe(true);
+  });
   it('validates estimate amounts, coverage and source metadata without changing reported spend', async () => {
     const costEstimate = { estimatedUnreportedCostUsd: 1.25, estimatedUsageEvents: 1, unreportedUsageEvents: 2,
       runsWithoutUsage: 0, ratesAsOf: '2026-09-19', rateSource: 'https://developers.openai.com/api/docs/pricing' };
