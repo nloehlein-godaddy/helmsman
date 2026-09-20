@@ -13,7 +13,7 @@ describe('renderOutcomesView', () => {
     expect(html).toContain('Reported spend</span><b>$2.00');
     expect(html).toContain('$13.20 estimated · 1/2 unpriced records');
     expect(html).toContain('1 run without usage records');
-    expect(html).toContain('service tier, long-context requests and cache-write usage are not recorded');
+    expect(html).toContain('selected pricing provider');
     expect(html).toContain('Estimates do not affect reported spend, per-PR costs or budget caps');
     expect(html).toContain('checked 2026-09-19');
   });

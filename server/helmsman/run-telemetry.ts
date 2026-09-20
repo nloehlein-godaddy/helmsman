@@ -1,7 +1,13 @@
 import Database from 'better-sqlite3';
 import type { AgentEvent, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
-import type { OutcomeStore } from './outcomes';
+import type { UsageRecorder } from './usage-store';
+
+export interface RunTelemetryCompletion {
+  runId: string;
+  failureStage: string | null;
+  correctionRounds: number | null;
+}
 
 export interface RunTelemetry {
   record(run: RunRow, task: AgentTask, event: AgentEvent, byteOffset: number): number | null;
@@ -9,7 +15,7 @@ export interface RunTelemetry {
   close(): void;
 }
 
-export function openRunTelemetry(path: string, outcomes: OutcomeStore): RunTelemetry {
+export function openRunTelemetry(path: string, usageStore: UsageRecorder, onComplete?: (completion: RunTelemetryCompletion) => void): RunTelemetry {
   const sql = new Database(path);
   sql.pragma('journal_mode = WAL');
   sql.exec(`CREATE TABLE IF NOT EXISTS run_lifecycle (
@@ -29,20 +35,18 @@ export function openRunTelemetry(path: string, outcomes: OutcomeStore): RunTelem
       insert.run(run.id, run.attempt, byteOffset, event.kind, provider, model, event.effort ?? task.effort ?? null,
         event.stage ?? null, event.round ?? null, event.eventId ?? null);
       if (event.usage && Object.keys(event.usage).length || event.costUsd !== undefined) {
-        outcomes.recordUsage({ runId: run.id, attempt: run.attempt, eventId: `log:${byteOffset}`,
+        usageStore.recordUsage({ runId: run.id, attempt: run.attempt, eventId: `log:${byteOffset}`,
           provider, model, ...event.usage, costUsd: event.costUsd ?? null });
       }
-      const usage = outcomes.listUsage([run.id]);
+      const usage = usageStore.listUsage([run.id]);
       const costs = usage.flatMap(item => item.costUsd === null ? [] : [item.costUsd]);
       return costs.length ? costs.reduce((sum, value) => sum + value, 0) : run.costUsd;
     },
     complete(run) {
-      const existing = outcomes.getAssessment(run.id);
-      if (existing && existing.source !== 'telemetry') return;
+      if (!onComplete) return;
       const failure = latestFailure.get(run.id, run.attempt) as { stage: string | null } | undefined;
       const corrections = rounds.get(run.id) as { round: number | null } | undefined;
-      outcomes.saveAssessment({ runId: run.id, source: 'telemetry', state: 'not-assessed', outcome: 'unknown',
-        summary: 'Execution finished; task outcome has not been assessed against evidence.', evidence: [],
+      onComplete({ runId: run.id,
         failureStage: run.status === 'failed' ? failure?.stage ?? 'execution' : null,
         correctionRounds: corrections?.round === null || corrections?.round === undefined ? null : Math.max(0, corrections.round - 1) });
     },

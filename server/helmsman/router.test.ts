@@ -6,6 +6,9 @@ import { ResumeError } from './resume';
 import type { PrStatus } from '../github';
 import type { BugsResponse } from '../../src/types';
 import { openDb, type RunRow } from './db';
+import { createUsageQueryService } from './usage-service';
+import { CapabilityResolutionError } from './plugins/backend';
+import { aggregateOutcomes } from './outcomes';
 
 const samplePrStatus: PrStatus = {
   number: 5,
@@ -58,6 +61,19 @@ const deps: RouterDeps = {
 };
 
 describe('handleApi', () => {
+  it('serves core usage independently of pricing activation and validates query windows', async () => {
+    const usage = createUsageQueryService({ db: { runsInWindow: () => [] }, usage: { listUsage: () => [] } });
+    const pricing = vi.fn(async () => { throw new CapabilityResolutionError('invalid-selection', 'Selected provider is disabled'); });
+    const query = new URLSearchParams({ version: '1', repo: 'org/a', from: '2026-09-01T00:00:00.000Z', to: '2026-09-20T00:00:00.000Z' });
+    const local = { ...deps, usage, pricing };
+    expect(await handleApi('GET', '/api/usage/v1', query, null, local)).toMatchObject({ status: 200, json: { version: 1, repo: 'org/a', records: [], reported: { observedCostUsd: null } } });
+    expect(pricing).not.toHaveBeenCalled();
+    expect(await handleApi('GET', '/api/pricing/v1', query, null, local)).toEqual({ status: 503, json: { error: 'Selected provider is disabled', code: 'invalid-selection' } });
+    query.set('from', 'bad');
+    expect((await handleApi('GET', '/api/usage/v1', query, null, local))?.status).toBe(400);
+    query.set('version', '2');
+    expect((await handleApi('GET', '/api/usage/v1', query, null, local))?.status).toBe(400);
+  });
   it('continues an existing voyage without creating a replacement run', async () => {
     const resumeRun = vi.fn(async () => {});
     const launch = vi.fn(deps.launch);
@@ -799,4 +815,31 @@ it('rejects stale local queue launches through the Jira route after re-enabling 
   const result = await handleApi('POST', '/api/agents/launch', new URLSearchParams(), { ticketId: todo.id, repo: todo.repo }, { ...deps, todos: todoStore, jiraEnabled: () => true, launch });
   expect(result?.status).toBe(409);
   expect(launch).not.toHaveBeenCalled();
+});
+
+
+describe('public outcome report policy boundary', () => {
+  it('excludes legacy pricing at every level while retaining measured data and legacy API compatibility', async () => {
+    const from = '2026-09-01T00:00:00.000Z';
+    const to = '2026-09-02T00:00:00.000Z';
+    const report = aggregateOutcomes({ from, to, repo: 'org/a',
+      runs: [{ id: 'run_1', ticketId: 'TASK-1', repo: 'org/a', adapter: 'codex', status: 'succeeded', attempt: 1,
+        prNumber: null, startedAt: from, endedAt: to, costUsd: null, worktreePath: null }],
+      usage: [{ runId: 'run_1', attempt: 1, eventId: 'event_1', provider: 'codex', model: 'gpt-6-astra',
+        inputTokens: 1000, cachedInputTokens: 0, outputTokens: 100, totalTokens: 1100, costUsd: null }],
+    });
+    expect(report.costEstimate?.estimatedUnreportedCostUsd).toBeGreaterThan(0);
+    const pricing = vi.fn(async () => { throw new CapabilityResolutionError('invalid-selection', 'Selected pricing provider is disabled'); });
+    const local = { ...deps, pricing, outcomes: { summary: async () => report, assessment: () => null } };
+    const publicResult = await handleApi('GET', '/api/reports/outcomes/v1', new URLSearchParams('repo=org/a'), null, local);
+    expect(publicResult?.status).toBe(200);
+    expect(publicResult?.json).toMatchObject({ runs: 1, observedCostUsd: null, totalTokens: 1100 });
+    expect(JSON.stringify(publicResult?.json)).not.toContain('costEstimate');
+    expect(pricing).not.toHaveBeenCalled();
+    const legacyResult = await handleApi('GET', '/api/outcomes', new URLSearchParams('repo=org/a'), null, local);
+    expect(legacyResult).toEqual({ status: 200, json: report });
+    expect(report).toHaveProperty('costEstimate');
+    expect(report.daily[0]).toHaveProperty('costEstimate');
+    expect(report.recentRuns[0]).toHaveProperty('costEstimate');
+  });
 });

@@ -1,6 +1,6 @@
 # Runnable Helmsman distribution
 
-`npm run build:distribution` produces `release/` with compiled server entry points, the browser application, native production dependencies, execution helpers, examples, and the experimental page SDK. Run it with the same OS, CPU architecture, and Node major used to build it. The manifest records those constraints and the native module ABI; build a new distribution for another target. The release does not install dependencies or run package installation scripts at startup.
+`npm run build:distribution` produces `release/` with compiled server entry points, the browser application, native production dependencies, execution helpers, examples, and the experimental page/backend SDK. Run it with the same OS, CPU architecture, and Node major used to build it. The manifest records those constraints and the native module ABI; build a new distribution for another target. The release does not install dependencies or run package installation scripts at startup.
 
 ## Run from a separate data directory
 
@@ -26,7 +26,7 @@ Rebuilds only replace a release whose generated inventory is intact. Added runti
 
 ## Public page SDK
 
-`release/sdk` is a standalone local npm package named `@helmsman/plugin-sdk`, containing declarations for the experimental page lifecycle and a dependency-free runtime entry. Install it as a development dependency in an author project:
+`release/sdk` is a standalone local npm package named `@helmsman/plugin-sdk`, containing declarations for page lifecycle/services, usage and pricing, and backend context, plus dependency-free runtime modules. Install it as a development dependency in an author project:
 
 ```sh
 npm install --save-dev /absolute/path/to/release/sdk typescript
@@ -75,3 +75,5 @@ Distribution verification copies the release into temporary installations and st
 Checks execute native SQLite, compiled workflow coordinators, the run wrapper, and workflow preparation including prompt/skill hashing. They compile an independent TypeScript page against the copied SDK, install it through the compiled CLI, start the real server, and verify canonical route reload, slot replacement, disable behavior, and legacy navigation in Chromium. No application API mocks are used in this full-server gate; external provider commands are replaced with probes.
 
 Safe-start tests seed active work, launch the compiled server, inspect recovery diagnostics, attempt forbidden APIs, and verify no provider command executed and persisted rows/artifacts remain unchanged. Additional unit tests cover broken/missing frontend assets, malformed catalogs, real process termination during artifact installation, transaction failures, registration rollback, and output rebuild safety.
+
+The [Phase B author guide](plugin-backend.md) covers external Costs and pricing packages, persisted settings/storage, and independently usable sources in `release/plugin-sources`.

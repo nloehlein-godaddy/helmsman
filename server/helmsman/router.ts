@@ -15,6 +15,9 @@ import type { OutcomeService } from './outcome-service';
 import { OutcomeValidationError } from './outcomes';
 import type { CampaignService } from './campaign-service';
 import { ClarificationValidationError, type ClarificationStore } from './clarifications';
+import type { PricingEstimate, UsageQueryService, UsageSnapshot } from '../../src/plugins/usage';
+import { UsageValidationError } from './usage-store';
+import { CapabilityResolutionError } from './plugins/backend';
 
 export interface ApiResult {
   status: number;
@@ -54,6 +57,8 @@ function toRunSummary(row: RunRow, db: Db): RunSummary {
 }
 
 export interface RouterDeps {
+  usage?: UsageQueryService;
+  pricing?: (snapshot: UsageSnapshot) => Promise<PricingEstimate | null>;
   clarificationGate?: (runId: string) => boolean;
   outcomes?: OutcomeService;
   campaigns?: CampaignService;
@@ -105,6 +110,20 @@ export async function handleApi(
   _body: unknown,
   deps: RouterDeps,
 ): Promise<ApiResult | null> {
+  if ((path === '/api/usage/v1' || path === '/api/pricing/v1') && method === 'GET') {
+    if (!deps.usage) return { status: 503, json: { error: 'Usage queries are unavailable.' } };
+    if (query.get('version') !== '1') return { status: 400, json: { error: 'Usage query version must be 1.' } };
+    try {
+      const snapshot = await deps.usage.query({ version: 1, repo: query.get('repo'), from: query.get('from') ?? '', to: query.get('to') ?? '' });
+      if (path === '/api/usage/v1') return { status: 200, json: snapshot };
+      if (!deps.pricing) return { status: 503, json: { error: 'Pricing is unavailable.' } };
+      return { status: 200, json: await deps.pricing(snapshot) };
+    } catch (error) {
+      if (error instanceof UsageValidationError) return { status: 400, json: { error: error.message } };
+      if (error instanceof CapabilityResolutionError) return { status: 503, json: { error: error.message, code: error.code } };
+      throw error;
+    }
+  }
   const clarificationGate = path.match(/^\/api\/runs\/([a-z\d_-]{1,128})\/clarification-gate$/i);
   if (clarificationGate && method === 'GET') {
     try { return { status: 200, json: { ready: deps.clarificationGate?.(clarificationGate[1]!) === true } }; }
@@ -140,15 +159,23 @@ export async function handleApi(
       throw error;
     }
   }
-  if (path === '/api/outcomes' && method === 'GET') {
+  if ((path === '/api/outcomes' || path === '/api/reports/outcomes/v1') && method === 'GET') {
     if (!deps.outcomes) return { status: 503, json: { error: 'Outcomes unavailable.' } };
-    try { return { status: 200, json: await deps.outcomes.summary(query) }; }
+    try {
+      const summary = await deps.outcomes.summary(query);
+      if (path === '/api/outcomes') return { status: 200, json: summary };
+      const report = structuredClone(summary);
+      delete report.costEstimate;
+      for (const day of report.daily) delete day.costEstimate;
+      for (const run of report.recentRuns) delete run.costEstimate;
+      return { status: 200, json: report };
+    }
     catch (error) {
       if (error instanceof OutcomeValidationError) return { status: 400, json: { error: error.message } };
       throw error;
     }
   }
-  const assessmentMatch = path.match(/^\/api\/outcomes\/([a-z\d_-]{1,128})\/assessment$/i);
+  const assessmentMatch = path.match(/^\/api\/(?:outcomes|reports\/outcomes\/v1)\/([a-z\d_-]{1,128})\/assessment$/i);
   if (assessmentMatch && method === 'PUT') {
     if (!deps.outcomes) return { status: 503, json: { error: 'Outcomes unavailable.' } };
     try { return { status: 200, json: deps.outcomes.assessment(assessmentMatch[1], _body) }; }

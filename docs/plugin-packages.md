@@ -1,6 +1,6 @@
-# Experimental page packages
+# Experimental plugin packages
 
-Helmsman can install separately authored frontend page packages and load them without rebuilding the application. This is an experimental Phase A interface. Packages run as explicitly trusted JavaScript in the application's browser context. Installation and enablement validate bytes and metadata without executing plugin code; code runs when an enabled page is opened.
+Helmsman can install separately authored frontend page packages and load them without rebuilding the application. This is an experimental Phase A/B interface; [backend pricing and public usage services](plugin-backend.md) extend the page contract. Packages run as explicitly trusted JavaScript in the application's browser context. Installation and enablement validate bytes and metadata without executing plugin code; frontend code runs when an enabled page is opened, and enabled backend code activates at server startup.
 
 ## Try the external sample
 
@@ -19,7 +19,7 @@ Restart Helmsman and reload its browser tabs. Open `/plugins/example.scope-summa
 
 The CLI and server use `HELMSMAN_PLUGINS_DIR`, defaulting to `~/.helmsman/plugins`. Both load an optional `.env` in their working directory. A CLI command can override the directory with `npm run plugins -- --dir /absolute/store COMMAND ...`. Use the same directory for the running server. Package directories and archive paths must have real directory ancestors; resolve symlinked temporary paths before packing.
 
-Commands operate on the installation catalog. Restart and reload are required to apply activation or selection changes. An existing server keeps its startup snapshot, and open browser tabs may keep already evaluated code. Disabling a page does not revoke code already running in a tab. Frontend packages have no backend work or provider obligations in this increment.
+Commands operate on the installation catalog. Restart and reload are required to apply activation or selection changes. An existing server keeps its startup snapshot, and open browser tabs may keep already evaluated code. Disabling a page does not revoke code already running in a tab. Page-only packages have no backend obligations. Backend pricing modules activate at server startup; durable execution draining is Phase C work.
 
 ```sh
 npm run plugins -- disable example.scope-summary
@@ -47,9 +47,9 @@ Put `plugin-package.json` and prebuilt browser ESM assets in a clean output dire
 }
 ```
 
-Every page must have exactly one entry mapping. Entries default-export a module implementing the [page lifecycle](plugin-page-registry.md#page-module-lifecycle). The [sample](../examples/plugins/scope-summary/page.js) uses only injected context and browser APIs. Own your styles within your container and bundle framework dependencies; application CSS classes and private host modules are not public APIs. The declared Node compatibility is a range of entire major versions, with an inclusive lower and exclusive upper bound, checked during installation, enablement, and startup. Backend entry points and plugin dependencies are not accepted yet.
+Every page must have exactly one entry mapping. Entries default-export a module implementing the [page lifecycle](plugin-page-registry.md#page-module-lifecycle). The [sample](../examples/plugins/scope-summary/page.js) uses only injected context and browser APIs. Own your styles within your container and bundle framework dependencies; application CSS classes and private host modules are not public APIs. The declared Node compatibility is a range of entire major versions, with an inclusive lower and exclusive upper bound, checked during installation, enablement, and startup. An optional backend descriptor supports pricing, validated settings, and namespaced storage; see [backend authoring](plugin-backend.md). General plugin dependency declarations are not accepted yet.
 
-Static and literal dynamic JavaScript imports must resolve to `.js`/`.mjs` files inside the same archive. Bare dependencies, private host paths, cross-package imports, missing modules, and computed dynamic imports are rejected. Assets can be addressed relative to `import.meta.url`. Import validation is an authoring boundary, not a sandbox: trusted code can access the shared browser and same-origin APIs. The `helmsman.*` package namespace is reserved for built-ins.
+Static and literal dynamic JavaScript imports must resolve to `.js`/`.mjs` files inside the same archive. Backend-only modules may additionally import Node built-ins with `node:` specifiers. Bare dependencies, private host paths, cross-package imports, missing modules, and computed dynamic imports are rejected. Assets can be addressed relative to `import.meta.url`. Import validation is an authoring boundary, not a sandbox: trusted code can access the shared browser and same-origin APIs. The `helmsman.*` package namespace is reserved for built-ins.
 
 ## Storage and startup
 
@@ -65,6 +65,6 @@ For frontend recovery, start the server with `HELMSMAN_PLUGIN_UI_SAFE_MODE=1`. T
 
 Unit tests cover archive traversal/size/integrity, atomic publication, persisted state, import boundaries, CLI operations, HTTP handling, and browser activation rollback. Chromium tests copy the sample outside the checkout, pack/install it, serve real catalog/assets through the production HTTP handler, and import it into the built frontend. They cover deep-link reload, galleon scope, terminology, slot replacement, disable/re-enable, and UI safe mode.
 
-The preview harness uses a production frontend with mocked legacy domain APIs. A separate [distribution harness](distribution.md#acceptance-evidence) copies the runnable server, compiles an independent SDK page, denies source access, and tests real server installation, route reload, and safe-start recovery. Phase B still needs external Costs data/query and pricing providers plus namespaced settings/storage. Phase A is verified by the isolated distribution gate; the combined A/B milestone remains incomplete.
+The preview harness uses a production frontend with mocked legacy domain APIs. A separate [distribution harness](distribution.md#acceptance-evidence) copies the runnable server, compiles an independent SDK page, denies source access, and tests real server installation, route reload, and safe-start recovery. The Phase B harness additionally compiles and swaps standalone full/alternative Costs and standard/flat pricing implementations, verifies settings/storage persistence, and preserves measured usage through disable/restart.
 
-The built-in Costs controller remains a transitional host adapter: it uses the public page lifecycle but receives legacy domain services and retains private rendering/terminology imports. Phase B replaces those dependencies with the published usage-query/service boundary. External packages already reject private-host and cross-package imports.
+The built-in Costs implementation now uses the same public SDK/services as independently compiled packages. Its rendering, terminology and styles are owned by the plugin; the distribution includes its standalone author project. External packages reject private-host and cross-package imports.

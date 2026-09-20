@@ -2,20 +2,19 @@ import Database from 'better-sqlite3';
 import { COST_ESTIMATE_DATE, COST_ESTIMATE_SOURCE, summarizeCostEstimates } from './cost-estimates';
 import { isGithubRepo } from '../pr-lists';
 import type { RunRow } from './db';
+import type { ProviderUsage } from '../../src/plugins/usage';
+import type { RunTelemetryCompletion } from './run-telemetry';
+import { openUsageStore, parseProviderUsage as usage, UsageValidationError as OutcomeValidationError, UsageConflictError, type UsageRecorder } from './usage-store';
+export { UsageValidationError as OutcomeValidationError, UsageConflictError } from './usage-store';
 import {
   ASSESSMENT_STATES, TASK_OUTCOMES,
-  type OutcomeAssessment, type ProviderUsage, type OutcomePullRequest, type OutcomeSummary, type OutcomeDay, type OutcomeRun,
+  type OutcomeAssessment, type OutcomePullRequest, type OutcomeSummary, type OutcomeDay, type OutcomeRun,
 } from '../../src/data/outcomes';
 
-export class OutcomeValidationError extends Error {}
-export class UsageConflictError extends Error {}
-
-export interface OutcomeStore {
+export interface OutcomeStore extends UsageRecorder {
   saveAssessment(input: unknown): OutcomeAssessment;
   getAssessment(runId: string): OutcomeAssessment | null;
   listAssessments(runIds: string[]): OutcomeAssessment[];
-  recordUsage(input: unknown): boolean;
-  listUsage(runIds: string[]): ProviderUsage[];
   close(): void;
 }
 
@@ -81,64 +80,41 @@ function assessment(input: unknown, updatedAt: string): OutcomeAssessment {
   };
 }
 
-function usage(input: unknown): ProviderUsage {
-  const value = record(input);
-  fields(value, ['runId', 'attempt', 'eventId', 'provider', 'model', 'inputTokens', 'cachedInputTokens', 'outputTokens', 'totalTokens', 'costUsd']);
-  const attempt = number(value.attempt, 'attempt', true);
-  if (attempt === null || attempt < 1 || attempt > 10000) throw new OutcomeValidationError('Invalid attempt');
-  const result: ProviderUsage = {
-    runId: runId(value.runId), attempt, eventId: text(value.eventId, 'usage event ID', 256),
-    provider: text(value.provider, 'provider', 80),
-    model: value.model === undefined || value.model === null ? null : text(value.model, 'model', 160),
-    inputTokens: number(value.inputTokens, 'input tokens', true),
-    cachedInputTokens: number(value.cachedInputTokens, 'cached input tokens', true),
-    outputTokens: number(value.outputTokens, 'output tokens', true),
-    totalTokens: number(value.totalTokens, 'total tokens', true), costUsd: number(value.costUsd, 'cost'),
-  };
-  if (result.inputTokens === null && result.cachedInputTokens === null && result.outputTokens === null && result.totalTokens === null && result.costUsd === null) {
-    throw new OutcomeValidationError('Usage must include tokens or a known cost');
-  }
-  return result;
-}
-
-export function openOutcomeStore(path: string, now: () => string = () => new Date().toISOString()): OutcomeStore {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec(`
-    CREATE TABLE IF NOT EXISTS outcome_assessments (runId TEXT PRIMARY KEY, payload TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS outcome_usage (
-      runId TEXT NOT NULL, attempt INTEGER NOT NULL, eventId TEXT NOT NULL, payload TEXT NOT NULL,
-      PRIMARY KEY (runId, attempt, eventId)
-    );
-  `);
-  const read = sql.prepare('SELECT payload FROM outcome_assessments WHERE runId = ?');
-  const usageRead = sql.prepare('SELECT payload FROM outcome_usage WHERE runId = ? AND attempt = ? AND eventId = ?');
-  const usageList = sql.prepare('SELECT payload FROM outcome_usage WHERE runId = ? ORDER BY attempt, eventId');
-  const decode = (row: unknown): Record<string, unknown> | null => {
-    if (row === undefined || row === null) return null;
-    const stored = record(row);
-    if (typeof stored.payload !== 'string') throw new OutcomeValidationError('Stored outcome data is invalid');
-    try { return record(JSON.parse(stored.payload)); }
-    catch { throw new OutcomeValidationError('Stored outcome data is invalid'); }
-  };
+export function openOutcomeStore(path: string, now: () => string = () => new Date().toISOString(), usageStore?: UsageRecorder): OutcomeStore {
+  const ownedUsage = usageStore ? null : openUsageStore(path);
+  const recordedUsage = usageStore ?? ownedUsage;
+  if (!recordedUsage) throw new OutcomeValidationError('Usage storage is unavailable');
+  let sql: Database.Database | undefined;
+  try {
+    sql = new Database(path);
+    const connection = sql;
+    connection.pragma('journal_mode = WAL');
+    connection.exec(`
+      CREATE TABLE IF NOT EXISTS outcome_assessments (runId TEXT PRIMARY KEY, payload TEXT NOT NULL);
+    `);
+    const read = connection.prepare('SELECT payload FROM outcome_assessments WHERE runId = ?');
+    const decode = (row: unknown): Record<string, unknown> | null => {
+      if (row === undefined || row === null) return null;
+      const stored = record(row);
+      if (typeof stored.payload !== 'string') throw new OutcomeValidationError('Stored outcome data is invalid');
+      try { return record(JSON.parse(stored.payload)); }
+      catch { throw new OutcomeValidationError('Stored outcome data is invalid'); }
+    };
   const readAssessment = (row: unknown): OutcomeAssessment | null => {
     const value = decode(row);
     if (!value) return null;
     const { updatedAt, ...input } = value;
     return assessment(input, timestamp(updatedAt));
   };
-  const readUsage = (row: unknown): ProviderUsage | null => {
-    const value = decode(row);
-    return value ? usage(value) : null;
-  };
   const ids = (values: string[]): string[] => {
     if (!Array.isArray(values) || values.length > 100000) throw new OutcomeValidationError('Invalid run selection');
     return [...new Set(values.map(runId))];
   };
+  let closed = false;
   return {
     saveAssessment(input) {
       const item = assessment(input, timestamp(now()));
-      sql.prepare('INSERT INTO outcome_assessments (runId, payload) VALUES (?, ?) ON CONFLICT(runId) DO UPDATE SET payload = excluded.payload')
+      connection.prepare('INSERT INTO outcome_assessments (runId, payload) VALUES (?, ?) ON CONFLICT(runId) DO UPDATE SET payload = excluded.payload')
         .run(item.runId, JSON.stringify(item));
       return item;
     },
@@ -147,19 +123,20 @@ export function openOutcomeStore(path: string, now: () => string = () => new Dat
       const item = readAssessment(read.get(id));
       return item ? [item] : [];
     }),
-    recordUsage: sql.transaction((input: unknown): boolean => {
-      const item = usage(input);
-      const prior = readUsage(usageRead.get(item.runId, item.attempt, item.eventId));
-      if (prior) {
-        if (JSON.stringify(prior) !== JSON.stringify(item)) throw new UsageConflictError('Usage event already exists with different values');
-        return false;
-      }
-      sql.prepare('INSERT INTO outcome_usage (runId, attempt, eventId, payload) VALUES (?, ?, ?, ?)')
-        .run(item.runId, item.attempt, item.eventId, JSON.stringify(item));
-      return true;
-    }).immediate,
-    listUsage: runIds => ids(runIds).flatMap(id => usageList.all(id).flatMap(row => { const item = readUsage(row); return item ? [item] : []; })),
-    close: () => sql.close(),
+    recordUsage: input => recordedUsage.recordUsage(input),
+    listUsage: runIds => recordedUsage.listUsage(runIds),
+    close: () => { if (!closed) { closed = true; connection.close(); ownedUsage?.close(); } },
+  };
+  } catch (error) { sql?.close(); ownedUsage?.close(); throw error; }
+}
+
+export function createOutcomeTelemetrySink(store: Pick<OutcomeStore, 'getAssessment' | 'saveAssessment'>): (completion: RunTelemetryCompletion) => void {
+  return completion => {
+    const existing = store.getAssessment(completion.runId);
+    if (existing && existing.source !== 'telemetry') return;
+    store.saveAssessment({ runId: completion.runId, source: 'telemetry', state: 'not-assessed', outcome: 'unknown',
+      summary: 'Execution finished; task outcome has not been assessed against evidence.', evidence: [],
+      failureStage: completion.failureStage, correctionRounds: completion.correctionRounds });
   };
 }
 

@@ -39,7 +39,7 @@ All shown fields are required. Unsupported fields and versions are rejected. Pac
 
 Contribution IDs combine plugin and local page IDs: `example.costs/summary`. Their canonical URL is `/plugins/example.costs/summary`; plugins cannot choose an arbitrary path that shadows a host route. Host-owned slots define aliases and default contributions separately.
 
-This prototype covers page metadata and known pane IDs only. The enclosing package descriptor supplies frontend entry points and a Node major-version range. Capability contracts, arbitrary query-state schemas, permissions, and storage declarations are not accepted yet. They will be introduced alongside their actual consumers, before stabilizing the public manifest.
+This prototype covers page metadata and known pane IDs only. The enclosing package descriptor supplies frontend entry points and a Node major-version range. The enclosing descriptor also supports the versioned pricing capability and backend settings/storage. General capabilities, arbitrary query-state schemas, and permissions remain later work. They will be introduced alongside their actual consumers, before stabilizing the public manifest.
 
 ## Registry behavior
 
@@ -63,13 +63,13 @@ The host resolves contribution metadata and implementation independently, then m
 
 [`PluginPageModules`](../src/plugins/modules.ts) associates a contribution ID with a `PluginPageModule`. `register(id, module)` returns an idempotent removal callback; `get(id)` returns the stable module wrapper or `null`; `subscribe(listener)` observes catalog changes. It does not load packages. Browser-only built-in composition lives in [`builtin-modules.ts`](../src/plugins/builtin-modules.ts), separately from shared route metadata.
 
-A module implements `mount(container, context)` and returns an instance, synchronously or asynchronously. The instance implements `update(state)` and `dispose()`, and may implement `refresh()`. Context contains the initial frozen state, mount-lifetime `signal`, guarded app navigation, and `onDispose(cleanup)`. State carries the header galleon scope, theme, Pirate mode, visibility, and pane. Updated snapshots arrive through `update`; the initial context snapshot does not mutate.
+A module implements `mount(container, context)` and returns an instance, synchronously or asynchronously. The instance implements `update(state)` and `dispose()`, and may implement `refresh()`. Context contains the initial frozen state, mount-lifetime `signal`, guarded app navigation, and `onDispose(cleanup)`. Optional `context.services` exposes versioned usage, pricing, reports and assessments; see [public services](plugin-backend.md). State carries the header galleon scope, theme, Pirate mode, visibility, and pane. Updated snapshots arrive through `update`; the initial context snapshot does not mutate.
 
 The host retains the page DOM across shell updates. Switching contributions aborts the old context, invokes cleanup, disposes the instance, and detaches its container. Late mounts are disposed. Retiring a page releases pending host refresh callers even if its lifecycle promise never settles. State updates are serialized and coalesced; refresh calls coalesce while pending. Hidden pages receive visibility updates but are not polled. Mount/update/refresh failures retire the instance and show a generic error.
 
 Modules must make disposal idempotent and cancel or generation-guard their own asynchronous work when scope changes. Refresh does not block new scope updates. The host cannot stop arbitrary trusted code from changing shared globals: this same-context API is not a sandbox or the final external plugin trust boundary. Navigation accepts recognized same-origin application routes only.
 
-Costs receives read, save, and run-link services from built-in composition. Drafts are scoped to the galleon and run for the lifetime of the mounted page; they are not durable across navigation/reload. A successful save only clears the revision it submitted. Cancelling a client PUT does not undo a write already accepted by the server.
+Costs consumes public injected services, owns scoped CSS/terminology, and can be compiled outside the host from its distributed author project. Drafts are scoped to the galleon and run for the lifetime of the mounted page; they are not durable across navigation/reload. A successful save only clears the revision it submitted. Cancelling a client PUT does not undo a write already accepted by the server.
 
 ## Validation
 

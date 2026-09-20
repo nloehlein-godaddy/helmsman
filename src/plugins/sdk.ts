@@ -1,3 +1,9 @@
+import type { PluginPageServices } from './services';
+export type { PluginPageServices } from './services';
+export type { AssessmentInput, OutcomeAssessment, OutcomeSummary, OutcomeRun, OutcomeDay, OutcomeWindow } from './outcomes';
+export type { UsageQuery, UsageSnapshot, UsageRun, UsageTotals, ProviderUsage, UsageCostEstimate, PricingEstimate } from './usage';
+export type { PluginBackendModule, PluginBackendContext, PluginBackendDefinition, PluginSetting, PluginStorage, PluginJson, PricingProvider } from './backend';
+
 export interface PluginPageDefinition {
   readonly id: string;
   readonly title: string;
@@ -44,6 +50,7 @@ export interface PluginPageContext {
   readonly signal: AbortSignal;
   readonly navigate: (href: string) => void;
   readonly onDispose: (cleanup: () => void) => void;
+  readonly services?: PluginPageServices;
 }
 
 export interface PluginPageInstance {

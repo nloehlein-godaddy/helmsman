@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { RunRow } from './db';
+import { openUsageStore } from './usage-store';
 import type { OutcomeAssessment, OutcomePullRequest, ProviderUsage } from '../../src/data/outcomes';
 import { aggregateOutcomes, openOutcomeStore, OutcomeValidationError, UsageConflictError, type OutcomeStore } from './outcomes';
 
@@ -45,6 +46,17 @@ function pr(patch: Partial<OutcomePullRequest> = {}): OutcomePullRequest {
 }
 
 describe('outcome persistence', () => {
+  it('releases an optional outcome adapter without closing its borrowed core usage store', () => {
+    const usageStore = openUsageStore(':memory:');
+    const adapter = openOutcomeStore(':memory:', () => from, usageStore);
+    try {
+      adapter.recordUsage(usage());
+      adapter.close();
+      expect(usageStore.recordUsage(usage({ eventId: 'next' }))).toBe(true);
+      expect(usageStore.listUsage(['one'])).toHaveLength(2);
+    } finally { adapter.close(); usageStore.close(); }
+  });
+
   it('persists assessment evidence and provider usage across connections and scopes reads', () => {
     const { store, path } = createStore();
     store.saveAssessment(assessmentInput());

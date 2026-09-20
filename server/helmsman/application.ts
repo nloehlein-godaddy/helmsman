@@ -15,7 +15,12 @@ import { buildTriageResponse } from '../triage-endpoint';
 import { buildBugsResponse } from '../bugs-endpoint';
 import type { AppConfig } from '../config';
 import { openDb } from './db';
-import { openOutcomeStore } from './outcomes';
+import { openOutcomeStore, createOutcomeTelemetrySink } from './outcomes';
+import { openUsageStore } from './usage-store';
+import { createUsageQueryService } from './usage-service';
+import { builtinPricing } from './plugins/builtin-pricing';
+import { activateBackendPlugins } from './plugins/backend';
+import { retainActivatedPluginPages } from './plugins/activation';
 import { openRunTelemetry } from './run-telemetry';
 import { prepareExecution } from './prepare-run';
 import { openWebhookIntake, parseWebhookRoutes, WebhookError } from './webhooks';
@@ -79,10 +84,7 @@ import type { AgentAdapter, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
 import type { JiraIssue } from '../types';
 
-const pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1');
-for (const [slot, contribution] of Object.entries(pluginSnapshot.catalog.bindings)) appPages.select(slot, contribution);
-for (const plugin of pluginSnapshot.catalog.plugins) appPages.register(plugin.package.manifest);
-for (const error of pluginSnapshot.errors) process.stderr.write(`${error}\n`);
+let pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1');
 const outboundMeter = createOutboundMeter();
 
 const PORT: number = Number(process.env.HELMSMAN_PORT ?? '8787');
@@ -100,8 +102,18 @@ const RUNS_DIR: string = process.env.RUNS_DIR ?? join(AGENTS_ROOT, '.helmsman-ru
 mkdirSync(RUNS_DIR, { recursive: true });
 const WRAPPER: string = fileURLToPath(new URL('./run-wrapper.mjs', import.meta.url));
 const configStore: ConfigStore = new ConfigStore(process.env, db);
-const outcomeStore = openOutcomeStore(dbPath);
-const runTelemetry = openRunTelemetry(dbPath, outcomeStore);
+const usageStore = openUsageStore(dbPath);
+const outcomeStore = openOutcomeStore(dbPath, undefined, usageStore);
+const runTelemetry = openRunTelemetry(dbPath, usageStore, createOutcomeTelemetrySink(outcomeStore));
+const usageQueries = createUsageQueryService({ db, usage: usageStore });
+const backendPlugins = await activateBackendPlugins({ root: pluginDirectory(),
+  snapshot: process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1' ? await loadPluginSnapshot(pluginDirectory()) : pluginSnapshot,
+  usage: usageQueries, builtins: [builtinPricing], defaultPricingProvider: 'helmsman.standard-pricing/standard' });
+for (const error of backendPlugins.errors) process.stderr.write(`${error}\n`);
+pluginSnapshot = retainActivatedPluginPages(pluginSnapshot, backendPlugins.activePluginIds());
+for (const [slot, contribution] of Object.entries(pluginSnapshot.catalog.bindings)) appPages.select(slot, contribution);
+for (const plugin of pluginSnapshot.catalog.plugins) appPages.register(plugin.package.manifest);
+for (const error of pluginSnapshot.errors) process.stderr.write(`${error}\n`);
 const workflows = openWorkflowStore(dbPath);
 const clarifications = openClarificationStore(dbPath, { getRun: id => db.getRun(id) });
 const clarificationRuntime = createClarificationRuntime(clarifications, RUNS_DIR);
@@ -719,6 +731,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         return !clarificationRuntime.hasUnanswered(runId);
       },
       outcomes,
+      usage: usageQueries,
+      pricing: async snapshot => (await backendPlugins.pricing(snapshot)).estimate,
       campaigns,
       clarifications,
       outboundUsage: () => outboundMeter.snapshot(),
@@ -857,6 +871,11 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   });
 });
 
+server.on('close', () => { void backendPlugins.dispose(); });
+for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => {
+  server.close();
+  void backendPlugins.dispose().finally(() => process.exit(0));
+});
 server.listen(PORT, '127.0.0.1', () => {
   const address = server.address();
   process.stdout.write(`Helmsman on :${address && typeof address === 'object' ? address.port : PORT}\n`);

@@ -6,6 +6,7 @@ import { COSTS_PAGE_ID, COSTS_PAGE_SLOT } from '../../../src/plugins/builtins';
 import { isContributionId, isPluginId } from '../../../src/plugins/manifest';
 import { installPluginArtifact, parsePluginArchive, readPluginArtifact, type PluginArchive } from './artifacts';
 import { validatePluginImports } from './imports';
+import { builtinPluginPackage, clearPluginSettings, setBuiltinPluginEnabled, writePluginSettings } from './data';
 
 export interface InstalledPlugin { id: string; hash: string; enabled: boolean; }
 export interface PluginInstallationState { plugins: InstalledPlugin[]; bindings: Record<string, string>; }
@@ -85,6 +86,7 @@ export async function installPlugin(root: string, bytes: Uint8Array): Promise<In
 }
 
 export async function setPluginEnabled(root: string, id: string, enabled: boolean): Promise<void> {
+  if (id.startsWith('helmsman.')) { setBuiltinPluginEnabled(root, id, enabled); return; }
   const plugin = readPluginState(root).plugins.find(plugin => plugin.id === id);
   if (!plugin) throw new Error(`Plugin is not installed: ${id}`);
   if (enabled) {
@@ -98,6 +100,20 @@ export async function setPluginEnabled(root: string, id: string, enabled: boolea
     const result = db.prepare('UPDATE plugin_packages SET enabled = ? WHERE id = ? AND hash = ?').run(enabled ? 1 : 0, id, plugin.hash);
     if (result.changes !== 1) throw new Error('Plugin installation changed; retry the operation.');
   } finally { db.close(); }
+}
+
+export async function configurePlugin(root: string, id: string, input: unknown) {
+  const builtin = id.startsWith('helmsman.') ? builtinPluginPackage(root, id) : null;
+  const installed = builtin ? null : readPluginState(root).plugins.find(plugin => plugin.id === id);
+  const pkg = builtin ?? (installed ? (await readPluginArtifact(root, installed.hash)).package : null);
+  if (!pkg) throw new Error(`Plugin is not installed: ${id}`);
+  return writePluginSettings(root, pkg, input);
+}
+
+export function resetPluginSettings(root: string, id: string, key?: string): void {
+  const builtin = id.startsWith('helmsman.') ? builtinPluginPackage(root, id) : null;
+  if (!builtin && !readPluginState(root).plugins.some(plugin => plugin.id === id)) throw new Error(`Plugin is not installed: ${id}`);
+  clearPluginSettings(root, id, key);
 }
 
 export async function selectPluginPage(root: string, slot: string, contribution: string | null): Promise<void> {

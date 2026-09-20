@@ -2,7 +2,7 @@
 
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
-Status: Phase A is complete, including the runnable distribution, standalone page SDK, full safe start, and isolated installation harness. Phase B is next; the combined A/B milestone remains incomplete.
+Status: Phases A and B are complete. Phase C persistence/recovery is next; phases C–G remain pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 
@@ -267,7 +267,7 @@ Do not begin broad extraction until this passes. Complete C's lifecycle, storage
 
 The first Phase A increment introduces validated, immutable page manifests and a shared route/slot registry. Costs uses this registry for navigation and its canonical URL. Its renderer and controller now live under `src/plugins/costs`, with injected read/save/link services, and mount through the same generic lifecycle as other in-process page modules. Browser and server page recognition share the same route definitions. Missing selections remain unavailable rather than selecting a fallback, and scope changes or disposal cancel pending Costs reads and writes. Failed saves preserve drafts, and edits no longer suppress refreshes or period changes.
 
-See [the experimental page-registry documentation](plugin-page-registry.md) for the current API and limitations. Frontend archive packaging/installation, persistent activation/bindings, immutable asset serving, lazy external module loading, and a separately packaged browser sample now work. UI safe mode skips optional page activation. See [package authoring and operations](plugin-packages.md). The runnable distribution now includes compiled server/helper assets, native dependencies, and a standalone page SDK. Full safe start bypasses normal provider composition and opens existing state read-only. The isolated full-server harness compiles an external SDK page, denies source access, installs through the compiled CLI, and exercises deep-link reload and recovery. See [distribution operations and acceptance evidence](distribution.md). External Costs/backend pricing samples and namespaced services remain Phase B work. The mount/update/refresh/dispose SDK remains experimental.
+See [the experimental page-registry documentation](plugin-page-registry.md) for the current API and limitations. Frontend archive packaging/installation, persistent activation/bindings, immutable asset serving, lazy external module loading, and a separately packaged browser sample now work. UI safe mode skips optional page activation. See [package authoring and operations](plugin-packages.md). The runnable distribution includes compiled server/helper assets, native dependencies, and a standalone SDK. Full safe start bypasses normal provider composition and opens existing state read-only. The isolated full-server harness compiles external SDK packages, denies source access, installs through the compiled CLI, and exercises deep-link reload and recovery. See [distribution operations and acceptance evidence](distribution.md). Phase B adds independent Costs/pricing author projects, versioned usage queries, and namespaced backend settings/storage; see [backend authoring](plugin-backend.md). The SDK remains experimental.
 
 Validation includes manifest/registry/module/lifecycle unit tests, Costs draft and stale-request regressions, route and application integration tests, and a Playwright production-preview harness with mocked APIs and a reviewed Costs screenshot. The separate distribution harness now supplies the isolated full-server gate. Archive recovery tests also terminate an installer after publication and inject catalog transaction failures, proving no partial activation.
 
@@ -458,10 +458,22 @@ Independent agents implemented the runnable distribution/SDK and full safe start
 
 The completion harness compiles a separately authored TypeScript page against the standalone SDK, packages/installs it using the compiled CLI, denies access to application source, and tests the real server in Chromium. Safe mode preserves active rows and artifacts, exposes core recovery independently of frontend code, and invokes no provider commands. Runtime helper checks exercise native storage, workflow preparation, coordinators, and the run wrapper from unrelated working directories.
 
-Costs is an explicit temporary host adapter: it shares the page lifecycle but still uses private legacy domain/renderer services. Phase B retires that exception through the versioned usage-query boundary and independently packaged Costs/pricing implementations. No broader task-provider or execution SDK is claimed complete in Phase A.
+At Phase A completion, Costs was an explicit temporary host adapter: it shared the page lifecycle but still used private legacy domain/renderer services. Phase B retires that exception through the versioned usage-query boundary and independently packaged Costs/pricing implementations. No broader task-provider or execution SDK is claimed complete in Phase A.
 
 Completion validation passed: TypeScript and production build, 2,859 unit tests across 174 files, 10 browser/visual tests, six distribution checks, and two isolated production-server browser tests. Independent follow-up review confirmed that inventory validation and retained backups resolve the release replacement finding without remaining material issues.
 
 Post-commit review found Unix-only path checks in Docker coordinator routing and workspace cleanup. The follow-up uses shared coordinator recognition for both path separators, platform-aware workspace dispatch, and portable distribution assertions, with Windows-path regressions. All 48 focused runtime/Docker/adapter tests passed, followed by TypeScript/build and another full distribution validation run.
 
 _Helmsman · not reported - not reported_
+
+### Phase B implementation review loop
+
+Independent agents extracted durable usage recording/querying, the public Costs implementation, and backend pricing/settings/storage. Costs now owns its renderer, terminology and scoped styles and builds independently against the same SDK used by external authors. The distribution includes full/alternative Costs and standard/flat pricing author projects. Public report APIs omit legacy fixed-policy estimates; selected pricing is separate from measured spend and budget values.
+
+Cross-review corrected UTC normalization, invalid/duplicate pricing details, mismatched usage snapshots, optional backend startup containment, activation storage rollback, Unicode quota accounting, removed-setting recovery, and large pricing-result handling. Final audit also delayed combined frontend/backend package publication until successful backend activation. The isolated server test exercises explicit independent replacements, retained settings/storage, missing selected providers without fallback, and continued telemetry recording with selected Costs/pricing disabled. A reviewed screenshot reflects generic selected-provider pricing and unavailable-provider copy while preserving the Costs layout.
+
+Backend plugin data remains in the plugin directory's namespaced database, separate from core run/usage data. Phase C must use durable core intents and idempotent projections for cross-store obligations; no cross-database atomicity is claimed. General dependency closure, durable draining, execution bindings, migration coordination, and provider extraction remain Phase C and later work.
+
+_Helmsman · not reported - not reported_
+
+Phase B completion validation: 2,968 unit/integration tests across 182 files; TypeScript and production build; 10 browser/visual tests; six distribution checks; three isolated compiled-server browser tests.

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const summary = (repo: string | null) => ({
-  window: { from: '2026-01-01', to: '2026-01-30' },
+  window: { from: '2026-01-01T00:00:00.000Z', to: '2026-01-30T00:00:00.000Z' },
   repo,
   runs: 1,
   execution: { succeeded: 1, failed: 0, stopped: 0, running: 0 },
@@ -36,7 +36,7 @@ const summary = (repo: string | null) => ({
     repo: repo ?? 'org/a',
     status: 'succeeded',
     prNumber: null,
-    startedAt: '',
+    startedAt: '2026-01-10T00:00:00.000Z',
     durationMs: null,
     costUsd: null,
     observedCostUsd: null,
@@ -56,7 +56,17 @@ async function mockApi(page: Page): Promise<string[]> {
     if (url.pathname === '/api/context') body = { repos: ['org/a', 'org/b'], jiraBaseUrl: null, jiraEnabled: true };
     if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } };
     if (url.pathname === '/api/config') body = { config: {}, overridden: [] };
-    if (url.pathname === '/api/outcomes') body = summary(url.searchParams.get('repo'));
+    if (url.pathname === '/api/reports/outcomes/v1') body = summary(url.searchParams.get('repo'));
+    if (url.pathname === '/api/usage/v1') {
+      const repo = url.searchParams.get('repo');
+      body = { version: 1, currency: 'USD', repo,
+        window: { from: url.searchParams.get('from'), to: url.searchParams.get('to') },
+        runs: [{ runId: repo === 'org/b' ? 'run_b' : 'run_a', repo: repo ?? 'org/a', status: 'succeeded',
+          startedAt: '2026-01-10T00:00:00.000Z', endedAt: '2026-01-10T01:00:00.000Z', reportedCostUsd: null }],
+        records: [], reported: { observedCostUsd: null, knownCostUsd: null, runsWithKnownCost: 0, runsWithoutUsage: 1,
+          inputTokens: null, cachedInputTokens: null, outputTokens: null, totalTokens: null } };
+    }
+    if (url.pathname === '/api/pricing/v1') body = null;
     if (url.pathname === '/api/runs') body = { runs: [], total: 0, limit: 25, offset: 0 };
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
@@ -103,7 +113,7 @@ test('missing plugin stays unavailable without fetching Costs', async ({ page })
   await page.locator('.repo-select').selectOption('org/b');
   await expect(page).toHaveURL(url => url.pathname === '/plugins/acme.missing/page' && url.searchParams.get('repo') === 'org/b');
   await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
-  expect(requests).not.toContain('/api/outcomes');
+  expect(requests).not.toContain('/api/reports/outcomes/v1');
 });
 
 test('shell navigation leaves and returns to Costs with scope intact', async ({ page }) => {
@@ -120,7 +130,7 @@ test('shell navigation leaves and returns to Costs with scope intact', async ({ 
 
 test('failed assessment saves preserve the draft and expanded details', async ({ page }) => {
   await mockApi(page);
-  await page.route('**/api/outcomes/run_a/assessment', route => route.fulfill({
+  await page.route('**/api/reports/outcomes/v1/run_a/assessment', route => route.fulfill({
     status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'Assessment could not be saved' }),
   }));
   await openCosts(page, '/plugins/helmsman.costs/page');
@@ -147,7 +157,7 @@ test('failed assessment saves preserve the draft and expanded details', async ({
 
 test('changing the period refreshes Costs while preserving an assessment draft', async ({ page }) => {
   await mockApi(page);
-  await page.route('**/api/outcomes?*', route => {
+  await page.route('**/api/reports/outcomes/v1?*', route => {
     const url = new URL(route.request().url());
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
       ...summary(url.searchParams.get('repo')), runs: Number(url.searchParams.get('days')),
@@ -173,7 +183,7 @@ test('leaving Costs cancels a pending save without updating the next page', asyn
   page.on('pageerror', error => errors.push(error.message));
   let release!: () => void;
   const pending = new Promise<void>(resolve => { release = resolve; });
-  await page.route('**/api/outcomes/run_a/assessment', async route => {
+  await page.route('**/api/reports/outcomes/v1/run_a/assessment', async route => {
     await pending;
     await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Late save failure' }) }).catch(() => {});
   });
@@ -181,10 +191,10 @@ test('leaving Costs cancels a pending save without updating the next page', asyn
   await page.getByText('Assess task outcome', { exact: true }).click();
   const form = page.locator('[data-outcome-assessment="run_a"]');
   await form.getByLabel('Summary (required)').fill('Save while navigating away.');
-  const requested = page.waitForRequest(request => request.url().endsWith('/api/outcomes/run_a/assessment'));
+  const requested = page.waitForRequest(request => request.url().endsWith('/api/reports/outcomes/v1/run_a/assessment'));
   await form.getByRole('button', { name: 'Save assessment' }).click();
   await requested;
-  const aborted = page.waitForEvent('requestfailed', request => request.url().endsWith('/api/outcomes/run_a/assessment'));
+  const aborted = page.waitForEvent('requestfailed', request => request.url().endsWith('/api/reports/outcomes/v1/run_a/assessment'));
   await page.locator('.page-tab[data-view="runs"]').click();
   release();
   await aborted;
@@ -203,5 +213,5 @@ test('catalog failure keeps optional pages unavailable without substituting Cost
   await page.goto('/outcomes?repo=org/a');
   await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
   await expect(page.getByText('Some plugin pages could not be loaded. Check the plugin catalog and restart.', { exact: true })).toBeVisible();
-  expect(requests).not.toContain('/api/outcomes');
+  expect(requests).not.toContain('/api/reports/outcomes/v1');
 });

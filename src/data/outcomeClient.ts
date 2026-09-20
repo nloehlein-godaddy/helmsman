@@ -71,11 +71,11 @@ function validSummary(value: unknown): value is OutcomeSummary {
     && Array.isArray(source.recentRuns) && source.recentRuns.every(validRun);
 }
 
-export async function fetchOutcomes(repo: string | null, days: OutcomeWindow, signal?: AbortSignal): Promise<OutcomeSummary> {
+export async function fetchOutcomes(repo: string | null, days: OutcomeWindow, signal?: AbortSignal, endpoint = '/api/outcomes'): Promise<OutcomeSummary> {
   const params = new URLSearchParams({ days: String(days) });
   if (repo) params.set('repo', repo);
   const timeout = AbortSignal.timeout(10_000);
-  const response = await fetch(`/api/outcomes?${params}`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+  const response = await fetch(`${endpoint}?${params}`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const error = record(body)?.error;
@@ -108,8 +108,8 @@ function validAssessment(value: unknown, runId: string): value is OutcomeAssessm
     && (assessment.source === undefined || assessment.source === 'manual' || assessment.source === 'telemetry');
 }
 
-export async function saveOutcomeAssessment(runId: string, input: AssessmentInput, signal?: AbortSignal): Promise<OutcomeAssessment> {
-  const response = await fetch(`/api/outcomes/${encodeURIComponent(runId)}/assessment`, {
+export async function saveOutcomeAssessment(runId: string, input: AssessmentInput, signal?: AbortSignal, endpoint = '/api/outcomes'): Promise<OutcomeAssessment> {
+  const response = await fetch(`${endpoint}/${encodeURIComponent(runId)}/assessment`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
   });
   const body: unknown = await response.json().catch(() => null);

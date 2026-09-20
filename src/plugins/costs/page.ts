@@ -1,10 +1,14 @@
-import { OUTCOME_WINDOWS, type AssessmentInput, type OutcomeWindow } from '../../data/outcomeClient';
-import { ASSESSMENT_STATES, TASK_OUTCOMES, type OutcomeAssessment, type OutcomeSummary } from '../../data/outcomes';
-import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from '../sdk';
-import { renderCostsContent } from './render';
+import type { AssessmentInput, OutcomeWindow, OutcomeAssessment, PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from '@helmsman/plugin-sdk';
+import { renderCostsContent } from './render.js';
+import { readCostsReport, type CostsReport } from './report.js';
+import { COSTS_STYLES } from './styles.js';
+
+const OUTCOME_WINDOWS = [7, 30, 90, 365] as const;
+const ASSESSMENT_STATES = ['complete', 'partial', 'failed', 'not-assessed'] as const;
+const TASK_OUTCOMES = ['achieved', 'partial', 'not-achieved', 'unknown'] as const;
 
 export interface CostsPageServices {
-  read(repo: string | null, days: OutcomeWindow, signal: AbortSignal): Promise<OutcomeSummary>;
+  read(repo: string | null, days: OutcomeWindow, signal: AbortSignal): Promise<CostsReport>;
   save(runId: string, input: AssessmentInput, signal: AbortSignal): Promise<OutcomeAssessment>;
   runHref(repo: string | null, runId: string): string;
 }
@@ -15,13 +19,31 @@ export function createCostsPageModule(services: CostsPageServices): PluginPageMo
   return { mount: (container, context) => new CostsPage(container, context, services) };
 }
 
+const costsPage: PluginPageModule = {
+  mount(container, context) {
+    const services = context.services;
+    if (!services || services.version !== 1) throw new Error('Costs requires version 1 page services.');
+    return new CostsPage(container, context, {
+      read: (repo, days, signal) => readCostsReport(services, repo, days, signal),
+      save: (runId, input, signal) => services.outcomes.assessment(runId, input, signal),
+      runHref: (repo, runId) => {
+        const query = new URLSearchParams({ run: runId });
+        if (repo) query.set('repo', repo);
+        return `/runs?${query}`;
+      },
+    });
+  },
+};
+
+export default costsPage;
+
 class CostsPage implements PluginPageInstance {
   private readonly container: HTMLElement;
   private readonly context: PluginPageContext;
   private readonly services: CostsPageServices;
   private state: PluginPageState;
   private days: OutcomeWindow = 30;
-  private summary: OutcomeSummary | null = null;
+  private summary: CostsReport | null = null;
   private error: string | null = null;
   private disposed = false;
   private generation = 0;
@@ -87,7 +109,7 @@ class CostsPage implements PluginPageInstance {
     void this.save(form);
   };
   private onClick = (event: MouseEvent): void => {
-    const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a.app-link') : null;
+    const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a.costs-run-link') : null;
     if (!anchor || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     this.context.navigate(anchor.getAttribute('href') ?? '');
@@ -208,7 +230,7 @@ class CostsPage implements PluginPageInstance {
     }
     const scroll = this.container.scrollTop;
     const parentScroll = this.container.parentElement?.scrollTop;
-    this.container.innerHTML = renderCostsContent({ summary: this.summary, days: this.days, loading: Boolean(this.read), error: this.error, savingRunId: null, savingRunIds: new Set(this.saves.keys()) }, runId => this.services.runHref(this.state.repo, runId));
+    this.container.innerHTML = `<style>${COSTS_STYLES}</style>${renderCostsContent({ summary: this.summary, days: this.days, loading: Boolean(this.read), error: this.error, savingRunId: null, savingRunIds: new Set(this.saves.keys()) }, runId => this.services.runHref(this.state.repo, runId), this.state.pirateMode)}`;
     for (const form of this.container.querySelectorAll<HTMLFormElement>('[data-outcome-assessment]')) {
       const id = form.dataset.outcomeAssessment;
       if (!id) continue;

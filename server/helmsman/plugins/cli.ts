@@ -3,9 +3,10 @@ import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { packPluginDirectory, readPluginArchiveFile } from './artifacts';
 import { validatePluginImports } from './imports';
-import { installPlugin, pluginDirectory, readPluginState, selectPluginPage, setPluginEnabled } from './store';
+import { configurePlugin, installPlugin, pluginDirectory, readPluginState, resetPluginSettings, selectPluginPage, setPluginEnabled } from './store';
+import { selectPricingProvider } from './data';
 
-const usage = 'Usage: plugins [--dir STORE] pack DIRECTORY ARCHIVE | install ARCHIVE | enable ID | disable ID | select SLOT ID|default | list';
+const usage = 'Usage: plugins [--dir STORE] pack DIRECTORY ARCHIVE | install ARCHIVE | enable ID | disable ID | select SLOT ID|default | configure ID JSON | reset-settings ID [KEY] | select-pricing ID|default | list';
 
 export async function pluginCommand(args: string[]): Promise<string> {
   const rest = [...args];
@@ -15,6 +16,15 @@ export async function pluginCommand(args: string[]): Promise<string> {
     root = rest[1]; rest.splice(0, 2);
   }
   const [command, first, second] = rest;
+  if (command === 'configure' && first && second && rest.length === 3) return JSON.stringify(await configurePlugin(root, first, JSON.parse(second)), null, 2);
+  if (command === 'reset-settings' && first && (rest.length === 2 || rest.length === 3 && second)) {
+    resetPluginSettings(root, first, second);
+    return 'Plugin settings reset. Restart Helmsman to apply declared defaults.';
+  }
+  if (command === 'select-pricing' && first && rest.length === 2) {
+    selectPricingProvider(root, first === 'default' ? null : first);
+    return 'Pricing selection saved.';
+  }
   if (command === 'pack' && first && second && rest.length === 3) {
     const archive = await packPluginDirectory(first);
     await validatePluginImports(archive);

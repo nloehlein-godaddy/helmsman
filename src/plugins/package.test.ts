@@ -9,6 +9,31 @@ function descriptor() {
 }
 
 describe('plugin packages', () => {
+  const backend = () => ({ entry: 'backend.js', storageVersion: 1,
+    provides: [{ id: 'helmsman/pricing', version: 1, localId: 'rates' }],
+    settings: { rateAmount: { type: 'number', default: 1, minimum: 0, maximum: 5 } } });
+
+  it('accepts deeply frozen backend-only packages and explicitly trusted builtins', () => {
+    const input = descriptor();
+    const result = parsePluginPackage({ ...input, manifest: { ...input.manifest, pages: [] }, entries: {}, backend: backend() });
+    expect(result.manifest.pages).toEqual([]);
+    expect(Object.isFrozen(result.backend?.settings.rateAmount)).toBe(true);
+    expect(Object.isFrozen(result.backend?.provides[0])).toBe(true);
+    expect(() => parsePluginPackage({ ...input, manifest: { ...input.manifest, id: 'helmsman.pricing' } }, { allowBuiltin: true })).not.toThrow();
+  });
+
+  it.each([{ entry: '../host.js' }, { entry: 'backend.ts' }, { storageVersion: 2 },
+    { provides: [{ id: 'helmsman/pricing', version: 2, localId: 'rates' }] },
+    { provides: [{ id: 'helmsman/private', version: 1, localId: 'rates' }] },
+    { settings: { rate: { type: 'number', default: 8, minimum: 0, maximum: 5 } } },
+    { settings: { rate: { type: 'number', default: 1, minimum: 5, maximum: 0 } } },
+    { settings: { title: { type: 'string', default: 'long', maxLength: 2 } } },
+    { settings: { enabled: { type: 'boolean', default: 1 } } },
+    { settings: { rate: { type: 'number', default: 1, minimum: 0, maximum: 5, secret: true } } },
+    { settings: { '../escape': { type: 'boolean', default: true } } }, { extra: true },
+  ])('rejects invalid backend metadata %j', override => {
+    expect(() => parsePluginPackage({ ...descriptor(), backend: { ...backend(), ...override } })).toThrow();
+  });
   it('copies and deeply freezes the descriptor', () => {
     const input = descriptor();
     const result = parsePluginPackage(input);

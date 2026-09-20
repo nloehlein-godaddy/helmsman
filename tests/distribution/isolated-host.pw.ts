@@ -111,7 +111,21 @@ export default page;
     await cli('select', 'helmsman/costs-page', contribution);
     return JSON.parse(await cli('list')) as { plugins: { id: string; hash: string; enabled: boolean }[] };
   }
-  return { root, app, cwd, env, commandLog, cli, script, installSample, start, stop,
+  async function installAuthorPackage(relative: string) {
+    const author = join(root, `author-${relative.replaceAll('/', '-')}`);
+    await cp(join(app, relative), author, { recursive: true });
+    await cp(join(app, 'sdk'), join(author, 'node_modules/@helmsman/plugin-sdk'), { recursive: true });
+    const output = join(author, 'compiled');
+    await run(process.execPath, [join(sourceRoot, 'node_modules/typescript/bin/tsc'), '-p', author, '--outDir', output], author, { PATH: env.PATH });
+    await cp(join(author, 'plugin-package.json'), join(output, 'plugin-package.json'));
+    const descriptor = JSON.parse(await readFile(join(author, 'plugin-package.json'), 'utf8'));
+    const archive = join(author, 'plugin.hmp');
+    await cli('pack', output, archive);
+    await cli('install', archive);
+    await cli('enable', descriptor.manifest.id);
+    return descriptor;
+  }
+  return { root, app, cwd, env, commandLog, cli, script, installSample, installAuthorPackage, start, stop,
     output: () => allServerOutput,
     async close() { await stop(); await rm(root, { recursive: true, force: true }); },
   };
@@ -144,6 +158,91 @@ test('isolated production distribution installs an independently compiled SDK pa
     const disabledOrigin = await host.start();
     await page.goto(`${disabledOrigin}/outcomes`);
     await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
+    expect(errors).toEqual([]);
+    expect(host.output()).not.toContain('Source checkout is unavailable');
+  } finally { await host.close(); }
+});
+
+test('external Costs and pricing implementations swap independently while usage, settings and storage survive restart', async ({ page, request }) => {
+  const host = await fixture();
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  try {
+    await host.installAuthorPackage('examples/plugins/costs-summary');
+    const flat = await host.installAuthorPackage('examples/plugins/flat-pricing');
+    await host.installAuthorPackage('plugin-sources/costs');
+    await host.installAuthorPackage('plugin-sources/pricing');
+    await host.cli('configure', flat.manifest.id, JSON.stringify({ usdPerMillionTokens: 2 }));
+    await host.cli('select-pricing', 'example.flat-pricing/flat');
+    await host.cli('select', 'helmsman/costs-page', 'example.costs-summary/page');
+    const dbUrl = pathToFileURL(join(host.app, 'server/helmsman/db.js')).href;
+    const usageUrl = pathToFileURL(join(host.app, 'server/helmsman/usage-store.js')).href;
+    const from = new Date(Date.now() - 86_400_000).toISOString();
+    const to = new Date(Date.now() + 1000).toISOString();
+    await host.script('seed-costs.mjs', `import { openDb } from ${JSON.stringify(dbUrl)};
+import { openUsageStore } from ${JSON.stringify(usageUrl)};
+const db = openDb(process.env.HELMSMAN_DB); const usage = openUsageStore(process.env.HELMSMAN_DB);
+for (const [id, repo, amount] of [['priced_a','org/a',5],['priced_b','org/b',50]]) {
+  db.insertRun({id,ticketId:id,repo,adapter:'codex',status:'succeeded',attempt:1,prNumber:null,startedAt:${JSON.stringify(from)},endedAt:${JSON.stringify(from)},costUsd:amount,worktreePath:null});
+  usage.recordUsage({runId:id,attempt:1,eventId:'reported',provider:'codex',model:'gpt-6-astra',inputTokens:10,cachedInputTokens:0,outputTokens:0,totalTokens:10,costUsd:amount});
+  usage.recordUsage({runId:id,attempt:1,eventId:'unreported',provider:'codex',model:'gpt-6-astra',inputTokens:1000000,cachedInputTokens:0,outputTokens:0,totalTokens:1000000,costUsd:null});
+} usage.close(); db.close();`);
+    const query = new URLSearchParams({ version: '1', repo: 'org/a', from, to });
+    let origin = await host.start();
+    let measured = await (await request.get(`${origin}/api/usage/v1?${query}`)).json();
+    expect(measured).toMatchObject({ reported: { observedCostUsd: 5, knownCostUsd: null }, records: [{ runId: 'priced_a' }, { runId: 'priced_a' }] });
+    expect(await (await request.get(`${origin}/api/pricing/v1?${query}`)).json()).toMatchObject({ estimatedUnreportedCostUsd: 2 });
+    await page.goto(`${origin}/outcomes?repo=org/a`);
+    await expect(page.getByRole('heading', { name: 'Independent Costs' })).toBeVisible();
+    await expect(page.locator('[data-recorded-usage]')).toContainText('Reported spend: $5.0000 USD');
+    await expect(page.locator('[data-estimated-usage]')).toContainText('Unreported usage estimate: $2.0000 USD');
+    await page.reload();
+    await expect(page.locator('[data-estimated-usage]')).toContainText('$2.0000 USD');
+    await host.stop();
+    const dataUrl = pathToFileURL(join(host.app, 'server/helmsman/plugins/data.js')).href;
+    expect(await host.script('inspect-plugin-data.mjs', `import { openPluginData } from ${JSON.stringify(dataUrl)};
+const data=openPluginData(process.env.HELMSMAN_PLUGINS_DIR,${JSON.stringify(flat)}); console.log(data.read('last-rate')); data.close();`)).toBe('2\n');
+    origin = await host.start();
+    expect(await (await request.get(`${origin}/api/pricing/v1?${query}`)).json()).toMatchObject({ estimatedUnreportedCostUsd: 2 });
+    await host.stop();
+    await host.cli('disable', 'example.costs-summary');
+    await host.cli('disable', 'example.flat-pricing');
+    origin = await host.start();
+    await page.goto(`${origin}/outcomes?repo=org/a`);
+    await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
+    expect(await (await request.get(`${origin}/api/usage/v1?${query}`)).json()).toEqual(measured);
+    expect((await request.get(`${origin}/api/pricing/v1?${query}`)).status()).toBe(503);
+    const telemetryUrl = pathToFileURL(join(host.app, 'server/helmsman/run-telemetry.js')).href;
+    expect(await host.script('record-with-plugins-disabled.mjs', `import { openDb } from ${JSON.stringify(dbUrl)};
+import { openUsageStore } from ${JSON.stringify(usageUrl)}; import { openRunTelemetry } from ${JSON.stringify(telemetryUrl)};
+const db=openDb(process.env.HELMSMAN_DB), usage=openUsageStore(process.env.HELMSMAN_DB);
+const telemetry=openRunTelemetry(process.env.HELMSMAN_DB,usage); const run=db.getRun('priced_a');
+const cost=telemetry.record(run,{ticketId:'priced_a',title:'Measured event',repo:'org/a',jiraBaseUrl:''},
+  {kind:'usage',costUsd:3,usage:{inputTokens:10,cachedInputTokens:0,outputTokens:0,totalTokens:10}},100);
+db.updateRun(run.id,{costUsd:cost}); console.log(db.getRun(run.id).costUsd);
+telemetry.close(); usage.close(); db.close();`)).toBe('8\n');
+    measured = await (await request.get(`${origin}/api/usage/v1?${query}`)).json();
+    expect(measured).toMatchObject({ reported: { observedCostUsd: 8, knownCostUsd: null } });
+    expect(measured.records).toHaveLength(3);
+    await host.stop();
+    await host.cli('select', 'helmsman/costs-page', 'example.full-costs/page');
+    await host.cli('disable', 'example.flat-pricing');
+    origin = await host.start();
+    expect((await request.get(`${origin}/api/pricing/v1?${query}`)).status()).toBe(503);
+    await page.goto(`${origin}/outcomes?repo=org/a`);
+    await expect(page.getByRole('heading', { name: 'Costs & Outcomes' })).toBeVisible();
+    await expect(page.locator('.outcome-stats').first()).toContainText('$8.00');
+    await expect(page.locator('section.outcomes-view')).toContainText('Pricing provider unavailable');
+    expect(await (await request.get(`${origin}/api/usage/v1?${query}`)).json()).toEqual(measured);
+    await host.stop();
+    await host.cli('select-pricing', 'example.standard-pricing/standard');
+    await host.cli('select', 'helmsman/costs-page', 'helmsman.costs/page');
+    origin = await host.start();
+    expect(await (await request.get(`${origin}/api/pricing/v1?${query}`)).json()).toMatchObject({ estimatedUnreportedCostUsd: 10 });
+    await page.goto(`${origin}/outcomes?repo=org/a`);
+    await expect(page.getByRole('heading', { name: 'Costs & Outcomes' })).toBeVisible();
+    await expect(page.locator('section.outcomes-view')).toContainText('$10.00 estimated');
+    expect(await (await request.get(`${origin}/api/usage/v1?${query}`)).json()).toEqual(measured);
     expect(errors).toEqual([]);
     expect(host.output()).not.toContain('Source checkout is unavailable');
   } finally { await host.close(); }

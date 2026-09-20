@@ -143,6 +143,35 @@ async function copyDependencies(staging, dependencies) {
   for (const name of Object.keys(dependencies).sort()) await copyPackage(name, root, join(staging, 'node_modules'));
 }
 
+async function buildSdk(destination, version) {
+  const sourceRoot = join(root, 'src', 'plugins');
+  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts']);
+  const queued = new Set([join(sourceRoot, 'sdk.ts')]);
+  await mkdir(destination);
+  for (const source of queued) {
+    const local = relative(sourceRoot, source);
+    if (!publicModules.has(local)) throw new Error(`Public SDK imports a private module: ${local}`);
+    const contents = await readFile(source, 'utf8');
+    const compilerOptions = { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext, verbatimModuleSyntax: true };
+    const declarations = ts.transpileDeclaration(contents, { fileName: source, compilerOptions, reportDiagnostics: true });
+    const runtime = ts.transpileModule(contents, { fileName: source, compilerOptions, reportDiagnostics: true,
+      transformers: { after: [transformImports(source, queued)] } });
+    if ([...declarations.diagnostics ?? [], ...runtime.diagnostics ?? []].some(item => item.category === ts.DiagnosticCategory.Error)) {
+      throw new Error(`Plugin SDK compilation failed: ${local}`);
+    }
+    const ast = ts.createSourceFile(source, declarations.outputText, ts.ScriptTarget.Latest, true);
+    const transformed = ts.transform(ast, [transformImports(source, queued)]);
+    try {
+      await writeFile(join(destination, local.replace(/\.ts$/, '.d.ts')), ts.createPrinter().printFile(transformed.transformed[0]));
+      await writeFile(join(destination, local.replace(/\.ts$/, '.js')), runtime.outputText);
+    } finally { transformed.dispose(); }
+  }
+  await writeFile(join(destination, 'index.d.ts'), "export * from './sdk.js';\n");
+  await writeFile(join(destination, 'index.js'), "export * from './sdk.js';\n");
+  await writeFile(join(destination, 'package.json'), `${JSON.stringify({ name: '@helmsman/plugin-sdk', version,
+    type: 'module', types: './index.d.ts', main: './index.js', exports: { '.': { types: './index.d.ts', import: './index.js' } } }, null, 2)}\n`);
+}
+
 export async function buildDistribution(options = {}) {
   const destination = resolve(options.outDir ?? join(root, 'release'));
   const pathFromDestination = relative(destination, root);
@@ -187,6 +216,9 @@ export async function buildDistribution(options = {}) {
     }
     await cp(join(root, 'dist'), join(staging, 'dist'), { recursive: true });
     await cp(join(root, 'examples'), join(staging, 'examples'), { recursive: true });
+    for (const name of ['costs', 'pricing']) await cp(join(root, 'src', 'plugins', name), join(staging, 'plugin-sources', name), {
+      recursive: true, filter: path => !/\.test\.ts$/.test(path) && !relative(join(root, 'src', 'plugins', name), path).split(sep).some(part => ['node_modules', 'dist'].includes(part)),
+    });
     await cp(join(root, 'docker'), join(staging, 'docker'), { recursive: true });
     await copyDependencies(staging, packageJson.dependencies ?? {});
     const runtimePackage = { name: packageJson.name, version: packageJson.version, private: true, type: 'module',
@@ -194,17 +226,7 @@ export async function buildDistribution(options = {}) {
       scripts: { start: 'node server/helmsman/main.js', plugins: 'node server/helmsman/plugins/cli.js' },
       dependencies: packageJson.dependencies };
     await writeFile(join(staging, 'package.json'), `${JSON.stringify(runtimePackage, null, 2)}\n`);
-    const sdk = join(staging, 'sdk');
-    await mkdir(sdk);
-    const declarations = ts.transpileDeclaration(await readFile(join(root, 'src', 'plugins', 'sdk.ts'), 'utf8'), {
-      fileName: 'index.ts', compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext },
-      reportDiagnostics: true,
-    });
-    if (declarations.diagnostics?.some(item => item.category === ts.DiagnosticCategory.Error)) throw new Error('Plugin SDK declaration generation failed.');
-    await writeFile(join(sdk, 'index.d.ts'), declarations.outputText);
-    await writeFile(join(sdk, 'index.js'), 'export {};\n');
-    await writeFile(join(sdk, 'package.json'), `${JSON.stringify({ name: '@helmsman/plugin-sdk', version: packageJson.version,
-      type: 'module', types: './index.d.ts', main: './index.js', exports: { '.': { types: './index.d.ts', import: './index.js' } } }, null, 2)}\n`);
+    await buildSdk(join(staging, 'sdk'), packageJson.version);
     await writeFile(join(staging, marker), `${JSON.stringify({ version: 2, applicationVersion: packageJson.version,
       platform: process.platform, arch: process.arch, nodeMajor, nodeAbi: process.versions.modules,
       inventory: await inventory(staging) }, null, 2)}\n`);

@@ -59,7 +59,7 @@ export function parsePluginArchive(bytes: Uint8Array | string): PluginArchive {
     if (size > MAX_DECODED) throw new PluginArtifactError('Plugin archive exceeds the decoded size limit.');
     files.set(file.path, content);
   }
-  for (const entry of Object.values(descriptor.entries)) {
+  for (const entry of [...Object.values(descriptor.entries), ...(descriptor.backend ? [descriptor.backend.entry] : [])]) {
     if (!files.has(entry)) throw new PluginArtifactError(`Missing page entry: ${entry}`);
   }
   const sorted = [...files.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);

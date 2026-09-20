@@ -1,4 +1,5 @@
 import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from './sdk';
+import { createHostPageServices } from './host-services';
 
 interface PageSession {
   id: string;
@@ -66,6 +67,7 @@ export class PluginPageHost {
     const context: PluginPageContext = Object.freeze({
       state: session.state,
       signal: session.controller.signal,
+      services: createHostPageServices(session.controller.signal),
       navigate: (href: string) => { if (this.active(session)) this.options.navigate(href); },
       onDispose: (cleanup: () => void) => {
         if (typeof cleanup !== 'function') throw new TypeError('Page cleanup must be a function.');
