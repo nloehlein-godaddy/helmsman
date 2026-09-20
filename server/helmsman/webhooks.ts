@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export interface WebhookRoute { repo: string; event: string; action: string; workflowRef: 'coding@1' | 'review@1' }
@@ -23,7 +24,7 @@ export function parseWebhookRoutes(value: string | undefined): WebhookRoute[] {
     return route as unknown as WebhookRoute;
   });
 }
-export function openWebhookIntake(path: string, deps: {
+export function openWebhookIntake(path: string | Database.Database, deps: {
   secret(): string | undefined;
   routes(): WebhookRoute[];
   allowedRepos(): string[];
@@ -33,12 +34,13 @@ export function openWebhookIntake(path: string, deps: {
   launch(input: WebhookLaunch): string;
   now?: () => number;
 }) {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec(`CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  const connection = storeConnection(path);
+  const { sql } = connection;
+  connection.migrate({ owner: 'compat.webhooks', ddl: `CREATE TABLE IF NOT EXISTS webhook_deliveries (
     delivery TEXT PRIMARY KEY, digest TEXT NOT NULL, runId TEXT NOT NULL UNIQUE,
     payload TEXT NOT NULL, state TEXT NOT NULL, claimedAt INTEGER, error TEXT
-  )`);
+  )` });
+
   const now = deps.now ?? Date.now;
   let polling: Promise<void> | null = null;
   async function scan(): Promise<void> {
@@ -97,6 +99,6 @@ export function openWebhookIntake(path: string, deps: {
     },
     poll(): Promise<void> { polling ??= scan().finally(() => { polling = null; }); return polling; },
     status() { return sql.prepare('SELECT delivery, runId, state, error FROM webhook_deliveries ORDER BY rowid DESC LIMIT 100').all(); },
-    close() { sql.close(); },
+    close() { connection.close(); },
   };
 }

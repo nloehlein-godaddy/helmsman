@@ -94,6 +94,8 @@ export interface RouterDeps {
     prNumber: number,
     event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT',
     body: string,
+    requestId?: string,
+    expectedHeadSha?: string,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
   cmuxListTabs: () => Promise<{ connected: boolean; tabs: CmuxTab[] }>;
   cmuxReadScreen: (surface: string, lines: number) => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
@@ -430,14 +432,16 @@ export async function handleApi(
     return files ? { status: 200, json: { files } } : { status: 404, json: { error: 'PR diff not found or GitHub not configured' } };
   }
   if (path === '/api/pr/review' && method === 'POST') {
-    const b: { repo?: string; number?: number; event?: string; body?: string } | null = _body as
-      | { repo?: string; number?: number; event?: string; body?: string }
+    const b: { repo?: string; number?: number; event?: string; body?: string; requestId?: string; expectedHeadSha?: string } | null = _body as
+      | { repo?: string; number?: number; event?: string; body?: string; requestId?: string; expectedHeadSha?: string }
       | null;
     const EVENTS: string[] = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'];
     if (
       typeof b?.repo !== 'string' ||
       typeof b?.number !== 'number' ||
-      !Number.isFinite(b.number) ||
+      !Number.isSafeInteger(b.number) || b.number < 1 ||
+      b.requestId !== undefined && (typeof b.requestId !== 'string' || !/^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i.test(b.requestId)) ||
+      b.expectedHeadSha !== undefined && (typeof b.expectedHeadSha !== 'string' || !/^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(b.expectedHeadSha)) ||
       typeof b?.event !== 'string' ||
       !EVENTS.includes(b.event)
     ) {
@@ -451,6 +455,7 @@ export async function handleApi(
       b.number,
       b.event as 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT',
       b.body ?? '',
+      ...(b.expectedHeadSha ? [b.requestId, b.expectedHeadSha] : b.requestId ? [b.requestId] : []),
     );
     return r.ok ? { status: 200, json: { ok: true } } : { status: 400, json: { error: r.error } };
   }

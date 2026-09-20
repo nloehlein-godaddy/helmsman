@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 import { randomUUID } from 'node:crypto';
 import type { Clarification, ClarificationOwner, ClarificationState, TrustedContact } from '../../src/data/clarifications';
 import { selectTrustedContact } from './contact-policy';
@@ -126,13 +127,13 @@ export interface ClarificationStore {
 }
 
 export function openClarificationStore(
-  path: string,
+  path: string | Database.Database,
   deps: { getRun(runId: string): RunReference | null },
   now: () => string = () => new Date().toISOString(),
 ): ClarificationStore {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec(`
+  const connection = storeConnection(path);
+  const { sql } = connection;
+  connection.migrate({ owner: 'compat.clarifications', ddl: `
     CREATE TABLE IF NOT EXISTS clarifications (
       id TEXT PRIMARY KEY, runId TEXT NOT NULL, repo TEXT NOT NULL, question TEXT NOT NULL,
       required INTEGER NOT NULL, owner TEXT NOT NULL, contactId TEXT, state TEXT NOT NULL,
@@ -142,7 +143,8 @@ export function openClarificationStore(
       id TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT NOT NULL,
       enabled INTEGER NOT NULL, createdAt TEXT NOT NULL
     );
-  `);
+  ` });
+
 
   const readQuestion = sql.prepare('SELECT * FROM clarifications WHERE id = ?');
   const getQuestion = (id: string): Clarification | null => {
@@ -291,6 +293,6 @@ export function openClarificationStore(
       const row = sql.prepare('SELECT * FROM trusted_contacts WHERE id = ?').get(id) as TrustedContactRow;
       return toTrustedContact(row);
     },
-    close() { sql.close(); },
+    close() { connection.close(); },
   };
 }

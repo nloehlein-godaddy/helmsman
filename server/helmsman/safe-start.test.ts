@@ -103,8 +103,9 @@ describe('safe start recovery server', () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ mode: 'safe-start', readOnly: true, totalRuns: 2, truncated: false, errors: [],
       plugins: [{ id: 'example.broken', hash, enabled: true }] });
-    expect(body.runs[0]).toMatchObject({ id: 'active-run', status: 'running', attachment: 'blocked', logOffset: 99,
-      specPath: join(root, 'spec.json'), worktreePath: join(root, 'worktree') });
+    expect(body.runs[0]).toMatchObject({ id: 'active-run', status: 'running', attachment: 'blocked', logOffset: 99 });
+    expect(body.runs[0]).not.toHaveProperty('specPath');
+    expect(body.runs[0]).not.toHaveProperty('worktreePath');
     expect(body.runs[1]).toMatchObject({ id: 'stopped-run', status: 'stopped', attachment: 'inactive' });
     expect(text).not.toContain('do-not-return');
     expect(text).not.toContain('hostRef');
@@ -181,7 +182,7 @@ describe('safe start recovery server', () => {
     const before = await digest(dbPath);
     await start();
     const result = await (await fetch(`${base}/api/recovery`)).json();
-    expect(result.runs[0]).toMatchObject({ id: 'legacy', attachment: 'blocked', logOffset: null, specPath: null });
+    expect(result.runs[0]).toMatchObject({ id: 'legacy', attachment: 'blocked', logOffset: null });
     expect(await digest(dbPath)).toBe(before);
   });
 

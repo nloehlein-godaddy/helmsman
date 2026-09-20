@@ -5,9 +5,11 @@ import { codexAdapter } from './codex';
 import { commandAdapter } from './command';
 import { dockerReviewAdapter } from './docker-review';
 import { isPrePrAdapter, prePrAdapter } from './pre-pr';
+import type { PrePrSettings } from '../../../src/logic/prePrSettings';
+import type { PrePrPublicationConnection } from '../publication-client';
 
-export function restoreRunAdapter(row: Pick<RunRow, 'adapter' | 'taskJson'>, options: { runsDir: string; agentCmd?: string | null }): AgentAdapter {
-  if (isPrePrAdapter(row.adapter)) return prePrAdapter(row.adapter === 'pre-pr:claude-code' ? claudeCodeAdapter : codexAdapter, options.runsDir);
+export function restoreRunAdapter(row: Pick<RunRow, 'adapter' | 'taskJson'>, options: { runsDir: string; agentCmd?: string | null; publication?: PrePrPublicationConnection; reviewSettings?: PrePrSettings }): AgentAdapter {
+  if (isPrePrAdapter(row.adapter)) return prePrAdapter(row.adapter === 'pre-pr:claude-code' ? claudeCodeAdapter : codexAdapter, options.runsDir, options.reviewSettings, options.publication);
   if (row.adapter === 'command') return commandAdapter(options.agentCmd ?? '');
   const provider = row.adapter === 'claude-code' ? claudeCodeAdapter : codexAdapter;
   let value: unknown;

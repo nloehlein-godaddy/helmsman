@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db, type RunRow } from './db';
 import { recoverRuns } from './recovery';
 
@@ -25,9 +25,9 @@ describe('recoverRuns', () => {
 
     const seen: string[] = [];
     const res = await recoverRuns(db, {
-      reattach: (row) => {
+      reattach: async (row) => {
         seen.push(row.id);
-        return new Promise<void>(() => {});
+        return { status: 'attached', completion: new Promise<void>(() => {}) };
       },
     });
 
@@ -54,12 +54,14 @@ describe('recoverRuns', () => {
       reattach: async (row) => {
         seen.push(row.id);
         if (row.id === 'a') throw new Error('boom');
+        return { status: 'attached', completion: Promise.resolve() };
       },
     });
 
     expect(seen).toEqual(['a', 'b']);
-    expect(res.reattached).toEqual(['a', 'b']);
-    expect(res.failed).toEqual([]);
+    expect(res.reattached).toEqual(['b']);
+    expect(res.failed).toEqual(['a']);
+    expect(db.getRun('a')?.status).toBe('running');
   });
 
   it('keeps dispatching remaining rows when one reattach throws synchronously', async () => {
@@ -72,18 +74,56 @@ describe('recoverRuns', () => {
       reattach: (row) => {
         seen.push(row.id);
         if (row.id === 'a') throw new Error('boom');
-        return Promise.resolve();
+        return Promise.resolve({ status: 'attached', completion: Promise.resolve() });
       },
     });
 
     expect(seen).toEqual(['a', 'b']);
     expect(res.reattached).toEqual(['b']);
-    expect(res.failed).toEqual([]);
+    expect(res.failed).toEqual(['a']);
   });
 
   it('returns empty results when there are no reattachable runs', async () => {
     db = openDb(':memory:');
     const res = await recoverRuns(db, { reattach: async () => {} });
-    expect(res).toEqual({ reattached: [], failed: [] });
+    expect(res).toEqual({ reattached: [], failed: [], blocked: [] });
+  });
+
+  it('waits for an explicit handshake while preserving the process through blocked attachment', async () => {
+    db = openDb(':memory:'); db.insertRun(run());
+    const recordAttachment = vi.fn();
+    const result = await recoverRuns(db, { reattach: async () => ({ status: 'blocked', reason: 'Pinned host unavailable' }), recordAttachment });
+    expect(result).toEqual({ reattached: [], failed: [], blocked: ['r1'] });
+    expect(recordAttachment.mock.calls.map(call => call[1])).toEqual(['pending', 'blocked']);
+    expect(db.getRun('r1')).toMatchObject({ status: 'running', hostRef: 'host-1', worktreePath: '/tmp/w' });
+  });
+
+  it('bounds missing handshakes and never reports legacy completion as attachment', async () => {
+    db = openDb(':memory:'); db.insertRun(run());
+    expect(await recoverRuns(db, { reattach: async () => {}, handshakeTimeoutMs: 10 })).toMatchObject({ blocked: ['r1'], reattached: [] });
+    expect(await recoverRuns(db, { reattach: () => new Promise(() => {}), handshakeTimeoutMs: 10 })).toMatchObject({ blocked: ['r1'], reattached: [] });
+    expect(db.getRun('r1')?.status).toBe('running');
+  });
+
+  it('deduplicates concurrent recovery and observes completion errors separately', async () => {
+    db = openDb(':memory:'); db.insertRun(run());
+    let reject!: (error: Error) => void;
+    const completion = new Promise<void>((_, fail) => { reject = fail; });
+    const completionFailed = vi.fn();
+    const reattach = vi.fn(async () => ({ status: 'attached' as const, completion }));
+    const results = await Promise.all([recoverRuns(db, { reattach, completionFailed }), recoverRuns(db, { reattach, completionFailed })]);
+    expect(reattach).toHaveBeenCalledOnce();
+    expect(results.map(result => result.reattached)).toEqual([['r1'], ['r1']]);
+    reject(new Error('monitor unavailable'));
+    await vi.waitFor(() => expect(completionFailed).toHaveBeenCalledOnce());
+    expect(db.getRun('r1')?.status).toBe('running');
+  });
+
+  it('includes prepared admissions provided by durable recovery inventory', async () => {
+    db = openDb(':memory:');
+    const prepared = run({ hostRef: null, logPath: null, exitPath: null });
+    db.insertRun(prepared);
+    const result = await recoverRuns(db, { rows: () => [prepared], reattach: async () => ({ status: 'blocked', reason: 'Launch ownership unknown' }) });
+    expect(result.blocked).toEqual(['r1']);
   });
 });

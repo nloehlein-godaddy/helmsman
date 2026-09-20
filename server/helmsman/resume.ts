@@ -9,8 +9,10 @@ import type { AgentTask } from './agents/adapter';
 import { codexAdapter } from './agents/codex';
 import { claudeCodeAdapter } from './agents/claude-code';
 import { isPrePrAdapter, prePrAdapter } from './agents/pre-pr';
+import type { PrePrPublicationConnection } from './publication-client';
 import type { Db, RunRow } from './db';
-import type { HostRef, RunHost } from './run-host';
+import { readExitEvidence, type HostRef, type LaunchSpec, type RunHost } from './run-host';
+import type { DurableRunnerCoordinator } from './runner';
 import { parsePrMetadata, readPrePrReport } from './pre-pr-runtime';
 import { parsePrePrReview, PrePrSummaryTooLongError } from './pre-pr-workflow';
 import { createRunArtifactStore } from './artifacts';
@@ -49,20 +51,26 @@ export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
   }
   if (task.todoId) throw new ResumeError('Local todo voyages must use Retry from Todos.');
   const root = resolve(runsDir);
-  const logPath = join(root, `${row.id}.log`);
-  const exitPath = join(root, `${row.id}.exit`);
-  const specPath = join(root, `${row.id}.json`);
+  const base = row.specPath === join(root, `${row.id}.attempt-${row.attempt}.json`) ? `${row.id}.attempt-${row.attempt}` : row.id;
+  const logPath = join(root, `${base}.log`);
+  const exitPath = join(root, `${base}.exit`);
+  const specPath = join(root, `${base}.json`);
   if (row.logPath !== logPath || row.exitPath !== exitPath || row.specPath !== specPath) {
     throw new ResumeError('The saved voyage files do not match the configured runs directory.');
   }
   for (const path of [logPath, exitPath, specPath]) {
     if (!(await lstat(path)).isFile()) throw new ResumeError('Voyage log, exit marker, and launch specification must be regular files.');
   }
-  const exit = (await readFile(exitPath, 'utf8')).trim();
-  if (!/^[1-9]\d*$/.test(exit)) throw new ResumeError('The previous worker has not recorded a failed exit.');
+  const spec = record(await readPrePrReport(specPath));
+  if (spec?.launchId) {
+    const evidence = await readExitEvidence({ ...spec, runId: row.id, attempt: row.attempt, specPath, exitPath } as unknown as LaunchSpec);
+    if (!evidence || evidence.exitCode === 0) throw new ResumeError('The previous worker has no verified failed exit for this attempt.');
+  } else {
+    const exit = (await readFile(exitPath, 'utf8')).trim();
+    if (!/^[1-9]\d*$/.test(exit)) throw new ResumeError('The previous worker has not recorded a failed exit.');
+  }
   const logSize = (await lstat(logPath)).size;
   if (row.logOffset !== logSize) throw new ResumeError('The original log must be fully processed before continuing.');
-  const spec = record(await readPrePrReport(specPath));
   const args = spec?.args;
   const original = Array.isArray(args) && typeof args.at(-1) === 'string' ? record(JSON.parse(args.at(-1))) : null;
   const writerId = row.adapter === 'pre-pr:codex' ? 'codex' : 'claude-code';
@@ -116,7 +124,7 @@ export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
   return { task: resumedTask, settings, writerId, cwd: row.worktreePath, logPath, exitPath, specPath, logSize };
 }
 
-export async function resumeFailedPrePrRun(row: RunRow, deps: { db: Db; host: RunHost; runsDir: string; now(): string; isStopped?(): boolean; prepareTask?(task: AgentTask): Promise<AgentTask> }): Promise<RunRow> {
+export async function resumeFailedPrePrRun(row: RunRow, deps: { publication?: PrePrPublicationConnection; durable?: DurableRunnerCoordinator; db: Db; host: RunHost; runsDir: string; now(): string; isStopped?(): boolean; prepareTask?(task: AgentTask): Promise<AgentTask> }): Promise<RunRow> {
   let checkpoint: Awaited<ReturnType<typeof inspectPrePrContinuation>>;
   try { checkpoint = await inspectPrePrContinuation(row, deps.runsDir); }
   catch (error) {
@@ -130,14 +138,42 @@ export async function resumeFailedPrePrRun(row: RunRow, deps: { db: Db; host: Ru
     || priorRef.kind === 'cmux' && typeof priorRef.workspace !== 'string') {
     throw new ResumeError('The saved worker host does not match the configured host.');
   }
-  if (await deps.host.isAlive(priorRef as unknown as HostRef)) throw new ResumeError('The previous worker host is still active. Stop it before continuing.');
+  if (!deps.durable && await deps.host.isAlive(priorRef as unknown as HostRef)) throw new ResumeError('The previous worker host is still active. Stop it before continuing.');
   const current = deps.db.getRun(row.id);
   if (!current || current.status !== 'failed' || current.attempt !== row.attempt || current.taskJson !== row.taskJson) {
     throw new ResumeError('The voyage changed while its checkpoint was being verified.');
   }
+  if (deps.durable) {
+    const retained = await deps.durable.recover(row);
+    retained.close();
+  }
   if (deps.prepareTask) checkpoint.task = await deps.prepareTask(checkpoint.task);
-  const adapter = prePrAdapter(checkpoint.writerId === 'codex' ? codexAdapter : claudeCodeAdapter, resolve(deps.runsDir), checkpoint.settings);
+  const adapter = prePrAdapter(checkpoint.writerId === 'codex' ? codexAdapter : claudeCodeAdapter, resolve(deps.runsDir), checkpoint.settings, deps.publication);
   const command = adapter.buildCommand(checkpoint.task);
+  if (deps.durable) {
+    const next = { ...row, status: 'running' as const, attempt: row.attempt + 1, endedAt: null,
+      taskJson: JSON.stringify(checkpoint.task), hostKind: null, hostRef: null, logOffset: 0 };
+    const attempt = await deps.durable.prepare(next, checkpoint.task);
+    let leaseError: unknown;
+    const heartbeat = setInterval(() => { try { attempt.renew(); } catch (error) { leaseError = error; } }, 10_000);
+    heartbeat.unref();
+    try {
+      attempt.ready(checkpoint.cwd);
+      if (deps.isStopped?.()) throw new ResumeError('Continuation was cancelled before launch.');
+      attempt.launching();
+      const ref = await deps.host.launch({ runId: row.id, ...command, cwd: checkpoint.cwd, ...attempt.paths,
+        launchId: attempt.launchId, attempt: attempt.attempt });
+      if (leaseError) throw leaseError;
+      attempt.launched(ref, { launchId: attempt.launchId, attempt: attempt.attempt, ref });
+      deps.db.appendEvent(row.id, 'phase', `Continuing preserved revision ${checkpoint.task.prePrResume?.headSha} from review round ${checkpoint.task.prePrResume?.round}; original implementation and history retained.`, deps.now());
+      const resumed = deps.db.getRun(row.id);
+      if (!resumed) throw new ResumeError('The resumed voyage could not be read.');
+      return resumed;
+    } catch (error) {
+      try { attempt.attachment('blocked', error instanceof Error ? error.message : 'Continuation launch needs reconciliation'); } catch {}
+      throw new ResumeError('Continuation ownership needs reconciliation; its files and reservation are retained.');
+    } finally { clearInterval(heartbeat); try { attempt.close(); } catch {} }
+  }
   const archive = join(resolve(deps.runsDir), `${row.id}.attempt-${row.attempt}-${randomUUID()}`);
   await mkdir(archive, { mode: 0o700 });
   await copyFile(checkpoint.specPath, join(archive, 'spec.json'), constants.COPYFILE_EXCL);

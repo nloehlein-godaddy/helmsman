@@ -8,6 +8,7 @@ import { openDb, type Db, type RunRow } from './db';
 import { inspectPrePrContinuation, resumeFailedPrePrRun } from './resume';
 import type { LaunchSpec, RunHost } from './run-host';
 import { createRunArtifactStore } from './artifacts';
+import type { DurableRunnerAttempt, DurableRunnerCoordinator } from './runner';
 
 const fixtures: { root: string; db: Db }[] = [];
 afterEach(() => { for (const { root, db } of fixtures.splice(0)) { db.close(); rmSync(root, { recursive: true, force: true }); } });
@@ -122,5 +123,71 @@ describe('same-voyage pre-PR continuation', () => {
     await createRunArtifactStore(join(f.deps.runsDir, '.artifacts')).write({ runId: f.row.id, stage: 'review', round: 2, reviewer: 'codex' }, readFileSync(reportPath));
     writeFileSync(reportPath, '{"tampered":true}');
     await expect(inspectPrePrContinuation(f.row, f.deps.runsDir)).rejects.toThrow('changed after');
+  });
+});
+
+function durableFixture() {
+  const f = fixture();
+  const paths = { logPath: join(f.deps.runsDir, `${f.row.id}.attempt-2.log`), exitPath: join(f.deps.runsDir, `${f.row.id}.attempt-2.exit`),
+    specPath: join(f.deps.runsDir, `${f.row.id}.attempt-2.json`), receiptPath: join(f.deps.runsDir, `${f.row.id}.attempt-2.receipt`) };
+  const attempt: DurableRunnerAttempt = {
+    launchId: 'continued-launch-2', attempt: 2, paths, preparation: 'prepared', hostRef: null,
+    ready: vi.fn(), launching: vi.fn(), launched: vi.fn(ref => f.db.updateRun(f.row.id, { hostKind: ref.kind, hostRef: JSON.stringify(ref) })),
+    attachment: vi.fn(), terminal: vi.fn(), finalize: vi.fn(), renew: vi.fn(), close: vi.fn(),
+  };
+  const retained = { ...attempt, attempt: 1, close: vi.fn() };
+  const durable: DurableRunnerCoordinator = {
+    recover: vi.fn(async () => retained),
+    prepare: vi.fn(async row => { f.db.updateRun(row.id, { ...row, ...paths }); return attempt; }),
+    cleanupEligibility: () => ({ allowed: false, reasons: ['retained checkpoint'] }),
+  };
+  const original = { spec: readFileSync(f.row.specPath!, 'utf8'), exit: readFileSync(f.row.exitPath!, 'utf8'), log: readFileSync(f.row.logPath!, 'utf8') };
+  return { ...f, original, attempt, retained, durable, deps: { ...f.deps, durable } };
+}
+
+describe('durable continuation faults', () => {
+  it('validates retained bindings before preparation or file mutation', async () => {
+    const f = durableFixture();
+    vi.mocked(f.durable.recover).mockRejectedValue(new Error('retained runtime unavailable'));
+    await expect(resumeFailedPrePrRun(f.row, f.deps)).rejects.toThrow('retained runtime unavailable');
+    expect(f.durable.prepare).not.toHaveBeenCalled();
+    expect(f.deps.host.launch).not.toHaveBeenCalled();
+    expect(readFileSync(f.row.specPath!, 'utf8')).toBe(f.original.spec);
+    expect(readFileSync(f.row.exitPath!, 'utf8')).toBe(f.original.exit);
+    expect(f.db.getRun(f.row.id)?.attempt).toBe(1);
+  });
+
+  it('preserves new launch files, old checkpoint files, and prepared ownership after an ambiguous launch', async () => {
+    const f = durableFixture();
+    vi.mocked(f.deps.host.launch).mockImplementation(async spec => { writeFileSync(spec.specPath, JSON.stringify(spec)); throw new Error('remote worker started but response lost'); });
+    await expect(resumeFailedPrePrRun(f.row, f.deps)).rejects.toThrow('ownership needs reconciliation');
+    expect(f.db.getRun(f.row.id)).toMatchObject({ status: 'running', attempt: 2, endedAt: null });
+    expect(JSON.parse(readFileSync(f.attempt.paths.specPath, 'utf8'))).toMatchObject({ launchId: f.attempt.launchId, attempt: 2 });
+    expect(readFileSync(f.row.specPath!, 'utf8')).toBe(f.original.spec);
+    expect(readFileSync(f.row.exitPath!, 'utf8')).toBe(f.original.exit);
+    expect(readFileSync(f.row.logPath!, 'utf8')).toBe(f.original.log);
+    expect(f.deps.host.stop).not.toHaveBeenCalled();
+    expect(f.attempt.attachment).toHaveBeenCalledWith('blocked', 'remote worker started but response lost');
+    expect(f.attempt.close).toHaveBeenCalledOnce();
+  });
+
+  it('continues after verified prior exit without treating inaccessible boolean liveness as absence', async () => {
+    const f = durableFixture();
+    vi.mocked(f.deps.host.isAlive).mockRejectedValue(new Error('dead PID cannot be verified'));
+    const resumed = await resumeFailedPrePrRun(f.row, f.deps);
+    expect(resumed.attempt).toBe(2);
+    expect(f.deps.host.isAlive).not.toHaveBeenCalled();
+    expect(f.durable.recover).toHaveBeenCalledWith(f.row);
+  });
+
+  it('does not let stale-lease diagnostics mask uncertain remote ownership', async () => {
+    const f = durableFixture();
+    vi.mocked(f.attempt.launched).mockImplementation(() => { throw new Error('lease expired after launch'); });
+    vi.mocked(f.attempt.attachment).mockImplementation(() => { throw new Error('stale lease'); });
+    vi.mocked(f.attempt.close).mockImplementation(() => { throw new Error('stale lease'); });
+    await expect(resumeFailedPrePrRun(f.row, f.deps)).rejects.toThrow('ownership needs reconciliation');
+    expect(f.db.getRun(f.row.id)).toMatchObject({ status: 'running', attempt: 2 });
+    expect(f.deps.host.stop).not.toHaveBeenCalled();
+    expect(readFileSync(f.row.exitPath!, 'utf8')).toBe(f.original.exit);
   });
 });

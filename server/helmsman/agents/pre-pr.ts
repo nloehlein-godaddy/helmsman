@@ -1,6 +1,7 @@
 import { runtimeNodeArguments } from '../runtime-paths';
 import { normalizePrePrSettings, type PrePrSettings } from '../../../src/logic/prePrSettings';
 import type { AgentAdapter, AgentEvent, AgentEventKind } from './adapter';
+import type { PrePrPublicationConnection } from '../publication-client';
 
 const KINDS = new Set<AgentEventKind>(['phase', 'tool', 'log', 'result', 'usage', 'error', 'review-verdict', 'run-complete']);
 const PREFIX = 'pre-pr:';
@@ -9,7 +10,7 @@ export function isPrePrAdapter(id: string): boolean {
   return id === `${PREFIX}codex` || id === `${PREFIX}claude-code`;
 }
 
-export function prePrAdapter(writer: AgentAdapter, runsDir: string, settings?: PrePrSettings): AgentAdapter {
+export function prePrAdapter(writer: AgentAdapter, runsDir: string, settings?: PrePrSettings, publication?: PrePrPublicationConnection): AgentAdapter {
   if (!['codex', 'claude-code'].includes(writer.id)) throw new Error('Pre-PR review requires the Codex or Claude Code adapter');
   const reviewSettings = normalizePrePrSettings(settings);
   return {
@@ -19,7 +20,7 @@ export function prePrAdapter(writer: AgentAdapter, runsDir: string, settings?: P
       return {
         cmd: process.execPath,
         args: [...runtimeNodeArguments('../pre-pr-cli.ts', import.meta.url),
-          JSON.stringify({ task, writerId: writer.id, runsDir, settings: reviewSettings })],
+          JSON.stringify({ task, writerId: writer.id, runsDir, settings: reviewSettings, ...(publication ? { publication } : {}) })],
       };
     },
     parseLine(line) {

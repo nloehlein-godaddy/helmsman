@@ -47,12 +47,14 @@ export async function submitReview(
   prNumber: number,
   event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT',
   body: string,
+  requestId: string = crypto.randomUUID(),
+  expectedHeadSha?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const res: Response = await fetch('/api/pr/review', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repo, number: prNumber, event, body }),
+      body: JSON.stringify({ repo, number: prNumber, event, body, requestId, ...(expectedHeadSha ? { expectedHeadSha } : {}) }),
     });
     if (!res.ok) {
       const errBody: { error?: string } = await res.json().catch((): { error?: string } => ({}));

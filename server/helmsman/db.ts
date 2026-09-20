@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'stopped';
 
@@ -58,10 +59,10 @@ export interface Db {
 
 const COLS: string[] = ['id', 'ticketId', 'repo', 'adapter', 'status', 'attempt', 'prNumber', 'startedAt', 'endedAt', 'costUsd', 'worktreePath', 'hostKind', 'hostRef', 'logPath', 'exitPath', 'specPath', 'logOffset', 'taskJson', 'launchJson'];
 
-export function openDb(path: string): Db {
-  const sql: Database.Database = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec(`
+export function openDb(path: string | Database.Database): Db {
+  const connection = storeConnection(path);
+  const { sql } = connection;
+  connection.migrate({ owner: 'core.runs', ddl: `
     CREATE TABLE IF NOT EXISTS runs (
       id TEXT PRIMARY KEY, ticketId TEXT, repo TEXT, adapter TEXT, status TEXT,
       attempt INTEGER, prNumber INTEGER, startedAt TEXT, endedAt TEXT, costUsd REAL, worktreePath TEXT
@@ -74,16 +75,18 @@ export function openDb(path: string): Db {
     CREATE INDEX IF NOT EXISTS idx_runs_history ON runs(startedAt DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_runs_repo_history ON runs(repo COLLATE NOCASE, startedAt DESC, id DESC);
     CREATE TABLE IF NOT EXISTS config_overrides (key TEXT PRIMARY KEY, value TEXT NOT NULL, updatedAt TEXT NOT NULL);
-  `);
-
-  const existing = new Set((sql.prepare(`PRAGMA table_info(runs)`).all() as { name: string }[]).map((c) => c.name));
-  const addCols: [string, string][] = [
-    ['hostKind', 'TEXT'], ['hostRef', 'TEXT'], ['logPath', 'TEXT'], ['exitPath', 'TEXT'],
-    ['specPath', 'TEXT'], ['logOffset', 'INTEGER'], ['taskJson', 'TEXT'], ['launchJson', 'TEXT'],
-  ];
-  for (const [name, type] of addCols) {
-    if (!existing.has(name)) sql.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
-  }
+  `, optionalLegacyTables: ['config_overrides'], optionalLegacyColumns: { runs: ['hostKind', 'hostRef', 'logPath', 'exitPath', 'specPath', 'logOffset', 'taskJson', 'launchJson'] },
+    upgrade(sql) {
+      const existing = new Set((sql.prepare(`PRAGMA table_info(runs)`).all() as { name: string }[]).map((c) => c.name));
+      const addCols: [string, string][] = [
+        ['hostKind', 'TEXT'], ['hostRef', 'TEXT'], ['logPath', 'TEXT'], ['exitPath', 'TEXT'],
+        ['specPath', 'TEXT'], ['logOffset', 'INTEGER'], ['taskJson', 'TEXT'], ['launchJson', 'TEXT'],
+      ];
+      for (const [name, type] of addCols) {
+        if (!existing.has(name)) sql.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
+      }
+    },
+  });
   const latestReviewVerdict = sql.prepare("SELECT substr(text, 1, 512) AS text FROM run_events WHERE runId = ? AND kind = 'review-verdict' ORDER BY id DESC LIMIT 1");
 
   return {
@@ -160,7 +163,7 @@ export function openDb(path: string): Db {
         .run({ key, value, ts });
     },
     close(): void {
-      sql.close();
+      connection.close();
     },
   };
 }

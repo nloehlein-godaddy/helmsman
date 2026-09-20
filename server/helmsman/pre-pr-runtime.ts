@@ -1,6 +1,6 @@
 import { spawn, execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, open, readFile, rm, stat } from 'node:fs/promises';
 import { basename, delimiter, isAbsolute, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
@@ -9,10 +9,11 @@ import { codexAdapter } from './agents/codex';
 import { claudeCodeAdapter } from './agents/claude-code';
 import { assertReviewSummaryCorrection, parsePrePrReview, PrePrGateError, PrePrSummaryTooLongError, runPrePrWorkflow, type PrePrReviewerId, type PrePrResumeCheckpoint } from './pre-pr-workflow';
 import { selectReviewModel, type ReviewScope } from './review-policy';
-import { agentAttribution, appendAgentByline } from './agent-attribution';
+import { agentAttribution } from './agent-attribution';
 import { DEFAULT_PRE_PR_SETTINGS, normalizePrePrSettings, type PrePrSettings } from '../../src/logic/prePrSettings';
 import { createRunArtifactStore } from './artifacts';
 import { prepareDockerStage, sanitizeDockerGit } from './docker-stage';
+import { publishApprovedRevision, validatePublicationConnection, type PrePrPublicationConnection } from './publication-client';
 
 const exec = promisify(execFile);
 const adapters: Record<PrePrReviewerId, AgentAdapter> = { codex: codexAdapter, 'claude-code': claudeCodeAdapter };
@@ -194,7 +195,8 @@ export function stageEventEmitter(id: PrePrReviewerId, task: AgentTask, emit: (e
   };
 }
 
-export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrReviewerId; runsDir: string; settings?: PrePrSettings }, emit: (event: AgentEvent) => void): Promise<number> {
+export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrReviewerId; runsDir: string; settings?: PrePrSettings; publication?: PrePrPublicationConnection }, emit: (event: AgentEvent) => void): Promise<number> {
+  const publication = validatePublicationConnection(input.publication);
   const cwd = process.cwd();
   const runId = basename(cwd);
   const settings = normalizePrePrSettings(input.settings);
@@ -229,6 +231,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
       if (input.task.dockerExecution || await installed(id === 'codex' ? 'codex' : 'claude')) reviewerIds.push(id);
       else if (id === input.writerId) throw new Error('The writer CLI is unavailable');
     }
+    if (reviewerIds.length !== settings.reviewerCount) throw new PrePrGateError('The configured reviewer set is unavailable; publication blocked.');
     emit({ kind: 'phase', text: `Pre-PR gate: ${reviewerIds.length} reviewer(s), up to ${settings.maxRounds} rounds, ${settings.stageTimeoutMinutes} minutes per session` });
     const initialHead = await git(['rev-parse', 'HEAD']);
     const branch = await git(['symbolic-ref', '--quiet', '--short', 'HEAD']);
@@ -257,6 +260,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
     if (!relativeArtifacts || (!relativeArtifacts.startsWith('..') && !isAbsolute(relativeArtifacts))) throw new Error('Pre-PR artifacts must be outside the author worktree');
     await mkdir(artifactDir, { recursive: true, mode: 0o700 });
     let metadataPath = '';
+    const reviewedRounds = new Map<string, number>();
     const runStage = async (id: PrePrReviewerId, task: AgentTask, dir: string) => {
       const forward = stageEventEmitter(id, task, emit);
       forward({ kind: 'phase', text: `Starting ${id} ${task.prePr?.stage ?? 'agent'} stage` });
@@ -299,6 +303,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
         try {
           const parsed = parsePrePrReview(originalReport, context);
           await recordValidatedReport(input.runsDir, runId, { stage: 'review', round: context.round, reviewer: reviewerId }, reportPath);
+          reviewedRounds.set(reviewerId, context.round);
           return parsed;
         } catch (error) {
           if (!(error instanceof PrePrSummaryTooLongError)) throw error;
@@ -316,6 +321,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
             const corrected = parsePrePrReview(await readPrePrReport(correctedPath), context);
             assertReviewSummaryCorrection(error.report, corrected);
             await recordValidatedReport(input.runsDir, runId, { stage: 'review', round: context.round, reviewer: reviewerId }, correctedPath);
+            reviewedRounds.set(reviewerId, context.round);
             return corrected;
           } catch (correctionError) {
             throw new PrePrGateError(`${reviewerId} summary correction failed after one attempt; publication blocked. ${correctionError instanceof Error ? correctionError.message : String(correctionError)}`);
@@ -373,7 +379,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
       },
       review,
       publish: async expected => {
-        const metadata = parsePrMetadata(await readPrePrReport(metadataPath), input.task);
+        parsePrMetadata(await readPrePrReport(metadataPath), input.task);
         const assertApproved = async () => {
           const actual = await snapshot();
           if (!actual.clean || actual.branch !== branch || actual.headSha !== expected.headSha || actual.baseSha !== expected.baseSha) throw new Error('Approved revision changed before publication');
@@ -381,42 +387,11 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
         };
         await assertApproved();
         await assertClarificationReady(input.task, runId);
-        await git(['push', remote, `${expected.headSha}:refs/heads/${branch}`]);
-        await assertApproved();
-        const assertRemoteApproved = async () => {
-          const remoteRevision = await git(['ls-remote', '--heads', remote, `refs/heads/${branch}`]);
-          if (remoteRevision !== `${expected.headSha}\trefs/heads/${branch}`) throw new Error('Remote branch does not match the approved revision; PR publication blocked');
-        };
-        await assertRemoteApproved();
-        const findPr = async (): Promise<{ number: number; body: string } | null> => {
-          const value: unknown = JSON.parse(await command('gh', ['pr', 'list', '--repo', input.task.repo, '--head', branch, '--state', 'open', '--json', 'number,headRefOid,baseRefName,body']));
-          if (!Array.isArray(value)) throw new Error('Invalid GitHub PR list response');
-          for (const pr of value) {
-            if (!pr || typeof pr !== 'object') throw new Error('Invalid GitHub PR response');
-            if (pr.headRefOid !== expected.headSha || pr.baseRefName !== baseBranch) throw new Error('Existing PR does not match the approved revision and base');
-            if (Number.isSafeInteger(pr.number) && pr.number > 0) {
-              if (typeof pr.body !== 'string') throw new Error('Existing PR body could not be read');
-              return { number: pr.number, body: pr.body };
-            }
-          }
-          return null;
-        };
-        const existing = await findPr();
-        const bodyFile = join(artifactDir, 'pr-body.md');
-        const body = appendAgentByline(existing?.body ?? metadata.body, agentAttribution(input.writerId, input.task, 'PR author'));
-        if (existing && existing.body === body) return existing.number;
-        await writeFile(bodyFile, body, { mode: 0o600 });
-        await assertApproved();
-        await assertRemoteApproved();
-        await assertClarificationReady(input.task, runId);
-        if (existing) {
-          await command('gh', ['pr', 'edit', String(existing.number), '--repo', input.task.repo, '--body-file', bodyFile]);
-          return existing.number;
-        }
-        await command('gh', ['pr', 'create', '--repo', input.task.repo, '--head', branch, '--base', baseBranch, '--title', metadata.title, '--body-file', bodyFile]);
-        const created = await findPr();
-        if (!created) throw new Error('Created PR could not be verified');
-        return created.number;
+        const round = reviewedRounds.get(input.writerId);
+        const metadata = /^(implement|fix)-(\d+)\.json$/.exec(basename(metadataPath));
+        if (!round || reviewerIds.some(id => reviewedRounds.get(id) !== round) || !metadata?.[1] || !metadata[2]) throw new Error('Publication review evidence is incomplete');
+        return publishApprovedRevision(publication, { version: 1, kind: 'pre-pr', approved: { ...expected, baseBranch, round, reviewers: reviewerIds,
+          metadata: { stage: metadata[1] as 'implement' | 'fix', round: Number(metadata[2]) } } }, abort.signal);
       },
     });
   } finally {

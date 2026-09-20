@@ -17,6 +17,7 @@ export interface PluginCatalogOptions {
   fetch?: typeof globalThis.fetch;
   importModule?: (href: string) => Promise<unknown>;
   timeoutMs?: number;
+  pollIntervalMs?: number;
 }
 
 export interface PluginCatalogRuntime {
@@ -127,12 +128,16 @@ export async function loadPluginCatalog(
   options: PluginCatalogOptions = {},
 ): Promise<PluginCatalogRuntime> {
   const errors: string[] = [];
-  const disposers: (() => void)[] = [];
+  const disposers = new Map<string, { hash: string; dispose(): void }>();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let refreshing = false;
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    for (const cleanup of disposers.reverse()) cleanup();
+    clearInterval(timer);
+    for (const entry of [...disposers.values()].reverse()) entry.dispose();
+    disposers.clear();
   };
   let catalog: PluginCatalog;
   try {
@@ -142,31 +147,54 @@ export async function loadPluginCatalog(
   } catch {
     return { safeMode: true, errors: Object.freeze(['Plugin catalog unavailable; optional pages were not loaded.']), dispose };
   }
-  for (const [slot, contribution] of Object.entries(catalog.bindings)) {
-    try { registry.select(slot, contribution); }
-    catch { errors.push(`Plugin binding ${slot} could not be selected.`); }
-  }
-  if (catalog.safeMode) return { safeMode: true, errors: Object.freeze(errors), dispose };
   const importModule = options.importModule ?? (href => import(/* @vite-ignore */ href));
-  for (const entry of catalog.plugins) {
-    const packageDisposers: (() => void)[] = [];
-    let active = true;
-    const retire = () => {
-      active = false;
-      for (const cleanup of packageDisposers.reverse()) cleanup();
-    };
-    try {
-      for (const [pageId, path] of Object.entries(entry.package.entries)) {
-        const href = `/plugin-assets/${entry.package.manifest.id}/${entry.hash}/${path}`;
-        packageDisposers.push(modules.register(`${entry.package.manifest.id}/${pageId}`,
-          lazyModule(href, importModule, () => active && !disposed)));
+  function apply(next: PluginCatalog): void {
+    if (disposed) return;
+    for (const [id, current] of disposers) {
+      if (next.safeMode || !next.plugins.some(entry => entry.package.manifest.id === id && entry.hash === current.hash)) {
+        current.dispose(); disposers.delete(id);
       }
-      packageDisposers.push(registry.register(entry.package.manifest));
-      disposers.push(retire);
-    } catch {
-      retire();
-      errors.push(`Plugin ${entry.package.manifest.id} could not be registered.`);
+    }
+    for (const [slot, contribution] of Object.entries(next.bindings)) {
+      try { registry.select(slot, contribution); }
+      catch { errors.push(`Plugin binding ${slot} could not be selected.`); }
+    }
+    if (next.safeMode) return;
+    for (const entry of next.plugins) {
+      if (disposers.has(entry.package.manifest.id)) continue;
+      const packageDisposers: (() => void)[] = [];
+      let active = true;
+      const retire = () => {
+        active = false;
+        for (const cleanup of packageDisposers.reverse()) cleanup();
+      };
+      try {
+        for (const [pageId, path] of Object.entries(entry.package.entries)) {
+          const href = `/plugin-assets/${entry.package.manifest.id}/${entry.hash}/${path}`;
+          packageDisposers.push(modules.register(`${entry.package.manifest.id}/${pageId}`,
+            lazyModule(href, importModule, () => active && !disposed)));
+        }
+        packageDisposers.push(registry.register(entry.package.manifest));
+        disposers.set(entry.package.manifest.id, { hash: entry.hash, dispose: retire });
+      } catch {
+        retire();
+        errors.push(`Plugin ${entry.package.manifest.id} could not be registered.`);
+      }
     }
   }
-  return { safeMode: false, errors: Object.freeze(errors), dispose };
+  apply(catalog);
+  if (catalog.safeMode) return { safeMode: true, errors: Object.freeze([...errors]), dispose };
+  if (options.pollIntervalMs !== undefined) {
+    if (!Number.isSafeInteger(options.pollIntervalMs) || options.pollIntervalMs < 100 || options.pollIntervalMs > 60_000) {
+      dispose(); throw new Error('Invalid plugin catalog polling interval.');
+    }
+    timer = setInterval(() => {
+      if (refreshing || disposed) return;
+      refreshing = true;
+      void fetchCatalog(options.fetch ?? globalThis.fetch, options.timeoutMs ?? 5_000)
+        .then(next => { apply(next); catalog = next; })
+        .catch(() => {}).finally(() => { refreshing = false; });
+    }, options.pollIntervalMs);
+  }
+  return { safeMode: false, errors: Object.freeze([...errors]), dispose };
 }

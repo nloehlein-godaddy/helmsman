@@ -20,11 +20,11 @@ export function todoTask(todo: Todo): AgentTask {
   };
 }
 
-export function reconcileTodoRuns(todos: TodoStore, db: Pick<Db, 'getRun'>): void {
+export function reconcileTodoRuns(todos: TodoStore, db: Pick<Db, 'getRun'>, pendingAdmission: (runId: string) => boolean = () => false): void {
   for (const todo of todos.list()) {
     if (todo.state !== 'in_progress' || !todo.runId) continue;
     const run = db.getRun(todo.runId);
-    if (run?.status === 'running') continue;
+    if (run?.status === 'running' || pendingAdmission(todo.runId)) continue;
     todos.finishRun(todo.runId, run?.status ?? 'failed');
   }
 }

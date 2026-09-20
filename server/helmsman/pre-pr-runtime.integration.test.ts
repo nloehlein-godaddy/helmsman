@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { chmod, mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
@@ -7,10 +7,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import type { PrePrSettings } from '../../src/logic/prePrSettings';
+import { normalizePrePrSettings, type PrePrSettings } from '../../src/logic/prePrSettings';
 import type { AgentTask } from './agents/adapter';
 import { PRE_PR_REVIEW_SUMMARY_LIMIT, type PrePrReviewerId } from './pre-pr-workflow';
 import { gitBin, hasShebangShims } from '../test-support/platform';
+
+import { loadConfig } from '../config';
+import { openDb, type RunRow } from './db';
+import { openExecutionStore } from './execution-store';
+import { legacyExecutionSnapshot } from './legacy-execution-snapshot';
+import { openOperationStore } from './operations';
+import { openPersistence } from './persistence';
+import { createPublicationService } from './publication-service';
+import { createScopedGateway } from './scoped-gateway';
+import { assertClarificationReady } from './pre-pr-runtime';
+
+const cleanups: Array<() => void> = [];
+afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 
 const exec = promisify(execFile);
 const GIT = gitBin();
@@ -50,12 +63,13 @@ const env = process.env;
 const runGit = args => cp.execFileSync(env.TEST_GIT_BIN, args, {encoding:'utf8'}).trim();
 const log = data => fs.appendFileSync(env.TEST_TRANSCRIPT, JSON.stringify(data)+'\n');
 if(id === 'git') {
-  if(args[0] === 'fetch' || args[0] === 'ls-remote') args[args.indexOf(env.TEST_REMOTE)] = env.TEST_BARE;
+  if(args[0] === 'fetch') args[args.indexOf(env.TEST_REMOTE)] = env.TEST_BARE;
+  if(args[0] === 'ls-remote') args[2] = env.TEST_BARE;
   if(args[0] === 'ls-remote' && env.TEST_MODE === 'remote-moved') {
     console.log('a'.repeat(40)+'\trefs/heads/voyage/test'); process.exit(0);
   }
-  if(args[0] === 'push') {
-    log({stage:'push',remote:args[1]}); args[args.indexOf(env.TEST_REMOTE)] = env.TEST_BARE;
+  if(args.includes('push')) {
+    log({stage:'push',remote:env.TEST_REMOTE}); args[args.indexOf('push')+2] = env.TEST_BARE;
     if(fs.existsSync(env.TEST_STATE)) {
       const prs=JSON.parse(fs.readFileSync(env.TEST_STATE,'utf8'));
       for(const pr of prs) pr.headRefOid=runGit(['rev-parse','HEAD']);
@@ -64,8 +78,13 @@ if(id === 'git') {
   }
   process.stdout.write(cp.execFileSync(env.TEST_GIT_BIN, args, {encoding:'utf8'}));
 } else if(id === 'gh') {
-  if(args[0] === 'repo') process.stdout.write(JSON.stringify({nameWithOwner:'example/project',defaultBranchRef:{name:'main'}}));
-  else if(args[1] === 'list') process.stdout.write(fs.existsSync(env.TEST_STATE) ? fs.readFileSync(env.TEST_STATE) : '[]');
+  if(args[0] === 'api') process.stdout.write(JSON.stringify({login:'actor'}));
+  else if(args[0] === 'repo') process.stdout.write(JSON.stringify({nameWithOwner:'example/project',defaultBranchRef:{name:'main'}}));
+  else if(args[1] === 'list' || args[1] === 'view') {
+    const prs=fs.existsSync(env.TEST_STATE) ? JSON.parse(fs.readFileSync(env.TEST_STATE,'utf8')) : [];
+    const result=prs.map(pr=>({headRefName:'voyage/test',state:'OPEN',headRepositoryOwner:{login:'example'},title:'T-1 Implement task',...pr}));
+    process.stdout.write(JSON.stringify(args[1]==='view'?result.find(pr=>pr.number===Number(args[2])):result));
+  }
   else if(args[1] === 'create') {
     const body=fs.readFileSync(args[args.indexOf('--body-file')+1],'utf8');
     log({stage:'publish',body});
@@ -118,17 +137,44 @@ if(id === 'git') {
     await writeFile(join(bin, executable), script); await chmod(join(bin, executable), 0o755);
   }
   const input = { task: { ticketId: 'T-1', title: 'Fix issue', repo: 'example/project', jiraBaseUrl: '', model: 'author-model', effort: 'medium', ...options.task }, writerId: options.writerId ?? 'codex', runsDir: join(root, 'runs'), settings };
+  const environment = { ...process.env, PATH: bin, TEST_MODE: mode, TEST_REMOTE: mode === 'named-remote' ? 'godaddy' : 'origin', TEST_BARE: bare,
+    TEST_STATE: state, TEST_TRANSCRIPT: transcript, TEST_GIT_BIN: GIT, TEST_SUMMARY_LIMIT: String(PRE_PR_REVIEW_SUMMARY_LIMIT),
+    TEST_BODY: options.body ?? 'Implemented and checked.', TEST_EXISTING_BODY: options.existingBody ?? 'Human-maintained PR description.' };
+  const persistence = openPersistence(':memory:');
+  const db = openDb(persistence.sql);
+  const executions = openExecutionStore(persistence);
+  const operations = openOperationStore(persistence, executions);
+  const config = loadConfig({ GITHUB_TOKEN: 'test-token', GITHUB_REPO: 'example/project', GITHUB_PR_AUTHOR: 'actor',
+    JIRA_BASE_URL: 'https://test.atlassian.net', JIRA_EMAIL: 'test@example.com', JIRA_API_TOKEN: 'test-jira-token' });
+  config.prePr = normalizePrePrSettings(settings);
+  const row: RunRow = { id: 'author', repo: 'example/project', ticketId: 'T-1', adapter: `pre-pr:${input.writerId}`, attempt: 1, status: 'running',
+    startedAt: '2026-09-20T00:00:00Z', endedAt: null, prNumber: null, costUsd: null, worktreePath: cwd, taskJson: JSON.stringify(input.task) };
+  db.insertRun(row);
+  executions.prepare({ snapshot: legacyExecutionSnapshot({ run: row, task: input.task, host: 'detached', config,
+    artifact: { pluginId: 'helmsman.legacy-runtime', artifactHash: 'a'.repeat(64), packageVersion: '1.0.0', requires: [] } }),
+    launchId: 'launch', maxConcurrency: 1, paths: { worktree: cwd, log: '/run.log', exit: '/run.exit', spec: '/run.json' } });
+  let currentTask: AgentTask = input.task;
+  const service = createPublicationService({ persistence, operations, executions, runsDir: input.runsDir, currentConfig: () => config, getRun: db.getRun,
+    verifyArtifacts: async () => {}, clarificationReady: () => true, isStopped: () => false,
+    command: async (cmd, args, context) => (await exec(join(bin, cmd), [...args], { ...context, env: { ...context.env, ...environment }, timeout: 10_000 })).stdout.trim() });
+  const gateway = createScopedGateway({ path: persistence.sql, openaiKey: 'test-key', active: () => true,
+    scope: () => ({ repo: row.repo, branch: 'voyage/test', readOnly: false }), clarificationReady: () => true,
+    publication: async (runId, scope, request, signal) => { await assertClarificationReady(currentTask, runId); return service.publish(runId, scope, request, signal); } });
+  cleanups.push(() => { gateway.close(); persistence.close(); });
   return { root, cwd, state, transcript, async run(task: Partial<AgentTask> = {}) {
+    const server = gateway.server();
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Missing publication gateway address');
+    const publication = { url: `http://127.0.0.1:${address.port}/publication/v1`, token: gateway.issuePublication(row.id, 60_000).token };
+    currentTask = { ...input.task, ...task };
     try {
-      const output = await exec(process.execPath, ['--import', tsx, cliPath, JSON.stringify({ ...input, task: { ...input.task, ...task } })], {
-        cwd, timeout: 30_000, env: { ...process.env, PATH: bin, TEST_MODE: mode, TEST_REMOTE: mode==='named-remote'?'godaddy':'origin', TEST_BARE: bare, TEST_STATE: state, TEST_TRANSCRIPT: transcript, TEST_GIT_BIN: GIT,
-          TEST_SUMMARY_LIMIT: String(PRE_PR_REVIEW_SUMMARY_LIMIT), TEST_BODY: options.body ?? 'Implemented and checked.', TEST_EXISTING_BODY: options.existingBody ?? 'Human-maintained PR description.' },
-      });
+      const output = await exec(process.execPath, ['--import', tsx, cliPath, JSON.stringify({ ...input, task: currentTask, publication })], { cwd, timeout: 30_000, env: environment });
       return { code: 0, output: output.stdout };
     } catch (error) {
       const failure = error as { code: number; stdout: string };
       return { code: failure.code, output: failure.stdout };
-    }
+    } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
   } };
 }
 
@@ -384,9 +430,9 @@ describe.skipIf(!hasShebangShims)('pre-PR runtime with real git and fake CLIs', 
       const result = await env.run({ clarification: { questionsPath: join(env.root, 'questions'), answersPath: join(env.root, 'answers'),
         gateUrl: `http://127.0.0.1:${address.port}/api/runs/author/clarification-gate` } });
       expect(result.code, result.output).toBe(1);
-      expect(result.output).toContain('Clarification publication gate did not pass');
+      expect(result.output).toContain(firstGateReady ? 'Core publication is incomplete' : 'Clarification publication gate did not pass');
       const steps = (await readFile(env.transcript, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-      expect(steps.filter(step => step.stage === 'push')).toHaveLength(firstGateReady ? 1 : 0);
+      expect(steps.filter(step => step.stage === 'push')).toHaveLength(0);
       expect(steps.some(step => step.stage === 'publish' || step.stage === 'edit-pr')).toBe(false);
       await expect(readFile(env.state)).rejects.toThrow();
     } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(env.root, { recursive: true, force: true }); }
@@ -418,7 +464,7 @@ describe.skipIf(!hasShebangShims)('pre-PR runtime with real git and fake CLIs', 
         const events = result.output.trim().split('\n').map(line => JSON.parse(line));
         expect(events).toContainEqual(expect.objectContaining({ kind: 'error', provider: 'claude-code', stage: 'review', round: 1 }));
       }
-      if (mode === 'remote-moved') expect(result.output).toContain('Remote branch does not match the approved revision');
+      if (mode === 'remote-moved') expect(result.output).toContain('Core publication is incomplete');
       if (mode === 'ticket-title') expect(result.output).toContain('PR title must include the Jira ticket ID');
     } finally { await rm(env.root, { recursive: true, force: true }); }
   }, 30_000);

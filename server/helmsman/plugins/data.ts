@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import type { PluginJson } from '../../../src/plugins/backend';
 import { isContributionId, isPluginId } from '../../../src/plugins/manifest';
 import { parsePluginPackage, validatePluginSetting, type PluginPackage } from '../../../src/plugins/package';
+import { storeConnection } from '../store-connection';
+import { immediateTransaction, registerPersistenceWriter } from '../persistence';
 
 export function pluginJson(value: unknown, limits = { maxNodes: 4096, maxBytes: 128 * 1024 }): PluginJson {
   let nodes = 0;
@@ -31,15 +33,17 @@ export function pluginJson(value: unknown, limits = { maxNodes: 4096, maxBytes: 
 
 function database(root: string): Database.Database {
   mkdirSync(root, { recursive: true });
-  const sql = new Database(join(root, 'plugin-data.sqlite'));
+  const connection = storeConnection(join(root, 'plugin-data.sqlite'));
+  const sql = connection.sql;
   try {
     sql.pragma('busy_timeout = 5000');
-    sql.exec(`CREATE TABLE IF NOT EXISTS plugin_storage_versions (plugin TEXT PRIMARY KEY, version INTEGER NOT NULL);
+    connection.migrate({ owner: 'core.plugins.data', optionalLegacyTables: ['plugin_projection_revisions'], ddl: `CREATE TABLE IF NOT EXISTS plugin_storage_versions (plugin TEXT PRIMARY KEY, version INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS plugin_storage (plugin TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(plugin,key));
       CREATE TABLE IF NOT EXISTS plugin_settings (plugin TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(plugin,key));
       CREATE TABLE IF NOT EXISTS capability_bindings (capability TEXT PRIMARY KEY, provider TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS backend_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS builtin_plugins (id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, package TEXT)`);
+      CREATE TABLE IF NOT EXISTS builtin_plugins (id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, package TEXT);
+      CREATE TABLE IF NOT EXISTS plugin_projection_revisions (pluginId TEXT PRIMARY KEY,revision INTEGER NOT NULL,artifactHash TEXT NOT NULL,enabled INTEGER NOT NULL)` });
     return sql;
   } catch (error) { sql.close(); throw error; }
 }
@@ -103,6 +107,7 @@ export function openPluginData(root: string, pkg: PluginPackage) {
     const existing = sql.prepare('SELECT version FROM plugin_storage_versions WHERE plugin=?').get(id) as { version: number } | undefined;
     if (existing && existing.version !== pkg.backend?.storageVersion) throw new Error('Plugin storage version is incompatible.');
     const values = settings(sql, pkg);
+    const releaseWriter = registerPersistenceWriter({ sql, transaction: fn => immediateTransaction(sql, fn), close: () => {} }, `plugin:${id}`);
     return {
       settings: values,
       read(name: string): PluginJson | undefined {
@@ -122,7 +127,7 @@ export function openPluginData(root: string, pkg: PluginPackage) {
           if (size.count > 1024 || size.bytes > 8 * 1024 * 1024) throw new Error('Plugin storage quota exceeded.');
         })();
       },
-      close() { sql.close(); },
+      close() { if (sql.open) { releaseWriter(); sql.close(); } },
     };
   } catch (error) { sql.close(); throw error; }
 }
@@ -181,5 +186,33 @@ export function builtinPluginPackage(root: string, id: string): PluginPackage | 
   try {
     const row = sql.prepare('SELECT package FROM builtin_plugins WHERE id=?').get(id) as { package: string | null } | undefined;
     return row?.package ? parsePluginPackage(JSON.parse(row.package), { allowBuiltin: true }) : null;
+  } finally { sql.close(); }
+}
+
+export function readBuiltinPluginStates(root: string): readonly { id: string; enabled: boolean; package: PluginPackage | null }[] {
+  const sql = database(root);
+  try {
+    const rows = sql.prepare('SELECT * FROM builtin_plugins ORDER BY id').all() as Array<{ id: string; enabled: number; package: string | null }>;
+    return rows.map(row => {
+      if (!isPluginId(row.id) || !row.id.startsWith('helmsman.') || ![0, 1].includes(row.enabled)) throw new Error('Invalid builtin plugin state');
+      return { id: row.id, enabled: row.enabled === 1, package: row.package ? parsePluginPackage(JSON.parse(row.package), { allowBuiltin: true }) : null };
+    });
+  } finally { sql.close(); }
+}
+
+export function projectPluginData(root: string, input: { pluginId: string; artifactHash: string; desiredEnabled: boolean; revision: number }): void {
+  if (!isPluginId(input.pluginId) || !/^[a-f\d]{64}$/.test(input.artifactHash) || !Number.isSafeInteger(input.revision) || input.revision < 1 || typeof input.desiredEnabled !== 'boolean') throw new Error('Invalid plugin data projection');
+  const sql = database(root);
+  try {
+    immediateTransaction(sql, () => {
+      const prior = sql.prepare('SELECT * FROM plugin_projection_revisions WHERE pluginId=?').get(input.pluginId) as { revision: number; artifactHash: string; enabled: number } | undefined;
+      if (prior && prior.revision > input.revision) return;
+      if (prior?.revision === input.revision && (prior.artifactHash !== input.artifactHash || prior.enabled !== Number(input.desiredEnabled))) throw new Error('Plugin projection revision has conflicting content');
+      if (input.pluginId.startsWith('helmsman.') && input.pluginId !== 'helmsman.legacy-runtime') {
+        sql.prepare('INSERT INTO builtin_plugins VALUES(?,?,NULL) ON CONFLICT(id) DO UPDATE SET enabled=excluded.enabled').run(input.pluginId, Number(input.desiredEnabled));
+      }
+      sql.prepare('INSERT INTO plugin_projection_revisions VALUES(?,?,?,?) ON CONFLICT(pluginId) DO UPDATE SET revision=excluded.revision,artifactHash=excluded.artifactHash,enabled=excluded.enabled')
+        .run(input.pluginId, input.revision, input.artifactHash, Number(input.desiredEnabled));
+    });
   } finally { sql.close(); }
 }

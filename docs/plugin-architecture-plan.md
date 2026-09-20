@@ -481,3 +481,13 @@ Phase B completion validation: 2,968 unit/integration tests across 182 files; Ty
 Post-commit review found that shared client validation incorrectly assumed cached input tokens are included in newly read input tokens for every provider. Claude records those separately. The shared relationship check was removed while provider-specific pricing validation remains; 39 focused tests, TypeScript/build, and the isolated full-server flow with a Claude usage event passed.
 
 _Helmsman · not reported - not reported_
+
+### Phase C implementation review loop
+
+Independent persistence/lifecycle and host/effects reviews found and fixed ownership races, stale lease finalization, retry/checkpoint pin transfer, mutable connection substitution, nonretryable redelivery, remote-write authorization after stop, old-attempt publication reconciliation, and cleanup of terminal retained workspaces. A further review caught startup mutations before exclusive ownership and loss of stop intent across restart. Startup now claims ownership before initialization; stop requests are persisted per attempt and observed at launch, publication, and recovery boundaries.
+
+The core recovery page, additive legacy audit, retained runtime artifacts, shared transactions, durable effect adapters, and offline three-database backup are implemented behind existing providers. Legacy executable bindings are not invented: records without historical runtime or ownership evidence stay protected and blocked. Checkpoint migration requires an exact-provider validator; storage compatibility alone cannot authorize rebinding. The operator flow is documented in [recovery.md](recovery.md).
+
+Publication tests exercise a real coordinator process, authenticated local gateway, durable operations, and real Git against isolated fixtures. Distribution tests deny access to the application source and verify protected recovery across restart, second-instance rejection, retained gateway addressing, and live-writer backup rejection. The [completion ledger](plugin-implementation-progress.md) records final validation and commit status; Phase D extraction remains gated on that evidence.
+
+_Helmsman · not reported - not reported_

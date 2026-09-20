@@ -37,7 +37,8 @@ describe('core usage storage', () => {
       const sql = new Database(path, { readonly: true });
       try {
         expect(sql.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all())
-          .toEqual([{ name: 'outcome_usage' }, { name: 'run_lifecycle' }]);
+          .toEqual([{ name: 'migration_ledger' }, { name: 'migration_steps' }, { name: 'outcome_usage' },
+            { name: 'persistence_intents' }, { name: 'persistence_writers' }, { name: 'run_lifecycle' }]);
       } finally { sql.close(); }
     } finally { reopened.close(); }
   });

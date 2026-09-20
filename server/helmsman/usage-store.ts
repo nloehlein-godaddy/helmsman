@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 import type { ProviderUsage } from '../../src/plugins/usage';
 
 export class UsageValidationError extends Error {}
@@ -60,14 +61,15 @@ export function parseProviderUsage(input: unknown): ProviderUsage {
   return result;
 }
 
-export function openUsageStore(path: string): UsageStore {
-  const sql = new Database(path);
+export function openUsageStore(path: string | Database.Database): UsageStore {
+  const connection = storeConnection(path);
+  const { sql } = connection;
   try {
-    sql.pragma('journal_mode = WAL');
-    sql.exec(`CREATE TABLE IF NOT EXISTS outcome_usage (
+    connection.migrate({ owner: 'core.usage', ddl: `CREATE TABLE IF NOT EXISTS outcome_usage (
       runId TEXT NOT NULL, attempt INTEGER NOT NULL, eventId TEXT NOT NULL, payload TEXT NOT NULL,
       PRIMARY KEY (runId, attempt, eventId)
-    )`);
+    )` });
+
     const read = sql.prepare('SELECT runId, attempt, eventId, payload FROM outcome_usage WHERE runId = ? AND attempt = ? AND eventId = ?');
     const list = sql.prepare('SELECT runId, attempt, eventId, payload FROM outcome_usage WHERE runId = ? ORDER BY attempt, eventId');
     const insert = sql.prepare('INSERT INTO outcome_usage (runId, attempt, eventId, payload) VALUES (?, ?, ?, ?)');
@@ -101,7 +103,7 @@ export function openUsageStore(path: string): UsageStore {
         const ids = [...new Set(runIds.map(usageRunId))];
         return ids.flatMap(id => list.all(id).flatMap(row => { const item = decode(row); return item ? [item] : []; }));
       },
-      close() { if (!closed) { closed = true; sql.close(); } },
+      close() { if (!closed) { closed = true; connection.close(); } },
     };
-  } catch (error) { sql.close(); throw error; }
+  } catch (error) { connection.close(); throw error; }
 }

@@ -3,17 +3,34 @@ interface Entry {
   stop: () => void;
 }
 
+export interface DurableReservations {
+  reservations(): readonly { runId: string; repo: string; reason?: string }[];
+}
+
 export class ProcessManager {
   private readonly maxConcurrency: number;
   private readonly entries: Map<string, Entry> = new Map();
+  private readonly durable?: DurableReservations;
 
-  constructor(maxConcurrency: number) {
+  constructor(maxConcurrency: number, durable?: DurableReservations) {
+    if (!Number.isSafeInteger(maxConcurrency) || maxConcurrency < 1) throw new Error('Invalid maximum concurrency');
     this.maxConcurrency = maxConcurrency;
+    this.durable = durable;
+  }
+
+  private reserved(): Map<string, { repo: string }> {
+    const all = new Map<string, { repo: string }>(this.entries);
+    for (const reservation of this.durable?.reservations() ?? []) {
+      if (!reservation || typeof reservation.runId !== 'string' || !reservation.runId || typeof reservation.repo !== 'string' || !reservation.repo) throw new Error('Invalid durable execution reservation');
+      all.set(reservation.runId, reservation);
+    }
+    return all;
   }
 
   canStart(repo: string): { ok: true } | { ok: false; reason: string } {
-    if (this.entries.size >= this.maxConcurrency) return { ok: false, reason: 'max concurrency reached' };
-    for (const entry of this.entries.values()) {
+    const reserved = this.reserved();
+    if (reserved.size >= this.maxConcurrency) return { ok: false, reason: 'max concurrency reached' };
+    for (const entry of reserved.values()) {
       if (entry.repo.toLowerCase() === repo.toLowerCase()) return { ok: false, reason: `a run is already active for ${repo}` };
     }
     return { ok: true };
@@ -35,14 +52,18 @@ export class ProcessManager {
   }
 
   hasRun(runId: string): boolean {
+    return this.reserved().has(runId);
+  }
+
+  hasAttached(runId: string): boolean {
     return this.entries.has(runId);
   }
 
   activeRepos(): string[] {
-    return Array.from(this.entries.values()).map((e) => e.repo);
+    return [...new Set(Array.from(this.reserved().values()).map((e) => e.repo))];
   }
 
   count(): number {
-    return this.entries.size;
+    return this.reserved().size;
   }
 }

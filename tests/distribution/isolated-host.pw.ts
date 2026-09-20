@@ -286,3 +286,41 @@ test('safe start preserves blocked runs and artifacts and rejects every provider
     expect(await readFile(host.commandLog, 'utf8').catch(() => '')).toBe('');
   } finally { await host.close(); }
 });
+
+test('normal recovery retains legacy ownership across restart and backs up only an offline persistence set', async ({ request }) => {
+  const host = await fixture();
+  try {
+    await host.installSample();
+    const marker = join(host.cwd, 'legacy-worktree', 'keep.txt');
+    await mkdir(dirname(marker), { recursive: true });
+    await writeFile(marker, 'Retained legacy execution');
+    const module = (name: string) => pathToFileURL(join(host.app, 'server/helmsman', name)).href;
+    await host.script('seed-legacy.mjs', `
+      import { openDb } from ${JSON.stringify(module('db.js'))};
+      const db = openDb(process.env.HELMSMAN_DB);
+      db.insertRun({ id:'legacy_active',repo:'org/a',ticketId:'OLD-1',adapter:'codex',status:'running',attempt:1,
+        prNumber:null,startedAt:'2026-09-20T00:00:00.000Z',endedAt:null,costUsd:null,worktreePath:${JSON.stringify(dirname(marker))},
+        hostKind:'detached',hostRef:JSON.stringify({kind:'detached',pid:999999}),
+        taskJson:JSON.stringify({repo:'org/a',ticketId:'OLD-1',title:'Old work',jiraBaseUrl:'https://jira.example.test'}) });
+      db.close();
+    `);
+    const origin = await host.start();
+    const snapshot = await (await request.get(`${origin}/api/recovery?repo=org%2Fa`)).json();
+    expect(snapshot).toMatchObject({ mode: 'normal', runs: [expect.objectContaining({ id: 'legacy_active', status: 'running', protected: true })],
+      reservations: [expect.objectContaining({ runId: 'legacy_active', repo: 'org/a' })] });
+    await expect(run(process.execPath, [join(host.app, 'server/helmsman/main.js')], host.cwd, host.env)).rejects.toThrow('active database writer');
+    const backup = join(host.root, 'consistent-backup');
+    await expect(host.cli('backup', backup)).rejects.toThrow('active database writer');
+    const portBefore = await readFile(join(host.env.RUNS_DIR!, '.gateway-port.json'), 'utf8');
+    await host.stop();
+    await host.cli('backup', backup);
+    const manifest = JSON.parse(await readFile(join(backup, 'manifest.json'), 'utf8'));
+    expect(manifest.files).toHaveLength(3);
+    const restarted = await host.start();
+    expect(await readFile(join(host.env.RUNS_DIR!, '.gateway-port.json'), 'utf8')).toBe(portBefore);
+    expect(await (await request.get(`${restarted}/api/recovery?repo=org%2Fa`)).json()).toMatchObject({
+      runs: [expect.objectContaining({ id: 'legacy_active', status: 'running', protected: true })],
+    });
+    expect(await readFile(marker, 'utf8')).toBe('Retained legacy execution');
+  } finally { await host.close(); }
+});

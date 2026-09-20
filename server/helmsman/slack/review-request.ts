@@ -1,5 +1,6 @@
 import { slackIntegrationEnabled } from './config';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from '../store-connection';
 import { isGithubRepo } from '../../pr-lists';
 import type { PrStatus } from '../../github';
 
@@ -31,8 +32,8 @@ export interface SlackReviewResult {
   permalink: string | null;
 }
 
-interface ReviewInput { requestId: string; repo: string; prNumber: number }
-interface Receipt extends ReviewInput {
+export interface SlackReviewInput { requestId: string; repo: string; prNumber: number }
+export interface SlackReviewReceipt extends SlackReviewInput {
   channelTarget: string;
   mentionTarget: string;
   status: 'pending' | 'sent' | 'failed' | 'uncertain';
@@ -40,12 +41,15 @@ interface Receipt extends ReviewInput {
   channel: string | null;
   mention: string | null;
   permalink: string | null;
+  workspaceTarget?: string | null;
+  connectionTarget?: string | null;
 }
+interface RequestContext { binding?: { workspace: string; connectionId: string }; beforeSend?(): void; }
 
 interface RequesterDeps {
   settings: () => ReturnType<typeof slackReviewSettings>;
   getPr: (repo: string, prNumber: number) => Promise<PrStatus | null>;
-  send: (input: ReviewInput & { channel: string; mention: string }) => Promise<{
+  send: (input: SlackReviewInput & { channel: string; mention: string }) => Promise<{
     channel: string;
     mention: string;
     permalink: string | null;
@@ -57,7 +61,7 @@ function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
-function validateInput(value: unknown): ReviewInput {
+export function validateSlackReviewInput(value: unknown): SlackReviewInput {
   const input = object(value);
   if (typeof input?.repo !== 'string' || !isGithubRepo(input.repo)
     || typeof input.prNumber !== 'number' || !Number.isSafeInteger(input.prNumber) || input.prNumber < 1
@@ -67,26 +71,39 @@ function validateInput(value: unknown): ReviewInput {
   return { repo: input.repo, prNumber: input.prNumber, requestId: input.requestId };
 }
 
-function sentReceipt(row: Receipt): SlackReviewResult {
+function sentReceipt(row: SlackReviewReceipt): SlackReviewResult {
   return { ok: true, channel: row.channel ?? row.channelTarget, mention: row.mention ?? row.mentionTarget, permalink: row.permalink };
 }
 
-export function openSlackReviewRequester(path: string, deps: RequesterDeps): {
-  request(input: unknown): Promise<SlackReviewResult>;
+export function openSlackReviewRequester(path: string | Database.Database, deps: RequesterDeps): {
+  request(input: unknown, context?: RequestContext): Promise<SlackReviewResult>;
+  receipt(requestId: string): SlackReviewReceipt | null;
   close(): void;
 } {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec(`CREATE TABLE IF NOT EXISTS slack_review_requests (
+  const connection = storeConnection(path);
+  const { sql } = connection;
+  connection.migrate({ owner: 'compat.slack-review', ddl: `CREATE TABLE IF NOT EXISTS slack_review_requests (
     requestId TEXT PRIMARY KEY, repo TEXT NOT NULL, prNumber INTEGER NOT NULL,
     channelTarget TEXT NOT NULL, mentionTarget TEXT NOT NULL, status TEXT NOT NULL,
     createdAt INTEGER NOT NULL, channel TEXT, mention TEXT, permalink TEXT
   );
-  CREATE INDEX IF NOT EXISTS slack_review_cooldown ON slack_review_requests(repo, prNumber, channelTarget, mentionTarget, createdAt);`);
+  CREATE INDEX IF NOT EXISTS slack_review_cooldown ON slack_review_requests(repo, prNumber, channelTarget, mentionTarget, createdAt);` });
+  connection.migrate({ owner: 'compat.slack-review-bindings', ddl: `CREATE TABLE IF NOT EXISTS slack_review_request_bindings (
+    requestId TEXT PRIMARY KEY, workspace TEXT NOT NULL, connectionId TEXT NOT NULL
+  );` });
+
   const now = deps.now ?? Date.now;
   const flights = new Map<string, { key: string; promise: Promise<SlackReviewResult> }>();
 
-  async function request(input: ReviewInput): Promise<SlackReviewResult> {
+  function receipt(requestId: string): SlackReviewReceipt | null {
+    const value = sql.prepare(`SELECT request.*, binding.workspace AS workspaceTarget, binding.connectionId AS connectionTarget
+      FROM slack_review_requests request LEFT JOIN slack_review_request_bindings binding USING(requestId) WHERE request.requestId=?`).get(requestId) as SlackReviewReceipt | undefined;
+    if (!value) return null;
+    validateSlackReviewInput(value);
+    if (!['pending', 'sent', 'failed', 'uncertain'].includes(value.status)) throw new SlackReviewError('Stored Slack receipt is invalid. Check Slack before requesting again.', 409, true);
+    return Object.freeze(value);
+  }
+  async function request(input: SlackReviewInput, context?: RequestContext): Promise<SlackReviewResult> {
     const settings = deps.settings();
     if (!settings.enabled) throw new SlackReviewError('Slack integration is disabled. Enable it in Config.', 409);
     if (!/^(?:[CG][A-Z\d]{2,31}|[a-z\d_-]{1,80})$/.test(settings.channel)
@@ -94,7 +111,13 @@ export function openSlackReviewRequester(path: string, deps: RequesterDeps): {
       throw new SlackReviewError('Set a valid Slack review channel and user group handle in Config.', 400);
     }
     const reservation = sql.transaction((): SlackReviewResult | null => {
-      const prior = sql.prepare('SELECT * FROM slack_review_requests WHERE requestId = ?').get(input.requestId) as Receipt | undefined;
+      const prior = receipt(input.requestId);
+      if (context?.binding) {
+        const binding = context.binding;
+        if (!/^[A-Z0-9]{3,32}$/.test(binding.workspace) || !/^[a-f\d]{64}$/.test(binding.connectionId)) throw new SlackReviewError('Invalid recorded Slack connection.', 409);
+        if (prior && (prior.workspaceTarget !== binding.workspace || prior.connectionTarget !== binding.connectionId)) throw new SlackReviewError('Recorded Slack request belongs to another or unverified workspace connection.', 409, true);
+        sql.prepare('INSERT INTO slack_review_request_bindings VALUES(?,?,?) ON CONFLICT(requestId) DO NOTHING').run(input.requestId, binding.workspace, binding.connectionId);
+      }
       if (prior) {
         if (prior.repo !== input.repo || prior.prNumber !== input.prNumber || prior.channelTarget !== settings.channel || prior.mentionTarget !== settings.mention) {
           throw new SlackReviewError('Request ID already belongs to a different review request.', 409);
@@ -104,8 +127,12 @@ export function openSlackReviewRequester(path: string, deps: RequesterDeps): {
       }
       const recent = sql.prepare(`SELECT * FROM slack_review_requests WHERE repo = ? COLLATE NOCASE AND prNumber = ?
         AND channelTarget = ? AND mentionTarget = ? AND createdAt > ? AND status IN ('pending', 'sent', 'uncertain') ORDER BY createdAt DESC LIMIT 1`)
-        .get(input.repo, input.prNumber, settings.channel, settings.mention, now() - 60_000) as Receipt | undefined;
+        .get(input.repo, input.prNumber, settings.channel, settings.mention, now() - 60_000) as SlackReviewReceipt | undefined;
       if (recent?.status === 'sent') {
+        const source = receipt(recent.requestId);
+        if (context?.binding && (source?.workspaceTarget !== context.binding.workspace || source.connectionTarget !== context.binding.connectionId)) {
+          throw new SlackReviewError('A recent request has another or unverified Slack workspace. Check Slack before requesting again.', 409, true);
+        }
         sql.prepare(`INSERT INTO slack_review_requests (requestId, repo, prNumber, channelTarget, mentionTarget, status, createdAt, channel, mention, permalink)
           VALUES (@requestId, @repo, @prNumber, @channelTarget, @mentionTarget, 'sent', @createdAt, @channel, @mention, @permalink)
           ON CONFLICT(requestId) DO UPDATE SET status = 'sent', createdAt = excluded.createdAt, channel = excluded.channel, mention = excluded.mention, permalink = excluded.permalink`)
@@ -128,6 +155,7 @@ export function openSlackReviewRequester(path: string, deps: RequesterDeps): {
         throw new SlackReviewError('Review requests are available only for your open pull requests.', 409);
       }
       if (!deps.settings().enabled) throw new SlackReviewError('Slack integration is disabled. Enable it in Config.', 409);
+      context?.beforeSend?.();
       senderStarted = true;
       const receipt = object(await deps.send({ ...input, channel: settings.channel, mention: settings.mention }));
       if (typeof receipt?.channel !== 'string' || !/^(?:[CG][A-Z\d]{2,31}|[a-z\d_-]{1,80})$/.test(receipt.channel)
@@ -157,16 +185,17 @@ export function openSlackReviewRequester(path: string, deps: RequesterDeps): {
   }
 
   return {
-    request(value) {
-      let input: ReviewInput;
-      try { input = validateInput(value); } catch (error) { return Promise.reject(error); }
+    receipt,
+    request(value, context) {
+      let input: SlackReviewInput;
+      try { input = validateSlackReviewInput(value); } catch (error) { return Promise.reject(error); }
       const key = `${input.repo}#${input.prNumber}`;
       const existing = flights.get(input.requestId);
       if (existing) return existing.key === key ? existing.promise : Promise.reject(new SlackReviewError('Request ID is already in use.', 409));
-      const promise = request(input).finally(() => flights.delete(input.requestId));
+      const promise = request(input, context).finally(() => flights.delete(input.requestId));
       flights.set(input.requestId, { key, promise });
       return promise;
     },
-    close: () => sql.close(),
+    close: () => connection.close(),
   };
 }

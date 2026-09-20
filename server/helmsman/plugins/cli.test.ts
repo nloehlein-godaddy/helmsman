@@ -10,6 +10,7 @@ import { COSTS_PAGE_SLOT } from '../../../src/plugins/builtins';
 import { parsePluginArchive } from './artifacts';
 import { pluginCommand } from './cli';
 import { loadPluginSnapshot, readPluginState } from './store';
+import { openPersistence, registerPersistenceWriter } from '../persistence';
 
 const run = promisify(execFile);
 const nodeMajor = Number(process.versions.node.split('.')[0]);
@@ -36,7 +37,7 @@ beforeEach(async () => {
   await writeFile(join(directory, 'dist', 'page.js'), source);
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
-const command = (...args: string[]) => pluginCommand(['--dir', store, ...args]);
+const command = (...args: string[]) => pluginCommand(['--dir', store, ...args], { coordinate: false });
 
 describe('plugin CLI', () => {
   it('packs, installs, enables, selects, lists, disables, and resets a page using real artifacts', async () => {
@@ -73,12 +74,29 @@ describe('plugin CLI', () => {
     });
   });
 
+  it('backs up the selected offline databases with source metadata and documents artifact retention', async () => {
+    await command('pack', directory, archive);
+    const dbPath = join(root, 'main.sqlite');
+    await pluginCommand(['--dir', store, '--db', dbPath, 'install', archive]);
+    const destination = join(root, 'backup');
+    expect(await pluginCommand(['--dir', store, '--db', dbPath, 'backup', destination])).toContain(destination);
+    const manifest = JSON.parse(await readFile(join(destination, 'manifest.json'), 'utf8'));
+    expect(manifest.metadata).toMatchObject({ creator: 'helmsman-plugin-cli', pluginDirectory: store, databases: { main: dbPath, catalog: join(store, 'catalog.sqlite'), data: join(store, 'plugin-data.sqlite') } });
+    expect(manifest.files.map((file: { name: string }) => file.name)).toEqual(['main.sqlite', 'catalog.sqlite', 'data.sqlite']);
+    const main = openPersistence(dbPath);
+    const release = registerPersistenceWriter(main, 'application');
+    try {
+      await expect(pluginCommand(['--dir', store, '--db', dbPath, 'backup', join(root, 'blocked')])).rejects.toThrow('active database writer');
+    } finally { release(); main.close(); }
+    expect(await pluginCommand(['--help'])).toContain('Retain the plugin and runtime artifact stores');
+  });
+
   it.each([
     [], ['--dir'], ['pack'], ['pack', 'source'], ['pack', 'source', 'out', 'extra'],
     ['install'], ['install', 'file', 'extra'], ['enable'], ['disable'], ['select'],
     ['select', COSTS_PAGE_SLOT], ['list', 'extra'], ['unknown'],
   ].map(args => ({ args })))('rejects incomplete or unsupported arguments $args', async ({ args }) => {
-    await expect(pluginCommand(args)).rejects.toThrow('Usage: plugins');
+    await expect(pluginCommand(args, { coordinate: false })).rejects.toThrow('Usage: plugins');
   });
 
   it('refuses to overwrite an output archive', async () => {

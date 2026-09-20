@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from '../store-connection';
 
 export interface SlackNotification {
   id: string;
@@ -52,10 +53,10 @@ export interface SlackStore {
 
 const NOTIFICATION_COLUMNS = 'id, repo, prNumber, prUrl, sourceUrl, author, channelName, status, runId, createdAt, updatedAt, readAt, error';
 
-export function openSlackStore(path: string): SlackStore {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec(`
+export function openSlackStore(path: string | Database.Database): SlackStore {
+  const connection = storeConnection(path);
+  const { sql } = connection;
+  connection.migrate({ owner: 'compat.slack', ddl: `
     CREATE TABLE IF NOT EXISTS slack_sources (
       key TEXT PRIMARY KEY, activatedAt TEXT NOT NULL, cursor TEXT, health TEXT NOT NULL
     );
@@ -69,7 +70,8 @@ export function openSlackStore(path: string): SlackStore {
     CREATE TABLE IF NOT EXISTS slack_dispatch_claims (
       notificationId TEXT PRIMARY KEY, token TEXT NOT NULL, claimedAt TEXT NOT NULL
     );
-  `);
+  ` });
+
   return {
     ensureSource(key, activatedAt, health) {
       sql.prepare('INSERT OR IGNORE INTO slack_sources (key, activatedAt, cursor, health) VALUES (?, ?, NULL, ?)')
@@ -128,6 +130,6 @@ export function openSlackStore(path: string): SlackStore {
     releaseDispatch(id, token) {
       return sql.prepare('DELETE FROM slack_dispatch_claims WHERE notificationId = ? AND token = ?').run(id, token).changes > 0;
     },
-    close() { sql.close(); },
+    close() { connection.close(); },
   };
 }

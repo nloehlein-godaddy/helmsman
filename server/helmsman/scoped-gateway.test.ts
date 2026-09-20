@@ -113,3 +113,33 @@ describe('scoped gateway', () => {
     expect((await request(base, cap.token, '/openai/v1/responses', { method: 'POST' })).status).toBe(401);
   });
 });
+
+describe('coordinator publication capabilities', () => {
+  const approval = { version: 1, kind: 'pre-pr', approved: { baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), branch: 'agent/run', baseBranch: 'main', round: 1, reviewers: ['codex'], metadata: { stage: 'implement', round: 0 } } };
+  it('isolates publication from inference and rechecks gate, scope, expiry, revocation, and active run', async () => {
+    let active = true;
+    let ready = true;
+    let now = 1000;
+    let readOnly = false;
+    const publication = vi.fn(async () => ({ ok: true as const, prNumber: 12 }));
+    const fetcher = vi.fn(async () => new Response('{}'));
+    const { gateway, base } = await open({ openaiKey: 'key', active: () => active, clarificationReady: () => ready,
+      scope: () => ({ repo: 'org/repo', branch: 'agent/run', readOnly }), publication, now: () => now, fetcher: fetcher as typeof fetch });
+    const inference = gateway.issue('run', 1000);
+    const coordinator = gateway.issuePublication('run', 1000);
+    const post = (token: string, value: unknown = approval) => request(base, token, '/publication/v1', { method: 'POST', body: JSON.stringify(value) });
+    expect((await post(inference.token)).status).toBe(401);
+    expect((await request(base, coordinator.token, '/openai/v1/responses', { method: 'POST', body: '{}' })).status).toBe(401);
+    expect((await post(coordinator.token)).status).toBe(200);
+    expect(publication).toHaveBeenCalledOnce();
+    ready = false; expect((await post(coordinator.token)).status).toBe(403); ready = true;
+    readOnly = true; expect((await post(coordinator.token)).status).toBe(403); readOnly = false;
+    expect((await post(coordinator.token, { ...approval, approved: { ...approval.approved, branch: 'other' } })).status).toBe(403);
+    expect((await post(coordinator.token, { ...approval, command: 'arbitrary' })).status).toBe(400);
+    active = false; expect((await post(coordinator.token)).status).toBe(401); active = true;
+    now = 2001; expect((await post(coordinator.token)).status).toBe(401); now = 1000;
+    gateway.revoke(coordinator.token); expect((await post(coordinator.token)).status).toBe(401);
+    expect(publication).toHaveBeenCalledOnce();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+});

@@ -2,6 +2,8 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { writeFileSync } from 'node:fs';
 import { resolveSocket } from './wezterm/socket';
+import { launchIdentity, processStartIdentity, readExitEvidence, readLaunchReceipt, type LaunchIdentity } from './host-evidence';
+export { launchIdentity, readExitEvidence, readLaunchReceipt } from './host-evidence';
 
 export interface LaunchSpec {
   runId: string;
@@ -11,25 +13,67 @@ export interface LaunchSpec {
   logPath: string;
   exitPath: string;
   specPath: string;
+  launchId?: string;
+  attempt?: number;
+  receiptPath?: string;
 }
 
-export type HostRef =
+export type HostRef = (
   | { kind: 'detached'; pid: number }
   | { kind: 'cmux'; workspace: string }
   | { kind: 'wezterm'; paneId: string; socket?: string | null }
-  | { kind: 'docker'; containerId: string };
+  | { kind: 'docker'; containerId: string }) & { ownership?: LaunchIdentity & { processStart?: string; pid?: number } };
+
+export type HostDiscovery =
+  | { status: 'found'; ref: HostRef; evidence: { launchId: string; runId: string; attempt: number; state: 'running' | 'exited'; exitCode?: number } }
+  | { status: 'absent'; evidence: string }
+  | { status: 'unknown'; reason: string };
 
 export interface RunHost {
   kind: HostRef['kind'];
   launch(spec: LaunchSpec): Promise<HostRef>;
   isAlive(ref: HostRef): Promise<boolean>;
   stop(ref: HostRef): Promise<void>;
+  discover?(spec: LaunchSpec, ref?: HostRef): Promise<HostDiscovery>;
+}
+
+export async function discoverRunHost(host: RunHost, spec: LaunchSpec, ref?: HostRef): Promise<HostDiscovery> {
+  if (!host.discover) return { status: 'unknown', reason: 'The retained host has no ownership discovery contract' };
+  try { return await host.discover(spec, ref); }
+  catch (error) { return { status: 'unknown', reason: error instanceof Error ? error.message : 'Host discovery failed' }; }
+}
+
+async function receiptDiscovery(spec: LaunchSpec, ref?: HostRef): Promise<HostDiscovery> {
+  const identity = launchIdentity(spec);
+  if (!identity) return { status: 'unknown', reason: 'Legacy launch has no durable ownership receipt' };
+  const receipt = await readLaunchReceipt(spec);
+  if (!receipt) return { status: 'unknown', reason: 'Wrapper ownership receipt is missing; launch may still be in progress' };
+  if (ref?.kind === 'detached' && ref.pid !== receipt.pid
+    || ref?.ownership?.processStart && ref.ownership.processStart !== receipt.processStart) return { status: 'unknown', reason: 'Host reference does not match the wrapper receipt' };
+  if (ref?.ownership && (ref.ownership.launchId !== identity.launchId || ref.ownership.runId !== identity.runId || ref.ownership.attempt !== identity.attempt)) {
+    return { status: 'unknown', reason: 'Host reference belongs to another attempt' };
+  }
+  const owned: HostRef = ref ?? { kind: 'detached', pid: receipt.pid, ownership: { ...identity, pid: receipt.pid, ...(receipt.processStart ? { processStart: receipt.processStart } : {}) } };
+  const exit = await readExitEvidence(spec);
+  if (exit) return { status: 'found', ref: owned, evidence: { ...identity, state: 'exited', exitCode: exit.exitCode } };
+  if (!receipt.processStart || await processStartIdentity(receipt.pid) !== receipt.processStart) {
+    return { status: 'unknown', reason: 'Wrapper process ownership cannot be verified and no exit receipt exists' };
+  }
+  return { status: 'found', ref: owned, evidence: { ...identity, state: 'running' } };
+}
+
+async function stopOwnedWrapper(ref: HostRef): Promise<void> {
+  if (!ref.ownership) throw new Error('Wrapper identity is unavailable');
+  const receipt = await readLaunchReceipt({ ...ref.ownership, cmd: '', args: [], cwd: '', logPath: '', exitPath: '', specPath: '' });
+  if (!receipt?.processStart || await processStartIdentity(receipt.pid) !== receipt.processStart) throw new Error('Refusing to stop an unverified wrapper process');
+  process.kill(receipt.pid, 'SIGTERM');
 }
 
 export type ArgvRunner = (argv: string[]) => Promise<{ stdout: string; code: number }>;
 
 function writeSpecFile(spec: LaunchSpec): void {
-  writeFileSync(spec.specPath, JSON.stringify({ cmd: spec.cmd, args: spec.args, cwd: spec.cwd, logPath: spec.logPath, exitPath: spec.exitPath }));
+  const identity = launchIdentity(spec);
+  writeFileSync(spec.specPath, JSON.stringify({ cmd: spec.cmd, args: spec.args, cwd: spec.cwd, logPath: spec.logPath, exitPath: spec.exitPath, ...(identity ?? {}) }));
 }
 
 export function detachedHost(wrapperPath: string): RunHost {
@@ -37,17 +81,30 @@ export function detachedHost(wrapperPath: string): RunHost {
     kind: 'detached',
 
     async launch(spec: LaunchSpec): Promise<HostRef> {
+      const identity = launchIdentity(spec);
+      if (identity && await readLaunchReceipt(spec)) {
+        const prior = await receiptDiscovery(spec);
+        if (prior.status === 'found') return prior.ref;
+        throw new Error(prior.status === 'unknown' ? prior.reason : 'Existing launch requires reconciliation');
+      }
       writeSpecFile(spec);
       const env: NodeJS.ProcessEnv = { ...process.env };
       delete env.JIRA_API_TOKEN;
       delete env.JIRA_EMAIL;
-      const child = spawn('node', [wrapperPath, spec.specPath], { detached: true, stdio: 'ignore', env });
+      const child = spawn(process.execPath, [wrapperPath, spec.specPath], { detached: true, stdio: 'ignore', env });
+      await new Promise<void>((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
       child.unref();
-      return { kind: 'detached', pid: child.pid! };
+      const processStart = identity ? await processStartIdentity(child.pid!) : null;
+      return { kind: 'detached', pid: child.pid!, ...(identity ? { ownership: { ...identity, pid: child.pid!, ...(processStart ? { processStart } : {}) } } : {}) };
     },
+
+    discover: (spec, ref) => ref && ref.kind !== 'detached' ? Promise.resolve({ status: 'unknown', reason: 'Host reference does not belong to detached execution' }) : receiptDiscovery(spec, ref),
 
     async isAlive(ref: HostRef): Promise<boolean> {
       if (ref.kind !== 'detached') return false;
+      if (ref.ownership) {
+        if (!ref.ownership.processStart || await processStartIdentity(ref.pid) !== ref.ownership.processStart) throw new Error('Detached process ownership is unknown');
+      }
       try {
         process.kill(ref.pid, 0);
         return true;
@@ -58,6 +115,7 @@ export function detachedHost(wrapperPath: string): RunHost {
 
     async stop(ref: HostRef): Promise<void> {
       if (ref.kind !== 'detached') return;
+      if (ref.ownership && (!ref.ownership.processStart || await processStartIdentity(ref.pid) !== ref.ownership.processStart)) throw new Error('Refusing to stop an unverified process');
       try {
         process.kill(-ref.pid, 'SIGTERM');
       } catch {
@@ -88,10 +146,25 @@ export function cmuxHost(wrapperPath: string, run: ArgvRunner = defaultRun): Run
     kind: 'cmux',
 
     async launch(spec: LaunchSpec): Promise<HostRef> {
+      const identity = launchIdentity(spec);
       writeSpecFile(spec);
-      const command = `node ${wrapperPath} ${spec.specPath}`;
-      const { stdout } = await run(['cmux', 'new-workspace', '--cwd', spec.cwd, '--focus', 'false', '--name', `run-${spec.runId}`, '--command', command]);
-      return { kind: 'cmux', workspace: parseCmuxWorkspaceRef(stdout) };
+      const quoted = (path: string) => `'${path.replaceAll("'", "'\\''")}'`;
+      const command = identity ? `node ${quoted(wrapperPath)} ${quoted(spec.specPath)}` : `node ${wrapperPath} ${spec.specPath}`;
+      const { stdout, code } = await run(['cmux', 'new-workspace', '--cwd', spec.cwd, '--focus', 'false', '--name', `run-${identity?.launchId ?? spec.runId}`, '--command', command]);
+      if (code !== 0) throw new Error('cmux launch returned an error; ownership requires discovery');
+      return { kind: 'cmux', workspace: parseCmuxWorkspaceRef(stdout), ...(identity ? { ownership: identity } : {}) };
+    },
+
+    async discover(spec, ref) {
+      const identity = launchIdentity(spec);
+      if (!identity) return { status: 'unknown', reason: 'Legacy cmux launch has no ownership identity' };
+      const { stdout, code } = await run(['cmux', 'list-workspaces']);
+      if (code !== 0) return { status: 'unknown', reason: 'cmux inventory is unavailable' };
+      const matches = stdout.split('\n').filter(line => line.split(/\s+/).includes(`run-${identity.launchId}`));
+      if (matches.length !== 1) return { status: 'unknown', reason: 'cmux launch ownership cannot be uniquely resolved' };
+      const workspace = parseCmuxWorkspaceRef(matches[0]!);
+      if (ref && (ref.kind !== 'cmux' || ref.workspace !== workspace)) return { status: 'unknown', reason: 'cmux workspace identity changed' };
+      return receiptDiscovery(spec, { kind: 'cmux', workspace, ownership: identity });
     },
 
     async isAlive(ref: HostRef): Promise<boolean> {
@@ -106,6 +179,7 @@ export function cmuxHost(wrapperPath: string, run: ArgvRunner = defaultRun): Run
 
     async stop(ref: HostRef): Promise<void> {
       if (ref.kind !== 'cmux') return;
+      if (ref.ownership) return stopOwnedWrapper(ref);
       try {
         await run(['cmux', 'close-workspace', '--workspace', ref.workspace]);
       } catch {}
@@ -163,6 +237,7 @@ export function weztermHost(
     kind: 'wezterm',
 
     async launch(spec: LaunchSpec): Promise<HostRef> {
+      const identity = launchIdentity(spec);
       const socket = resolve();
       if (socket === null) throw new Error('wezterm is not running');
       writeSpecFile(spec);
@@ -175,7 +250,12 @@ export function weztermHost(
         '--cwd', spec.cwd,
         '--', 'node', wrapperPath, spec.specPath,
       ], socket);
-      return { kind: 'wezterm', paneId: parseWezPaneId(stdout), socket };
+      return { kind: 'wezterm', paneId: parseWezPaneId(stdout), socket, ...(identity ? { ownership: identity } : {}) };
+    },
+
+    async discover(spec, ref) {
+      if (!ref || ref.kind !== 'wezterm' || !ref.socket) return { status: 'unknown', reason: 'A pinned WezTerm pane and socket are required' };
+      return receiptDiscovery(spec, ref);
     },
 
     async isAlive(ref: HostRef): Promise<boolean> {
@@ -191,6 +271,7 @@ export function weztermHost(
 
     async stop(ref: HostRef): Promise<void> {
       if (ref.kind !== 'wezterm') return;
+      if (ref.ownership) return stopOwnedWrapper(ref);
       try {
         await run(['wezterm', 'cli', 'kill-pane', '--pane-id', ref.paneId], socketFor(ref));
       } catch {}

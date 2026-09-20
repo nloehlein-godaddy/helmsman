@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 import { createHash, randomUUID } from 'node:crypto';
 import { isGithubRepo } from '../pr-lists';
 import type { Campaign, CampaignPhase, CampaignPhaseState, CampaignPreview, CampaignRecord, CampaignTask, CampaignTaskState } from '../../src/data/campaigns';
@@ -145,15 +146,15 @@ export function parseCampaignImport(input: unknown): CampaignRecord[] {
   });
 }
 
-export function openCampaignStore(path: string, options: { now?: () => string } = {}): CampaignStore {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
+export function openCampaignStore(path: string | Database.Database, options: { now?: () => string } = {}): CampaignStore {
+  const connection = storeConnection(path);
+  const { sql } = connection;
   const now = () => {
     const value = options.now?.() ?? new Date().toISOString();
     if (!Number.isFinite(Date.parse(value))) throw new CampaignValidationError('Invalid clock');
     return new Date(value).toISOString();
   };
-  sql.exec(`
+  connection.migrate({ owner: 'compat.campaigns', ddl: `
     CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, repo TEXT NOT NULL, payload TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS campaign_phases (
       id TEXT PRIMARY KEY, campaignId TEXT NOT NULL, position INTEGER NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL,
@@ -165,7 +166,8 @@ export function openCampaignStore(path: string, options: { now?: () => string } 
       runId TEXT NOT NULL UNIQUE, claimToken TEXT, payload TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS campaign_tasks_queue ON campaign_tasks(state, campaignId, phaseId);
-  `);
+  ` });
+
   function read<T>(table: string, key: string): T | null {
     const row = sql.prepare(`SELECT payload FROM ${table} WHERE id = ?`).get(id(key)) as { payload: string } | undefined;
     if (!row) return null;
@@ -329,6 +331,6 @@ export function openCampaignStore(path: string, options: { now?: () => string } 
         if (items.length && items.every(item => ['succeeded', 'failed', 'cancelled'].includes(item.state))) savePhase({ ...current, state: 'completed', updatedAt: now() });
       }
     }).immediate,
-    close: () => sql.close(),
+    close: () => connection.close(),
   };
 }

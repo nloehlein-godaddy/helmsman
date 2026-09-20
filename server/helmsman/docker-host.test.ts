@@ -24,6 +24,34 @@ const inspected = (running: boolean, label: string = 'run_1', status = running ?
   State: { Running: running, Status: status }, Config: { Labels: { 'helmsman.runId': label } } }), code: 0 });
 
 describe('docker host', () => {
+  it('uses per-attempt labels and does not reclaim a stopped durable launch without worker evidence', async () => {
+    const { run, host, spec } = fixture();
+    const durable = { ...spec, launchId: 'launch_2', attempt: 2, receiptPath: `${spec.specPath}.receipt` };
+    await host.launch(durable);
+    const args = run.mock.calls.at(-1)?.[0] ?? [];
+    expect(args).toEqual(expect.arrayContaining(['helmsman-launch_2', 'helmsman.launchId=launch_2', 'helmsman.attempt=2']));
+    run.mockReset().mockResolvedValue({ stdout: JSON.stringify({ Id: id, State: { Running: false, Status: 'exited' },
+      Config: { Labels: { 'helmsman.runId': spec.runId, 'helmsman.launchId': 'launch_2', 'helmsman.attempt': '2' } } }), code: 0 });
+    await expect(host.launch(durable)).rejects.toThrow('no matching worker exit receipt');
+    expect(run.mock.calls.map(([args]) => args[1])).toEqual(['inspect']);
+  });
+
+  it('distinguishes definite Docker absence from daemon failure and prior-attempt ownership', async () => {
+    const { run, host, spec } = fixture();
+    const durable = { ...spec, launchId: 'launch_2', attempt: 2 };
+    expect(await host.discover!(durable)).toMatchObject({ status: 'absent' });
+    run.mockReset().mockRejectedValue(new Error('daemon offline'));
+    expect(await host.discover!(durable)).toEqual({ status: 'unknown', reason: 'daemon offline' });
+    run.mockReset().mockResolvedValue(inspected(true));
+    expect(await host.discover!(durable)).toMatchObject({ status: 'unknown' });
+  });
+
+  it('does not send stop to a reused container with mismatched durable labels', async () => {
+    const { run, host, spec } = fixture();
+    run.mockReset().mockResolvedValue(inspected(true));
+    await expect(host.stop({ kind: 'docker', containerId: id, ownership: { launchId: 'launch_2', runId: spec.runId, attempt: 2, receiptPath: 'receipt' } })).rejects.toThrow('unverified');
+    expect(run.mock.calls.map(([args]) => args[1])).toEqual(['inspect']);
+  });
   it.each(['pre-pr-cli.ts', 'docker-review-cli.ts', 'pre-pr-cli.js', 'docker-review-cli.js'].flatMap(filename => [
     `/app/server/helmsman/${filename}`, `C:\\app\\server\\helmsman\\${filename}`,
   ]))('rejects host-only %s coordinators before Docker or filesystem effects', async path => {

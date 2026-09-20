@@ -18,6 +18,7 @@ export interface CreatedPrReviewsOptions {
 
 export interface CreatedPrReviews {
   enqueue(input: { parentRunId: string; repo: string; prNumber: number }): string;
+  find(input: { parentRunId: string; repo: string; prNumber: number }): { id: string; parentRunId: string; repo: string; prNumber: number } | null;
   poll(): Promise<void>;
 }
 
@@ -132,6 +133,10 @@ export function createCreatedPrReviews(options: CreatedPrReviewsOptions): Create
   }
 
   return {
+    find(input) {
+      const row = store.getNotification(identity(input.parentRunId, input.repo, input.prNumber));
+      return row && parentId(row) === input.parentRunId ? { id: row.id, parentRunId: input.parentRunId, repo: row.repo, prNumber: row.prNumber } : null;
+    },
     enqueue(input) {
       if (!input || typeof input.parentRunId !== 'string' || !RUN_ID.test(input.parentRunId)
         || typeof input.repo !== 'string' || !isGithubRepo(input.repo) || !Number.isSafeInteger(input.prNumber) || input.prNumber < 1) {

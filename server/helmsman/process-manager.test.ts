@@ -51,4 +51,25 @@ describe('ProcessManager', () => {
     pm.remove('r1');
     expect(pm.hasRun('r1')).toBe(false);
   });
+
+  it('restores unresolved durable ownership without falsely claiming an attached process', () => {
+    let reservations = [{ runId: 'r1', repo: 'Org/A', reason: 'unresolved' }];
+    const pm = new ProcessManager(2, { reservations: () => reservations });
+    expect(pm.hasRun('r1')).toBe(true);
+    expect(pm.hasAttached('r1')).toBe(false);
+    expect(pm.stop('r1')).toBe(false);
+    expect(pm.canStart('org/a')).toMatchObject({ ok: false });
+    pm.add('r1', 'Org/A', () => {});
+    expect(pm.count()).toBe(1);
+    pm.remove('r1');
+    expect(pm.count()).toBe(1);
+    expect(pm.activeRepos()).toEqual(['Org/A']);
+    reservations = [];
+    expect(pm.canStart('org/a')).toEqual({ ok: true });
+  });
+
+  it('counts durable blocked attempts against global concurrency', () => {
+    const pm = new ProcessManager(1, { reservations: () => [{ runId: 'blocked', repo: 'org/a' }] });
+    expect(pm.canStart('org/b')).toEqual({ ok: false, reason: 'max concurrency reached' });
+  });
 });

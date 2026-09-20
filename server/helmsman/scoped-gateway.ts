@@ -1,12 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
+import { parsePublicationRequest, type PublicationRequest, type PublicationResponse } from './publication-client';
 
 export interface GatewayCapability { token: string; runId: string; expiresAt: number }
 export interface GatewayScope { repo: string; branch: string; readOnly: boolean }
 export interface ScopedGatewayOptions {
-  path?: string;
+  path?: string | Database.Database;
   openaiKey: string | (() => string | undefined);
   anthropicKey?: () => string | undefined;
   githubKey?: () => string | undefined;
@@ -14,13 +16,16 @@ export interface ScopedGatewayOptions {
   scope?: (runId: string) => GatewayScope | null;
   clarificationReady?: (runId: string) => boolean;
   push?: (runId: string, scope: GatewayScope, headSha: string) => Promise<void>;
+  publication?: (runId: string, scope: GatewayScope, request: PublicationRequest, signal: AbortSignal) => Promise<PublicationResponse>;
   fetcher?: typeof fetch;
   now?: () => number;
 }
 
 export function createScopedGateway(input: ScopedGatewayOptions) {
-  const sql = new Database(input.path ?? ':memory:');
-  sql.exec('CREATE TABLE IF NOT EXISTS run_capabilities (hash TEXT PRIMARY KEY, runId TEXT NOT NULL, expiresAt INTEGER NOT NULL)');
+  const connection = storeConnection(input.path ?? ':memory:');
+  const { sql } = connection;
+  connection.migrate({ owner: 'core.capabilities', ddl: 'CREATE TABLE IF NOT EXISTS run_capabilities (hash TEXT PRIMARY KEY, runId TEXT NOT NULL, expiresAt INTEGER NOT NULL)' });
+  connection.migrate({ owner: 'core.publication-capabilities', ddl: 'CREATE TABLE IF NOT EXISTS publication_capabilities (hash TEXT PRIMARY KEY, runId TEXT NOT NULL, expiresAt INTEGER NOT NULL)' });
   const now = input.now ?? Date.now;
   const fetcher = input.fetcher ?? fetch;
   const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -36,7 +41,7 @@ export function createScopedGateway(input: ScopedGatewayOptions) {
     return Buffer.concat(parts);
   }
   const reply = (res: ServerResponse, status: number, value: unknown) => {
-    res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value));
+    res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(value));
   };
   async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const abort = new AbortController();
@@ -45,10 +50,28 @@ export function createScopedGateway(input: ScopedGatewayOptions) {
     try {
       const auth = req.headers.authorization;
       const token = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7) : req.headers['x-api-key'];
-      const cap = typeof token === 'string' && /^[a-f\d]{64}$/.test(token)
-        ? sql.prepare('SELECT runId, expiresAt FROM run_capabilities WHERE hash = ?').get(hash(token)) as { runId: string; expiresAt: number } | undefined : undefined;
-      if (!cap || cap.expiresAt <= now() || !input.active(cap.runId)) { reply(res, 401, { error: 'Inactive capability' }); return; }
       const path = req.url ?? '';
+      const table = path === '/publication/v1' ? 'publication_capabilities' : 'run_capabilities';
+      const cap = typeof token === 'string' && /^[a-f\d]{64}$/.test(token)
+        ? sql.prepare(`SELECT runId, expiresAt FROM ${table} WHERE hash = ?`).get(hash(token)) as { runId: string; expiresAt: number } | undefined : undefined;
+      if (!cap || cap.expiresAt <= now() || !input.active(cap.runId)) { reply(res, 401, { error: 'Inactive capability' }); return; }
+      if (path === '/publication/v1' && req.method === 'POST') {
+        const scope = input.scope?.(cap.runId);
+        if (!scope || scope.readOnly || !input.publication || input.clarificationReady?.(cap.runId) !== true) { reply(res, 403, { error: 'Publication not permitted' }); return; }
+        let request: PublicationRequest;
+        try {
+          const body = await read(req);
+          if (body.length > 64_000) throw new Error('Publication request too large');
+          request = parsePublicationRequest(JSON.parse(body.toString('utf8')));
+        } catch { reply(res, 400, { error: 'Provide valid approved publication evidence' }); return; }
+        const current = input.scope?.(cap.runId);
+        if (request.approved.branch !== scope.branch || !input.active(cap.runId) || input.clarificationReady?.(cap.runId) !== true
+          || !current || current.readOnly || current.repo !== scope.repo || current.branch !== scope.branch
+          || !sql.prepare('SELECT hash FROM publication_capabilities WHERE hash=? AND expiresAt>?').get(hash(String(token)), now())) {
+          reply(res, 403, { error: 'Publication scope or capability changed' }); return;
+        }
+        reply(res, 200, await input.publication(cap.runId, scope, request, abort.signal)); return;
+      }
       if (path === '/clarification-gate' && req.method === 'GET') {
         reply(res, 200, { ready: input.clarificationReady?.(cap.runId) === true }); return;
       }
@@ -114,16 +137,18 @@ export function createScopedGateway(input: ScopedGatewayOptions) {
       else res.destroy();
     } finally { clearTimeout(deadline); }
   }
-  return {
-    issue(runId: string, ttlMs: number): GatewayCapability {
+  function issue(table: 'run_capabilities' | 'publication_capabilities', runId: string, ttlMs: number): GatewayCapability {
       if (!/^[a-z\d_-]{1,128}$/i.test(runId) || !Number.isSafeInteger(ttlMs) || ttlMs < 1 || ttlMs > 86_400_000) throw new Error('Invalid capability');
       const capability = { token: randomBytes(32).toString('hex'), runId, expiresAt: now() + ttlMs };
-      sql.prepare('INSERT INTO run_capabilities (hash, runId, expiresAt) VALUES (?, ?, ?)').run(hash(capability.token), runId, capability.expiresAt);
+      sql.prepare(`INSERT INTO ${table} (hash, runId, expiresAt) VALUES (?, ?, ?)`).run(hash(capability.token), runId, capability.expiresAt);
       return capability;
-    },
-    revoke(token: string) { sql.prepare('DELETE FROM run_capabilities WHERE hash = ?').run(hash(token)); },
-    revokeRun(runId: string) { sql.prepare('DELETE FROM run_capabilities WHERE runId = ?').run(runId); },
+  }
+  return {
+    issue: (runId: string, ttlMs: number) => issue('run_capabilities', runId, ttlMs),
+    issuePublication: (runId: string, ttlMs: number) => issue('publication_capabilities', runId, ttlMs),
+    revoke(token: string) { for (const table of ['run_capabilities', 'publication_capabilities']) sql.prepare(`DELETE FROM ${table} WHERE hash = ?`).run(hash(token)); },
+    revokeRun(runId: string) { for (const table of ['run_capabilities', 'publication_capabilities']) sql.prepare(`DELETE FROM ${table} WHERE runId = ?`).run(runId); },
     server() { return createServer((req, res) => { void handler(req, res); }); },
-    close() { sql.close(); },
+    close() { connection.close(); },
   };
 }

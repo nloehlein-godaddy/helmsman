@@ -1,20 +1,34 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isAppPagePath } from '../../src/logic/routes';
 import { appPages } from '../../src/plugins/builtins';
-import { loadPluginSnapshot, pluginDirectory } from './plugins/store';
+import { createPluginCoordinator, loadPluginSnapshot, pluginDirectory } from './plugins/store';
 import { handlePluginRequest } from './plugins/http';
-import { applicationRoot, isHostCoordinatorCommand } from './runtime-paths';
+import { applicationRoot, isHostCoordinatorCommand, retainedRuntimePath } from './runtime-paths';
 import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { buildDashboardResponse } from '../dashboard-endpoint';
 import { buildTriageResponse } from '../triage-endpoint';
 import { buildBugsResponse } from '../bugs-endpoint';
-import type { AppConfig } from '../config';
+import { loadConfig, type AppConfig } from '../config';
 import { openDb } from './db';
+import { openPersistence, persistedJson, persistenceHash, claimApplicationStartup } from './persistence';
+import { openExecutionStore } from './execution-store';
+import { openExecutionControls } from './execution-controls';
+import { openLegacyExecutionAdoption } from './legacy-execution-adoption';
+import { openPluginLifecycle } from './plugins/lifecycle';
+import { openOperationStore } from './operations';
+import { authorizeRunEffect, createLegacyRunEffects, type LegacyRunEffects } from './legacy-run-effects';
+import { createPublicationService } from './publication-service';
+import { createLegacySlackEffects } from './legacy-slack-effects';
+import { createManualReviewEffects } from './manual-review-effects';
+import { dispatchOperation } from './operation-dispatcher';
+import { openAdmissionStore } from './admission-store';
+import { createRunnerDurability } from './runner-durability';
+import { legacyExecutionSnapshot, legacyExecutionSettings, nonsecretExecutionTask, restoreExecutionConfig } from './legacy-execution-snapshot';
+import { retainLegacyRuntime, verifyLegacyRuntime } from './legacy-runtime-artifact';
 import { openOutcomeStore, createOutcomeTelemetrySink } from './outcomes';
 import { openUsageStore } from './usage-store';
 import { createUsageQueryService } from './usage-service';
@@ -30,11 +44,15 @@ import { createCampaignDispatcher } from './campaign-dispatcher';
 import { createCampaignService } from './campaign-service';
 import { openClarificationStore } from './clarifications';
 import { createScopedGateway } from './scoped-gateway';
+import { listenScopedGateway } from './gateway-listener';
 import { createDockerWorkspace, removeDockerWorkspace } from './docker-workspace';
 import { dockerHost, dockerRun, hasDocker } from './docker-host';
 import { createClarificationRuntime, clarificationPaths } from './clarification-runtime';
 import { createOutcomeService } from './outcome-service';
-import { recoverRuns } from './recovery';
+import { recoverRuns, type AttachmentHandshake } from './recovery';
+import { createRecoveryService } from './recovery-service';
+import { handleRecoveryRequest } from './recovery-http';
+import { recoveryPage } from './recovery-page';
 import { handleApi } from './router';
 import { ProcessManager } from './process-manager';
 import { RunBus } from './event-bus';
@@ -50,8 +68,7 @@ import { dockerReviewAdapter } from './agents/docker-review';
 import { restoreRunAdapter } from './agents/restore';
 import { readReviewArtifact } from './review-artifacts';
 import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeWorktree, removeWorktreeAt, repoBasename, sweepOrphanedWorktrees } from './worktree';
-import { makeLiveJiraActions, type JiraActions } from './jira-actions';
-import { findPrNumberByBranch, fetchPrStatus, fetchPrDiff, submitReview as ghSubmitReview, requestCopilotReview as ghRequestCopilotReview, type PrStatus } from '../github';
+import { findPrNumberByBranch, fetchPrStatus, fetchPrDiff, type PrStatus } from '../github';
 import { fetchRepoOpenPrs, fetchReviewRequestedPrs } from '../pr-lists';
 import { fetchGithubProfile } from '../github-profile';
 import { getLocalGit, mutateLocalGit } from '../local-git';
@@ -77,7 +94,6 @@ import type { SlackState } from '../../src/data/slack';
 import { createGithubReviewWatcher } from './github-review-watcher';
 import { createCreatedPrReviews } from './created-pr-reviews';
 import { fetchReviewHead, fetchReviewScope, selectReviewModel } from './review-policy';
-import { publishInlineReview } from './inline-review';
 import { createOutboundMeter } from './outbound-meter';
 import { keysFor } from './cmux/actions';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
@@ -90,44 +106,94 @@ const outboundMeter = createOutboundMeter();
 const PORT: number = Number(process.env.HELMSMAN_PORT ?? '8787');
 const DIST: string = join(applicationRoot(), 'dist');
 const dbPath = process.env.HELMSMAN_DB ?? join(process.cwd(), '.helmsman.sqlite');
-const db = openDb(dbPath);
-const todos = openTodoStore(dbPath);
-reconcileTodoRuns(todos, db);
-const slackStore = openSlackStore(dbPath);
-const voyageNotifications = openVoyageNotifications(dbPath);
-const pm: ProcessManager = new ProcessManager(Number(process.env.AGENT_MAX_CONCURRENCY ?? '3'));
+const persistence = openPersistence(dbPath);
+const applicationStartup = claimApplicationStartup(persistence);
+process.once('exit', applicationStartup.close);
+const db = openDb(persistence.sql);
+const executions = openExecutionStore(persistence);
+const executionControls = openExecutionControls(persistence);
+const legacyExecutions = openLegacyExecutionAdoption({ persistence, executions });
+legacyExecutions.audit(db.listRuns(-1));
+const admissions = openAdmissionStore(persistence, executions);
+const lifecycle = openPluginLifecycle(persistence, executions);
+const operations = openOperationStore(persistence, executions);
+const todos = openTodoStore(persistence.sql);
+reconcileTodoRuns(todos, db, runId => Boolean(admissions.get(runId)?.state.match(/^(pending|blocked)$/)));
+for (const admission of admissions.pending()) admissions.block(admission.runId, 'Restart interrupted preparation; retained bindings require reconciliation');
+const slackStore = openSlackStore(persistence.sql);
+const voyageNotifications = openVoyageNotifications(persistence.sql);
+const maxConcurrency = Number(process.env.AGENT_MAX_CONCURRENCY ?? '3');
+const pm: ProcessManager = new ProcessManager(maxConcurrency, { reservations: () => {
+  const reservations = new Map(executions.reservations().map(row => [row.runId, row]));
+  for (const row of db.activeRuns()) if (!reservations.has(row.id)) reservations.set(row.id, { runId: row.id, repo: row.repo, reason: 'unresolved' });
+  return [...reservations.values()];
+} });
 const bus: RunBus = new RunBus();
 const AGENTS_ROOT: string = process.env.AGENTS_ROOT ?? process.cwd();
 const RUNS_DIR: string = process.env.RUNS_DIR ?? join(AGENTS_ROOT, '.helmsman-runs');
 mkdirSync(RUNS_DIR, { recursive: true });
-const WRAPPER: string = fileURLToPath(new URL('./run-wrapper.mjs', import.meta.url));
+const runtimeArtifactsRoot = join(RUNS_DIR, '.runtime-artifacts');
+const currentRuntime = await retainLegacyRuntime(applicationRoot(), runtimeArtifactsRoot);
+
+const WRAPPER = join(currentRuntime.root, 'server', 'helmsman', 'run-wrapper.mjs');
 const configStore: ConfigStore = new ConfigStore(process.env, db);
-const usageStore = openUsageStore(dbPath);
-const outcomeStore = openOutcomeStore(dbPath, undefined, usageStore);
-const runTelemetry = openRunTelemetry(dbPath, usageStore, createOutcomeTelemetrySink(outcomeStore));
+const usageStore = openUsageStore(persistence.sql);
+const outcomeStore = openOutcomeStore(persistence.sql, undefined, usageStore);
+const runTelemetry = openRunTelemetry(persistence.sql, usageStore, createOutcomeTelemetrySink(outcomeStore));
 const usageQueries = createUsageQueryService({ db, usage: usageStore });
-const backendPlugins = await activateBackendPlugins({ root: pluginDirectory(),
-  snapshot: process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1' ? await loadPluginSnapshot(pluginDirectory()) : pluginSnapshot,
+const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
+  runtimeArtifact: currentRuntime.artifact, builtins: [{ package: builtinPricing.package, artifactHash: currentRuntime.artifact.artifactHash }], resetHealth: true });
+pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator);
+const backendPlugins = await activateBackendPlugins({ root: pluginDirectory(), coordinator: pluginCoordinator,
+  snapshot: process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1' ? await loadPluginSnapshot(pluginDirectory(), false, pluginCoordinator) : pluginSnapshot,
   usage: usageQueries, builtins: [builtinPricing], defaultPricingProvider: 'helmsman.standard-pricing/standard' });
 for (const error of backendPlugins.errors) process.stderr.write(`${error}\n`);
 pluginSnapshot = retainActivatedPluginPages(pluginSnapshot, backendPlugins.activePluginIds());
 for (const [slot, contribution] of Object.entries(pluginSnapshot.catalog.bindings)) appPages.select(slot, contribution);
-for (const plugin of pluginSnapshot.catalog.plugins) appPages.register(plugin.package.manifest);
+const pageRegistrations = new Map(pluginSnapshot.catalog.plugins.map(plugin => [plugin.package.manifest.id, appPages.register(plugin.package.manifest)]));
+pluginCoordinator.subscribe(async () => {
+  const next = retainActivatedPluginPages(await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator), backendPlugins.activePluginIds());
+  for (const [id, dispose] of pageRegistrations) if (!next.catalog.plugins.some(plugin => plugin.package.manifest.id === id)) {
+    dispose();
+    pageRegistrations.delete(id);
+    const previous = pluginSnapshot.catalog.plugins.find(plugin => plugin.package.manifest.id === id);
+    const state = pluginCoordinator.state(id);
+    if (previous && !previous.package.backend && state?.desiredEnabled === false) lifecycle.recordHealth(id, state.artifactHash, 'inactive', null);
+  }
+  for (const plugin of next.catalog.plugins) if (!pageRegistrations.has(plugin.package.manifest.id)) pageRegistrations.set(plugin.package.manifest.id, appPages.register(plugin.package.manifest));
+  for (const [slot, contribution] of Object.entries(next.catalog.bindings)) appPages.select(slot, contribution);
+  pluginSnapshot = next;
+});
 for (const error of pluginSnapshot.errors) process.stderr.write(`${error}\n`);
-const workflows = openWorkflowStore(dbPath);
-const clarifications = openClarificationStore(dbPath, { getRun: id => db.getRun(id) });
+const workflows = openWorkflowStore(persistence.sql);
+const clarifications = openClarificationStore(persistence.sql, { getRun: id => db.getRun(id) });
 const clarificationRuntime = createClarificationRuntime(clarifications, RUNS_DIR);
 clarifications.cleanupOrphans();
 const outcomes = createOutcomeService({ db, store: outcomeStore, fetchPr: (repo, number) => {
   const github = configStore.current().github;
   return github ? fetchPrStatus(github, repo, number) : Promise.resolve(null);
 } });
-const slackReviewRequester = openSlackReviewRequester(dbPath, {
+const slackReviewRequester = openSlackReviewRequester(persistence.sql, {
   settings: () => slackReviewSettings(configStore.effectiveEnv()),
   send: input => createSlackBrowserReviewSender(slackSettings(configStore.effectiveEnv())).send(input),
   getPr: (repo, prNumber) => {
     const github = configStore.current().github;
     return github ? fetchPrStatus(github, repo, prNumber) : Promise.resolve(null);
+  },
+});
+const manualReviewEffects = createManualReviewEffects({ persistence, operations,
+  assertAdmission: () => { if (!pluginCoordinator.canActivate(currentRuntime.artifact.pluginId, currentRuntime.artifact.artifactHash)) throw new Error('Retained review provider is disabled'); },
+  currentConfig: () => configStore.current(),
+  artifact: currentRuntime.artifact, verifyArtifacts: verifyEffectArtifacts });
+const slackEffects = createLegacySlackEffects({ persistence, operations, artifact: currentRuntime.artifact,
+  requester: slackReviewRequester, verifyArtifacts: verifyEffectArtifacts,
+  assertAdmission: () => { if (!pluginCoordinator.canActivate(currentRuntime.artifact.pluginId, currentRuntime.artifact.artifactHash)) throw new Error('Retained Slack provider is disabled'); },
+  currentTarget: () => {
+    const env = configStore.effectiveEnv();
+    const settings = slackReviewSettings(env);
+    const browser = slackSettings(env);
+    return { ...settings, workspace: browser.clientId,
+      connectionId: persistenceHash({ workspace: browser.clientId, surface: browser.surface ?? null }) };
   },
 });
 const startupCfg: AppConfig = configStore.current();
@@ -149,11 +215,23 @@ function ensureCmuxWatch(): void {
 const RUN_HOSTS: ReadonlyArray<HostRef['kind']> = ['cmux', 'wezterm', 'detached', 'docker'];
 const runHost = RUN_HOSTS.find((k) => k === process.env.RUN_HOST) ?? null;
 const DOCKER_WORKSPACES = join(AGENTS_ROOT, '.helmsman-docker-workspaces');
-const gatewayPort = Number(process.env.HELMSMAN_GATEWAY_PORT ?? '8790');
-const gatewayUrl = `http://host.docker.internal:${gatewayPort}`;
-const gateway = createScopedGateway({ path: dbPath, openaiKey: () => process.env.OPENAI_API_KEY,
+function stopRequested(runId: string): boolean {
+  return executionControls.isStopRequested({ runId, attempt: db.getRun(runId)?.attempt ?? 1 });
+}
+function recordStopRequest(runId: string): void {
+  executionControls.requestStop({ runId, attempt: db.getRun(runId)?.attempt ?? 1 });
+}
+const publicationService = createPublicationService({ persistence, operations, executions, runsDir: RUNS_DIR,
+  getRun: id => db.getRun(id), currentConfig: () => configStore.current(),
+  verifyArtifacts: verifyEffectArtifacts,
+  clarificationReady: runId => { clarificationRuntime.poll(runId); return !clarificationRuntime.hasUnanswered(runId); },
+  isStopped: runId => stopRequested(runId),
+});
+
+const gateway = createScopedGateway({ path: persistence.sql, openaiKey: () => process.env.OPENAI_API_KEY,
   anthropicKey: () => process.env.ANTHROPIC_API_KEY, githubKey: () => configStore.current().github?.token,
-  active: runId => db.getRun(runId)?.status === 'running',
+  active: runId => db.getRun(runId)?.status === 'running' && !stopRequested(runId),
+  push: publicationService.push, publication: publicationService.publish,
   scope: runId => {
     const run = db.getRun(runId);
     if (!run) return null;
@@ -162,18 +240,30 @@ const gateway = createScopedGateway({ path: dbPath, openaiKey: () => process.env
   },
   clarificationReady: runId => { clarificationRuntime.poll(runId); return !clarificationRuntime.hasUnanswered(runId); },
 });
-if (runHost === 'docker') {
-  if (!process.env.HELMSMAN_DOCKER_IMAGE) throw new Error('Set HELMSMAN_DOCKER_IMAGE to a built Helmsman runtime image before selecting Docker');
-  if (!Number.isSafeInteger(gatewayPort) || gatewayPort < 1024 || gatewayPort > 65535) throw new Error('Invalid scoped gateway port');
-  const gatewayServer = gateway.server();
-  await new Promise<void>((resolve, reject) => { gatewayServer.once('error', reject); gatewayServer.listen(gatewayPort, '0.0.0.0', resolve); });
+if (runHost === 'docker' && !process.env.HELMSMAN_DOCKER_IMAGE) throw new Error('Set HELMSMAN_DOCKER_IMAGE to a built Helmsman runtime image before selecting Docker');
+const campaignsStore = openCampaignStore(persistence.sql);
+const webhooks = openWebhookIntake(persistence.sql, {
+  secret: () => process.env.HELMSMAN_WEBHOOK_SECRET,
+  routes: () => parseWebhookRoutes(process.env.HELMSMAN_WEBHOOK_ROUTES),
+  allowedRepos: () => { const cfg = configStore.current(); return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])]; },
+  canStart: repo => pm.canStart(repo).ok, getRun: id => db.getRun(id), isRunActive: id => pm.hasRun(id), launch,
+});
+applicationStartup.ready();
+const gatewayServer = gateway.server();
+const gatewayPort = await listenScopedGateway(gatewayServer, { runsDir: RUNS_DIR, docker: runHost === 'docker',
+  configuredPort: process.env.HELMSMAN_GATEWAY_PORT === undefined ? undefined : Number(process.env.HELMSMAN_GATEWAY_PORT) });
+const gatewayUrl = `http://host.docker.internal:${gatewayPort}`;
+function publicationConnection(runId: string) {
+  return { url: `http://127.0.0.1:${gatewayPort}/publication/v1`, token: gateway.issuePublication(runId, 86_400_000).token };
 }
 const selectedHost = await pickHost({ hasCmux, hasWezTerm, hasDocker, wrapperPath: WRAPPER, prefer: runHost,
   dockerHost: () => dockerHost({ image: process.env.HELMSMAN_DOCKER_IMAGE ?? '', runtimeRoot: RUNS_DIR, wrapperPath: WRAPPER, run: dockerRun, enabled: true }) });
 const localHost = detachedHost(WRAPPER);
-const host: RunHost = selectedHost.kind === 'docker' ? {
+const selectedRunHost: RunHost = selectedHost.kind === 'docker' ? {
   kind: 'docker',
   launch: spec => isHostCoordinatorCommand(spec) ? localHost.launch(spec) : selectedHost.launch(spec),
+  discover: (spec, ref) => (isHostCoordinatorCommand(spec) || ref?.kind === 'detached' ? localHost : selectedHost).discover?.(spec, ref)
+    ?? Promise.resolve({ status: 'unknown', reason: 'Retained host discovery is unavailable' }),
   isAlive: ref => ref.kind === 'detached' ? localHost.isAlive(ref) : selectedHost.isAlive(ref),
   stop: async ref => {
     await (ref.kind === 'detached' ? localHost.stop(ref) : selectedHost.stop(ref));
@@ -181,6 +271,10 @@ const host: RunHost = selectedHost.kind === 'docker' ? {
     if (run) await stopDockerStages(run.id);
   },
 } : selectedHost;
+const host: RunHost = { ...selectedRunHost, launch: spec => {
+  const remap = (value: string) => retainedRuntimePath(value, applicationRoot(), currentRuntime.root);
+  return selectedRunHost.launch({ ...spec, cmd: remap(spec.cmd), args: spec.args.map(remap) });
+} };
 async function stopDockerStages(runId: string): Promise<void> {
   if (!/^[a-z\d_-]{1,128}$/i.test(runId)) return;
   try {
@@ -205,13 +299,67 @@ async function standaloneWorkspace(repo: string, runId: string, mode: 'fresh' | 
 process.stdout.write(`run host: ${host.kind}\n`);
 if (host.kind === 'docker') {
   for (const row of db.listRuns(1000)) {
-    if (row.status !== 'running' && row.taskJson?.includes('dockerExecution')) void stopDockerStages(row.id);
+    if (row.status !== 'running' && executions.cleanupEligibility(row.id).allowed && row.taskJson?.includes('dockerExecution')) void stopDockerStages(row.id);
   }
 }
 
-function baseRunnerDeps(cfg: AppConfig, jira: JiraActions | null): Omit<RunnerDeps, 'adapter' | 'genId' | 'onLaunch' | 'isStopped'> {
+
+async function verifyEffectArtifacts(artifacts: readonly import('./execution-store').ArtifactBinding[]): Promise<void> {
+  if (artifacts.length !== 1 || artifacts[0]?.pluginId !== currentRuntime.artifact.pluginId
+    || artifacts[0].artifactHash !== currentRuntime.artifact.artifactHash
+    || !await verifyLegacyRuntime(runtimeArtifactsRoot, artifacts[0].artifactHash)) throw new Error('Retained effect runtime is unavailable');
+}
+const runEffects = new Map<string, LegacyRunEffects>();
+function effectsFor(runId: string): LegacyRunEffects {
+  const existing = runEffects.get(runId);
+  if (existing) return existing;
+  const effects = createLegacyRunEffects({ persistence, runId, operations, executions, getRun: id => db.getRun(id),
+    currentConfig: () => loadConfig({ ...configStore.effectiveEnv(), JIRA_ENABLED: 'true' }),
+    verifyArtifacts: verifyEffectArtifacts,
+    createdReviews: { enqueue: input => createdPrReviews.enqueue(input), find: input => createdPrReviews.find(input) },
+    authorize: async operation => {
+      const run = operation.origin.runId ? db.getRun(operation.origin.runId) : null;
+      const authorization = authorizeRunEffect(operation, run);
+      if (!authorization.allowed) return authorization;
+      if (!run || stopRequested(run.id)) return { allowed: false, reason: 'The originating voyage is unavailable or stopped' };
+      clarificationRuntime.poll(run.id);
+      return clarificationRuntime.hasUnanswered(run.id) ? { allowed: false, reason: 'A required clarification remains unanswered' } : { allowed: true };
+    },
+  });
+  runEffects.set(runId, effects);
+  return effects;
+}
+function executionSnapshot(row: RunRow) {
+  const attempt = executions.attempt({ runId: row.id, attempt: row.attempt });
+  const snapshot = attempt && executions.snapshot(attempt.snapshotId);
+  if (!snapshot) throw new Error('Retained execution bindings are unavailable');
+  return snapshot;
+}
+
+function runnerDurability(cfg: AppConfig) {
+  return createRunnerDurability({ persistence, db, executions, admissions, lifecycle, operations, runsDir: RUNS_DIR, maxConcurrency,
+    finalize: (row, snapshot) => effectsFor(row.id).prepareFinalization(row, snapshot),
+    snapshot: (run, task) => legacyExecutionSnapshot({ run, task, artifact: currentRuntime.artifact, host: host.kind === 'docker' && (isPrePrAdapter(run.adapter) || run.adapter.startsWith('docker-review:')) ? 'detached' : host.kind, config: cfg }),
+    verify: async snapshot => {
+      const runtime = snapshot.artifacts.find(artifact => artifact.pluginId === currentRuntime.artifact.pluginId);
+      if (!runtime || runtime.artifactHash !== currentRuntime.artifact.artifactHash
+        || !await verifyLegacyRuntime(runtimeArtifactsRoot, runtime.artifactHash)) throw new Error('Restore the exact retained runtime before recovering this voyage');
+      const hostBinding = snapshot.bindings.find(binding => binding.role === 'host');
+      const savedRun = db.getRun(snapshot.runId);
+      if (!savedRun?.taskJson || persistenceHash(nonsecretExecutionTask(JSON.parse(savedRun.taskJson) as AgentTask)) !== persistenceHash(snapshot.task)) throw new Error('Saved task differs from the immutable execution snapshot');
+      const expectedHost = host.kind === 'docker' && savedRun && (isPrePrAdapter(savedRun.adapter) || savedRun.adapter.startsWith('docker-review:')) ? 'detached' : host.kind;
+      if (hostBinding?.contributionId !== expectedHost) throw new Error('Restore the retained worker host before recovery');
+      const expected = legacyExecutionSettings(cfg);
+      if (persistenceHash(snapshot.settings.execution) !== persistenceHash(expected)) throw new Error('Execution settings or connection identity changed; restore the retained binding before recovery');
+      if (snapshot.workflowSnapshotId && !workflows.resolveSnapshot(snapshot.workflowSnapshotId)) throw new Error('Retained workflow snapshot is unavailable');
+    },
+  });
+}
+
+function baseRunnerDeps(cfg: AppConfig, runId: string): Omit<RunnerDeps, 'adapter' | 'genId' | 'onLaunch' | 'isStopped'> {
   return {
     db,
+    durable: runnerDurability(cfg),
     bus,
     host,
     runsDir: RUNS_DIR,
@@ -224,7 +372,8 @@ function baseRunnerDeps(cfg: AppConfig, jira: JiraActions | null): Omit<RunnerDe
     createReviewWorktree: (repo, id, number, headSha) => standaloneWorkspace(repo, id, 'review', () => createReviewWorktree(AGENTS_ROOT, repo, id, number, headSha), headSha),
     removeWorktree: (repo: string, path: string) => path.startsWith(`${DOCKER_WORKSPACES}${sep}`) ? removeDockerWorkspace(DOCKER_WORKSPACES, path) : removeWorktree(AGENTS_ROOT, repo, path),
     now: () => new Date().toISOString(),
-    jira,
+    jira: cfg.jira ? effectsFor(runId).jira : null,
+    prepareFinalization: row => effectsFor(runId).prepareFinalizationLookups(row, executionSnapshot(row)),
     botAccountId: cfg.botAccountId ?? undefined,
     statusInProgress: cfg.statusInProgress,
     statusInReview: cfg.statusInReview,
@@ -234,19 +383,9 @@ function baseRunnerDeps(cfg: AppConfig, jira: JiraActions | null): Omit<RunnerDe
     maxCostUsd: cfg.maxCostUsd,
     readReview: worktreePath => readReviewArtifact(worktreePath, '.agent-review.md'),
     readReviewComments: worktreePath => readReviewArtifact(worktreePath, '.agent-review-comments.json'),
-    postReview: (repo, prNumber, reviewBody, input) => {
-      const g: AppConfig['github'] = configStore.current().github;
-      return g
-        ? publishInlineReview(g, repo, prNumber, reviewBody, input)
-        : Promise.resolve({ ok: false as const, error: 'GitHub not configured' });
-    },
-    requestCopilotReview: (repo: string, prNumber: number) => {
-      const g: AppConfig['github'] = configStore.current().github;
-      return g
-        ? ghRequestCopilotReview(g, repo, prNumber)
-        : Promise.resolve({ ok: false as const, error: 'GitHub not configured' });
-    },
-    enqueueCreatedPrReview: (input) => { createdPrReviews.enqueue(input); },
+    postReview: effectsFor(runId).postReview,
+    requestCopilotReview: effectsFor(runId).requestCopilotReview,
+    enqueueCreatedPrReview: effectsFor(runId).enqueueCreatedPrReview,
   };
 }
 
@@ -274,20 +413,36 @@ const createdPrReviews = createCreatedPrReviews({
   launch,
 });
 
+let drainingEffects: Promise<void> | null = null;
+function drainEffects(): Promise<void> {
+  drainingEffects ??= (async () => {
+    const runIds = new Set(operations.list({ statuses: ['pending', 'leased', 'retrying', 'blocked', 'uncertain'] }).flatMap(operation => operation.origin.runId ? [operation.origin.runId] : []));
+    for (const runId of runIds) await effectsFor(runId).drainPending(runId);
+    await publicationService.drainPending();
+    await slackEffects.drainPending();
+    await manualReviewEffects.drainPending();
+  })().catch(error => { process.stderr.write(`Operation recovery failed: ${String(error)}\n`); }).finally(() => { drainingEffects = null; });
+  return drainingEffects;
+}
+const effectTimer = setInterval(() => { void drainEffects(); }, 10_000);
+effectTimer.unref();
+void drainEffects();
+
 function pollCreatedPrReviews(): Promise<void> {
   return createdPrReviews.poll().catch((error: unknown) => { process.stderr.write(`Created PR review queue failed: ${String(error)}\n`); });
 }
 
-function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null }): Promise<void> {
-  const cfg: AppConfig = configStore.current();
-  const jira: JiraActions | null = cfg.jira ? makeLiveJiraActions(() => configStore.current().jira) : null;
-  const adapter = restoreRunAdapter(row, { runsDir: RUNS_DIR, agentCmd: cfg.agentCmd });
+async function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null }): Promise<AttachmentHandshake> {
+  const cfg = executions.attempt({ runId: row.id, attempt: row.attempt })
+    ? restoreExecutionConfig(executionSnapshot(row), loadConfig({ ...configStore.effectiveEnv(), JIRA_ENABLED: 'true' })) : configStore.current();
+  const adapter = restoreRunAdapter(row, { runsDir: RUNS_DIR, agentCmd: cfg.agentCmd, reviewSettings: cfg.prePr, publication: isPrePrAdapter(row.adapter) ? publicationConnection(row.id) : undefined });
   pm.add(row.id, row.repo, () => {
+    recordStopRequest(row.id);
     control.stopped = true;
     void control.stop?.();
   });
   const deps: RunnerDeps = {
-    ...baseRunnerDeps(cfg, jira),
+    ...baseRunnerDeps(cfg, row.id),
     adapter,
     preserveWorktreeOnFailure: isPrePrAdapter(row.adapter),
     genId: () => row.id,
@@ -295,20 +450,24 @@ function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: (() =>
       control.stop = stop;
       if (control.stopped) void stop();
     },
-    isStopped: () => control.stopped,
+    isStopped: () => control.stopped || stopRequested(row.id),
   };
-  return reattachRun(row, deps).finally(() => {
+  const result = await reattachRun(row, deps);
+  if (!result) return { status: 'blocked', reason: 'Worker ownership needs verified recovery' };
+  if (result.status !== 'attached') { pm.remove(row.id); return result; }
+  return { ...result, completion: result.completion.finally(() => {
     const status = db.getRun(row.id)?.status;
     if (status && status !== 'running') todos.finishRun(row.id, status);
     pm.remove(row.id);
-    void pollCreatedPrReviews();
-  });
+    void drainEffects().then(pollCreatedPrReviews);
+  }) };
 }
 
 async function resumeVoyage(runId: string): Promise<void> {
   const row = db.getRun(runId);
   if (!row) throw new ResumeError('Voyage not found.');
-  const cfg = configStore.current();
+  if (operations.list({ runId }).some(operation => operation.status !== 'completed')) throw new ResumeError('Reconcile the previous attempt’s external operations before continuing.');
+  const cfg = restoreExecutionConfig(executionSnapshot(row), loadConfig({ ...configStore.effectiveEnv(), JIRA_ENABLED: 'true' }));
   const repos = repositoryScope(cfg, todos.list());
   if (!repos.some(repo => repo.toLowerCase() === row.repo.toLowerCase())) throw new ResumeError('Configure this galleon before continuing the voyage.');
   const gate = pm.canStart(row.repo);
@@ -317,12 +476,12 @@ async function resumeVoyage(runId: string): Promise<void> {
   const task = row.taskJson ? JSON.parse(row.taskJson) as Partial<AgentTask> | null : null;
   if (!task?.task && !task?.todoId && !cfg.jira) throw new ResumeError('Configure Jira before continuing this Jira voyage.');
   const control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null };
-  pm.add(row.id, row.repo, () => { control.stopped = true; void control.stop?.(); });
+  pm.add(row.id, row.repo, () => { recordStopRequest(row.id); control.stopped = true; void control.stop?.(); });
   try {
-    const resumed = await resumeFailedPrePrRun(row, { db, host: host.kind === 'docker' && row.hostKind === 'detached' ? { ...host, kind: 'detached' } : host,
-      runsDir: RUNS_DIR, now: () => new Date().toISOString(), isStopped: () => control.stopped,
+    const resumed = await resumeFailedPrePrRun(row, { db, durable: runnerDurability(cfg), host: host.kind === 'docker' && row.hostKind === 'detached' ? { ...host, kind: 'detached' } : host,
+      runsDir: RUNS_DIR, publication: publicationConnection(runId), now: () => new Date().toISOString(), isStopped: () => control.stopped,
       prepareTask: async task => {
-        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, task, provider: row.adapter === 'pre-pr:codex' ? 'codex' : 'claude-code', workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort });
+        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter === 'pre-pr:codex' ? 'codex' : 'claude-code', workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort });
         if (prepared.task.dockerExecution) {
           if (host.kind !== 'docker') throw new ResumeError('Select the Docker host before continuing an isolated voyage.');
           prepared.task.dockerExecution = { ...prepared.task.dockerExecution, capability: gateway.issue(runId, 86_400_000).token };
@@ -348,7 +507,7 @@ try {
       listAgentWorktrees,
       remove: removeWorktreeAt,
       isActiveRunId: (id: string) => {
-        if (pm.hasRun(id) || reattachIds.includes(id)) return true;
+        if (pm.hasRun(id) || reattachIds.includes(id) || !executions.cleanupEligibility(id).allowed) return true;
         const row = db.getRun(id);
         return Boolean(row && isPrePrAdapter(row.adapter) && row.status !== 'succeeded');
       },
@@ -374,7 +533,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
     if (body.workflowRef !== expected) throw new Error('Workflow is unavailable or does not match the task mode');
   }
   const runId: string = body.runId ?? randomUUID();
-  if (db.getRun(runId) || pm.hasRun(runId)) return runId;
+  if (db.getRun(runId) || pm.hasRun(runId) || admissions.get(runId)) return runId;
   const capacity = pm.canStart(body.repo);
   if (!capacity.ok) throw new Error(capacity.reason ?? 'Cannot launch while another voyage is active');
   const cfg: AppConfig = configStore.current();
@@ -389,8 +548,6 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
     if (!localTodo) throw new TodoConflictError('Todo not found.');
     const gate = pm.canStart(localTodo.repo);
     if (!gate.ok) throw new TodoConflictError(gate.reason ?? 'Cannot start voyage.');
-    localTodo = todos.claim(localTodo.id, runId, body.retryOf);
-    if (!localTodo) throw new TodoConflictError('Todo is no longer ready to launch.');
     body = { ...body, repo: localTodo.repo, ticketId: localTodo.id, title: localTodo.title };
   } else if (body.ticketId && todos.get(body.ticketId) && !body.task && (!body.mode || body.mode === 'ticket')) {
     throw new TodoConflictError('Local todos must be launched from Todos with Jira disabled.');
@@ -398,8 +555,17 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
     throw new TodoConflictError('Jira is disabled. Start a voyage from Todos.');
   }
   const launchJson = launchIntentJson(body);
+  persistence.transaction(() => {
+    admissions.admit({ runId, repo: body.repo, request: persistedJson(JSON.parse(launchJson)),
+      settings: legacyExecutionSettings(cfg), artifacts: [currentRuntime.artifact] }, maxConcurrency);
+    if (localTodo) {
+      localTodo = todos.claim(localTodo.id, runId, body.retryOf);
+      if (!localTodo) throw new TodoConflictError('Todo is no longer ready to launch.');
+    }
+  });
   const control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null };
   pm.add(runId, body.repo, () => {
+    recordStopRequest(runId);
     control.stopped = true;
     void control.stop?.();
   });
@@ -412,7 +578,6 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   if (adapterId === 'command' && !cfg.agentCmd) {
     process.stderr.write('AGENT_ADAPTER=command but AGENT_CMD is empty; using codex\n');
   }
-  const jira: JiraActions | null = cfg.jira ? makeLiveJiraActions(() => configStore.current().jira) : null;
   void (async (): Promise<void> => {
     try {
       let taskObj: AgentTask;
@@ -495,13 +660,13 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         taskObj.dockerExecution = { image, gatewayUrl, capability: capability.token, runId };
       }
       taskObj.clarification = { ...clarificationPaths(RUNS_DIR, runId), gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` };
-      const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, task: taskObj,
+      const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task: taskObj,
         provider: adapter.id === 'codex' ? 'codex' : adapter.id === 'claude-code' ? 'claude-code' : undefined, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort,
         skills: adapter.id === 'codex' && taskObj.review || !taskObj.review && !taskObj.prBranch && (adapter.id === 'codex' || cfg.prePr.reviewerCount > 1) ? ['review-agent'] : [] });
       taskObj = prepared.task;
-      const runAdapter = !taskObj.review && !taskObj.prBranch ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings) : taskObj.review && taskObj.dockerExecution ? dockerReviewAdapter(adapter) : adapter;
+      const runAdapter = !taskObj.review && !taskObj.prBranch ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.dockerExecution ? dockerReviewAdapter(adapter) : adapter;
       await startRun(taskObj, {
-        ...baseRunnerDeps(cfg, jira),
+        ...baseRunnerDeps(cfg, runId),
         launchJson,
         adapter: runAdapter,
         ...(isPrePrAdapter(runAdapter.id) ? { maxAttempts: 1, preserveWorktreeOnFailure: true } : {}),
@@ -515,6 +680,12 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
     } catch (error: unknown) {
       const ts = new Date().toISOString();
       const message = error instanceof Error ? error.message : String(error);
+      const durableAttempt = executions.attempt({ runId, attempt: db.getRun(runId)?.attempt ?? 1 });
+      if (durableAttempt) {
+        db.appendEvent(runId, 'recovery-blocked', message, ts);
+        bus.publish(runId, { kind: 'error', text: message });
+        return;
+      }
       if (db.getRun(runId)) db.updateRun(runId, { status: 'failed', endedAt: ts });
       else db.insertRun({
         id: runId, ticketId: body.ticketId ?? body.mode ?? 'freeform', repo: body.repo,
@@ -533,9 +704,10 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       if (finalRun?.status !== 'running') gateway.revokeRun(runId);
       const status = finalRun?.status;
       if (status && status !== 'running') todos.finishRun(runId, status);
-      else if (localTodo) todos.finishRun(runId, 'failed');
+      const admission = admissions.get(runId);
+      if (admission && ['pending', 'blocked'].includes(admission.state) && finalRun?.status === 'failed') admissions.fail(runId, 'Preflight failed before a worker attempt was prepared');
       pm.remove(runId);
-      void pollCreatedPrReviews();
+      void drainEffects().then(pollCreatedPrReviews);
     }
   })();
   return runId;
@@ -651,7 +823,6 @@ void pollCreatedPrReviews();
 void pollSlack();
 void pollGithubReviews();
 
-const campaignsStore = openCampaignStore(dbPath);
 const configuredRepos = () => { const cfg = configStore.current(); return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])]; };
 const campaignDispatcher = createCampaignDispatcher({ store: campaignsStore, canStart: repo => pm.canStart(repo).ok,
   getRun: id => db.getRun(id), stop: id => pm.stop(id),
@@ -663,12 +834,6 @@ const campaigns = createCampaignService({ store: campaignsStore, configuredRepos
   workflows: () => [{ ref: 'coding@1', name: 'Coding' }], dispatch: () => campaignDispatcher.poll() });
 setInterval(() => { void campaignDispatcher.poll().catch(error => process.stderr.write(`Campaign dispatch failed: ${String(error)}\n`)); }, 5000);
 
-const webhooks = openWebhookIntake(dbPath, {
-  secret: () => process.env.HELMSMAN_WEBHOOK_SECRET,
-  routes: () => parseWebhookRoutes(process.env.HELMSMAN_WEBHOOK_ROUTES),
-  allowedRepos: () => { const cfg = configStore.current(); return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])]; },
-  canStart: repo => pm.canStart(repo).ok, getRun: id => db.getRun(id), isRunActive: id => pm.hasRun(id), launch,
-});
 setInterval(() => { void webhooks.poll().catch(error => process.stderr.write(`Webhook dispatch failed: ${String(error)}\n`)); }, 5000);
 
 async function readRawBody(req: IncomingMessage): Promise<Buffer> {
@@ -693,10 +858,50 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
+const recoveryService = createRecoveryService({ db, executions, admissions, operations, lifecycle, legacy: legacyExecutions, callbacks: {
+  requestStop: runId => { if (!pm.hasAttached(runId) || !pm.stop(runId)) throw new Error('Verified worker attachment is unavailable'); },
+  retryAttachment: async runId => {
+    if (pm.hasAttached(runId)) throw new Error('This voyage already has an attachment');
+    const row = db.getRun(runId);
+    if (!row) throw new Error('Voyage is unavailable');
+    const result = await dispatchReattach(row);
+    if (result.status !== 'attached') throw new Error(result.reason);
+    void result.completion.catch(error => { process.stderr.write(`Recovery completion failed: ${String(error)}\n`); });
+  },
+  reconcileOperation: async id => {
+    const operation = operations.get(id);
+    if (operation?.origin.kind === 'manual-review') { await manualReviewEffects.dispatch(id); return; }
+    if (operation?.kind === 'slack.review-request') { await slackEffects.dispatch(id); return; }
+    if (operation && ['git.push', 'github.pr-create', 'github.pr-edit'].includes(operation.kind)) {
+      await dispatchOperation(operations, id, publicationService.resolve, { reconcile: true });
+      return;
+    }
+    if (!operation?.origin.runId) throw new Error('Recorded operation origin is unavailable');
+    await effectsFor(operation.origin.runId).dispatch(id);
+  },
+  cancelAdmission: (runId, resolution) => persistence.transaction(() => {
+    const admission = admissions.get(runId);
+    if (!admission) throw new Error('Admission is unavailable');
+    admissions.fail(runId, `${resolution.actor}: ${resolution.reason}`);
+    const timestamp = new Date().toISOString();
+    if (!db.getRun(runId)) db.insertRun({ id: runId, repo: admission.repo, ticketId: 'unstarted', adapter: 'unstarted', status: 'stopped', attempt: 1, prNumber: null,
+      startedAt: admission.createdAt, endedAt: timestamp, costUsd: null, worktreePath: null, launchJson: JSON.stringify(admission.request) });
+    todos.finishRun(runId, 'stopped');
+    db.appendEvent(runId, 'admission-cancelled', JSON.stringify(resolution), new Date().toISOString());
+  }),
+  retireCheckpoint: (id, resolution) => executions.retireCheckpoint(id, resolution),
+  resolveOperation: (id, resolution) => { operations.resolve(id, resolution); },
+} });
+
+
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   void (async () => {
     const url: URL = new URL(req.url ?? '/', `http://localhost:${PORT}`);
     if (handlePluginRequest(req, res, url, pluginSnapshot)) return;
+    if (url.pathname === '/recovery' && (req.method === 'GET' || req.method === 'HEAD')) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      res.end(req.method === 'HEAD' ? undefined : recoveryPage()); return;
+    }
     if (url.pathname === '/api/webhooks/github' && req.method === 'POST') {
       try {
         const header = (name: string) => { const value = req.headers[name]; return typeof value === 'string' ? value : undefined; };
@@ -724,6 +929,15 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     }
     const hasBody: boolean = req.method === 'POST' || req.method === 'PUT';
     const body: unknown = hasBody ? await readBody(req) : null;
+    if (url.pathname === '/api/recovery' || url.pathname === '/api/recovery/actions') {
+      if (req.method === 'POST' && (req.headers['content-type']?.split(';')[0] !== 'application/json'
+        || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Recovery requires a same-origin JSON request.' })); return;
+      }
+      const result = await handleRecoveryRequest(req.method ?? 'GET', url.pathname, url.searchParams, body, recoveryService);
+      res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
+    }
     const api = await handleApi(req.method ?? 'GET', url.pathname, url.searchParams, body, {
       clarificationGate: runId => {
         if (db.getRun(runId)?.status !== 'running') return false;
@@ -749,7 +963,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         const now = new Date().toISOString();
         return id.startsWith('voyage-') ? voyageNotifications.markRead(id, now) : slackStore.markRead(id, now);
       } },
-      slackReviewRequest: (input) => slackReviewRequester.request(input),
+      slackReviewRequest: (input) => slackEffects.request(input),
       todos,
       jiraEnabled: () => configStore.current().jiraEnabled,
       dashboard: (repo) => buildDashboardResponse(configStore.effectiveEnv(), new Date(), undefined, repo, todos.list()),
@@ -795,14 +1009,14 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         const cfg = configStore.current();
         const repos = repositoryScope(cfg, todos.list());
         return getLocalGit(AGENTS_ROOT, repo, repos, {
-          activeWorktreePaths: () => db.activeRuns().flatMap(run => run.worktreePath ? [run.worktreePath] : []),
+          activeWorktreePaths: () => db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
         });
       },
       localGitAction: (repo, body) => {
         const cfg = configStore.current();
         const repos = repositoryScope(cfg, todos.list());
         return mutateLocalGit(AGENTS_ROOT, repo, repos, body, {
-          activeWorktreePaths: () => db.activeRuns().flatMap(run => run.worktreePath ? [run.worktreePath] : []),
+          activeWorktreePaths: () => db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
         });
       },
       prStatus: (repo: string, prNumber: number): Promise<PrStatus | null> => {
@@ -813,15 +1027,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         const g: AppConfig['github'] = configStore.current().github;
         return g ? fetchPrDiff(g, repo, prNumber) : Promise.resolve(null);
       },
-      submitReview: (
-        repo: string,
-        prNumber: number,
-        event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT',
-        body: string,
-      ): Promise<{ ok: true } | { ok: false; error: string }> => {
-        const g: AppConfig['github'] = configStore.current().github;
-        return g ? ghSubmitReview(g, repo, prNumber, event, body) : Promise.resolve({ ok: false as const, error: 'GitHub not configured' });
-      },
+      submitReview: (repo, prNumber, event, body, requestId, expectedHeadSha) => manualReviewEffects.submit({
+        repo, prNumber, event, body, requestId: requestId ?? randomUUID(), expectedHeadSha,
+      }),
       cmuxListTabs: () => cmux.listTabs(),
       cmuxReadScreen: (surface: string, lines: number) => cmux.readScreen(surface, lines),
       cmuxSend: (surface: string, text: string, enter: boolean) => cmux.send(surface, text, enter),
@@ -871,7 +1079,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   });
 });
 
-server.on('close', () => { void backendPlugins.dispose(); });
+server.on('close', () => { gatewayServer.close(); clearInterval(effectTimer); pluginCoordinator.dispose(); void backendPlugins.dispose(); });
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => {
   server.close();
   void backendPlugins.dispose().finally(() => process.exit(0));

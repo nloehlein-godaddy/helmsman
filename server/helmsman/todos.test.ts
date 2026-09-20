@@ -174,8 +174,10 @@ describe('local todos', () => {
     const path = join(directory, 'state.sqlite');
     const legacy = new Database(path);
     legacy.exec(`CREATE TABLE todos (
-      sequence INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, repo TEXT, description TEXT,
-      acceptanceCriteria TEXT, priority TEXT, state TEXT, createdAt TEXT, updatedAt TEXT, runId TEXT
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, repo TEXT NOT NULL, description TEXT NOT NULL,
+      acceptanceCriteria TEXT NOT NULL, priority TEXT NOT NULL CHECK(priority IN ('P0', 'P1', 'P2', 'P3', 'P4')),
+      state TEXT NOT NULL CHECK(state IN ('todo', 'in_progress', 'in_review', 'done', 'blocked')),
+      createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, runId TEXT UNIQUE
     );
     INSERT INTO todos (title, repo, description, acceptanceCriteria, priority, state, createdAt, updatedAt)
       VALUES ('Legacy', 'owner/repo', '', '', 'P2', 'done', '2026-09-10', '2026-09-11');`);

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 
 export type FixedWorkflowId = 'coding' | 'review';
 
@@ -73,11 +74,12 @@ function row(value: unknown): WorkflowSnapshot | null {
   try { return record.json ? JSON.parse(record.json) as WorkflowSnapshot : null; } catch { return null; }
 }
 
-export function openWorkflowStore(path: string, now: () => string = () => new Date().toISOString()): WorkflowStore {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec(`CREATE TABLE IF NOT EXISTS workflow_definitions (id TEXT NOT NULL, version INTEGER NOT NULL, json TEXT NOT NULL, contentHash TEXT NOT NULL, PRIMARY KEY (id, version));
-    CREATE TABLE IF NOT EXISTS workflow_snapshots (id TEXT PRIMARY KEY, json TEXT NOT NULL, contentHash TEXT NOT NULL, createdAt TEXT NOT NULL);`);
+export function openWorkflowStore(path: string | Database.Database, now: () => string = () => new Date().toISOString()): WorkflowStore {
+  const connection = storeConnection(path);
+  const { sql } = connection;
+  connection.migrate({ owner: 'compat.workflows', ddl: `CREATE TABLE IF NOT EXISTS workflow_definitions (id TEXT NOT NULL, version INTEGER NOT NULL, json TEXT NOT NULL, contentHash TEXT NOT NULL, PRIMARY KEY (id, version));
+    CREATE TABLE IF NOT EXISTS workflow_snapshots (id TEXT PRIMARY KEY, json TEXT NOT NULL, contentHash TEXT NOT NULL, createdAt TEXT NOT NULL);` });
+
   const getDefinition = (id: FixedWorkflowId, version?: number): WorkflowDefinition | null => {
     const result = version === undefined
       ? sql.prepare('SELECT json FROM workflow_definitions WHERE id = ? ORDER BY version DESC LIMIT 1').get(id)
@@ -117,6 +119,6 @@ export function openWorkflowStore(path: string, now: () => string = () => new Da
       const snapshot = row(sql.prepare('SELECT json FROM workflow_snapshots WHERE id = ?').get(id));
       return snapshot?.id === id && snapshot.contentHash === id ? snapshot : null;
     },
-    close() { sql.close(); },
+    close() { connection.close(); },
   };
 }

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 import type { VoyageNotification } from '../../src/data/slack';
 import { validEffort, validModel } from '../../src/logic/agentOptions';
 import { isGithubRepo } from '../pr-lists';
@@ -42,14 +43,15 @@ function notification(value: unknown): VoyageNotification | null {
   };
 }
 
-export function openVoyageNotifications(path: string): {
+export function openVoyageNotifications(path: string | Database.Database): {
   listNotifications(limit?: number): VoyageNotification[];
   markRead(id: string, now: string): boolean;
   close(): void;
 } {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec('CREATE TABLE IF NOT EXISTS voyage_notification_reads (id TEXT PRIMARY KEY, readAt TEXT NOT NULL)');
+  const connection = storeConnection(path);
+  const { sql } = connection;
+  connection.migrate({ owner: 'compat.notifications', ddl: 'CREATE TABLE IF NOT EXISTS voyage_notification_reads (id TEXT PRIMARY KEY, readAt TEXT NOT NULL)' });
+
   sql.function('voyage_notification_id', { deterministic: true }, notificationId);
   const select = `SELECT runs.*, reads.readAt FROM runs
     LEFT JOIN voyage_notification_reads AS reads ON reads.id = voyage_notification_id(runs.id, runs.attempt, runs.endedAt)
@@ -74,6 +76,6 @@ export function openVoyageNotifications(path: string): {
       return notifications;
     },
     markRead: (id, now) => markRead.immediate(id, now),
-    close: () => sql.close(),
+    close: () => connection.close(),
   };
 }

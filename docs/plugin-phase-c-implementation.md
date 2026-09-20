@@ -1,8 +1,8 @@
 # Phase C implementation design
 
-Status: proposed implementation, dependent on passing Phase B gates. This document implements all of [architecture plan section 6](plugin-architecture-plan.md#6-define-lifecycle-persistence-and-recovery-protocols) behind existing providers. It does not extract task sources or generalize execution plugins early. Phase C is complete only when the acceptance matrix below passes.
+Status: Phase C implementation and acceptance checks complete; publication follows the required commit review. Phase B was published as `8652f9e`. This document implements all of [architecture plan section 6](plugin-architecture-plan.md#6-define-lifecycle-persistence-and-recovery-protocols) behind existing providers. It does not extract task sources or generalize execution plugins early. Phase C is complete only when the acceptance matrix below passes.
 
-## Current seams and gaps
+## Baseline seams and gaps
 
 - `recovery.ts` reports reattachment before its promise resolves and suppresses rejection. `runner.ts`, `resume.ts`, and application finalizers can classify attachment failure as execution failure, remove worktrees, and release reservations.
 - `startRun` and continuation launch persist a concrete host reference after launch. There is no durable attempt launch identity or discovery handshake. Docker recognizes a run label, but currently reclaims stopped containers by run ID; retries require distinct attempt identities.
@@ -85,6 +85,8 @@ Transactional migrations are additive and record the applied checksum/version in
 
 Use SQLite's backup API or another SQLite-consistent snapshot, including WAL content. For an application-wide backup set, stop writes to all three databases before capturing a consistent generation and retain artifact/config metadata without copying credential values into execution records. Test compatible package rollback after a forward data migration. Reject a downgrade outside the declared readable/writable ranges. Never automatically restore the shared database for one plugin; whole-database restoration requires all application writers stopped and an explicit recovery action.
 
+The implemented offline command is `npm run plugins -- --dir STORE --db DATABASE backup DESTINATION`. It acquires immediate locks and checks registered writers across main, catalog, and plugin-data databases, then writes SQLite backups and a manifest containing their hashes and source/runtime metadata. It refuses an existing destination. Preserve the plugin and retained runtime artifact stores alongside this database backup; the command does not copy executable packages or credentials. `plugins --help` documents this requirement.
+
 ## Durable operation dispatcher and effect inventory
 
 Dispatcher states are pending, leased, retrying, blocked, uncertain, and completed. Keep a stable logical key, immutable payload hash, pinned provider/connection/target, and append-only attempt evidence. Leases use generation-checked acknowledgments; stale workers cannot complete another lease. Lease expiry after invocation requires reconciliation before retry unless the provider supports the same durable idempotency key. A database lease alone cannot fence an in-flight remote request.
@@ -94,12 +96,13 @@ Provider adapters declare delivery support and return acknowledged, definitely-n
 | Existing controlled effect | Durable target and reconciliation |
 |---|---|
 | Jira assign and transitions in `runner.ts` / `jira-actions.ts` | Pin Jira tenant/connection, issue identity, account/status target, and origin revision. Read current issue state before retry. Split assignment and transition into ordered obligations; handle non-2xx responses explicitly instead of fail-soft acknowledgment. An already-satisfied target may settle a state-setting operation; incompatible intervening state needs a conflict decision. |
-| GitHub review submission in `inline-review.ts` / `server/github.ts` | Pin host/connection, galleon/PR, reviewed SHA, actor, event, and canonical body/comments. Reconcile an operation marker or exact authenticated receipt/evidence; do not blindly repeat an ambiguous review. Review verdict and publication result stay distinct. |
+| GitHub review submission in `inline-review.ts`, runner finalization, and the manual PR endpoint | Pin host/connection, galleon/PR, reviewed SHA, actor, event, and canonical body/comments. Reconcile an operation marker or exact authenticated receipt/evidence; do not blindly repeat an ambiguous review. Review verdict and publication result stay distinct. Manual reviews retain client request IDs across response loss and check the displayed head SHA before admission. |
 | Copilot review request | Pin PR/connection/reviewer; inspect requested reviewers and returned receipts. Unknown or conflicting evidence remains visible. |
 | Pre-PR push, PR create/edit in `pre-pr-runtime.ts`, scoped gateway push | Persist approved SHA/base/branch/remote identity and immutable publication payload before commands. Query remote ref and matching PR before retry; detect conflicting remote changes. Keep clarification, human publication, clean-tree, review, and exact-revision checks before each write. Submit through a narrow authenticated core operation endpoint used by the coordinator process; expose no general outbox-write permission to agent code. |
 | Created-PR review scheduling in `created-pr-reviews.ts` | Reuse existing parent/galleon/PR-derived notification ID and stable child run ID. Couple the core obligation to process finalization, reconcile queue projection by operation ID, and admit through the new prepared execution transaction. Avoid a second queue performing the same write. |
 | Todo claim/finish and campaign task dispatch/completion | Where in the same database, commit source state and core obligation/admission together. Preserve task/run identities and prevent `reconcileTodoRuns` from failing tasks whose admission intent is still being recovered. |
 | Slack review send in `slack/review-request.ts` and `slack/browser-review.ts` | Adopt existing request ID, pinned workspace/channel/mention, and sent/uncertain receipts. Reconcile matching delivery only with reliable evidence; browser uncertainty never becomes automatic resend. Preserve cooldown semantics. |
+| Local Git cleanup and remote refresh | Local checked Git transactions remain synchronous operator actions. These do not publish to external remotes. All cleanup uses durable execution/checkpoint/effect protection, including terminal and legacy voyages; refresh only updates local tracking refs. |
 | Slack/webhook/campaign incoming launch queues | Preserve their delivery/content hashes and stable run IDs. Recover an admitted/prepared attempt before considering another launch; migrate existing claims through an idempotent bridge. Incoming intake is not itself an outgoing publication. |
 
 Inventory all host-controlled write call sites during integration and add any remaining ones to this table and tests. Arbitrary commands issued by a trusted agent/plugin are not made exactly-once by this host protocol. Do not claim sandboxing or duplicate suppression beyond controlled boundaries. Local display notifications need replayable projection/IDs, not an artificial remote delivery promise.
@@ -123,6 +126,249 @@ Conversion is additive and idempotent. Preserve original run IDs, attempts, task
 
 ## Parallel implementation partitions
 
+### Agreed internal API handoff
+
+These are proposed TypeScript signatures for C's internal modules, not newly stabilized SDK contracts. Agree on changes before implementing consumers. Use existing `PluginJson`, `HostRef`, `RunRow`, and `RunStatus` types by type-only import; JSON receives execution-specific size limits rather than the small plugin settings quota. Public recovery DTOs redact credential handles and private paths.
+
+`persistence.ts` owns connections. Existing store constructors take `path: string | Database.Database`; a string creates an owned connection through the coordinator, while a borrowed connection is never closed by the store. Stores participating in a transaction must borrow the exact same connection.
+
+```ts
+export interface Persistence {
+  readonly sql: Database.Database;
+  transaction<T>(fn: () => T): T;
+  close(): void;
+}
+
+export function openPersistence(path: string): Persistence;
+
+export interface SchemaRange {
+  owner: string;
+  minimum: number;
+  maximum: number;
+}
+
+export interface OwnedMigration {
+  owner: string;
+  version: number;
+  checksum: string;
+  tables: readonly string[];
+  validateLegacy(sql: Database.Database): number | null;
+  apply(sql: Database.Database, fromVersion: number): void;
+  validateCurrent(sql: Database.Database): void;
+}
+
+export function migrateOwned(
+  sql: Database.Database,
+  migration: OwnedMigration,
+  retainedConsumers: readonly SchemaRange[],
+): void;
+```
+
+`transaction` is synchronous, uses an immediate transaction for its outermost call, and permits nested calls through savepoints on the same connection. Never await inside it. `migrateOwned` acquires the owner/version lock under the host's cross-process maintenance barrier, verifies an existing ledger checksum, validates the schema before recording a baseline, and commits DDL plus version atomically. `validateLegacy` returns `null` only when the owner has no tables, returns a recognized legacy version for a valid existing schema, and throws on partial/unknown schemas. New databases begin at version zero. `apply` must handle the recognized source version, never relabel an unknown baseline. Non-transactional staging stays outside this helper and uses durable migration steps; the helper runs only the final transactional portion.
+
+`execution-store.ts` owns snapshots, attempts, reservations, checkpoints, and pins. Lifecycle is a separate module using the same `Persistence`.
+
+```ts
+export interface ArtifactBinding {
+  pluginId: string;
+  artifactHash: string;
+  packageVersion: string;
+  requires: readonly string[];
+}
+
+export interface ProviderBinding {
+  role: 'source' | 'agent' | 'host' | 'workflow' | 'effect';
+  capability: string;
+  contractVersion: number;
+  contributionId: string;
+  pluginId: string;
+  artifactHash: string;
+  connectionId: string | null;
+  credentialHandle: string | null;
+}
+
+export interface ExecutionSnapshotInput {
+  version: 1;
+  runId: string;
+  attempt: number;
+  repo: string;
+  logicalWork: { source: string; instance: string; taskId: string };
+  task: PluginJson;
+  workflowSnapshotId: string | null;
+  artifacts: readonly ArtifactBinding[];
+  bindings: readonly ProviderBinding[];
+  settings: Readonly<Record<string, PluginJson>>;
+  schemas: readonly SchemaRange[];
+  provenance: { kind: 'admission' | 'legacy-adoption' | 'checkpoint-migration'; evidence: PluginJson };
+}
+
+export interface ExecutionSnapshot extends ExecutionSnapshotInput {
+  id: string;
+  contentHash: string;
+  createdAt: string;
+}
+
+export interface RecoveryDiagnostic {
+  code: string;
+  message: string;
+  retryable: boolean;
+  details: PluginJson;
+}
+
+export interface AttemptKey { runId: string; attempt: number }
+export interface AttemptLease extends AttemptKey {
+  token: string;
+  generation: number;
+  expiresAt: string;
+}
+
+export interface ExecutionAttempt extends AttemptKey {
+  snapshotId: string;
+  launchId: string;
+  preparation: 'prepared' | 'ready' | 'launching' | 'launched';
+  attachment: 'pending' | 'attached' | 'blocked' | 'failed';
+  hostRef: HostRef | null;
+  paths: { worktree: string | null; log: string; exit: string; spec: string };
+  outcome: {
+    status: Exclude<RunStatus, 'running'>;
+    endedAt: string;
+    evidence: PluginJson;
+  } | null;
+  diagnostic: RecoveryDiagnostic | null;
+}
+
+export interface ExecutionReservation {
+  runId: string;
+  repo: string;
+  reason: 'prepared' | 'executing' | 'unresolved';
+}
+
+export interface ArtifactPin {
+  kind: 'admission' | 'execution' | 'checkpoint' | 'operation' | 'dependency';
+  ownerId: string;
+  pluginId: string;
+  artifactHash: string;
+}
+
+export interface ExecutionCheckpoint {
+  id: string;
+  runId: string;
+  attempt: number;
+  snapshotId: string;
+  format: string;
+  formatVersion: number;
+  artifacts: PluginJson;
+  state: 'resumable' | 'retired';
+}
+
+export interface ExecutionStore {
+  reserveAdmission(input: { runId: string; repo: string; maxConcurrency: number; evidence: PluginJson }): void;
+  abandonAdmission(runId: string, evidence: PluginJson): void;
+  prepare(input: {
+    snapshot: ExecutionSnapshotInput;
+    launchId: string;
+    paths: ExecutionAttempt['paths'];
+    maxConcurrency: number;
+  }): ExecutionAttempt;
+  snapshot(id: string): ExecutionSnapshot | null;
+  attempt(key: AttemptKey): ExecutionAttempt | null;
+  recoverable(): readonly ExecutionAttempt[];
+  reservations(): readonly ExecutionReservation[];
+  lease(key: AttemptKey, ttlMs: number): AttemptLease | null;
+  assertLease(lease: AttemptLease): void;
+  renew(lease: AttemptLease, ttlMs: number): AttemptLease | null;
+  releaseLease(lease: AttemptLease): void;
+  setWorktree(lease: AttemptLease, path: string): void;
+  ready(lease: AttemptLease): void;
+  markLaunching(lease: AttemptLease): void;
+  recordLaunch(lease: AttemptLease, ref: HostRef, evidence: PluginJson): void;
+  recordAttachment(lease: AttemptLease, health: ExecutionAttempt['attachment'],
+    diagnostic: RecoveryDiagnostic | null): void;
+  recordOutcome(lease: AttemptLease, outcome: NonNullable<ExecutionAttempt['outcome']>): void;
+  retainCheckpoint(checkpoint: ExecutionCheckpoint): void;
+  checkpoint(id: string): ExecutionCheckpoint | null;
+  retireCheckpoint(id: string, resolution: { actor: string; reason: string }): void;
+  pins(pluginId?: string): readonly ArtifactPin[];
+  retainPins(pins: readonly ArtifactPin[]): void;
+  releasePins(kind: ArtifactPin['kind'], ownerId: string): void;
+  cleanupEligibility(runId: string): { allowed: true } | {
+    allowed: false; reasons: readonly string[];
+  };
+  releaseReservation(runId: string, evidence: PluginJson): void;
+}
+
+export function openExecutionStore(persistence: Persistence): ExecutionStore;
+```
+
+`prepare` hashes/validates immutable input, enforces run/attempt/launch uniqueness, rejects a second unresolved attempt, checks durable concurrency, and acquires execution/closure pins. Repeating the same identity/content returns the existing attempt; differing content is a conflict. For continuation, the same run's existing reservation is reused after verified prior termination, not counted twice. A lifecycle check and any source/run-row changes occur in the surrounding shared transaction. Neither `recordAttachment` nor an expired lease changes `runs.status`. Outcome writes are compare-and-set and reject contradictory terminal evidence. Every lease mutation validates token, generation, and expiry; takeover requires recovery, not a fresh launch. Methods return immutable copies and throw typed conflict/validation errors rather than silently accepting stale writes.
+
+`retainPins`/`releasePins` are internal owner operations, not plugin APIs. Releasing a live checkpoint/operation pin is rejected; its owner must first atomically settle or retire that obligation. Reservation release requires proven process termination (or proof no process launched); it does not release checkpoint/effect pins. Cleanup and reservation release are separate because a stopped process can leave a resumable checkpoint without consuming concurrency.
+
+`plugins/lifecycle.ts` must provide at least these shared entry points:
+
+```ts
+export interface LifecycleChange {
+  id: string;
+  pluginId: string;
+  expectedRevision: number;
+  desiredEnabled: boolean;
+  artifactHash: string;
+  drainDependents: readonly string[];
+}
+
+export interface LifecycleBlocker {
+  kind: 'consumer' | 'execution' | 'checkpoint' | 'operation' | 'schema';
+  ownerId: string;
+  reason: string;
+}
+
+export interface PluginLifecycle {
+  assertAdmission(snapshot: ExecutionSnapshotInput): void;
+  plan(change: LifecycleChange): { blockers: readonly LifecycleBlocker[] };
+  apply(change: LifecycleChange): void;
+  canCollect(pluginId: string, artifactHash: string): {
+    allowed: boolean; blockers: readonly LifecycleBlocker[];
+  };
+  validateCheckpointMigration(input: {
+    checkpointId: string;
+    expectedSnapshotId: string;
+    next: ExecutionSnapshotInput;
+    provider: ProviderBinding;
+  }): Promise<{ validationId: string; receipt: PluginJson }>;
+  migrateCheckpoint(input: {
+    checkpointId: string;
+    expectedSnapshotId: string;
+    next: ExecutionSnapshotInput;
+    validation: { provider: ProviderBinding; receipt: PluginJson; validationId: string };
+    actor: string;
+    reason: string;
+  }): void;
+}
+
+export function openPluginLifecycle(
+  persistence: Persistence,
+  executions: ExecutionStore,
+  validators?: readonly CheckpointMigrationValidator[],
+): PluginLifecycle;
+```
+
+`assertAdmission` and `apply` recheck live state inside the caller's transaction; a prior `plan` does not authorize a raced change. `apply` writes durable lifecycle/projection intent and rejects blockers before selection changes. `migrateCheckpoint` consumes verified provider validation, appends provenance, and updates effective checkpoint bindings/pins atomically; a JSON receipt from a caller alone is not sufficient validation. All snapshot attempts remain immutable. Lifecycle diagnostics/listing can be added without changing these transaction semantics.
+
+Each registered `CheckpointMigrationValidator` has an exact retained `provider` binding and an asynchronous `validate({ checkpoint, previous, next })` implementation that returns structured evidence or rejects the migration. Validation runs outside the SQLite transaction. Before recording its receipt, core rechecks the old binding and complete checkpoint hash under lock; migration matches that hash, proposed snapshot, provider, and receipt. Providers without this interface cannot migrate checkpoints. C's legacy runtime has no migration validator and therefore requires retirement before an incompatible runtime upgrade.
+
+Operation-store signatures belong to the operations owner; the handoff requires `enqueue(draft)` to synchronously join the caller's transaction on this `Persistence`, acquire operation pins, and reject reuse of a logical key with different payload/binding. Dispatcher invocation is asynchronous after commit. Its settled/blocked/uncertain results update operations, source projections, and pin eligibility through new short transactions. The integration owner composes finalization this way:
+
+```ts
+persistence.transaction(() => {
+  executions.recordOutcome(lease, outcome);
+  db.updateRun(runId, terminalPatch);
+  for (const draft of obligations) operations.enqueue(draft);
+  if (checkpoint) executions.retainCheckpoint(checkpoint);
+});
+```
+
+Likewise admission composes `lifecycle.assertAdmission`, source claim state, `db.insertRun` (or continuation update), and `executions.prepare` in one transaction. Legacy store callbacks must not open their own connection inside these blocks. Remote calls, artifact downloads, host discovery, and migration validators run outside transactions, then their versioned results are revalidated under the transaction before committing.
+
 Agree on the persistence and DTO signatures first; each owner adds focused tests alongside owned files. Do not have agents concurrently edit `application.ts`, `router.ts`, `runner.ts`, or the package CLI.
 
 | Owner / work packet | Exclusive files and deliverable | Dependencies |
@@ -136,15 +382,19 @@ With four slots, the main thread owns integration while the three work packets r
 
 ## Phase C completion checklist
 
-- [ ] All new admissions and continuations snapshot exact bindings and acquire durable reservations/pins before launch.
-- [ ] Prepared and uncertain launches recover safely; attachment health and process completion are distinct.
-- [ ] Disable/drain/failure/restart and required-dependent behavior pass, including safe start and protected cleanup.
-- [ ] Artifact/checkpoint/dependency pins block uninstall, collection, and incompatible activation; validated migration preserves provenance.
-- [ ] Ownership inventory, coordinated migrations, cross-database intent recovery, WAL-consistent backup, and compatible rollback are implemented and tested.
-- [ ] Every controlled effect above uses one durable logical operation, immutable target/binding, and honest reconciliation or uncertainty.
-- [ ] Core recovery controls expose diagnostics and actionable obligations while optional plugins are unavailable.
-- [ ] Legacy fixtures and every fault matrix row pass; source/run/workflow/usage identities remain intact.
-- [ ] TypeScript, production builds, relevant unit/crash/integration suites, core recovery browser/visual tests, and isolated distribution tests pass.
-- [ ] Independent architectural reviews have no unresolved material findings; completion ledger records concrete evidence before task-source extraction.
+Validation: 3,172 tests across 206 files passed, followed by focused checks for the final runner and runtime-path fixes (91 and 23 tests). TypeScript and production build passed. All 11 browser/visual tests, six distribution checks, and four source-denied production-server tests passed. Independent cross-reviews have no unresolved material findings.
 
-_Helmsman · model not reported - effort not reported_
+Acceptance audit fixes include synchronized artifact selection/collection, safe-default CLI coordination, writer barriers on every backup database, automatic retained-schema migration guards, registered checkpoint validation with race detection, and package rollback preserving forward-migrated data. Focused evidence is in `plugins/coordinator.test.ts`, `plugins/cli.test.ts`, `persistence-backup.test.ts`, and `plugins/lifecycle.test.ts`. Protected legacy records additionally consume admission capacity and block cleanup and unverified native preparation, covered by `execution-store.test.ts`; unknown historical executable or connection identity is never fabricated as an artifact pin.
+
+- [x] All new admissions and continuations snapshot exact bindings and acquire durable reservations/pins before launch.
+- [x] Prepared and uncertain launches recover safely; attachment health and process completion are distinct.
+- [x] Disable/drain/failure/restart and required-dependent behavior pass, including safe start and protected cleanup.
+- [x] Artifact/checkpoint/dependency pins block uninstall, collection, and incompatible activation; validated migration preserves provenance.
+- [x] Ownership inventory, coordinated migrations, cross-database intent recovery, WAL-consistent backup, and compatible rollback are implemented and tested.
+- [x] Every controlled effect above uses one durable logical operation, immutable target/binding, and honest reconciliation or uncertainty.
+- [x] Core recovery controls expose diagnostics and actionable obligations while optional plugins are unavailable.
+- [x] Legacy fixtures and every fault matrix row pass; source/run/workflow/usage identities remain intact.
+- [x] TypeScript, production builds, relevant unit/crash/integration suites, core recovery browser/visual tests, and isolated distribution tests pass.
+- [x] Independent architectural reviews have no unresolved material findings; completion ledger records concrete evidence before task-source extraction.
+
+_Helmsman · not reported - not reported_

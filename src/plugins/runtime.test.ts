@@ -78,6 +78,29 @@ describe('plugin catalog validation', () => {
 });
 
 describe('external plugin catalog loading', () => {
+  it('retires disabled pages on catalog refresh while preserving unchanged page modules and selected bindings', async () => {
+    vi.useFakeTimers();
+    const { registry, modules } = setup();
+    let value = { ...catalog(), bindings: { [COSTS_PAGE_SLOT]: 'example.costs/page' } };
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(value)));
+    const runtime = await loadPluginCatalog(registry, modules, { fetch: fetcher, pollIntervalMs: 100 });
+    try {
+      const original = modules.get('example.costs/page');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(modules.get('example.costs/page')).toBe(original);
+      value = { ...value, plugins: [] };
+      await vi.advanceTimersByTimeAsync(100);
+      expect(modules.get('example.costs/page')).toBeNull();
+      expect(registry.selected(COSTS_PAGE_SLOT)).toMatchObject({ contributionId: 'example.costs/page', page: null });
+      value = { ...value, plugins: catalog().plugins };
+      await vi.advanceTimersByTimeAsync(100);
+      expect(modules.get('example.costs/page')).not.toBeNull();
+    } finally { runtime.dispose(); }
+    const calls = fetcher.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetcher).toHaveBeenCalledTimes(calls);
+  });
+
   it('registers metadata without evaluating code and lazily imports the namespaced immutable URL', async () => {
     const { registry, modules } = setup();
     const instance = lifecycle();

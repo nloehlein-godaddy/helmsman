@@ -1,4 +1,5 @@
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export function applicationRoot(): string {
   return fileURLToPath(new URL('../../', import.meta.url));
@@ -16,4 +17,17 @@ export function runtimeNodeArguments(relative: string, moduleUrl: string): strin
 
 export function isHostCoordinatorCommand(command: { cmd: string; args: readonly string[] }): boolean {
   return [command.cmd, ...command.args].some(path => /(?:^|[\\/])(?:pre-pr-cli|docker-review-cli)\.[jt]s$/.test(path));
+}
+
+export function retainedRuntimePath(value: string, originalRoot: string, retainedRoot: string): string {
+  const url = value.startsWith('file:');
+  let path: string;
+  try { path = url ? fileURLToPath(value) : value; } catch { return value; }
+  if (!isAbsolute(path)) return value;
+  path = resolve(path);
+  const root = resolve(originalRoot);
+  const roots = [join(root, 'server', 'helmsman'), join(root, 'node_modules')];
+  if (!roots.some(directory => path.startsWith(`${directory}${sep}`))) return value;
+  const retained = join(retainedRoot, relative(root, path));
+  return url ? pathToFileURL(retained).href : retained;
 }

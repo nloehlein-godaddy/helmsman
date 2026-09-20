@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { existsSync } from 'node:fs';
 import { readFile, realpath, stat } from 'node:fs/promises';
@@ -9,6 +9,7 @@ import { COSTS_PAGE_SLOT } from '../../src/plugins/builtins';
 import { isContributionId, isPluginId } from '../../src/plugins/manifest';
 import { handlePluginRequest } from './plugins/http';
 import type { PluginSnapshot } from './plugins/store';
+import { readRecoverySnapshot, withReadonlyRecoveryCopy } from './recovery-service';
 
 type Env = Record<string, string | undefined>;
 type Row = Record<string, unknown>;
@@ -31,14 +32,11 @@ export function safeStartEnabled(args: readonly string[], env: Env): boolean {
 
 function readDatabase<T>(path: string, fallback: T, read: (sql: Database.Database) => T): { value: T; error: string | null } {
   if (!existsSync(path)) return { value: fallback, error: null };
-  let sql: Database.Database | undefined;
   try {
-    sql = new Database(path, { readonly: true, fileMustExist: true });
-    sql.pragma('query_only = ON');
-    return { value: read(sql), error: null };
+    return { value: withReadonlyRecoveryCopy(path, read), error: null };
   } catch {
     return { value: fallback, error: 'Stored recovery metadata could not be read. Files were left unchanged.' };
-  } finally { sql?.close(); }
+  }
 }
 
 function hasTable(sql: Database.Database, table: string): boolean {
@@ -90,18 +88,15 @@ function readTodos(path: string, repo: string | null = null) {
   });
 }
 
-function recovery(options: SafeStartOptions, pluginsDir: string) {
-  const runs = readRuns(options.dbPath, 1000);
+function recovery(options: SafeStartOptions, pluginsDir: string, repo: string | null = null) {
+  const snapshot = readRecoverySnapshot(options.dbPath, repo);
+  const stored = readRuns(options.dbPath, 1000, 0, repo);
   const plugins = readPlugins(pluginsDir);
-  return {
-    mode: 'safe-start' as const, readOnly: true,
-    runs: runs.value.runs.map(run => ({ ...run, attachment: run.status === 'running' ? 'blocked' : 'inactive',
-      ...(run.status === 'running' ? { blockedReason: 'Provider recovery is disabled in safe start.' } : {}) })),
-    totalRuns: runs.value.total,
-    truncated: runs.value.total > runs.value.runs.length,
-    plugins: plugins.value.plugins,
-    errors: [runs.error, plugins.error].filter((error): error is string => error !== null),
-  };
+  const runs = stored.value.runs.map(run => ({ id: run.id, repo: run.repo, status: run.status, attempt: run.attempt,
+    logOffset: run.logOffset, attachment: run.status === 'running' ? 'blocked' : 'inactive', actions: [],
+    ...(run.status === 'running' ? { blockedReason: 'Provider recovery is disabled in safe start.' } : {}) }));
+  return { ...snapshot, runs, totalRuns: stored.value.total, truncated: snapshot.truncated || stored.value.total > runs.length,
+    plugins: plugins.value.plugins, errors: [...(stored.error ? [stored.error] : snapshot.errors), ...(plugins.error ? [plugins.error] : [])] };
 }
 
 function json(res: ServerResponse, status: number, body: unknown, head = false): void {
@@ -125,7 +120,11 @@ export function createSafeStartServer(options: SafeStartOptions): Server {
       const head = req.method === 'HEAD';
       if (!readOnly) { json(res, 503, disabled); return; }
       if (handlePluginRequest(req, res, url, snapshot)) return;
-      if (url.pathname === '/api/recovery') { json(res, 200, recovery(options, pluginsDir), head); return; }
+      if (url.pathname === '/api/recovery') {
+        const repo = url.searchParams.get('repo');
+        if (!validRepo(repo)) { json(res, 400, { error: 'Invalid galleon filter.' }, head); return; }
+        json(res, 200, recovery(options, pluginsDir, repo), head); return;
+      }
       if (url.pathname === '/recovery') {
         const data = escapeHtml(JSON.stringify(recovery(options, pluginsDir), null, 2));
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });

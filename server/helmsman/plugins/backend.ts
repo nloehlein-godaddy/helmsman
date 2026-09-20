@@ -7,7 +7,7 @@ import type { PricingEstimate, UsageQueryService, UsageSnapshot } from '../../..
 import { isContributionId } from '../../../src/plugins/manifest';
 import type { PluginArchive } from './artifacts';
 import { builtinPluginEnabled, initializePricingDefault, openPluginData, pluginJson, readPricingBinding } from './data';
-import type { PluginSnapshot } from './store';
+import type { PluginCoordinator, PluginSnapshot } from './store';
 
 export class CapabilityResolutionError extends Error {
   readonly code: 'missing' | 'ambiguous' | 'invalid-selection' | 'inactive' | 'invalid-result';
@@ -77,6 +77,7 @@ async function materialize(root: string, archive: PluginArchive): Promise<{ href
 
 export async function activateBackendPlugins(options: {
   root: string; snapshot: PluginSnapshot; usage: UsageQueryService; builtins?: readonly BuiltinBackendPlugin[]; activationTimeoutMs?: number; defaultPricingProvider?: string;
+  coordinator?: PluginCoordinator;
 }): Promise<BackendRuntime> {
   const timeoutMs = options.activationTimeoutMs ?? 10_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) throw new Error('Invalid backend activation timeout.');
@@ -84,6 +85,7 @@ export async function activateBackendPlugins(options: {
   const providers = new Map<string, PricingProvider>();
   const activeIds = new Set<string>();
   const owners: (() => Promise<void>)[] = [];
+  const pluginCleanups = new Map<string, () => Promise<void>>();
   const ids = new Set<string>();
   let disposed = false;
   let bindingInitializationFailed = false;
@@ -96,8 +98,11 @@ export async function activateBackendPlugins(options: {
     try { initializePricingDefault(options.root, options.defaultPricingProvider); }
     catch { bindingInitializationFailed = true; errors.push('Backend defaults could not be initialized; configured pricing remains unavailable.'); }
   }
-  async function activate(pkg: PluginPackage, load: (signal: AbortSignal) => Promise<unknown>, remove: () => Promise<void>): Promise<void> {
+  async function activate(pkg: PluginPackage, load: (signal: AbortSignal) => Promise<unknown>, remove: () => Promise<void>, artifactHash?: string): Promise<void> {
     const id = pkg.manifest.id;
+    if (options.coordinator) {
+      if (!options.coordinator.canActivate(id, artifactHash)) return;
+    }
     let data: ReturnType<typeof openPluginData> | undefined;
     const abort = new AbortController();
     const cleanups: (() => void | Promise<void>)[] = [];
@@ -115,6 +120,7 @@ export async function activateBackendPlugins(options: {
       }
       data?.close();
       await remove().catch(() => { errors.push(`Plugin ${id} runtime cleanup failed.`); });
+      if (options.coordinator && artifactHash && options.coordinator.state(id)?.artifactHash === artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'inactive', null);
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -156,16 +162,20 @@ export async function activateBackendPlugins(options: {
       if (pending.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
       data.commit(staged); staged.clear();
       for (const [providerId, provider] of pending) providers.set(providerId, provider);
-      phase = 'active'; activeIds.add(id); owners.push(cleanup);
+      phase = 'active'; activeIds.add(id); owners.push(cleanup); pluginCleanups.set(id, cleanup);
+      if (options.coordinator && artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'active', null);
     } catch (error) {
       errors.push(`Plugin ${id} activation failed: ${error instanceof Error ? error.message : String(error)}`);
       await cleanup();
+      if (options.coordinator && artifactHash && options.coordinator.state(id)?.artifactHash === artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'failed', {
+        code: 'backend-activation-failed', message: error instanceof Error ? error.message : String(error), retryable: true, details: null,
+      });
     } finally { clearTimeout(timer); }
   }
   for (const builtin of options.builtins ?? []) {
     try {
       const pkg = parsePluginPackage(builtin.package, { allowBuiltin: true });
-      if (pkg.backend && builtinPluginEnabled(options.root, pkg)) await activate(pkg, async () => ({ default: builtin.module }), async () => {});
+      if (pkg.backend && builtinPluginEnabled(options.root, pkg)) await activate(pkg, async () => ({ default: builtin.module }), async () => {}, options.coordinator?.builtinArtifactHash(pkg.manifest.id) ?? undefined);
     } catch (error) { errors.push(`Builtin backend could not activate: ${error instanceof Error ? error.message : String(error)}`); }
   }
   for (const archive of [...options.snapshot.artifacts.values()].sort((a, b) => a.package.manifest.id.localeCompare(b.package.manifest.id))) {
@@ -175,8 +185,19 @@ export async function activateBackendPlugins(options: {
       extracted = await materialize(options.root, archive);
       if (signal.aborted) { await extracted.dispose(); throw new Error('Backend activation was cancelled.'); }
       return import(extracted.href);
-    }, async () => { await extracted?.dispose(); });
+    }, async () => { await extracted?.dispose(); }, archive.hash);
   }
+  const unsubscribe = options.coordinator?.subscribe(async () => {
+    for (const [id, cleanup] of pluginCleanups) {
+      const state = options.coordinator?.state(id);
+      if (state?.desiredEnabled) continue;
+      await cleanup();
+      pluginCleanups.delete(id);
+      if (state?.obligationsOnly) options.coordinator?.lifecycle.recordHealth(id, state.artifactHash, 'failed', {
+        code: 'backend-drain-unsupported', message: 'This provider has no obligation-scoped drain service; restore a compatible provider to settle retained work.', retryable: true, details: null,
+      });
+    }
+  });
   return {
     errors,
     activePluginIds: () => Object.freeze([...activeIds].sort()),
@@ -195,14 +216,16 @@ export async function activateBackendPlugins(options: {
         try { selected = readPricingBinding(options.root); }
         catch { throw new CapabilityResolutionError('invalid-selection', 'Stored pricing provider selection is invalid.'); }
       }
-      const candidates = [...providers.keys()].sort();
+      const available = (providerId: string) => !options.coordinator || options.coordinator.canActivate(providerId.split('/')[0]!);
+      const candidates = [...providers.keys()].filter(available).sort();
+      if (selected !== undefined && !available(selected)) throw new CapabilityResolutionError('inactive', `Selected pricing provider is draining or disabled: ${selected}`);
       if (selected !== undefined && !providers.has(selected)) throw new CapabilityResolutionError('invalid-selection', `Selected pricing provider is unavailable: ${selected}`);
       if (selected === undefined && candidates.length !== 1) throw new CapabilityResolutionError(candidates.length ? 'ambiguous' : 'missing', candidates.length ? `Select a pricing provider: ${candidates.join(', ')}` : 'No pricing provider is available.');
       const providerId = selected ?? candidates[0]!;
       try {
         if (!snapshot || snapshot.version !== 1 || !Array.isArray(snapshot.records)) throw new Error('Invalid usage snapshot.');
         const result = await bounded(async () => providers.get(providerId)!.estimate(structuredClone(snapshot)), 'Pricing provider');
-        if (disposed) throw new CapabilityResolutionError('inactive', 'Backend runtime is disposed.');
+        if (disposed || !available(providerId)) throw new CapabilityResolutionError('inactive', 'Backend runtime is disposed or provider is draining.');
         return { providerId, estimate: pricingEstimate(result, snapshot) };
       } catch (error) {
         if (error instanceof CapabilityResolutionError) throw error;
@@ -212,6 +235,7 @@ export async function activateBackendPlugins(options: {
     async dispose() {
       if (disposed) return;
       disposed = true; providers.clear(); activeIds.clear();
+      unsubscribe?.();
       for (const cleanup of owners.reverse()) await cleanup();
     },
   };

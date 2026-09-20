@@ -123,7 +123,7 @@ describe('backend plugin activation and pricing', () => {
     const archive = parsePluginArchive(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: descriptor(), files: [{ path: 'backend.js', base64: Buffer.from(code).toString('base64') }] }));
     await installPlugin(root, archive.bytes);
     expect((await start(root, [], await loadPluginSnapshot(root))).providers()).toEqual([]);
-    await pluginCommand(['--dir', root, 'configure', 'example.pricing', '{"usdPerMillionTokens":7}']);
+    await pluginCommand(['--dir', root, 'configure', 'example.pricing', '{"usdPerMillionTokens":7}'], { coordinate: false });
     await setPluginEnabled(root, 'example.pricing', true);
     const first = await start(root, [], await loadPluginSnapshot(root));
     expect(first.errors).toEqual([]);
@@ -158,13 +158,13 @@ describe('backend plugin activation and pricing', () => {
     const pkg = builtin('helmsman.first');
     await start(root, [pkg], empty, 'helmsman.first/price');
     expect(readPricingBinding(root)).toBe('helmsman.first/price');
-    await pluginCommand(['--dir', root, 'disable', 'helmsman.first']);
+    await pluginCommand(['--dir', root, 'disable', 'helmsman.first'], { coordinate: false });
     const disabled = await start(root, [pkg], empty, 'helmsman.first/price');
     await expect(disabled.pricing(snapshot())).rejects.toMatchObject({ code: 'invalid-selection' });
-    await pluginCommand(['--dir', root, 'select-pricing', 'default']);
+    await pluginCommand(['--dir', root, 'select-pricing', 'default'], { coordinate: false });
     await start(root, [pkg], empty, 'helmsman.first/price');
     expect(readPricingBinding(root)).toBeUndefined();
-    await pluginCommand(['--dir', root, 'enable', 'helmsman.first']);
+    await pluginCommand(['--dir', root, 'enable', 'helmsman.first'], { coordinate: false });
     const enabled = await start(root, [pkg]);
     expect(enabled.providers()).toEqual(['helmsman.first/price']);
     expect(builtinPluginPackage(root, 'helmsman.first')?.manifest.id).toBe('helmsman.first');
@@ -268,7 +268,7 @@ describe('backend plugin activation and pricing', () => {
     const failed = await start(root, [upgraded]);
     expect(failed.providers()).toEqual([]);
     expect(failed.errors[0]).toContain('no longer declared');
-    await pluginCommand(['--dir', root, 'reset-settings', old.package.manifest.id, 'usdPerMillionTokens']);
+    await pluginCommand(['--dir', root, 'reset-settings', old.package.manifest.id, 'usdPerMillionTokens'], { coordinate: false });
     const restored = await start(root, [upgraded]);
     expect(restored.errors).toEqual([]);
     expect(restored.providers()).toEqual(['helmsman.upgrade/price']);

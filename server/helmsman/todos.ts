@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 import { TODO_PRIORITIES, TODO_STATES, type Todo, type TodoInput } from '../../src/data/todos';
 
 export class TodoValidationError extends Error {}
@@ -59,10 +60,10 @@ function sequence(id: string): number | null {
   return Number.isSafeInteger(value) ? value : null;
 }
 
-export function openTodoStore(path: string, now: () => string = () => new Date().toISOString()): TodoStore {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec(`
+export function openTodoStore(path: string | Database.Database, now: () => string = () => new Date().toISOString()): TodoStore {
+  const connection = storeConnection(path);
+  const { sql } = connection;
+  connection.migrate({ owner: 'compat.todos', ddl: `
     CREATE TABLE IF NOT EXISTS todos (
       sequence INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL, repo TEXT NOT NULL, description TEXT NOT NULL,
@@ -72,14 +73,15 @@ export function openTodoStore(path: string, now: () => string = () => new Date()
       createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, completedAt TEXT, runId TEXT UNIQUE
     );
     CREATE INDEX IF NOT EXISTS todos_queue ON todos(state, priority, sequence);
-  `);
-  sql.transaction(() => {
-    const columns = sql.prepare('PRAGMA table_info(todos)').all() as { name: string }[];
-    if (!columns.some((column) => column.name === 'completedAt')) {
-      sql.exec('ALTER TABLE todos ADD COLUMN completedAt TEXT');
-      sql.exec("UPDATE todos SET completedAt = updatedAt WHERE state = 'done'");
-    }
-  }).immediate();
+  `, optionalLegacyColumns: { todos: ['completedAt'] },
+    upgrade(sql) {
+      const columns = sql.prepare('PRAGMA table_info(todos)').all() as { name: string }[];
+      if (!columns.some((column) => column.name === 'completedAt')) {
+        sql.exec('ALTER TABLE todos ADD COLUMN completedAt TEXT');
+        sql.exec("UPDATE todos SET completedAt = updatedAt WHERE state = 'done'");
+      }
+    },
+  });
   const read = sql.prepare(`SELECT ${COLUMNS} FROM todos WHERE sequence = ?`);
   const get = (id: string): Todo | null => (read.get(sequence(id)) as Todo | undefined) ?? null;
   const ensureMutable = (todo: Todo | null): void => {
@@ -135,6 +137,6 @@ export function openTodoStore(path: string, now: () => string = () => new Date()
       return sql.prepare("UPDATE todos SET state = ?, updatedAt = ? WHERE runId = ? AND state = 'in_progress'")
         .run(status === 'succeeded' ? 'in_review' : 'blocked', now(), runId).changes > 0;
     },
-    close: () => sql.close(),
+    close: () => connection.close(),
   };
 }

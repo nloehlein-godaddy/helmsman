@@ -227,6 +227,7 @@ export class DashboardView {
   private slackError: string | null = null;
   private slackSeq: number = 0;
   private slackReads = new Set<string>();
+  private manualReviewRequests = new Map<string, { requestId: string; pending: boolean }>();
   private slackReviewRequests = new Map<string, { requestId: string; pending: boolean; error?: string; result?: SlackReviewResult }>();
   private campaigns: ReturnType<typeof mountCampaigns> | null = null;
   private clarifications: ReturnType<typeof mountClarifications> | null = null;
@@ -2494,7 +2495,15 @@ export class DashboardView {
     const bodyEl: HTMLTextAreaElement | null = t.panel.querySelector<HTMLTextAreaElement>('.pr-review-body');
     const body: string = bodyEl?.value ?? '';
     if ((event === 'REQUEST_CHANGES' || event === 'COMMENT') && body.trim() === '') return;
-    const result: { ok: boolean; error?: string } = await submitPrReview(t.repo, t.number, event, body);
+    const expectedHeadSha = t.panel.dataset.prHeadSha;
+    const key = JSON.stringify([t.repo, t.number, event, body, expectedHeadSha]);
+    const previous = this.manualReviewRequests.get(key);
+    if (previous?.pending) return;
+    const request = previous ?? { requestId: crypto.randomUUID(), pending: false };
+    request.pending = true;
+    this.manualReviewRequests.set(key, request);
+    const result: { ok: boolean; error?: string } = await submitPrReview(t.repo, t.number, event, body, request.requestId, expectedHeadSha);
+    request.pending = false;
     if (!result.ok) {
       const reviewEl: HTMLElement | null = t.panel.querySelector<HTMLElement>('.pr-review');
       const errEl: HTMLDivElement = document.createElement('div');
@@ -2503,6 +2512,7 @@ export class DashboardView {
       reviewEl?.appendChild(errEl);
       return;
     }
+    this.manualReviewRequests.delete(key);
     const refreshed: PrStatusView | null = await getPrStatus(t.repo, t.number);
     for (const tab of this.runTabs) {
       if (tab.pr?.repo !== t.repo || tab.pr.number !== t.number) continue;
@@ -3079,7 +3089,7 @@ export function bootstrap(): void {
   const view: DashboardView = new DashboardView(root);
   const boot: HTMLElement | null = document.getElementById('boot');
   const finishBoot: () => void = boot ? armBootScreen(boot) : (): void => {};
-  void loadPluginCatalog(appPages, appPageModules).then(async runtime => {
+  void loadPluginCatalog(appPages, appPageModules, { pollIntervalMs: 2000 }).then(async runtime => {
     if (runtime.safeMode) disableBuiltinPageModules();
     await view.start();
     if (runtime.errors.length || runtime.safeMode) {

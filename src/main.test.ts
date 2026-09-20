@@ -506,12 +506,15 @@ describe('DashboardView drawer survives polling', () => {
     view.destroy();
   });
 
-  it('submits an APPROVE review when the approve button is clicked in the PR lookup panel', async () => {
+  it.each([false, true])('submits an APPROVE review with stable identity after response loss (%s)', async (loseResponse) => {
     const response: DashboardResponse = await buildResponse();
     let submitted = false;
+    let submissionCount = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
       const url: string = String(input);
       if (url === '/api/pr/review') {
+        submissionCount++;
+        if (loseResponse && submissionCount === 1) throw new Error('Response lost after publication');
         submitted = true;
         return { ok: true, status: 200, json: async () => ({ ok: true }) } as unknown as Response;
       }
@@ -526,6 +529,7 @@ describe('DashboardView drawer survives polling', () => {
             draft: false,
             merged: false,
             headRefName: 'feature-branch',
+            headSha: 'a'.repeat(40),
             reviewDecision: submitted ? 'APPROVED' : 'REVIEW_REQUIRED',
             viewerReview: submitted ? 'APPROVED' : null,
             comments: 3,
@@ -564,9 +568,16 @@ describe('DashboardView drawer survives polling', () => {
       expect(fetchMock.mock.calls.some(([reqInput]) => String(reqInput) === '/api/pr/review')).toBe(true);
     });
 
+    if (loseResponse) {
+      await vi.waitFor(() => expect(root.querySelector('.pr-review-error')).not.toBeNull());
+      root.querySelector<HTMLButtonElement>('.pr-lookup-result .pr-approve')!.click();
+      await vi.waitFor(() => expect(submissionCount).toBe(2));
+      const calls = fetchMock.mock.calls.filter(([input]) => String(input) === '/api/pr/review');
+      expect(JSON.parse(String(calls[0]?.[1]?.body)).requestId).toBe(JSON.parse(String(calls[1]?.[1]?.body)).requestId);
+    }
     const reviewCall = fetchMock.mock.calls.find(([reqInput]) => String(reqInput) === '/api/pr/review');
     const reviewBody: unknown = JSON.parse((reviewCall![1] as RequestInit).body as string);
-    expect(reviewBody).toEqual({ repo: 'org/alpha', number: 42, event: 'APPROVE', body: '' });
+    expect(reviewBody).toEqual({ repo: 'org/alpha', number: 42, event: 'APPROVE', body: '', requestId: expect.any(String), expectedHeadSha: 'a'.repeat(40) });
     await vi.waitFor(() => expect(root.querySelector('.pr-panel-head')?.textContent).toContain('Your inspection'));
     await view.refresh();
     expect(root.querySelector('.pr-panel-head')?.textContent).toContain('Your inspection');
@@ -917,7 +928,7 @@ describe('DashboardView drawer survives polling', () => {
 
     const reviewCall = fetchMock.mock.calls.find(([reqInput]) => String(reqInput) === '/api/pr/review');
     const reviewBody: unknown = JSON.parse((reviewCall![1] as RequestInit).body as string);
-    expect(reviewBody).toEqual({ repo: 'org/alpha', number: 42, event: 'APPROVE', body: '' });
+    expect(reviewBody).toEqual({ repo: 'org/alpha', number: 42, event: 'APPROVE', body: '', requestId: expect.any(String) });
   });
 
   it('keeps the cmux-input node and its value untouched when an SSE tabs-changed event reports an unchanged tab set', async () => {

@@ -1,4 +1,5 @@
 export const TERMINOLOGY = {
+  recovery: { plain: 'Recovery', pirate: 'Recovery' },
   success: { plain: 'Succeeded', pirate: 'Shipshape' },
   failed: { plain: 'Failed', pirate: 'Marooned' },
   stopped: { plain: 'Stopped', pirate: 'Stopped' },

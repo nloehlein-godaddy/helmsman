@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 import { COST_ESTIMATE_DATE, COST_ESTIMATE_SOURCE, summarizeCostEstimates } from './cost-estimates';
 import { isGithubRepo } from '../pr-lists';
 import type { RunRow } from './db';
@@ -80,18 +81,17 @@ function assessment(input: unknown, updatedAt: string): OutcomeAssessment {
   };
 }
 
-export function openOutcomeStore(path: string, now: () => string = () => new Date().toISOString(), usageStore?: UsageRecorder): OutcomeStore {
+export function openOutcomeStore(path: string | Database.Database, now: () => string = () => new Date().toISOString(), usageStore?: UsageRecorder): OutcomeStore {
   const ownedUsage = usageStore ? null : openUsageStore(path);
   const recordedUsage = usageStore ?? ownedUsage;
   if (!recordedUsage) throw new OutcomeValidationError('Usage storage is unavailable');
-  let sql: Database.Database | undefined;
+  let owned: ReturnType<typeof storeConnection> | undefined;
   try {
-    sql = new Database(path);
-    const connection = sql;
-    connection.pragma('journal_mode = WAL');
-    connection.exec(`
+    owned = storeConnection(path);
+    const connection = owned.sql;
+    owned.migrate({ owner: 'compat.outcomes', ddl: `
       CREATE TABLE IF NOT EXISTS outcome_assessments (runId TEXT PRIMARY KEY, payload TEXT NOT NULL);
-    `);
+    ` });
     const read = connection.prepare('SELECT payload FROM outcome_assessments WHERE runId = ?');
     const decode = (row: unknown): Record<string, unknown> | null => {
       if (row === undefined || row === null) return null;
@@ -125,9 +125,9 @@ export function openOutcomeStore(path: string, now: () => string = () => new Dat
     }),
     recordUsage: input => recordedUsage.recordUsage(input),
     listUsage: runIds => recordedUsage.listUsage(runIds),
-    close: () => { if (!closed) { closed = true; connection.close(); ownedUsage?.close(); } },
+    close: () => { if (!closed) { closed = true; owned?.close(); ownedUsage?.close(); } },
   };
-  } catch (error) { sql?.close(); ownedUsage?.close(); throw error; }
+  } catch (error) { owned?.close(); ownedUsage?.close(); throw error; }
 }
 
 export function createOutcomeTelemetrySink(store: Pick<OutcomeStore, 'getAssessment' | 'saveAssessment'>): (completion: RunTelemetryCompletion) => void {

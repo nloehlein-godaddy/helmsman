@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { storeConnection } from './store-connection';
 import type { AgentEvent, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
 import type { UsageRecorder } from './usage-store';
@@ -15,14 +16,15 @@ export interface RunTelemetry {
   close(): void;
 }
 
-export function openRunTelemetry(path: string, usageStore: UsageRecorder, onComplete?: (completion: RunTelemetryCompletion) => void): RunTelemetry {
-  const sql = new Database(path);
-  sql.pragma('journal_mode = WAL');
-  sql.exec(`CREATE TABLE IF NOT EXISTS run_lifecycle (
+export function openRunTelemetry(path: string | Database.Database, usageStore: UsageRecorder, onComplete?: (completion: RunTelemetryCompletion) => void): RunTelemetry {
+  const connection = storeConnection(path);
+  const { sql } = connection;
+  connection.migrate({ owner: 'core.telemetry', ddl: `CREATE TABLE IF NOT EXISTS run_lifecycle (
     runId TEXT NOT NULL, attempt INTEGER NOT NULL, byteOffset INTEGER NOT NULL,
     kind TEXT NOT NULL, provider TEXT, model TEXT, effort TEXT, stage TEXT, round INTEGER,
     providerEventId TEXT, PRIMARY KEY(runId, attempt, byteOffset)
-  )`);
+  )` });
+
   const insert = sql.prepare(`INSERT OR IGNORE INTO run_lifecycle
     (runId,attempt,byteOffset,kind,provider,model,effort,stage,round,providerEventId) VALUES (?,?,?,?,?,?,?,?,?,?)`);
   const latestFailure = sql.prepare("SELECT stage FROM run_lifecycle WHERE runId = ? AND attempt = ? AND kind = 'error' AND stage IS NOT NULL ORDER BY attempt DESC, byteOffset DESC LIMIT 1");
@@ -50,6 +52,6 @@ export function openRunTelemetry(path: string, usageStore: UsageRecorder, onComp
         failureStage: run.status === 'failed' ? failure?.stage ?? 'execution' : null,
         correctionRounds: corrections?.round === null || corrections?.round === undefined ? null : Math.max(0, corrections.round - 1) });
     },
-    close() { sql.close(); },
+    close() { connection.close(); },
   };
 }

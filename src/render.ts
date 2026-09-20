@@ -345,7 +345,8 @@ export function renderAppShell(opts: HelmHeadOpts, content: string): string {
     <footer class="app-footer mono">
       <div class="operator-note">${ICON_LOCK}<span>${term('operatorNote')}</span></div>
       <div class="footer-meta">
-        <span class="footer-attr">nloehlein@godaddy.com</span>
+        <a data-recovery-link href="/recovery${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">${term('recovery')}</a>
+        <span class="footer-dot" aria-hidden="true">&bull;</span><span class="footer-attr">nloehlein@godaddy.com</span>
         <span class="footer-dot" aria-hidden="true">&bull;</span><span>Helmsman v${esc(__APP_VERSION__)}</span>
         <span class="footer-dot" aria-hidden="true">&bull;</span><span>updated ${esc(__BUILD_DATE__)}</span>
         <span class="footer-dot" aria-hidden="true">&bull;</span><span data-footer-repos>${opts.repos.length} ${term(opts.repos.length === 1 ? 'repository' : 'repositories').toLowerCase()} tracked</span>
@@ -701,7 +702,7 @@ export function renderPrPanel(pr: PrStatusView | null, canRerun: boolean, showOp
     ? `<div class="pr-crew-controls">${feedback}${tuningSelects('pr')}<div class="pr-review-actions">${canRelaunch ? '<button class="pr-rerun">Update branch with feedback</button>' : ''}<button class="pr-review-agent">${term('codeReview')}</button></div><div class="pr-voyage-links"><a class="app-link pane-link" href="${esc(routeHref({ view: 'runs', repo: selectedRepo, prRepo: pr.repo, pr: pr.number, pane: 'newrun', mode: 'review' }))}">Open review setup ↗</a>${canRelaunch ? `<a class="app-link pane-link" href="${esc(routeHref({ view: 'runs', repo: selectedRepo, prRepo: pr.repo, pr: pr.number, pane: 'newrun', mode: 'rerun' }))}">Open branch update setup ↗</a>` : ''}</div></div>`
     : `<div class="pr-no-rerun empty-note">${term('crewUnavailable')}</div>`;
   return `
-    <div class="pr-panel" data-pr-repo="${esc(pr.repo)}" data-pr-number="${pr.number}">
+    <div class="pr-panel" data-pr-repo="${esc(pr.repo)}" data-pr-number="${pr.number}"${pr.headSha ? ` data-pr-head-sha="${esc(pr.headSha)}"` : ''}>
       <div class="pr-panel-head">
         <div class="pr-panel-heading">
           <div class="pr-panel-identity">
