@@ -47,6 +47,31 @@ describe('Costs & Outcomes', () => {
     appPages.select(COSTS_PAGE_SLOT, null);
     await vi.waitFor(() => expect(document.body.textContent).toContain('run_1'));
     expect(window.location.pathname).toBe('/outcomes');
+    expect(document.querySelector<HTMLElement>('#page-tab-outcomes')?.dataset.view).toBe('outcomes');
+  });
+
+  it('honors a changed slot binding while initial context is still loading', async () => {
+    let resolveContext!: (response: Response) => void;
+    const context = new Promise<Response>(resolve => { resolveContext = resolve; });
+    let contextRequests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === '/api/context') {
+        if (++contextRequests === 1) return context;
+        return json({ repos: ['org/a'], jiraBaseUrl: null, jiraEnabled: true });
+      }
+      if (url.pathname === '/api/agents') return json({ runs: [], autoClaim: [], caps: {} });
+      if (url.pathname === '/api/outcomes') return json(summary('org/a'));
+      return json({});
+    }));
+    view = new DashboardView(document.querySelector('#app')!);
+    const starting = view.start();
+    appPages.select(COSTS_PAGE_SLOT, 'missing.costs/page');
+    resolveContext(json({ repos: ['org/a'], jiraBaseUrl: null, jiraEnabled: true }));
+    await starting;
+    expect(document.body.textContent).toContain('Page unavailable');
+    expect(document.querySelector('.helm')?.getAttribute('data-page')).toBe('plugin');
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/outcomes'))).toBe(false);
   });
 
   it('aborts a pending Costs request when its slot becomes unavailable and ignores a late response', async () => {

@@ -409,6 +409,7 @@ export class DashboardView {
     this.view = route.view;
     if (route.view !== 'dashboard' && route.view !== 'prs') {
       const context = await getContext();
+      if (this.destroyed) return;
       if (context) {
         this.repos = context.repos;
         this.jiraBaseUrl = context.jiraBaseUrl;
@@ -417,7 +418,9 @@ export class DashboardView {
       }
     }
     await this.refresh();
-    await this.navigate(route, 'replace');
+    if (this.destroyed) return;
+    await this.navigate(parseRoute(new URL(window.location.href)), 'replace');
+    if (this.destroyed) return;
     this.refreshTimer = setInterval(() => void this.refresh(false), LOCAL_POLL_MS);
   }
 
@@ -1201,7 +1204,7 @@ export class DashboardView {
       if (!tab) continue;
       tab.className = next.className;
       tab.textContent = next.textContent;
-      for (const name of ['href', 'aria-selected', 'aria-current']) {
+      for (const name of ['href', 'data-view', 'aria-selected', 'aria-current']) {
         const value = next.getAttribute(name);
         if (value === null) tab.removeAttribute(name);
         else tab.setAttribute(name, value);
