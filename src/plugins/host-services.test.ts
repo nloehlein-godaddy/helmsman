@@ -40,6 +40,14 @@ it('accepts equivalent UTC instants normalized by the host', async () => {
   expect(await createHostPageServices(new AbortController().signal).usage.query(input)).toEqual(snapshot());
 });
 
+it('preserves Claude usage whose cached reads are separate from newly read input tokens', async () => {
+  const data = snapshot();
+  data.records[0] = { ...data.records[0]!, provider: 'claude-code', model: 'claude-sonnet', inputTokens: 10, cachedInputTokens: 1000, totalTokens: 1020, costUsd: 0.25 };
+  data.reported = { ...data.reported, inputTokens: 10, cachedInputTokens: 1000, totalTokens: 1020, observedCostUsd: 0.25, knownCostUsd: 0.25, runsWithKnownCost: 1 };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(data)));
+  expect(await createHostPageServices(new AbortController().signal).usage.query(query)).toEqual(data);
+});
+
 it('propagates plugin lifetime cancellation to active host service calls', async () => {
   const lifetime = new AbortController();
   let observed: AbortSignal | undefined;

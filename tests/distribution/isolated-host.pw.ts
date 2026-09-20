@@ -218,7 +218,7 @@ import { openUsageStore } from ${JSON.stringify(usageUrl)}; import { openRunTele
 const db=openDb(process.env.HELMSMAN_DB), usage=openUsageStore(process.env.HELMSMAN_DB);
 const telemetry=openRunTelemetry(process.env.HELMSMAN_DB,usage); const run=db.getRun('priced_a');
 const cost=telemetry.record(run,{ticketId:'priced_a',title:'Measured event',repo:'org/a',jiraBaseUrl:''},
-  {kind:'usage',costUsd:3,usage:{inputTokens:10,cachedInputTokens:0,outputTokens:0,totalTokens:10}},100);
+  {kind:'usage',provider:'claude-code',model:'claude-sonnet',costUsd:3,usage:{inputTokens:10,cachedInputTokens:1000,outputTokens:0,totalTokens:1010}},100);
 db.updateRun(run.id,{costUsd:cost}); console.log(db.getRun(run.id).costUsd);
 telemetry.close(); usage.close(); db.close();`)).toBe('8\n');
     measured = await (await request.get(`${origin}/api/usage/v1?${query}`)).json();

@@ -34,8 +34,7 @@ function usageSnapshot(value: unknown, query: UsageQuery): value is UsageSnapsho
     events.add(identity);
     return row !== null && typeof row.runId === 'string' && ids.has(row.runId) && count(row.attempt) && Number(row.attempt) > 0
       && typeof row.eventId === 'string' && typeof row.provider === 'string' && (row.model === null || typeof row.model === 'string')
-      && ['inputTokens', 'cachedInputTokens', 'outputTokens', 'totalTokens'].every(key => tokens(row[key])) && amount(row.costUsd)
-      && (row.inputTokens === null || row.cachedInputTokens === null || Number(row.cachedInputTokens) <= Number(row.inputTokens));
+      && ['inputTokens', 'cachedInputTokens', 'outputTokens', 'totalTokens'].every(key => tokens(row[key])) && amount(row.costUsd);
   }) && ['observedCostUsd', 'knownCostUsd'].every(key => amount(reported[key]))
     && ['runsWithKnownCost', 'runsWithoutUsage'].every(key => count(reported[key]) && Number(reported[key]) <= ids.size)
     && ['inputTokens', 'cachedInputTokens', 'outputTokens', 'totalTokens'].every(key => tokens(reported[key]));

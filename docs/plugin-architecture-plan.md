@@ -477,3 +477,7 @@ Backend plugin data remains in the plugin directory's namespaced database, separ
 _Helmsman · not reported - not reported_
 
 Phase B completion validation: 2,968 unit/integration tests across 182 files; TypeScript and production build; 10 browser/visual tests; six distribution checks; three isolated compiled-server browser tests.
+
+Post-commit review found that shared client validation incorrectly assumed cached input tokens are included in newly read input tokens for every provider. Claude records those separately. The shared relationship check was removed while provider-specific pricing validation remains; 39 focused tests, TypeScript/build, and the isolated full-server flow with a Claude usage event passed.
+
+_Helmsman · not reported - not reported_
