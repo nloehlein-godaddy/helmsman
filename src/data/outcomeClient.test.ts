@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchOutcomes, saveOutcomeAssessment } from './outcomeClient';
 
 const summary = { window: { from: '2026-01-01', to: '2026-01-30' }, repo: null, runs: 1, observedCostUsd: null, execution: {}, assessments: {}, outcomes: {}, daily: [], recentRuns: [] };
+const assessment = { runId: 'run_1', state: 'complete' as const, outcome: 'achieved' as const, summary: 'Done', evidence: ['PR #1'], failureStage: null, correctionRounds: 0, updatedAt: '2026-09-20T12:00:00Z' };
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -61,11 +62,22 @@ describe('outcomeClient', () => {
     const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push([input, init]);
-      return new Response(JSON.stringify({ assessment: { runId: 'run_1' } }));
+      return new Response(JSON.stringify({ assessment }));
     });
     vi.stubGlobal('fetch', fetchMock);
     await saveOutcomeAssessment('run_1', { state: 'complete', outcome: 'achieved', summary: 'Done', evidence: ['PR #1'], failureStage: null, correctionRounds: 0 });
     expect(calls[0]?.[0]).toBe('/api/outcomes/run_1/assessment');
     expect(JSON.parse(String(calls[0]?.[1]?.body))).toMatchObject({ outcome: 'achieved', evidence: ['PR #1'] });
+  });
+
+  it('rejects malformed or mismatched successful assessment responses', async () => {
+    for (const invalid of [null, { runId: 'run_1' }, ...[
+      { runId: 'another_run' }, { state: 'invalid' }, { outcome: null }, { summary: null },
+      { evidence: 'unexpected' }, { evidence: [null] }, { failureStage: {} },
+      { correctionRounds: -1 }, { correctionRounds: 1.5 }, { updatedAt: null }, { updatedAt: 'invalid' }, { source: 'unknown' },
+    ].map(patch => ({ ...assessment, ...patch }))]) {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ assessment: invalid }))));
+      await expect(saveOutcomeAssessment('run_1', assessment)).rejects.toThrow('Assessment response was invalid.');
+    }
   });
 });

@@ -2,13 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCostsPageModule, type CostsPageServices } from './page';
 import type { PluginPageInstance, PluginPageState } from '../sdk';
 import type { OutcomeAssessment, OutcomeSummary } from '../../data/outcomes';
+import { saveOutcomeAssessment } from '../../data/outcomeClient';
 
 const state: PluginPageState = { repo: 'org/a', themeId: 'default', pirateMode: false, visible: true, pane: null };
 const assessment: OutcomeAssessment = { runId: 'run_1', state: 'complete', outcome: 'unknown', summary: 'saved', evidence: [], failureStage: null, correctionRounds: null, updatedAt: '' };
 const summary = (repo = 'org/a', label = ''): OutcomeSummary => ({ window: { from: '2026-01-01', to: '2026-01-30' }, repo, runs: 2, execution: { succeeded: 2, failed: 0, stopped: 0, running: 0 }, assessments: { complete: 0, partial: 0, failed: 0, 'not-assessed': 2 }, outcomes: { achieved: 0, partial: 0, 'not-achieved': 0, unknown: 2 }, knownCostUsd: null, observedCostUsd: null, runsWithKnownCost: 0, costCoverage: null, averageCostUsd: null, averageDurationMs: null, runsWithDuration: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, totalTokens: null, linkedPrs: 0, unknownPrs: 0, stalePrs: 0, unavailablePrs: 0, publishedPrs: 0, reviewedPrs: 0, mergedPrs: 0, costPerPublishedPrUsd: null, costPerReviewedPrUsd: null, costPerMergedPrUsd: null, correctionRounds: null, failures: [], daily: [], recentRuns: [1, 2].map(id => ({ runId: `run_${id}${label}`, repo, status: 'succeeded', prNumber: null, startedAt: '', durationMs: null, costUsd: null, observedCostUsd: null, assessment: null })) });
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (error: Error) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 const instances: PluginPageInstance[] = [];
-afterEach(() => { instances.splice(0).forEach(instance => instance.dispose()); document.body.innerHTML = ''; });
+afterEach(() => { instances.splice(0).forEach(instance => instance.dispose()); vi.unstubAllGlobals(); document.body.innerHTML = ''; });
 async function mount(overrides: Partial<CostsPageServices> = {}, initial = state) {
   const container = document.createElement('div'); document.body.append(container);
   const services = { read: vi.fn(async () => summary()), save: vi.fn(async () => assessment), runHref: (repo: string | null, run: string) => `/runs?repo=${repo}&run=${run}`, ...overrides };
@@ -26,6 +27,20 @@ const value = (root: HTMLElement, id = 'run_1') => form(root, id).querySelector<
 const submit = (root: HTMLElement, id = 'run_1') => form(root, id).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
 describe('Costs page lifecycle', () => {
+  it.each([
+    { ...assessment, evidence: 'unexpected' },
+    { ...assessment, runId: 'another_run' },
+  ])('retains drafts when the API returns an invalid successful assessment: %j', async invalid => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ assessment: { ...invalid, updatedAt: '2026-09-20T12:00:00Z' } }))));
+    const { container, instance } = await mount({ save: saveOutcomeAssessment });
+    await instance.refresh?.(); edit(container, 'Keep the submitted draft'); edit(container, 'Keep the other draft', 'run_2');
+    submit(container);
+    await vi.waitFor(() => expect(form(container).querySelector('[role="alert"]')?.textContent).toBe('Assessment response was invalid.'));
+    expect(value(container)).toBe('Keep the submitted draft'); expect(value(container, 'run_2')).toBe('Keep the other draft');
+    expect(form(container).querySelector('button')?.disabled).toBe(false);
+    await instance.refresh?.(); expect(value(container)).toBe('Keep the submitted draft');
+  });
+
   it('retains both drafts and form state after a failed save', async () => {
     const pending = deferred<OutcomeAssessment>();
     const { container, instance } = await mount({ save: () => pending.promise }); await instance.refresh?.();

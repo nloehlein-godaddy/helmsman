@@ -1,4 +1,4 @@
-import type { OutcomeAssessment, OutcomeSummary } from './outcomes';
+import { ASSESSMENT_STATES, TASK_OUTCOMES, type OutcomeAssessment, type OutcomeSummary } from './outcomes';
 
 export const OUTCOME_WINDOWS = [7, 30, 90, 365] as const;
 export type OutcomeWindow = typeof OUTCOME_WINDOWS[number];
@@ -60,6 +60,20 @@ export interface AssessmentInput {
   correctionRounds: number | null;
 }
 
+function validAssessment(value: unknown, runId: string): value is OutcomeAssessment {
+  const assessment = record(value);
+  if (!assessment || assessment.runId !== runId) return false;
+  return ASSESSMENT_STATES.some(state => state === assessment.state)
+    && TASK_OUTCOMES.some(outcome => outcome === assessment.outcome)
+    && typeof assessment.summary === 'string'
+    && Array.isArray(assessment.evidence) && assessment.evidence.every(item => typeof item === 'string')
+    && (assessment.failureStage === null || typeof assessment.failureStage === 'string')
+    && (assessment.correctionRounds === null || typeof assessment.correctionRounds === 'number'
+      && Number.isSafeInteger(assessment.correctionRounds) && assessment.correctionRounds >= 0)
+    && typeof assessment.updatedAt === 'string' && Number.isFinite(Date.parse(assessment.updatedAt))
+    && (assessment.source === undefined || assessment.source === 'manual' || assessment.source === 'telemetry');
+}
+
 export async function saveOutcomeAssessment(runId: string, input: AssessmentInput, signal?: AbortSignal): Promise<OutcomeAssessment> {
   const response = await fetch(`/api/outcomes/${encodeURIComponent(runId)}/assessment`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
@@ -70,6 +84,6 @@ export async function saveOutcomeAssessment(runId: string, input: AssessmentInpu
     throw new Error(typeof error === 'string' ? error : `Could not save assessment (${response.status}).`);
   }
   const assessment = record(body)?.assessment ?? body;
-  if (!record(assessment) || typeof record(assessment)?.runId !== 'string') throw new Error('Assessment response was invalid.');
-  return assessment as OutcomeAssessment;
+  if (!validAssessment(assessment, runId)) throw new Error('Assessment response was invalid.');
+  return assessment;
 }
