@@ -1,7 +1,7 @@
 # Helmsman plugin architecture plan
 
 Date: 2026-09-20  
-Revision: 2 — incorporates both independent reviews.  
+Revision: 3 — incorporates both independent reviews and the final readiness review.  
 Status: Proposed implementation baseline; implementation has not started.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
@@ -134,6 +134,7 @@ First-party plugins must use the same SDK as external authors. Add import-bounda
 - Browser and backend entry points are prebuilt ESM. Plugins bundle runtime dependencies, including any frontend framework. V1 excludes plugin-specific native addons, host dependency installation, and package install scripts.
 - The SDK publishes type declarations and bundleable helpers. Live services arrive through an injected versioned context; plugins do not rely on host module paths or host-owned React instances. Backend Node built-ins remain available under the trusted-code model.
 - Packages declare their supported Node range, checked against Helmsman's runtime. The production server serves immutable plugin assets under plugin ID and artifact hash and supports contributed route reloads. Asset requests never fall through to the SPA HTML response.
+- Produce a runnable host distribution containing built server entry points, frontend assets, required runtime helper files, and runtime dependencies. Resolve packaged assets independently of the source checkout. Test startup and plugin installation from an isolated distribution with application source unavailable; the current frontend-only `npm run build` does not meet this gate.
 - Store validated artifacts by content hash, with pinned transitive plugin dependencies. Verify entry points, asset paths, SDK/capability compatibility, and storage compatibility before activation.
 - Installation stages and validates an archive before atomically publishing its installed record. Installing does not execute plugin code. Reject archive traversal, symlinks, duplicate/escaping paths, and configured size limits. Partial installation remains recoverable after a crash.
 - V1 supports explicit activation and a controlled restart for backend install/upgrade; hot code replacement is not required. Restart proceeds only when active work can safely reattach or has drained. UI bindings may change without rebuilding the host.
@@ -159,7 +160,7 @@ Build an external alternative Costs view and a small external pricing provider w
 
 | Phase | Deliverables | Completion gate |
 |---|---|---|
-| **A. Narrow host foundation** | Record the v1 contract decisions in sections 2–4. Add SDK declarations/helpers, manifest validator, minimal dynamic slots/routes, lifecycle registration, safe startup, archive loader, packager, and external sample harness. Wrap only shell/Costs surfaces; retain other legacy paths. | Production build can load a separately built sample and reload its deep link. Invalid packages and route collisions fail without partial registration. Existing pages still work. |
+| **A. Narrow host foundation** | Record the v1 contract decisions in sections 2–4. Add SDK declarations/helpers, manifest validator, minimal dynamic slots/routes, lifecycle registration, safe startup, archive loader, packager, external sample harness, and runnable host distribution including backend/helper assets. Wrap only shell/Costs surfaces; retain other legacy paths. | An isolated distribution with application source unavailable starts, loads a separately built sample, and reloads its deep link. Invalid packages and route collisions fail without partial registration. Existing pages still work. |
 | **B. External frontend and backend slice** | Extract durable usage query boundary, Costs UI, and a small pricing capability. Package alternative Costs and pricing implementations outside this galleon, including settings/storage and basic author docs. | Install against a production distribution with source unavailable. Explicitly swap implementations without rebuilding. Verify settings persistence, missing-provider behavior, preserved usage, and no private imports. |
 | **C. Persistence and recovery prerequisites** | Implement section 6 lifecycle states, artifact pinning, migration ledger, legacy decoding, recovery diagnostics, and durable operation protocol behind existing providers. Add fixture and crash tests before extracting task sources. | Drain/restart, blocked recovery, remote-success/local-crash reconciliation, and compatible rollback tests pass. Recovery distinguishes attachment failure from run completion. No destructive migration is needed. |
 | **D. Coexisting task sources** | Extract Todos, then Jira. Introduce stable source identity, neutral task snapshots, explicit bindings, and connection adoption. Remove Jira/Todo mutual exclusion. | Both launch independently; replacing an implementation preserves task identity and existing operation targets. Two compatible implementations pass the task-source contract suite. |
@@ -239,7 +240,7 @@ Each extraction passes TypeScript, production build, relevant unit/integration t
 
 | Gate | Required evidence |
 |---|---|
-| External installation | Build outside this galleon and install into production with application source unavailable; no host rebuild/private imports; direct route reload and asset loading work. |
+| External installation | Build outside this galleon and install into an isolated runnable host distribution with application source unavailable; backend/helper assets work without checkout paths; no host rebuild/private imports; direct route reload and asset loading work. |
 | Replacement | Two implementations target the same slot/capability; selection and aliases are explicit and reversible; layouts and route state survive removal/reinstall. |
 | Resolution | Ambiguous/missing bindings, version conflicts, cycles, collisions, and optional absence produce deterministic results; no hidden installation-order fallback. |
 | Scope and presentation | Header scope propagates, panel overrides stay local, theme/terminology updates work, CSS stays scoped, keyboard/responsive layouts match existing designs. |
@@ -280,6 +281,14 @@ All twelve prioritized findings are incorporated as design requirements. This re
 | R2.4 — Storage rollback | Section 6 establishes table ownership, migration coordination, additive schemas, WAL-consistent backups, and application-wide restore policy. |
 | R2.5 — Durable effects | Section 6 and C require an outbox, immutable operation targets, leases, idempotency/reconciliation, and explicit uncertainty. |
 | R2.6 — Trust/failure limits | Section 7 narrows containment guarantees and adds safe startup; section 4 specifies atomic archive installation and validation. |
+
+### Final implementation-readiness review
+
+A further independent review on 2026-09-20 found one additional prerequisite, accepted in revision 3:
+
+- **R3.1 — Runnable host distribution:** The current build emits frontend assets only, while server startup and helper resolution use source files. Section 4, Phase A, and the external-installation gate now require a built server distribution with runtime helpers/dependencies and an isolated smoke test. No other material architecture blockers were reported.
+
+_Helmsman · not reported - not reported_
 
 ## Independent reviews
 
