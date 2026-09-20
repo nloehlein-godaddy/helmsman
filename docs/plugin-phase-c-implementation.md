@@ -1,6 +1,6 @@
 # Phase C implementation design
 
-Status: Phase C implementation and acceptance checks complete; publication follows the required commit review. Phase B was published as `8652f9e`. This document implements all of [architecture plan section 6](plugin-architecture-plan.md#6-define-lifecycle-persistence-and-recovery-protocols) behind existing providers. It does not extract task sources or generalize execution plugins early. Phase C is complete only when the acceptance matrix below passes.
+Status: implementation and post-commit fixes complete; validation and independent architectural reviews pass. Phase B was published as `8652f9e`. This document implements all of [architecture plan section 6](plugin-architecture-plan.md#6-define-lifecycle-persistence-and-recovery-protocols) behind existing providers. It does not extract task sources or generalize execution plugins early. Phase C is complete only when the acceptance matrix below passes.
 
 ## Baseline seams and gaps
 
@@ -382,7 +382,9 @@ With four slots, the main thread owns integration while the three work packets r
 
 ## Phase C completion checklist
 
-Validation: 3,172 tests across 206 files passed, followed by focused checks for the final runner and runtime-path fixes (91 and 23 tests). TypeScript and production build passed. All 11 browser/visual tests, six distribution checks, and four source-denied production-server tests passed. Independent cross-reviews have no unresolved material findings.
+Validation: the final full suite passed 3,184 tests across 207 files. TypeScript and production build passed. All 11 browser/visual tests passed; six distribution checks and four source-denied production-server tests passed again after the post-commit fixes. Independent reviews found no unresolved material findings.
+
+Post-commit review fixed a Git URL-rewrite bypass using isolated publication transport with scoped credentials and a final stop check. It also fixed concurrent installation capacity checks and reconciliation of intents arriving during projection. Regression evidence includes real Git source/global/environment rewrites, stop during transport setup, and 33 simultaneous installations yielding exactly 32 accepted packages with no pending intents.
 
 Acceptance audit fixes include synchronized artifact selection/collection, safe-default CLI coordination, writer barriers on every backup database, automatic retained-schema migration guards, registered checkpoint validation with race detection, and package rollback preserving forward-migrated data. Focused evidence is in `plugins/coordinator.test.ts`, `plugins/cli.test.ts`, `persistence-backup.test.ts`, and `plugins/lifecycle.test.ts`. Protected legacy records additionally consume admission capacity and block cleanup and unverified native preparation, covered by `execution-store.test.ts`; unknown historical executable or connection identity is never fabricated as an artifact pin.
 

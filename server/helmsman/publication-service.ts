@@ -16,13 +16,14 @@ import { persistedJson, persistenceHash, stableJson, type Persistence } from './
 import { githubRepository, parsePrMetadata } from './pre-pr-runtime';
 import { parsePrePrReview } from './pre-pr-workflow';
 import { parsePublicationRequest, type PublicationRequest, type PublicationResponse } from './publication-client';
+import { publicationGit, type PublicationCommand } from './publication-git';
+export type { PublicationCommand } from './publication-git';
 import type { GatewayScope } from './scoped-gateway';
 
 const exec = promisify(execFile);
 const object = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 const kinds = new Set(['git.push', 'github.pr-create', 'github.pr-edit']);
-export interface PublicationCommand { (cmd: string, args: readonly string[], options: { cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }): Promise<string>; }
 export interface PublicationServiceOptions {
   persistence: Persistence; operations: OperationStore; executions: ExecutionStore; runsDir: string;
   getRun(runId: string): RunRow | null;
@@ -116,7 +117,7 @@ export function createPublicationService(options: PublicationServiceOptions) {
   async function remoteHead(state: ReturnType<typeof saved>, target: PushTarget, signal: AbortSignal) {
     const urls = (await state.run('git', ['remote', 'get-url', '--push', '--all', target.remote], signal)).split('\n');
     if (urls.length !== 1 || githubRepository(urls[0] ?? '') !== target.repo.toLowerCase()) throw new Error('Push remote identity changed');
-    const output = await state.run('git', ['ls-remote', '--heads', urls[0]!, `refs/heads/${target.branch}`], signal);
+    const output = await publicationGit({ cwd: state.worktree, repo: target.repo, token: state.github.token, branch: target.branch, signal, command, action: { kind: 'read' } });
     if (!output) return null;
     const match = /^([a-f\d]{40}(?:[a-f\d]{24})?)\s+refs\/heads\/(.+)$/.exec(output);
     if (!match || match[2] !== target.branch) throw new Error('Remote branch identity unavailable');
@@ -144,7 +145,12 @@ export function createPublicationService(options: PublicationServiceOptions) {
     signal.throwIfAborted();
     if (operation.kind === 'git.push') return createPushOperationAdapter({ binding: operation.binding, authorize,
       async readRemote(pinned, context) { return { ...pinned, headSha: await remoteHead(state, pinned, context.signal) }; },
-      async push(pinned, approved, context) { assertCurrent(state, scope, request); await state.run('git', ['-c', 'credential.helper=', '-c', 'credential.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f', '-c', 'core.hooksPath=/dev/null', 'push', '--', `https://github.com/${pinned.repo}.git`, `${approved.headSha}:refs/heads/${pinned.branch}`], context.signal); } });
+      async push(pinned, approved, context) {
+        assertCurrent(state, scope, request);
+        await publicationGit({ cwd: state.worktree, repo: pinned.repo, token: state.github.token, branch: pinned.branch, signal: context.signal,
+          command: async (cmd, args, options) => { if (args.includes('push')) assertCurrent(state, scope, request); return command(cmd, args, options); },
+          action: { kind: 'push', headSha: approved.headSha } });
+      } });
     return createPullRequestOperationAdapter({ binding: operation.binding, kind: operation.kind as 'github.pr-create' | 'github.pr-edit', authorize,
       inspect: (pinned, context) => inspect(state, pinned, context.signal),
       async publish(pinned, content, context) {

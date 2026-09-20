@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig } from '../config';
@@ -23,6 +23,7 @@ const request: PublicationRequest = { version: 1, kind: 'pre-pr', approved: { ba
 const scope = { repo: 'org/repo', branch: 'agent/run', readOnly: false };
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'publication-test-')); roots.push(root);
+  await mkdir(join(root, 'objects'));
   const persistence = openPersistence(':memory:'); databases.push(persistence);
   const db = openDb(persistence.sql);
   const executions = openExecutionStore(persistence);
@@ -38,17 +39,19 @@ async function fixture() {
   await artifacts.write({ runId: 'run', stage: 'implement', round: 0 }, JSON.stringify({ title: '[TASK-1] Improve behavior', body: 'The change.' }));
   for (const reviewer of request.approved.reviewers) await artifacts.write({ runId: 'run', stage: 'review', round: 1, reviewer }, JSON.stringify({ baseSha, headSha, verdict: 'APPROVE', summary: 'Approved.', findings: [] }));
   const remote = { sha: null as string | null, dirty: false, localHead: headSha, actor: 'actor', url: 'git@github.com:org/repo.git', base: baseSha,
-    losePush: false, losePr: false, stopped: false, stopAtObservation: 0, observations: 0, clarified: true, pr: null as null | { number: number; body: string; title: string } };
+    losePush: false, losePr: false, stopped: false, stopDuringTransportSetup: false, stopAtObservation: 0, observations: 0, clarified: true, pr: null as null | { number: number; body: string; title: string } };
   const command = vi.fn<PublicationCommand>(async (cmd, args, context) => {
     context.signal.throwIfAborted();
     if (cmd === 'git') {
+      if (args[0] === 'init') { await mkdir(join(args.at(-1)!, 'objects/info'), { recursive: true }); return ''; }
+      if (args.includes('--git-path')) { if (remote.stopDuringTransportSetup) remote.stopped = true; return join(root, 'objects'); }
       if (args.includes('push')) { remote.sha = headSha; if (remote.losePush) throw new Error('lost push receipt'); return ''; }
       if (args[0] === 'rev-parse') return remote.localHead;
       if (args[0] === 'symbolic-ref') return scope.branch;
       if (args[0] === 'status') return remote.dirty ? ' M changed.ts' : '';
       if (args[0] === 'merge-base') return args[1] === '--is-ancestor' ? '' : remote.base;
       if (args[0] === 'remote') return args.length === 1 ? 'origin' : remote.url;
-      if (args[0] === 'ls-remote') {
+      if (args.includes('ls-remote')) {
         remote.observations++;
         if (remote.stopAtObservation === remote.observations) remote.stopped = true;
         return remote.sha ? `${remote.sha}\trefs/heads/${scope.branch}` : '';
@@ -115,6 +118,14 @@ describe('core publication outbox', () => {
     expect(f.writes()).toEqual([]);
   });
 
+  it('blocks stop arriving during isolated transport preparation before the push command', async () => {
+    const f = await fixture();
+    f.remote.stopDuringTransportSetup = true;
+    await expect(f.publish()).rejects.toThrow();
+    expect(f.remote.stopped).toBe(true);
+    expect(f.writes()).toEqual([]);
+  });
+
   it('blocks stop arriving during the final remote observation immediately before push', async () => {
     const f = await fixture();
     f.remote.stopAtObservation = 3;
@@ -152,7 +163,7 @@ describe('core publication outbox', () => {
     await f.service.drainPending('run');
     expect(f.operations.byKey('run:1:publication:push')?.status).toBe('completed');
     expect(f.writes()).toHaveLength(1);
-    expect(f.command.mock.calls.filter(([cmd, args]) => cmd === 'git' && args[0] === 'ls-remote').every(([, , options]) => options.cwd === f.root)).toBe(true);
+    expect(f.command.mock.calls.filter(([cmd, args]) => cmd === 'git' && args[0] === 'remote').every(([, , options]) => options.cwd === f.root)).toBe(true);
   });
 
   it('allows read-only reconciliation after stop while blocking new publication', async () => {

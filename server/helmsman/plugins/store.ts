@@ -290,13 +290,18 @@ export async function createPluginCoordinator(options: {
         && !pendingPersistenceIntents(persistence).some(intent => intent.owner === `plugin:${id}`);
     },
     builtinArtifactHash: id => options.builtins?.find(item => item.package.manifest.id === id)?.artifactHash ?? null,
-    reconcile() {
-      if (disposed) return Promise.resolve();
-      reconciliation ??= project().finally(() => { reconciliation = undefined; });
-      return reconciliation;
+    async reconcile() {
+      if (disposed) return;
+      do {
+        reconciliation ??= project().finally(() => { reconciliation = undefined; });
+        await reconciliation;
+      } while (!disposed && pendingPersistenceIntents(persistence).some(intent => intent.owner.startsWith('plugin:')));
     },
     async install(archive) {
       persistence.transaction(() => {
+        const installed = lifecycle.list();
+        if (!installed.some(row => row.pluginId === archive.package.manifest.id)
+          && installed.filter(row => !row.pluginId.startsWith('helmsman.')).length >= 32) throw new Error('At most 32 external plugins may be installed.');
         verifyArchiveUnderLock(archive);
         register(archive.package, archive.hash);
         const row = state(archive.package.manifest.id)!;

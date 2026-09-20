@@ -15,9 +15,9 @@ import { createPluginCoordinator, installPlugin, loadPluginSnapshot, readPluginS
 
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 const id = 'example.coordinated';
-function archive(version = '1.0.0') {
+function archive(version = '1.0.0', pluginId = id) {
   return Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
-    package: { packageVersion: 1, manifest: { manifestVersion: 1, id, version, sdkVersion: 1, pages: [] },
+    package: { packageVersion: 1, manifest: { manifestVersion: 1, id: pluginId, version, sdkVersion: 1, pages: [] },
       node: { minMajor: nodeMajor, maxMajorExclusive: nodeMajor + 1 }, entries: {},
       backend: { entry: 'pricing.js', provides: [{ id: 'helmsman/pricing', version: 1, localId: 'fixed' }], settings: {}, storageVersion: 1 } },
     files: [{ path: 'pricing.js', base64: Buffer.from('export default { activate(ctx) { ctx.registerPricing("fixed", { estimate() { return null; } }); ctx.onDispose(() => { globalThis.__phaseCDisposed = (globalThis.__phaseCDisposed ?? 0) + 1; }); } };').toString('base64') }],
@@ -40,6 +40,19 @@ beforeEach(async () => {
 afterEach(async () => { await runtime?.dispose(); runtime = undefined; coordinator.dispose(); persistence.close(); Reflect.deleteProperty(globalThis, '__phaseCDisposed'); rmSync(root, { recursive: true, force: true }); });
 
 describe('coordinated plugin package lifecycle', () => {
+  it('limits concurrent installs under the authoritative lock and acknowledges every successful installation', async () => {
+    const results = await Promise.allSettled(Array.from({ length: 33 }, (_, index) => installPlugin(plugins, archive('1.0.0', `example.concurrent${index}`), coordinator)));
+    const installed = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+    const failed = results.flatMap(result => result.status === 'rejected' ? [result.reason as Error] : []);
+    expect(installed).toHaveLength(32);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.message).toContain('At most 32');
+    expect(coordinator.lifecycle.list()).toHaveLength(32);
+    expect(pendingPersistenceIntents(persistence)).toEqual([]);
+    expect(readPluginState(plugins).plugins).toEqual([...installed].sort((a, b) => a.id.localeCompare(b.id)));
+    expect((await loadPluginSnapshot(plugins, false, coordinator)).errors).toEqual([]);
+  });
+
   it('recovers a crash between catalog and data projections before activating pages or services', async () => {
     const installed = await installPlugin(plugins, archive(), coordinator);
     coordinator.dispose(); let fail = false;

@@ -64,15 +64,15 @@ const runGit = args => cp.execFileSync(env.TEST_GIT_BIN, args, {encoding:'utf8'}
 const log = data => fs.appendFileSync(env.TEST_TRANSCRIPT, JSON.stringify(data)+'\n');
 if(id === 'git') {
   if(args[0] === 'fetch') args[args.indexOf(env.TEST_REMOTE)] = env.TEST_BARE;
-  if(args[0] === 'ls-remote') args[2] = env.TEST_BARE;
-  if(args[0] === 'ls-remote' && env.TEST_MODE === 'remote-moved') {
+  if(args.includes('ls-remote')) { args[args.indexOf('ls-remote')+2] = env.TEST_BARE; args.unshift('-c','protocol.file.allow=always'); }
+  if(args.includes('ls-remote') && env.TEST_MODE === 'remote-moved') {
     console.log('a'.repeat(40)+'\trefs/heads/voyage/test'); process.exit(0);
   }
   if(args.includes('push')) {
-    log({stage:'push',remote:env.TEST_REMOTE}); args[args.indexOf('push')+2] = env.TEST_BARE;
+    log({stage:'push',remote:env.TEST_REMOTE}); args[args.indexOf('push')+2] = env.TEST_BARE; args.unshift('-c','protocol.file.allow=always');
     if(fs.existsSync(env.TEST_STATE)) {
       const prs=JSON.parse(fs.readFileSync(env.TEST_STATE,'utf8'));
-      for(const pr of prs) pr.headRefOid=runGit(['rev-parse','HEAD']);
+      for(const pr of prs) pr.headRefOid=runGit(['-C',env.TEST_AUTHOR,'rev-parse','HEAD']);
       fs.writeFileSync(env.TEST_STATE,JSON.stringify(prs));
     }
   }
@@ -138,7 +138,7 @@ if(id === 'git') {
   }
   const input = { task: { ticketId: 'T-1', title: 'Fix issue', repo: 'example/project', jiraBaseUrl: '', model: 'author-model', effort: 'medium', ...options.task }, writerId: options.writerId ?? 'codex', runsDir: join(root, 'runs'), settings };
   const environment = { ...process.env, PATH: bin, TEST_MODE: mode, TEST_REMOTE: mode === 'named-remote' ? 'godaddy' : 'origin', TEST_BARE: bare,
-    TEST_STATE: state, TEST_TRANSCRIPT: transcript, TEST_GIT_BIN: GIT, TEST_SUMMARY_LIMIT: String(PRE_PR_REVIEW_SUMMARY_LIMIT),
+    TEST_STATE: state, TEST_AUTHOR: cwd, TEST_TRANSCRIPT: transcript, TEST_GIT_BIN: GIT, TEST_SUMMARY_LIMIT: String(PRE_PR_REVIEW_SUMMARY_LIMIT),
     TEST_BODY: options.body ?? 'Implemented and checked.', TEST_EXISTING_BODY: options.existingBody ?? 'Human-maintained PR description.' };
   const persistence = openPersistence(':memory:');
   const db = openDb(persistence.sql);
@@ -156,7 +156,7 @@ if(id === 'git') {
   let currentTask: AgentTask = input.task;
   const service = createPublicationService({ persistence, operations, executions, runsDir: input.runsDir, currentConfig: () => config, getRun: db.getRun,
     verifyArtifacts: async () => {}, clarificationReady: () => true, isStopped: () => false,
-    command: async (cmd, args, context) => (await exec(join(bin, cmd), [...args], { ...context, env: { ...context.env, ...environment }, timeout: 10_000 })).stdout.trim() });
+    command: async (cmd, args, context) => (await exec(join(bin, cmd), [...args], { ...context, env: { ...environment, ...context.env }, timeout: 10_000 })).stdout.trim() });
   const gateway = createScopedGateway({ path: persistence.sql, openaiKey: 'test-key', active: () => true,
     scope: () => ({ repo: row.repo, branch: 'voyage/test', readOnly: false }), clarificationReady: () => true,
     publication: async (runId, scope, request, signal) => { await assertClarificationReady(currentTask, runId); return service.publish(runId, scope, request, signal); } });
