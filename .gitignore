@@ -38,3 +38,6 @@ dev.log
 .playwright-mcp/
 playwright-report/
 test-results/
+
+/release/
+/release.previous-*/

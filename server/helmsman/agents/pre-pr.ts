@@ -1,4 +1,4 @@
-import { fileURLToPath } from 'node:url';
+import { runtimeNodeArguments } from '../runtime-paths';
 import { normalizePrePrSettings, type PrePrSettings } from '../../../src/logic/prePrSettings';
 import type { AgentAdapter, AgentEvent, AgentEventKind } from './adapter';
 
@@ -18,7 +18,7 @@ export function prePrAdapter(writer: AgentAdapter, runsDir: string, settings?: P
       if (task.review || task.prBranch) throw new Error('The pre-PR workflow is only for new coding voyages');
       return {
         cmd: process.execPath,
-        args: ['--import', import.meta.resolve('tsx'), fileURLToPath(new URL('../pre-pr-cli.ts', import.meta.url)),
+        args: [...runtimeNodeArguments('../pre-pr-cli.ts', import.meta.url),
           JSON.stringify({ task, writerId: writer.id, runsDir, settings: reviewSettings })],
       };
     },

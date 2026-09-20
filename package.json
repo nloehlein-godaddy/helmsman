@@ -14,7 +14,9 @@
     "cmux:costs": "node scripts/cmux-codex-cost.mjs",
     "cmux:costs:install": "node scripts/install-cmux-codex-cost.mjs",
     "cmux:costs:uninstall": "node scripts/install-cmux-codex-cost.mjs --uninstall",
-    "plugins": "tsx server/helmsman/plugins/cli.ts"
+    "plugins": "tsx server/helmsman/plugins/cli.ts",
+    "build:distribution": "npm run build && node scripts/build-distribution.mjs",
+    "test:distribution": "npm run build:distribution && node --test scripts/distribution-check.mjs && playwright test --config playwright.distribution.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

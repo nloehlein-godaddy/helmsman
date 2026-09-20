@@ -1,6 +1,6 @@
 # Experimental page registry and lifecycle
 
-This implements the page metadata and lifecycle portions of [Phase A](plugin-architecture-plan.md). The API is experimental and is not a published or independently installable SDK.
+This implements the page metadata and lifecycle portions of [Phase A](plugin-architecture-plan.md). The API is experimental. Standalone declarations ship as `release/sdk`; see [the runnable distribution and SDK](distribution.md).
 
 ## What works
 
@@ -39,7 +39,7 @@ All shown fields are required. Unsupported fields and versions are rejected. Pac
 
 Contribution IDs combine plugin and local page IDs: `example.costs/summary`. Their canonical URL is `/plugins/example.costs/summary`; plugins cannot choose an arbitrary path that shadows a host route. Host-owned slots define aliases and default contributions separately.
 
-This prototype covers page metadata and known pane IDs only. Entry points, capability contracts, runtime version ranges, arbitrary query-state schemas, permissions, and storage declarations are not accepted yet. They will be introduced alongside their actual consumers, before stabilizing the public manifest.
+This prototype covers page metadata and known pane IDs only. The enclosing package descriptor supplies frontend entry points and a Node major-version range. Capability contracts, arbitrary query-state schemas, permissions, and storage declarations are not accepted yet. They will be introduced alongside their actual consumers, before stabilizing the public manifest.
 
 ## Registry behavior
 
@@ -81,4 +81,4 @@ npm run test:browser
 
 The browser harness uses a production Vite preview with mocked APIs. It checks alias/canonical Costs rendering, header scope and reload, unavailable pages, navigation, a visual baseline, failed-save draft preservation, period changes while editing, and navigation during a pending save. Install its browser on a new development machine with `npx playwright install chromium`. Update snapshots only after reviewing the rendered change.
 
-The external-package browser harness proves frontend installation and import using real catalog/asset handlers. A full runnable server distribution, isolated third-party execution, and durable run/provider lifecycle remain separate gates.
+The external-package browser harness proves frontend installation and import using real catalog/asset handlers. The [isolated distribution harness](distribution.md#acceptance-evidence) also exercises the real compiled server with source access denied. Isolated third-party execution and durable run/provider lifecycle remain later gates.
