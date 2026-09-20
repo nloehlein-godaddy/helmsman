@@ -9,7 +9,7 @@ import type { OperationStore } from './operations';
 import { dispatchOperation } from './operation-dispatcher';
 import type { LaunchIntent } from './retry';
 import { parseSourceInstanceV1, parseWorkRefV1, type SourceAbortRequestV1, type SourceCompletionRequestV1, type SourceInstanceV1, type WorkRefV1 } from '../../src/plugins/tasks';
-import { persistedJson, PersistenceConflictError } from './persistence';
+import { persistedJson, PersistenceConflictError, stableJson } from './persistence';
 import type { TaskSourceStore, WorkClaimRecord } from './task-sources/store';
 import type { TaskSourceRegistry } from './task-sources/registry';
 import { openLocalSourceAdapter } from './task-sources/local-records';
@@ -88,11 +88,16 @@ export function createTaskSourceRuntime(options: {
       release: claim => executions.releaseSourceClaimPins(claim.id) } });
   const todoApi = options.todoSourceId ? createSourceTodoApi({ sourceId: options.todoSourceId, store, service }) : null;
   const schedule = openTaskSourceSchedule(store, service);
-  function selection(body: LaunchIntent): SourceLaunchSelection | null {
+  function selection(body: LaunchIntent, retryOf?: string): SourceLaunchSelection | null {
     if (body.mode === 'source') {
       const ref = parseWorkRefV1(body.workRef);
       const instance = body.sourceInstanceId ? store.instance(body.sourceInstanceId) : null;
-      if (!instance || instance.sourceId !== ref.sourceId || instance.revision !== body.sourceInstanceRevision) throw new PersistenceConflictError('Task source selection changed');
+      if (!instance || instance.sourceId !== ref.sourceId) throw new PersistenceConflictError('Task source selection changed');
+      if (retryOf) {
+        const previous = claimForRun(retryOf);
+        if (!previous || previous.instance.id !== instance.id || previous.instance.revision !== body.sourceInstanceRevision
+          || stableJson(previous.ref) !== stableJson(ref) || stableJson(previous.instance.binding) !== stableJson(instance.binding)) throw new PersistenceConflictError('Source retry owner or provider changed');
+      } else if (instance.revision !== body.sourceInstanceRevision) throw new PersistenceConflictError('Task source selection changed');
       service.assertScope(instance, body.repo, 'admission'); return { instance, ref, displayKey: null };
     }
     if (body.mode === 'todo') {

@@ -11,7 +11,7 @@ function pendingMutations(): Map<string, string> {
   }
   return new Map(entries as [string, string][]);
 }
-function mutation(path: string, method: string, input: unknown): { path: string; complete(): void } {
+function mutation(path: string, method: string, input: unknown): { path: string; requestId: string; commandId: string; complete(): void } {
   const normalized = input && typeof input === 'object' && !Array.isArray(input)
     ? Object.fromEntries(Object.entries(input).sort(([a], [b]) => a.localeCompare(b))) : input;
   const key = JSON.stringify([path, method, normalized]);
@@ -22,7 +22,7 @@ function mutation(path: string, method: string, input: unknown): { path: string;
     requestId = crypto.randomUUID(); pending.set(key, requestId);
     sessionStorage.setItem(mutationStorageKey, JSON.stringify([...pending]));
   }
-  return { path: `${path}?requestId=${encodeURIComponent(requestId)}`, complete: () => {
+  return { path: `${path}?requestId=${encodeURIComponent(requestId)}`, requestId, commandId: method === 'POST' ? 'create' : method === 'PUT' ? 'update' : 'delete', complete: () => {
     const remaining = pendingMutations();
     if (remaining.get(key) === requestId) {
       remaining.delete(key);
@@ -51,12 +51,19 @@ export function isTodo(value: unknown): value is Todo {
     && (item.runId === null || typeof item.runId === 'string');
 }
 
-async function request(path: string, init?: RequestInit): Promise<Record<string, unknown>> {
+async function request(path: string, init?: RequestInit, pending?: ReturnType<typeof mutation>): Promise<Record<string, unknown>> {
   const response = await fetch(path, { ...init, signal: AbortSignal.timeout(10_000) });
   const payload: unknown = await response.json().catch(() => null);
   const data = payload && typeof payload === 'object' && !Array.isArray(payload)
     ? payload as Record<string, unknown> : null;
-  if (!response.ok) throw new Error(typeof data?.error === 'string' ? data.error : `Todo request failed (${response.status}).`);
+  if (!response.ok) {
+    const rejection = data?.rejection;
+    if (pending && response.status === 409 && rejection && typeof rejection === 'object' && !Array.isArray(rejection)) {
+      const receipt = rejection as Record<string, unknown>;
+      if (receipt.version === 1 && receipt.requestId === pending.requestId && receipt.commandId === pending.commandId) pending.complete();
+    }
+    throw new Error(typeof data?.error === 'string' ? data.error : `Todo request failed (${response.status}).`);
+  }
   if (!data) throw new Error('Unexpected todo response. Refresh and try again.');
   return data;
 }
@@ -73,7 +80,7 @@ async function saveTodo(path: string, method: 'POST' | 'PUT', input: TodoInput):
   const pending = mutation(path, method, input);
   const data = await request(pending.path, {
     method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
-  });
+  }, pending);
   if (!isTodo(data.todo)) throw new Error('Unable to confirm the saved todo. Refresh before retrying.');
   pending.complete();
   return data.todo;
@@ -89,7 +96,7 @@ export function updateTodo(id: string, input: TodoInput): Promise<Todo> {
 
 export async function deleteTodo(id: string): Promise<void> {
   const pending = mutation(`/api/todos/${encodeURIComponent(id)}`, 'DELETE', null);
-  const data = await request(pending.path, { method: 'DELETE' });
+  const data = await request(pending.path, { method: 'DELETE' }, pending);
   if (data.ok !== true) throw new Error('Unable to confirm deletion. Refresh before retrying.');
   pending.complete();
 }

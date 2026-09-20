@@ -1631,7 +1631,7 @@ export class DashboardView {
     if (autoClaim) {
       const enabled = this.autoClaimRepos.includes(this.selectedRepo ?? '');
       autoClaim.setAttribute('aria-pressed', String(enabled));
-      autoClaim.textContent = enabled ? 'Stop automatic starts' : 'Start todos automatically';
+      autoClaim.textContent = enabled ? 'Stop automatic starts' : 'Start selected sources automatically';
     }
     const feedback = this.root.querySelector('[data-todo-feedback]');
     if (feedback) {

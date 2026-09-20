@@ -1,6 +1,6 @@
 # Phase D: coexisting task sources
 
-Status: implementation and acceptance verification complete; exact-commit review and push pending. Phase C passed its final tests, distribution checks, and independent reviews and was pushed as `2e9bd57`. This document refines [the architecture plan, sections 2, 3, 5, and 6](plugin-architecture-plan.md) and preserves the [Phase C protocols](plugin-phase-c-implementation.md). The signatures below are proposed interfaces, not APIs already available to plugin authors.
+Status: implementation and acceptance verification complete; exact-commit review findings fixed and verified; final fix review and push pending. Phase C passed its final tests, distribution checks, and independent reviews and was pushed as `2e9bd57`. This document refines [the architecture plan, sections 2, 3, 5, and 6](plugin-architecture-plan.md) and preserves the [Phase C protocols](plugin-phase-c-implementation.md). The signatures below are proposed interfaces, not APIs already available to plugin authors.
 
 ## Outcome and scope
 

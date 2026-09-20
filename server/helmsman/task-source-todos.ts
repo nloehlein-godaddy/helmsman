@@ -7,6 +7,20 @@ import { migrateOwned, validateTableColumns } from './migrations';
 import type { TaskSourceService } from './task-source-service';
 import type { TaskSourceStore } from './task-sources/store';
 
+export class SourceTodoRejectedError extends PersistenceConflictError {
+  readonly requestId: string;
+  readonly commandId: string;
+  constructor(message: string, requestId: string, commandId: string) { super(message); this.requestId = requestId; this.commandId = commandId; }
+}
+interface RejectedTodoCommand { version: 1; kind: 'todo-command-rejected'; requestId: string; commandId: string; message: string }
+function rejectedCommand(value: unknown): RejectedTodoCommand | null {
+  if (!value || typeof value !== 'object' || !('kind' in value) || value.kind !== 'todo-command-rejected') return null;
+  const receipt = value as RejectedTodoCommand;
+  if (receipt.version !== 1 || typeof receipt.requestId !== 'string' || typeof receipt.commandId !== 'string' || typeof receipt.message !== 'string') throw new PersistenceValidationError('Invalid rejected Todo command receipt');
+  return receipt;
+}
+function rejectedError(receipt: RejectedTodoCommand): SourceTodoRejectedError { return new SourceTodoRejectedError(receipt.message, receipt.requestId, receipt.commandId); }
+
 export interface TodoApi {
   list(): Todo[] | Promise<Todo[]>;
   get(id: string): Todo | null | Promise<Todo | null>;
@@ -70,12 +84,36 @@ export function createSourceTodoApi(options: { sourceId: string; store: TaskSour
         return read()!;
       });
     }
-    if (saved.result !== null) return persistedJson(JSON.parse(saved.result)) as unknown as LocalSourceRecordV1 | null;
+    if (saved.result !== null) {
+      const result = persistedJson(JSON.parse(saved.result)); const rejection = rejectedCommand(result);
+      if (rejection) throw rejectedError(rejection);
+      return result as unknown as LocalSourceRecordV1 | null;
+    }
     const intent = persistedJson(JSON.parse(saved.intent)) as unknown as Intent;
     if (!intent) return null;
-    const result = await service.command({ ...intent, commandId, requestId: id }, scope.signal);
-    store.persistence.transaction(() => { sql.prepare('UPDATE source_todo_commands SET result=? WHERE id=? AND inputHash=?').run(stableJson(result), id, inputHash); });
-    return result;
+    try {
+      const result = await service.command({ ...intent, commandId, requestId: id }, scope.signal, () => {
+        const current = read();
+        if (!current) throw new PersistenceConflictError('Todo command intent is unavailable');
+        const rejection = current.result === null ? null : rejectedCommand(persistedJson(JSON.parse(current.result)));
+        if (rejection) throw rejectedError(rejection);
+      });
+      store.persistence.transaction(() => { sql.prepare('UPDATE source_todo_commands SET result=? WHERE id=? AND inputHash=?').run(stableJson(result), id, inputHash); });
+      return result;
+    } catch (error) {
+      const rejection = store.persistence.transaction(() => {
+        if (sql.prepare('SELECT id FROM source_commands WHERE id=?').get(id)) return null;
+        const current = read();
+        if (!current) return null;
+        if (current.result !== null) return rejectedCommand(persistedJson(JSON.parse(current.result)));
+        const receipt: RejectedTodoCommand = { version: 1, kind: 'todo-command-rejected', requestId: id, commandId,
+          message: error instanceof PersistenceConflictError || error instanceof PersistenceValidationError ? error.message : 'Todo change was not applied. Refresh the Todo and try again.' };
+        sql.prepare('UPDATE source_todo_commands SET result=? WHERE id=? AND inputHash=? AND result IS NULL').run(stableJson(receipt), id, inputHash);
+        return receipt;
+      });
+      if (rejection) throw rejectedError(rejection);
+      throw error;
+    }
   }
   return {
     async list() {

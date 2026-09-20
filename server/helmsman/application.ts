@@ -606,7 +606,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const priorTask = priorRun?.taskJson ? JSON.parse(priorRun.taskJson) as AgentTask | null : null;
   if (priorTask && Boolean(priorTask.dockerExecution) !== (host.kind === 'docker')) throw new RetryError('Retry requires the original local or Docker execution mode.');
   if (body.retryOf && adapterId === 'command' && !cfg.agentCmd) throw new RetryError('The original command agent is no longer configured. Configure it before retrying.');
-  let sourceSelection = taskSourceRuntime.selection(body);
+  let sourceSelection = taskSourceRuntime.selection(body, body.retryOf);
   if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
   let launchJson = launchIntentJson(body);
   const admissionArtifacts = [currentRuntime.artifact, ...(sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : [])];

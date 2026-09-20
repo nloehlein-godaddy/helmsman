@@ -79,3 +79,21 @@ describe('todo client', () => {
   });
 
 });
+
+it('renews mutation identity only after a matching durable rejection receipt', async () => {
+  const fetcher = vi.fn().mockImplementationOnce((path: string) => Promise.resolve(reply({ error: 'Refresh before trying again', rejection: { version: 1, requestId: new URL(path, 'https://example.test').searchParams.get('requestId'), commandId: 'update' } }, 409)))
+    .mockImplementation(() => Promise.resolve(reply({ todo })));
+  vi.stubGlobal('fetch', fetcher);
+  const input = { title: 'Same intended change', repo: 'owner/repo' };
+  await expect(updateTodo(todo.id, input)).rejects.toThrow('Refresh');
+  await updateTodo(todo.id, input);
+  expect(fetcher.mock.calls[0]?.[0]).not.toBe(fetcher.mock.calls[1]?.[0]);
+});
+it.each(['different-request', 'different-command', 'unclassified', 'server-error'])('retains mutation identity for %s rejection evidence', async kind => {
+  const fetcher = vi.fn().mockImplementationOnce((path: string) => Promise.resolve(reply({ error: 'Rejected', ...(kind === 'unclassified' ? {} : { rejection: { version: 1,
+    requestId: kind === 'different-request' ? 'another-request' : new URL(path, 'https://example.test').searchParams.get('requestId'), commandId: kind === 'different-command' ? 'delete' : 'update' } }) }, kind === 'server-error' ? 500 : 409)))
+    .mockImplementation(() => Promise.resolve(reply({ todo })));
+  vi.stubGlobal('fetch', fetcher); const input = { title: 'Same payload', repo: 'owner/repo' };
+  await expect(updateTodo(todo.id, input)).rejects.toThrow('Rejected'); await updateTodo(todo.id, input);
+  expect(fetcher.mock.calls[0]?.[0]).toBe(fetcher.mock.calls[1]?.[0]);
+});

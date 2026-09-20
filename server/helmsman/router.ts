@@ -20,7 +20,7 @@ import { UsageValidationError } from './usage-store';
 import { CapabilityResolutionError } from './plugins/backend';
 import { handleTaskSourceApi } from './task-source-routes';
 import type { TaskSourceService } from './task-source-service';
-import type { TodoApi } from './task-source-todos';
+import { SourceTodoRejectedError, type TodoApi } from './task-source-todos';
 import { PersistenceConflictError, PersistenceValidationError } from './persistence';
 import type { TaskSourceSchedule } from './task-source-schedule';
 
@@ -225,6 +225,7 @@ export async function handleApi(
           return await deps.todos.remove(todoMatch[1], requestId) ? { status: 200, json: { ok: true } } : { status: 404, json: { error: 'Todo not found.' } };
         }
       } catch (error) {
+        if (error instanceof SourceTodoRejectedError) return { status: 409, json: { error: error.message, rejection: { version: 1, requestId: error.requestId, commandId: error.commandId } } };
         if (error instanceof TodoValidationError || error instanceof TodoConflictError || error instanceof PersistenceConflictError || error instanceof PersistenceValidationError) {
           return { status: error instanceof TodoConflictError || error instanceof PersistenceConflictError ? 409 : 400, json: { error: error.message } };
         }
@@ -327,7 +328,7 @@ export async function handleApi(
       }
       return { status: 200, json: { runId: deps.launch({ ...intent, retryOf: run.id }) } };
     } catch (error) {
-      if (error instanceof RetryError || error instanceof TodoConflictError || error instanceof TodoValidationError) {
+      if (error instanceof RetryError || error instanceof TodoConflictError || error instanceof TodoValidationError || error instanceof PersistenceConflictError) {
         return { status: 409, json: { error: error.message } };
       }
       throw error;

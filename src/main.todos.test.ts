@@ -133,7 +133,7 @@ describe('todo workflow', () => {
     resetAutoClaim();
     await view.refresh();
     expect(root.querySelector('[data-todo-auto-claim]')?.getAttribute('aria-pressed')).toBe('false');
-    expect(root.querySelector('[data-todo-auto-claim]')?.textContent).toBe('Start todos automatically');
+    expect(root.querySelector('[data-todo-auto-claim]')?.textContent).toBe('Start selected sources automatically');
     expect(root.querySelector<HTMLInputElement>('[name=title]')?.value).toBe('Draft across server restart');
   });
 

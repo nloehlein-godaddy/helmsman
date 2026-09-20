@@ -120,7 +120,7 @@ export function createTaskSourceService(options: {
       store.recordAlias({ ...ref, displayKey: input.displayKey, evidence: { instanceRevision: instance.revision, repo: input.repo } });
       store.assertUnquarantined(ref, input.displayKey); return ref;
     },
-    async command(input: { instanceId: string; instanceRevision: number; repo: string; commandId: string; requestId: string; input: PluginJson }, signal: AbortSignal) {
+    async command(input: { instanceId: string; instanceRevision: number; repo: string; commandId: string; requestId: string; input: PluginJson }, signal: AbortSignal, authorizeCommit?: () => void) {
       const instance = selected(input.instanceId, input.instanceRevision, input.repo);
       const registration = registry.resolve(instance, 'admission');
       const handler = registration.provider.commands?.[input.commandId];
@@ -133,6 +133,7 @@ export function createTaskSourceService(options: {
       signal.throwIfAborted(); assertScope(instance, input.repo, 'admission');
       return store.persistence.transaction(() => {
         assertScope(instance, input.repo, 'admission');
+        authorizeCommit?.();
         return local.applyCommand({ requestId: input.requestId, instance, repo: input.repo, commandId: input.commandId, commandInput, plan });
       });
     },

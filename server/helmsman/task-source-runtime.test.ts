@@ -16,7 +16,7 @@ import { createTaskSourceRegistry } from './task-sources/registry';
 import { createTaskSourceRuntime } from './task-source-runtime';
 import { sourceExecutionSettings, sourceExecutionSnapshot } from './task-source-execution';
 import { createRunnerDurability } from './runner-durability';
-import type { LaunchIntent } from './retry';
+import { retryIntent, type LaunchIntent } from './retry';
 
 const opened: Persistence[] = [];
 afterEach(() => { for (const persistence of opened.splice(0)) persistence.close(); });
@@ -67,7 +67,7 @@ function setup() {
     verifyArtifacts: async () => {}, isStopped: () => stopped, fetcher, report };
   const runtime = createTaskSourceRuntime(options);
   function reserve(runId: string, intent: LaunchIntent, retryOf?: string) {
-    const selection = runtime.selection(intent)!;
+    const selection = runtime.selection(intent, retryOf)!;
     const canonical = runtime.canonical(intent, selection);
     runtime.reserve(runId, intent.repo, selection, () => { admissions.admit({ runId, repo: intent.repo, request: JSON.parse(JSON.stringify(canonical)), settings: sourceExecutionSettings(config), artifacts: [runtimeArtifact, ...options.artifacts(selection.instance)] }, 4); }, retryOf);
     return selection;
@@ -96,7 +96,7 @@ describe('application source runtime', () => {
     const todo = await f.runtime.todoApi!.create({ repo, title: 'Local', description: 'Do local work' }, 'create-local');
     const selection = f.reserve('local-run', { mode: 'todo', todoId: todo.id, repo });
     expect(f.runtime.claimForRun('local-run')?.state).toBe('reserved');
-    await expect(f.runtime.todoApi!.update(todo.id, { title: 'Race' }, 'edit')).rejects.toThrow(/Claimed|active voyage/);
+    await expect(f.runtime.todoApi!.update(todo.id, { title: 'Race' }, 'edit')).rejects.toThrow('Todo change was not applied');
     const prepared = await f.runtime.prepare('local-run', repo, selection, new AbortController().signal);
     expect(prepared.task.task).toContain('Do local work'); expect(prepared.task.source).toBeDefined(); expect(prepared.task.todoId).toBeUndefined();
     const run = await f.start('local-run', prepared.task);
@@ -173,6 +173,41 @@ describe('application source runtime', () => {
     await f.complete(run);
     expect(f.db.getRun('local-run')?.status).toBe('succeeded'); expect(f.runtime.claimForRun('local-run')?.state).toBe('settling');
     expect(f.executions.pins().some(pin => pin.kind === 'dependency')).toBe(true); expect(f.report).toHaveBeenCalled();
+  });
+  it.each(['rename', 'disable and re-enable'])('retries a failed source voyage after %s without changing its canonical owner', async change => {
+    const f = setup(); const todo = await f.runtime.todoApi!.create({ repo, title: 'Task', description: 'Do it' }, 'create');
+    const intent = { mode: 'todo', todoId: todo.id, repo };
+    const selected = f.reserve('original-run', intent);
+    const prepared = await f.runtime.prepare('original-run', repo, selected, new AbortController().signal);
+    const failed = await f.complete(await f.start('original-run', prepared.task), 'failed', null);
+    const retry = retryIntent({ ...failed, launchJson: JSON.stringify(f.runtime.canonical(intent, selected)) });
+    let current = f.runtime.service.configure({ instanceId: selected.instance.id, instanceRevision: selected.instance.revision,
+      ...(change === 'rename' ? { label: 'Renamed tasks' } : { desiredEnabled: false }) });
+    if (change !== 'rename') {
+      expect(() => f.runtime.selection(retry, failed.id)).toThrow('disabled');
+      current = f.runtime.service.configure({ instanceId: current.id, instanceRevision: current.revision, desiredEnabled: true });
+    }
+    expect(() => f.runtime.selection(retry)).toThrow('selection changed');
+    const retrySelection = f.reserve('fresh-retry', retry, failed.id);
+    expect(retrySelection.instance.revision).toBe(current.revision);
+    const retried = await f.runtime.prepare('fresh-retry', repo, retrySelection, new AbortController().signal, failed.id);
+    expect(retried.task.source?.instanceId).toBe(prepared.task.source?.instanceId);
+    expect(f.runtime.claimForRun('fresh-retry')?.ref).toEqual(f.runtime.claimForRun('original-run')?.ref);
+    expect(f.runtime.claimForRun('original-run')?.state).toBe('settled');
+    expect(f.runtime.claimForRun('fresh-retry')?.retryOf).toBe('original-run');
+  });
+  it('rejects fresh retries with another owner or a changed provider binding', async () => {
+    const f = setup(); const todo = await f.runtime.todoApi!.create({ repo, title: 'Task', description: 'Do it' }, 'create');
+    const intent = { mode: 'todo', todoId: todo.id, repo };
+    const selected = f.reserve('original-run', intent);
+    const retry = f.runtime.canonical(intent, selected);
+    expect(() => f.runtime.selection(retry, 'another-run')).toThrow('owner or provider changed');
+    expect(() => f.runtime.selection({ ...retry, workRef: { ...retry.workRef!, externalId: 'TODO-2' } }, 'original-run')).toThrow('owner or provider changed');
+    const instance = selected.instance;
+    const lookup = vi.spyOn(f.store, 'instance').mockReturnValue({ ...instance, revision: instance.revision + 1,
+      binding: { ...instance.binding, artifactHash: 'b'.repeat(64) } });
+    try { expect(() => f.runtime.selection(retry, 'original-run')).toThrow('owner or provider changed'); }
+    finally { lookup.mockRestore(); }
   });
   it('commits staged remote completion from durable receipts without invoking the planner again', async () => {
     const f = setup(); const selection = f.reserve('jira-run', { mode: 'ticket', ticketId: 'TASK-1', repo });
