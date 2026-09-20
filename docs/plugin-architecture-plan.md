@@ -193,7 +193,7 @@ Checkpoint migration requires a provider-supported validation of execution state
 
 ### Admission snapshots and restart recovery
 
-Persist an execution dependency record before launch: logical work identity, normalized task, exact artifact hashes and dependency closure, resolved capability versions/bindings, host reference, workflow revision, compatible non-secret settings, and owned-data schema requirements. Include prepared-but-not-launched records in reconciliation so a crash cannot cause a duplicate launch.
+Persist an execution dependency record before launch: logical work identity, normalized task, exact artifact hashes and dependency closure, resolved capability versions/bindings, intended execution host, durable launch ID, workflow revision, compatible non-secret settings, and owned-data schema requirements. Persist the concrete host reference as soon as launch returns it. Hosts must support deduplicated launch or discovery by durable launch ID; if a crash leaves launch success uncertain and discovery is unavailable, block for reconciliation rather than launching again. Include prepared-but-not-launched records in recovery.
 
 Snapshot credential handles and connection identity, never secrets. Resolve live credentials at use time; rotation must preserve the authorized connection identity. Revoked/missing credentials block the affected operation with a reason. Provider replacement must not retarget an admitted run or pending operation.
 
