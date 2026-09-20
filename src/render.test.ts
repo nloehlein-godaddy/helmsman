@@ -72,6 +72,18 @@ describe('renderDashboard', () => {
     links.forEach((a) => expect(a.getAttribute('href')).toBe('https://jira.example.com/browse/ABC-12'));
   });
 
+  it('uses each source display URL and leaves local tasks unlinked while Jira is enabled', () => {
+    const el = root();
+    const source = { instanceId: 'instance', instanceRevision: 1, ref: { sourceId: 'source', externalId: 'TODO-1' } };
+    const task = { id: 'TODO-1', title: 'Local work', priority: 'P1' as const, status: 'backlog' as const, repo: 'o/r', source: { ...source, url: null } };
+    const queue = [task, { ...task, id: 'ALT-2', source: { ...source, url: 'https://tracker.example/items/2' } },
+      { ...task, id: 'BAD-3', source: { ...source, url: 'javascript:alert(1)' } }];
+    renderDashboard(el, snapshot({ queue }), NOW, [], [], null, [], [], undefined, DEFAULT_THEME_ID, undefined, 'https://jira.example.com/');
+    expect(el.querySelectorAll('.queue-item .ticket-link')).toHaveLength(1);
+    expect(el.querySelector('.queue-item .ticket-link')?.getAttribute('href')).toBe('https://tracker.example/items/2');
+    expect(el.querySelector('.queue-item')?.textContent).toContain('TODO-1');
+  });
+
   it('leaves ticket IDs as plain text when no Jira base URL is set', () => {
     const el: HTMLDivElement = root();
     const snap: DashboardSnapshot = snapshot({
@@ -459,7 +471,7 @@ describe('renderDashboard', () => {
     el.innerHTML = renderConfigView(uiConfig, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
 
     const rows: NodeListOf<HTMLElement> = el.querySelectorAll<HTMLElement>('.config-panel:not(.pre-pr-config-panel) .config-row:not(.config-secret-row)');
-    expect(rows.length).toBe(11);
+    expect(rows.length).toBe(10);
     const adapterRow: HTMLElement | null = el.querySelector<HTMLElement>('.config-row[data-key="AGENT_ADAPTER"]');
     expect(adapterRow).not.toBeNull();
     expect(adapterRow!.querySelector<HTMLInputElement>('.config-input')?.value).toBe('claude-code');
@@ -1129,7 +1141,7 @@ describe('renderDashboard helm rack', () => {
     renderDashboard(el, snapshot(), NOW);
     expect(el.querySelector('.runs-drawer-slot')).not.toBeNull();
     expect(el.querySelector('.helm-head .nameplate')).not.toBeNull();
-    expect(el.querySelectorAll('a.page-tab[href]')).toHaveLength(10);
+    expect(el.querySelectorAll('a.page-tab[href]')).toHaveLength(11);
     expect(el.querySelector('.page-tab[data-view="runs"]')?.getAttribute('href')).toBe('/runs');
     expect(el.querySelector('.page-tab[data-view="config"]')).not.toBeNull();
     expect(el.querySelector('.page-tab[data-view="prs"]')).not.toBeNull();

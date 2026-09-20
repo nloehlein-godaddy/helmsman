@@ -70,12 +70,17 @@ describe('setConfig', () => {
 
   it('returns ok:true on a 200 response', async () => {
     globalThis.fetch = vi.fn(async (): Promise<Response> => {
-      return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+      return { ok: true, status: 200, json: async () => ({ ok: true }) } as unknown as Response;
     }) as typeof globalThis.fetch;
 
     const result: { ok: boolean; error?: string } = await setConfig('key', 'value');
 
     expect(result).toEqual({ ok: true });
+  });
+
+  it.each([null, {}, { ok: false }, { ok: 'true' }])('retains failure for a malformed successful response %j', async payload => {
+    globalThis.fetch = vi.fn(async () => Response.json(payload));
+    expect(await setConfig('key', 'value')).toMatchObject({ ok: false, error: expect.stringContaining('draft is kept') });
   });
 
   it('returns ok:false with the error message on a 400 response', async () => {

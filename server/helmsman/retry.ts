@@ -1,11 +1,15 @@
 import type { RunRow } from './db';
 import { isGithubRepo } from '../pr-lists';
 import { validModel, validEffort } from '../../src/logic/agentOptions';
+import { parseWorkRefV1, type WorkRefV1 } from '../../src/plugins/tasks';
 
 export interface LaunchIntent {
   repo: string;
   mode?: string;
   todoId?: string;
+  workRef?: WorkRefV1;
+  sourceInstanceId?: string;
+  sourceInstanceRevision?: number;
   ticketId?: string;
   title?: string;
   task?: string;
@@ -31,7 +35,7 @@ function positive(value: unknown): value is number {
 }
 
 export function launchIntentJson(body: LaunchIntent): string {
-  return JSON.stringify(Object.fromEntries(['repo', 'mode', 'todoId', 'ticketId', 'title', 'task', 'prNumber', 'feedback', 'model', 'effort', 'adapter']
+  return JSON.stringify(Object.fromEntries(['repo', 'mode', 'todoId', 'workRef', 'sourceInstanceId', 'sourceInstanceRevision', 'ticketId', 'title', 'task', 'prNumber', 'feedback', 'model', 'effort', 'adapter']
     .flatMap(key => body[key as keyof LaunchIntent] === undefined ? [] : [[key, body[key as keyof LaunchIntent]]])));
 }
 
@@ -52,6 +56,14 @@ export function retryIntent(row: RunRow): LaunchIntent {
   const effort = rawEffort === 'minimal' ? rawEffort : validEffort(rawEffort);
   const base: LaunchIntent = { repo: row.repo, adapter, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
   const mode = saved?.mode;
+  if (saved?.workRef !== undefined || task?.source !== undefined || mode === 'source') {
+    try {
+      const workRef = parseWorkRefV1(saved?.workRef);
+      if (typeof saved?.sourceInstanceId !== 'string' || !saved.sourceInstanceId.trim() || saved.sourceInstanceId.length > 160
+        || !positive(saved.sourceInstanceRevision)) throw new Error('Invalid source instance');
+      return { ...base, mode: 'source', workRef, sourceInstanceId: saved.sourceInstanceId, sourceInstanceRevision: saved.sourceInstanceRevision };
+    } catch { throw new RetryError('The original task source binding is unavailable. Restore its recorded source before retrying.'); }
+  }
   const todoId = source?.todoId;
   if (mode === 'todo' || typeof todoId === 'string') {
     if (typeof todoId !== 'string' || !/^TODO-[1-9]\d*$/.test(todoId)) throw new RetryError('The original todo is missing. Start a voyage from Todos.');

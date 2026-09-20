@@ -137,11 +137,12 @@ describe('Config loading and drafts', () => {
     await vi.waitFor(() => expect(field('AGENT_CMD').getAttribute('aria-invalid')).toBeNull());
   });
 
-  it('retains unsaved Jira selection when another window changes the saved setting', async () => {
-    const { field, setConfig } = await setup();
-    field('JIRA_ENABLED').value = 'false';
+  it('retains other drafts while legacy Jira settings change without showing an exclusive source toggle', async () => {
+    const { root, field, setConfig } = await setup();
+    field('AGENT_CMD').value = 'my unsaved command';
     setConfig(payload());
     await view!.refresh();
-    expect(field('JIRA_ENABLED').value).toBe('false');
+    expect(field('AGENT_CMD').value).toBe('my unsaved command');
+    expect(root.querySelector('[data-key=JIRA_ENABLED]')).toBeNull();
   });
 });

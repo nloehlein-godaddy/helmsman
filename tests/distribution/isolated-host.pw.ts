@@ -324,3 +324,109 @@ test('normal recovery retains legacy ownership across restart and backs up only 
     expect(await readFile(marker, 'utf8')).toBe('Retained legacy execution');
   } finally { await host.close(); }
 });
+
+
+test('task source adoption preserves local identity and disabled state through the production API and restart', async ({ page, request }) => {
+  const host = await fixture();
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  try {
+    host.env.REPO_PROJECT_MAP = 'org/a=TASK';
+    host.env.AGENT_ADAPTER = 'command';
+    host.env.AGENT_CMD = '/usr/bin/false';
+    host.env.AGENT_MAX_ATTEMPTS = '1';
+    host.env.RUN_HOST = 'detached';
+    const descriptor = await host.installAuthorPackage('plugin-sources/local-tasks-alternative');
+    let origin = await host.start();
+    const instances = (await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json()).instances;
+    const original = instances.find((instance: { providerId: string }) => instance.providerId === 'helmsman.todos/todos');
+    expect(original).toMatchObject({ available: true, desiredEnabled: true });
+    const input = { title: 'Preserved task', description: 'Use the public source protocol', acceptanceCriteria: '', priority: 'P2', repo: 'org/a' };
+    const created = await request.post(`${origin}/api/todos?requestId=isolated-create`, { data: input });
+    expect(created.ok()).toBe(true);
+    const todo = (await created.json()).todo;
+    expect((await (await request.post(`${origin}/api/todos?requestId=isolated-create`, { data: input })).json()).todo).toEqual(todo);
+    const dashboard = await (await request.get(`${origin}/api/dashboard?repo=org/a`)).json();
+    expect(dashboard.snapshot.queue).toContainEqual(expect.objectContaining({ id: todo.id, source: { url: null, instanceId: original.id, instanceRevision: original.revision, ref: { sourceId: original.sourceId, externalId: todo.id } } }));
+    const options = await (await request.get(`${origin}/api/task-sources/adoption?sourceId=${original.sourceId}`)).json();
+    const candidate = options.candidates.find((item: { providerId: string }) => item.providerId.startsWith(`${descriptor.manifest.id}/`));
+    expect(candidate).toBeDefined();
+    const validated = await request.post(`${origin}/api/task-sources/adoption/validate`, { data: {
+      sourceId: original.sourceId, sourceRevision: options.sourceRevision, ...candidate, repo: 'org/a', actor: 'integration-test', reason: 'Replace provider through public contracts',
+    } });
+    expect(validated.ok()).toBe(true);
+    const validation = await validated.json();
+    const committed = await request.post(`${origin}/api/task-sources/adoption/commit`, { data: { validationId: validation.validationId } });
+    expect(committed.ok()).toBe(true);
+    expect((await (await request.get(`${origin}/api/todos`)).json()).todos).toEqual([todo]);
+    const disabled = await request.post(`${origin}/api/task-sources/${validation.instanceId}/enablement`, { data: { instanceRevision: 1, desiredEnabled: false } });
+    expect(disabled.ok()).toBe(true);
+    origin = await host.start();
+    const restarted = (await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json()).instances;
+    expect(restarted.find((item: { id: string }) => item.id === validation.instanceId)).toMatchObject({ desiredEnabled: false, available: false, revision: 2 });
+    await page.goto(`${origin}/todos?repo=org/a`);
+    await expect(page.locator('.todos-view')).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/todos');
+    expect(new URL(page.url()).searchParams.get('repo')).toBe('org/a');
+    expect((await request.post(`${origin}/api/task-sources/${validation.instanceId}/enablement`, { data: { instanceRevision: 2, desiredEnabled: true } })).ok()).toBe(true);
+    expect((await (await request.get(`${origin}/api/todos`)).json()).todos).toEqual([todo]);
+    const launch = await request.post(`${origin}/api/agents/launch`, { data: { mode: 'source', repo: 'org/a',
+      sourceInstanceId: validation.instanceId, sourceInstanceRevision: 3, workRef: { sourceId: original.sourceId, externalId: todo.id } } });
+    expect(launch.ok()).toBe(true);
+    const { runId } = await launch.json();
+    await expect.poll(async () => (await (await request.get(`${origin}/api/agents/${runId}`)).json()).status, { timeout: 15_000 }).toBe('failed');
+    await expect.poll(async () => (await (await request.get(`${origin}/api/todos`)).json()).todos[0]?.state).toBe('todo');
+    expect((await (await request.get(`${origin}/api/todos`)).json()).todos[0]?.runId).toBeNull();
+    expect(errors).toEqual([]);
+    expect(host.output()).not.toContain('Source checkout is unavailable');
+  } finally { await host.close(); }
+});
+
+
+test('operator-seeded Jira stays on its namespace through an explicit provider refresh after an app upgrade', async ({ request }) => {
+  const host = await fixture();
+  try {
+    const issue = { id: '101', key: 'TASK-1', fields: { summary: 'Retained Jira identity', updated: '2026-09-20T00:00:00.000Z',
+      description: 'Do the task', status: { id: '1', name: 'To Do', statusCategory: { key: 'new' } }, project: { key: 'TASK' }, assignee: null } };
+    const broker = join(host.root, 'jira-fixture.mjs');
+    await writeFile(broker, `const original=globalThis.fetch; globalThis.fetch=async(input,init)=>{
+      const url=new URL(typeof input==='string'?input:input.url??String(input));
+      if(url.origin!=='https://fixture.atlassian.net') return original(input,init);
+      if(init?.method && init.method!=='GET') throw new Error('Read-only refresh attempted a mutation');
+      if(url.pathname==='/rest/api/3/myself') return Response.json({accountId:'same-subject'});
+      if(url.pathname==='/_edge/tenant_info') return Response.json({}, {status:404});
+      if(url.pathname==='/rest/api/3/search/jql') return Response.json({issues:[${JSON.stringify(issue)}],isLast:true});
+      if(url.pathname==='/rest/api/3/issue/101') return Response.json(${JSON.stringify(issue)});
+      return Response.json({}, {status:404});
+    };`);
+    Object.assign(host.env, { JIRA_ENABLED: 'true', JIRA_BASE_URL: 'https://fixture.atlassian.net', JIRA_EMAIL: 'fixture@example.test', JIRA_API_TOKEN: 'fixture-token',
+      JIRA_PROJECT: 'TASK', JIRA_ASSIGNEE: 'same-subject', REPO_PROJECT_MAP: 'org/a=TASK', NODE_OPTIONS: `${host.env.NODE_OPTIONS} --import=${pathToFileURL(broker).href}` });
+    let origin = await host.start();
+    const original = (await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json()).instances.find((value: { providerId: string }) => value.providerId === 'helmsman.jira/issues');
+    expect(original).toMatchObject({ available: true, identityLevel: 'operator-seeded' });
+    const query = `revision=${original.revision}&repo=org/a`;
+    const tasks = await (await request.get(`${origin}/api/task-sources/${original.id}/tasks?${query}`)).json();
+    expect(tasks.items[0]?.ref).toEqual({ sourceId: original.sourceId, externalId: '101' });
+    await host.stop();
+    const entry = join(host.app, 'server/helmsman/application.js');
+    await writeFile(entry, `${await readFile(entry, 'utf8')}\n`);
+    origin = await host.start();
+    const unavailable = (await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json()).instances.find((value: { id: string }) => value.id === original.id);
+    expect(unavailable.available).toBe(false);
+    const options = await (await request.get(`${origin}/api/task-sources/refresh?sourceId=${original.sourceId}`)).json();
+    expect(options.candidates).toHaveLength(1);
+    const response = await request.post(`${origin}/api/task-sources/refresh/validate`, { data: { sourceId: original.sourceId, sourceRevision: options.sourceRevision,
+      ...options.candidates[0], repo: 'org/a', actor: 'integration-test', reason: 'Refresh the same provider after application upgrade' } });
+    expect(response.ok()).toBe(true);
+    const validation = await response.json();
+    expect((await request.post(`${origin}/api/task-sources/refresh/commit`, { data: { validationId: validation.validationId } })).ok()).toBe(true);
+    host.env.JIRA_ENABLED = 'false';
+    origin = await host.start();
+    const refreshed = (await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json()).instances.find((value: { id: string }) => value.id === validation.instanceId);
+    expect(refreshed).toMatchObject({ sourceId: original.sourceId, identityLevel: 'operator-seeded', desiredEnabled: true, available: true });
+    const after = await (await request.get(`${origin}/api/task-sources/${refreshed.id}/tasks?revision=${refreshed.revision}&repo=org/a`)).json();
+    expect(after.items[0]?.ref).toEqual(tasks.items[0]?.ref);
+    expect((await request.get(`${origin}/api/task-sources/adoption?sourceId=${original.sourceId}`)).status()).toBe(409);
+    expect(host.output()).not.toContain('Source checkout is unavailable');
+  } finally { await host.close(); }
+});

@@ -196,3 +196,15 @@ describe('durable execution admission and recovery', () => {
     expect(() => persistence.transaction(() => store.assertLease(stale))).toThrow('stale');
   });
 });
+
+it('releases source obligation pins only after authoritative settled source evidence', () => {
+  persistence.sql.exec('CREATE TABLE work_claims(id TEXT PRIMARY KEY,state TEXT,json TEXT)');
+  const claimId = 'source-test'; const ownerId = `source-claim:${claimId}`;
+  store.retainPins([{ kind: 'dependency', ownerId, pluginId: 'example.host', artifactHash: hash }]);
+  persistence.sql.prepare('INSERT INTO work_claims VALUES (?,?,?)').run(claimId, 'settling', JSON.stringify({ id: claimId, state: 'settling', runId: 'run-1', settlement: { claimId, disposition: 'retained-for-operator' } }));
+  expect(() => store.releaseSourceClaimPins(claimId)).toThrow(/Unsettled/); expect(store.cleanupEligibility('run-1').allowed).toBe(false);
+  persistence.sql.prepare('UPDATE work_claims SET state=?,json=? WHERE id=?').run('settled', JSON.stringify({ id: claimId, state: 'settled', settlement: { claimId, disposition: 'retained-for-operator' } }), claimId);
+  expect(() => store.releaseSourceClaimPins(claimId)).toThrow(/Unsettled/);
+  persistence.sql.prepare('UPDATE work_claims SET json=? WHERE id=?').run(JSON.stringify({ id: claimId, state: 'settled', settlement: { claimId, disposition: 'released' } }), claimId);
+  store.releaseSourceClaimPins(claimId); expect(store.pins()).toHaveLength(0);
+});

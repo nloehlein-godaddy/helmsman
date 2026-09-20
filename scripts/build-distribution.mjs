@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { createHash, randomUUID } from 'node:crypto';
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
@@ -86,8 +87,9 @@ function transformImports(filename, dependencies) {
     const resolved = resolve(dirname(filename), original);
     let source = resolved;
     if (!extname(original)) source += '.ts';
+    else if (original.endsWith('.js') && !existsSync(source) && existsSync(source.replace(/\.js$/, '.ts'))) source = source.replace(/\.js$/, '.ts');
     if (source.endsWith('.ts') || source.endsWith('.mjs') || source.endsWith('.js')) dependencies.add(source);
-    const output = source.endsWith('.ts') ? `${original.replace(/\.ts$/, '')}.js` : original;
+    const output = source.endsWith('.ts') && !original.endsWith('.js') ? `${original.replace(/\.ts$/, '')}.js` : original;
     return ts.factory.createStringLiteral(output);
   }
   return context => {
@@ -145,7 +147,7 @@ async function copyDependencies(staging, dependencies) {
 
 async function buildSdk(destination, version) {
   const sourceRoot = join(root, 'src', 'plugins');
-  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts']);
+  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts']);
   const queued = new Set([join(sourceRoot, 'sdk.ts')]);
   await mkdir(destination);
   for (const source of queued) {
@@ -215,8 +217,12 @@ export async function buildDistribution(options = {}) {
       } else await cp(source, target);
     }
     await cp(join(root, 'dist'), join(staging, 'dist'), { recursive: true });
+    await mkdir(join(staging, 'docs'), { recursive: true });
+    for (const name of ['task-source-authoring.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md']) {
+      if (await exists(join(root, 'docs', name))) await cp(join(root, 'docs', name), join(staging, 'docs', name));
+    }
     await cp(join(root, 'examples'), join(staging, 'examples'), { recursive: true });
-    for (const name of ['costs', 'pricing']) await cp(join(root, 'src', 'plugins', name), join(staging, 'plugin-sources', name), {
+    for (const name of ['costs', 'pricing', 'todos', 'jira', 'local-tasks-alternative']) await cp(join(root, 'src', 'plugins', name), join(staging, 'plugin-sources', name), {
       recursive: true, filter: path => !/\.test\.ts$/.test(path) && !relative(join(root, 'src', 'plugins', name), path).split(sep).some(part => ['node_modules', 'dist'].includes(part)),
     });
     await cp(join(root, 'docker'), join(staging, 'docker'), { recursive: true });

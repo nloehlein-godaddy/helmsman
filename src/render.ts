@@ -38,7 +38,7 @@ import { DEFAULT_THEME_ID, THEMES } from './data/themes';
 const PRIORITY_CLASS: Record<Priority, string> = { P0: 'pri-p0', P1: 'pri-p1', P2: 'pri-p2', P3: 'pri-p3', P4: 'pri-p4' };
 
 export const CONFIG_HELP: Record<string, string> = {
-  get JIRA_ENABLED() { return `Use Jira tickets for ${term('runs').toLowerCase()}; disable to use local todos instead. Applies immediately. Example: false`; },
+  get JIRA_ENABLED() { return 'Initial Jira source enablement. Example: true. Manage existing sources in Task sources.'; },
   GITHUB_REVIEW_WATCH_ENABLED: 'Automatically review GitHub PRs requesting your review every five minutes: true or false. Changes apply immediately. Example: true',
   SLACK_ENABLED: 'Turn Slack integration on or off. Disables automatic reviews and manual requests without clearing settings. Example: true',
   SLACK_WATCH_ENABLED: 'Enable automatic PR reviews from the watched Slack channel: true or false. Changes apply immediately. Example: true',
@@ -171,6 +171,19 @@ function ticketLabel(id: string, baseUrl: string | null): string {
   return esc(id);
 }
 
+function sourceTicketLabel(ticket: Ticket, baseUrl: string | null): string {
+  if (!ticket.source) return ticketLabel(ticket.id, baseUrl);
+  if (typeof ticket.source.url === 'string') {
+    try {
+      const url = new URL(ticket.source.url);
+      if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) {
+        return `<a class="ticket-link" href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${esc(ticket.id)}</a>`;
+      }
+    } catch {}
+  }
+  return esc(ticket.id);
+}
+
 function linkifyTickets(html: string, baseUrl: string | null): string {
   if (!baseUrl) return html;
   return html.replace(
@@ -268,8 +281,7 @@ export interface HelmHeadOpts {
 }
 
 function pageTabs(opts: HelmHeadOpts) {
-  const tabs = PAGE_TABS.filter(t => t.view === 'todos' ? opts.jiraEnabled === false
-    : t.view === 'triage' || t.view === 'bugs' ? opts.jiraEnabled !== false : true).map(t => ({
+  const tabs = PAGE_TABS.map(t => ({
     ...t, id: `page-tab-${t.view}`, active: t.view === opts.active,
     href: routeHref({ view: t.view, repo: opts.selectedRepo }),
   }));
@@ -419,7 +431,7 @@ export function renderDashboard(
   const underway = Array.isArray(data.underway) ? data.underway.filter(ticket => ticket && ticket.status !== 'done') : [];
   const underwayKnown = data.underwayAvailable !== false && Array.isArray(data.underway);
   const underwayItems = underwayKnown && underway.length
-    ? sortByPriority(underway).map(ticket => triageStatusRow(ticket, jiraBaseUrl, jiraEnabled ? selectedRepo : null)).join('')
+    ? sortByPriority(underway).map(ticket => triageStatusRow(ticket, jiraBaseUrl, selectedRepo)).join('')
     : `<li class="empty-note">${underwayKnown ? jiraEnabled ? 'No unfinished tickets assigned to you.' : 'No todos in progress or review.' : term('unavailableRunningTickets')}</li>`;
 
   const sortedRepos: string[] = [...repos].sort((a, b) => shortRepo(a).localeCompare(shortRepo(b)));
@@ -430,11 +442,11 @@ export function renderDashboard(
           (ticket, i) => `
       <li class="lane queue-item">
         <span class="lane-no mono">${laneNo(i)}</span>
-        <span class="ticket-id">${ticketLabel(ticket.id, jiraBaseUrl)}</span>
+        <span class="ticket-id">${sourceTicketLabel(ticket, jiraBaseUrl)}</span>
         <span class="queue-title">${esc(ticket.title)}</span>
         ${laneRail('queued')}
         <span class="pri-chip ${PRIORITY_CLASS[ticket.priority]}">${ticket.priority}</span>
-        <button class="launch-btn" data-ticket="${esc(ticket.id)}" data-title="${esc(ticket.title)}" data-repo="${esc(ticket.repo)}" aria-label="${term('launchTicket')} ${esc(ticket.id)}">${term('launchTicket')}</button>
+        <button class="launch-btn" data-ticket="${esc(ticket.id)}" data-title="${esc(ticket.title)}" data-repo="${esc(ticket.repo)}" ${taskSourceLaunchAttributes(ticket)} aria-label="${term('launchTicket')} ${esc(ticket.id)}">${term('launchTicket')}</button>
       </li>`,
         )
         .join('')
@@ -954,16 +966,23 @@ const STATUS_CHIP_CLASS: Record<TicketStatus, string> = {
   done: 'chip-done',
 };
 
+function taskSourceLaunchAttributes(ticket: Ticket): string {
+  const source = ticket.source;
+  if (!source) return '';
+  if (!source.ref || typeof source.ref.sourceId !== 'string' || typeof source.ref.externalId !== 'string' || typeof source.instanceId !== 'string' || !Number.isSafeInteger(source.instanceRevision) || source.instanceRevision < 1) return 'data-source-invalid="true"';
+  return `data-source-instance="${esc(source.instanceId)}" data-source-revision="${source.instanceRevision}" data-source-id="${esc(source.ref.sourceId)}" data-source-item="${esc(source.ref.externalId)}"`;
+}
+
 function triageLaunchAction(ticket: Ticket, launchRepo: string | null): string {
   return launchRepo
-    ? `<button class="launch-btn" data-ticket="${esc(ticket.id)}" data-title="${esc(ticket.title)}" data-repo="${esc(launchRepo)}" aria-label="${term('launchTicket')} ${esc(ticket.id)}">${term('launchTicket')}</button>`
+    ? `<button class="launch-btn" data-ticket="${esc(ticket.id)}" data-title="${esc(ticket.title)}" data-repo="${esc(launchRepo)}" ${taskSourceLaunchAttributes(ticket)} aria-label="${term('launchTicket')} ${esc(ticket.id)}">${term('launchTicket')}</button>`
     : '';
 }
 
 function triageLaunchRow(ticket: Ticket, jiraBaseUrl: string | null, launchRepo: string | null): string {
   return `
       <li class="lane triage-row">
-        <span class="ticket-id">${ticketLabel(ticket.id, jiraBaseUrl)}</span>
+        <span class="ticket-id">${sourceTicketLabel(ticket, jiraBaseUrl)}</span>
         <span class="queue-title">${esc(ticket.title)}</span>
         <span class="pri-chip ${PRIORITY_CLASS[ticket.priority]}">${ticket.priority}</span>
         ${triageLaunchAction(ticket, launchRepo)}
@@ -973,7 +992,7 @@ function triageLaunchRow(ticket: Ticket, jiraBaseUrl: string | null, launchRepo:
 function triageStatusRow(ticket: Ticket, jiraBaseUrl: string | null, launchRepo: string | null): string {
   return `
       <li class="lane triage-row">
-        <span class="ticket-id">${ticketLabel(ticket.id, jiraBaseUrl)}</span>
+        <span class="ticket-id">${sourceTicketLabel(ticket, jiraBaseUrl)}</span>
         <span class="queue-title">${esc(ticket.title)}</span>
         <span class="chip ${STATUS_CHIP_CLASS[ticket.status]}">${STATUS_LABEL[ticket.status]}</span>
         <span class="pri-chip ${PRIORITY_CLASS[ticket.priority]}">${ticket.priority}</span>
@@ -1167,6 +1186,7 @@ export interface ConfigViewOpts {
   loading?: boolean;
   error?: string | null;
   unavailable?: boolean;
+  taskSourcesHtml?: string;
 }
 
 function configRowsHtml(uiConfig: UiConfig): string {
@@ -1254,27 +1274,11 @@ export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): stri
   const intro = `<header class="page-intro"><h1>Config</h1><p>Configure work sources, integrations, and ${term('agent').toLowerCase()} defaults. Save each setting separately.</p></header>`;
   const status = `${opts.error ? `<div class="config-load-error degraded-banner" role="alert">${esc(opts.error)}${opts.unavailable ? '' : ' Showing the last loaded settings.'} <button type="button" data-config-retry${opts.loading ? ' disabled' : ''}>Try again</button></div>` : ''}${opts.loading ? '<p class="empty-note" role="status">Loading configuration…</p>' : ''}`;
   if (opts.unavailable) {
-    return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `${intro}<section class="panel config-loading" aria-label="Configuration" aria-busy="${Boolean(opts.loading)}">${status || '<p class="empty-note">Configuration is unavailable. <button type="button" data-config-retry>Try again</button></p>'}</section>${customization}`);
+    return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `${intro}<section class="panel config-loading" aria-label="Configuration" aria-busy="${Boolean(opts.loading)}">${status || '<p class="empty-note">Configuration is unavailable. <button type="button" data-config-retry>Try again</button></p>'}</section>${opts.taskSourcesHtml ?? ''}${customization}`);
   }
-  const jiraEnabled = uiConfig.config?.JIRA_ENABLED !== 'false' && uiConfig.config?.JIRA_ENABLED !== false;
   return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `
       ${intro}${status}
-      <section class="panel config-panel" aria-labelledby="work-source-title">
-        <div class="panel-head"><span class="panel-title" id="work-source-title">${term('runSource')}</span></div>
-        <div class="config-list">
-          <div class="config-row" data-key="JIRA_ENABLED">
-            <label class="config-key" for="jira-enabled">Jira integration</label>
-            <select class="config-input" id="jira-enabled" aria-describedby="jira-enabled-help error-JIRA_ENABLED">
-              <option value="true"${jiraEnabled ? ' selected' : ''}>Enabled — Jira tickets</option>
-              <option value="false"${jiraEnabled ? '' : ' selected'}>Disabled — local todos</option>
-            </select>
-            <button type="button" class="config-save" data-key="JIRA_ENABLED" aria-label="Save Jira integration">Save</button>
-            <span class="config-error" id="error-JIRA_ENABLED" role="alert"></span>
-          </div>
-        </div>
-        <p class="config-warning" id="jira-enabled-help">Disabling Jira replaces Triage and Bugs with Todos. The backlog and auto-claim use local todos. Saved credentials and todos are kept when switching sources.</p>
-        ${jiraEnabled ? '' : `<p class="config-warning"><a class="app-link" href="${esc(routeHref({ view: 'todos', repo: opts.selectedRepo }))}">Manage todos →</a></p>`}
-      </section>
+      ${opts.taskSourcesHtml ?? '<section class="panel config-panel"><div class="panel-head"><span class="panel-title">Task sources</span></div><p class="empty-note">Task source settings are unavailable.</p></section>'}
       ${customization}
       <section class="panel config-panel slack-review-config" aria-labelledby="slack-review-config-title">
         <div class="panel-head"><span class="panel-title" id="slack-review-config-title">Slack integration</span></div>

@@ -137,30 +137,26 @@ describe('todo workflow', () => {
     expect(root.querySelector<HTMLInputElement>('[name=title]')?.value).toBe('Draft across server restart');
   });
 
-  it('opens the direct Todos link and replaces Jira-specific navigation', async () => {
+  it('opens the direct Todos link alongside Jira navigation', async () => {
     const { root, reads } = await setup();
     expect(root.querySelector('[data-page=todos]')).not.toBeNull();
     expect(document.title).toBe('Todos · Helmsman');
     expect(root.querySelector('[data-view=todos]')).not.toBeNull();
-    expect(root.querySelector('[data-view=triage], [data-view=bugs]')).toBeNull();
+    expect(root.querySelector('[data-view=triage]')).not.toBeNull();
+    expect(root.querySelector('[data-view=bugs]')).not.toBeNull();
     expect(reads).not.toContain('/api/triage');
     expect(root.querySelector('.todo-item h3')?.textContent).toBe('Improve search');
   });
 
-  it('switches from Jira to Todos in Config and defaults new voyages to free-form', async () => {
+  it('opens Todos from Config while Jira remains enabled without changing integration settings', async () => {
     const { root, writes, click } = await setup({ path: '/config?repo=org/a', jiraEnabled: true });
-    expect(root.querySelector('[data-view=todos]')).toBeNull();
-    const select = root.querySelector<HTMLSelectElement>('.config-row[data-key=JIRA_ENABLED] .config-input')!;
-    select.value = 'false';
-    click('.config-save[data-key=JIRA_ENABLED]');
-    await vi.waitFor(() => expect(root.querySelector('[data-view=todos]')).not.toBeNull());
-    expect(root.querySelector('[data-view=triage], [data-view=bugs]')).toBeNull();
-    expect(writes[0]).toEqual({ path: '/api/config', method: 'PUT', body: { key: 'JIRA_ENABLED', value: 'false' } });
-    await vi.waitFor(() => expect(root.querySelector('.config-row[data-key=JIRA_ENABLED] .config-save')?.hasAttribute('disabled')).toBe(false));
-    click('[data-view=dashboard]');
-    await vi.waitFor(() => expect(root.querySelector('[data-page=dashboard]')).not.toBeNull());
-    expect(root.querySelector('.newrun-ticket')).toBeNull();
-    await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('.newrun-mode[value=freeform]')?.checked).toBe(true));
+    expect(root.querySelector('[data-view=todos]')).not.toBeNull();
+    expect(root.querySelector('.config-row[data-key=JIRA_ENABLED]')).toBeNull();
+    click('[data-view=todos]');
+    await vi.waitFor(() => expect(root.querySelector('[data-page=todos]')).not.toBeNull());
+    expect(root.querySelector('[data-view=triage]')).not.toBeNull();
+    expect(writes).toEqual([]);
+    await vi.waitFor(() => expect(root.querySelector('.todo-item h3')?.textContent).toBe('Improve search'));
   });
 
   it('follows the header repository for a new todo after its title has been drafted', async () => {

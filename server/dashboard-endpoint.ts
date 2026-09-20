@@ -1,3 +1,5 @@
+import { sourceDashboard } from './task-source-dashboard';
+import type { TaskSourceService } from './helmsman/task-source-service';
 import type { Todo } from '../src/data/todos';
 import type { Ticket } from '../src/types';
 import type { DashboardSnapshot } from '../src/data/mock';
@@ -42,6 +44,7 @@ export async function buildDashboardResponse(
   deps: Deps = DEFAULT_DEPS,
   selectedRepo: string | null = null,
   todos: Todo[] = [],
+  sources?: { service: TaskSourceService; jiraEnabled: boolean },
 ): Promise<DashboardResponse> {
   const config: AppConfig = loadConfig(env);
   const degraded: string[] = [];
@@ -57,7 +60,7 @@ export async function buildDashboardResponse(
     : undefined;
   const selectedProject = selectedRepo ? mappedProject : config.jira?.project;
 
-  if (config.jira && selectedProject) {
+  if (!sources && config.jira && selectedProject) {
     const jira: JiraConfig = { ...config.jira, project: selectedProject };
     const scopedIssues = (issues: JiraIssue[]) => selectedRepo
       ? issues.filter(issue => typeof issue?.key === 'string' && issue.key.toLowerCase().startsWith(`${selectedProject.toLowerCase()}-`))
@@ -75,9 +78,9 @@ export async function buildDashboardResponse(
         underwayAvailable = true;
       }).catch(() => { degraded.push('jira-underway'); }),
     ]);
-  } else if (config.jira && selectedRepo) {
+  } else if (!sources && config.jira && selectedRepo) {
     underwayAvailable = true;
-  } else if (config.jiraEnabled) {
+  } else if (!sources && config.jiraEnabled) {
     degraded.push('jira');
   }
 
@@ -129,7 +132,7 @@ export async function buildDashboardResponse(
   snapshot.underway = underwayIssues.map((issue) => issueToTicket(issue, repoLabel));
   snapshot.underwayAvailable = underwayAvailable;
 
-  if (config.jiraEnabled && !selectedRepo && (jiraDegraded || githubDegraded)) {
+  if (!sources && config.jiraEnabled && !selectedRepo && (jiraDegraded || githubDegraded)) {
     const mock: DashboardSnapshot = await deps.loadMock();
     if (jiraDegraded) {
       snapshot.queue = mock.queue;
@@ -146,7 +149,7 @@ export async function buildDashboardResponse(
     }
   }
 
-  if (!config.jiraEnabled) {
+  if (!sources && !config.jiraEnabled) {
     const scoped = todos.filter(todo => !selectedRepo || todo.repo === selectedRepo);
     const ticket = (todo: Todo): Ticket => ({
       id: todo.id, title: todo.title, repo: todo.repo, priority: todo.priority, updatedAt: todo.updatedAt,
@@ -166,5 +169,15 @@ export async function buildDashboardResponse(
       return scoped.filter(todo => todo.state === 'done' && todo.completedAt?.slice(0, 10) === day).length;
     });
   }
-  return { snapshot, degraded, repos, selectedRepo, jiraBaseUrl: config.jira?.baseUrl ?? null, jiraEnabled: config.jiraEnabled };
+  if (sources) {
+    const tasks = await sourceDashboard(sources.service, selectedRepo, AbortSignal.timeout(30_000));
+    snapshot.queue = tasks.queue;
+    snapshot.underway = tasks.underway;
+    snapshot.underwayAvailable = tasks.degraded.length === 0;
+    snapshot.stats.awaitingReview = tasks.underway.filter(task => task.status === 'in-review').length;
+    degraded.push(...tasks.degraded);
+    repos.push(...tasks.repos.filter(repo => !repos.includes(repo)));
+    repos.sort();
+  }
+  return { snapshot, degraded, repos, selectedRepo, jiraBaseUrl: config.jira?.baseUrl ?? null, jiraEnabled: sources?.jiraEnabled ?? config.jiraEnabled };
 }

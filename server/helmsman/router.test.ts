@@ -169,8 +169,7 @@ describe('handleApi', () => {
           return 'fresh-run';
         });
         const local = { ...deps, todos, launch, jiraEnabled: () => false, db: { ...deps.db, getRun: () => failed({ taskJson: JSON.stringify({ todoId: todo.id, task: 'old text' }) }) } };
-        expect((await retry({ ...local, jiraEnabled: () => true }))?.status).toBe(409);
-        expect(await retry(local)).toEqual({ status: 200, json: { runId: 'fresh-run' } });
+        expect(await retry({ ...local, jiraEnabled: () => true })).toEqual({ status: 200, json: { runId: 'fresh-run' } });
         expect((await retry(local))?.status).toBe(409);
         expect(launch).toHaveBeenCalledTimes(1);
         expect(todos.get(todo.id)).toMatchObject({ runId: 'fresh-run', state: 'in_progress' });
@@ -772,7 +771,7 @@ let todoStore: TodoStore | undefined;
 afterEach(() => todoStore?.close());
 
 describe('todo API', () => {
-  it('validates CRUD and enforces source mode on mutations', async () => {
+  it('validates Todo CRUD independently of Jira enablement', async () => {
     todoStore = openTodoStore(':memory:');
     const local = { ...deps, todos: todoStore, jiraEnabled: () => false };
     const call = (method: string, path: string, body: unknown = null) => handleApi(method, path, new URLSearchParams(), body, local);
@@ -783,8 +782,8 @@ describe('todo API', () => {
     expect((await call('PUT', `/api/todos/${id}`, { priority: 'P0' }))?.status).toBe(200);
     expect(todoStore.get(id)?.priority).toBe('P0');
     const enabled = { ...local, jiraEnabled: () => true };
-    expect((await handleApi('POST', '/api/todos', new URLSearchParams(), { title: 'More', repo: 'o/r' }, enabled))?.status).toBe(409);
-    expect((await call('GET', '/api/todos'))?.json).toMatchObject({ jiraEnabled: false, todos: [{ id }] });
+    expect((await handleApi('POST', '/api/todos', new URLSearchParams(), { title: 'More', repo: 'o/r' }, enabled))?.status).toBe(201);
+    expect((await call('GET', '/api/todos'))?.json).toMatchObject({ jiraEnabled: false, todos: [{ id }, { title: 'More' }] });
     expect((await call('DELETE', `/api/todos/${id}`))?.status).toBe(200);
     expect((await call('DELETE', `/api/todos/${id}`))?.status).toBe(404);
   });
@@ -841,5 +840,33 @@ describe('public outcome report policy boundary', () => {
     expect(report).toHaveProperty('costEstimate');
     expect(report.daily[0]).toHaveProperty('costEstimate');
     expect(report.recentRuns[0]).toHaveProperty('costEstimate');
+  });
+});
+
+describe('canonical task source launch compatibility route', () => {
+  const reference = { sourceId: '00000000-0000-4000-8000-000000000001', externalId: 'TODO-1' };
+  const body = { mode: 'source', repo: 'o/r', workRef: reference, sourceInstanceId: 'instance-one', sourceInstanceRevision: 1 };
+  it('launches explicit source work while Jira is disabled without consulting Todo identifiers', async () => {
+    const launch = vi.fn(() => 'source-run'); const get = vi.fn(() => { throw new Error('Todo provider disabled'); });
+    const load = vi.fn(async () => ({ ref: reference })); const assertLaunch = vi.fn();
+    const local = { ...deps, jiraEnabled: () => false, launch, todos: { get } as unknown as RouterDeps['todos'], taskSources: { load, assertLaunch } as unknown as RouterDeps['taskSources'] };
+    expect(await handleApi('POST', '/api/agents/launch', new URLSearchParams(), body, local)).toMatchObject({ status: 202, json: { runId: 'source-run' } });
+    expect(load).not.toHaveBeenCalled(); expect(assertLaunch).toHaveBeenCalledWith({ instanceId: body.sourceInstanceId, instanceRevision: 1, repo: 'o/r', ref: reference });
+    expect(launch).toHaveBeenCalledWith({ repo: 'o/r', mode: 'source', workRef: reference, sourceInstanceId: body.sourceInstanceId, sourceInstanceRevision: 1 }); expect(get).not.toHaveBeenCalled();
+  });
+  it('returns canonical source validation and lifecycle errors before launch', async () => {
+    const { PersistenceConflictError } = await import('./persistence');
+    const launch = vi.fn(() => 'should-not-launch'); const load = vi.fn(); const assertLaunch = vi.fn(() => { throw new PersistenceConflictError('Source is disabled'); });
+    const local = { ...deps, launch, taskSources: { load, assertLaunch } as unknown as RouterDeps['taskSources'] };
+    expect((await handleApi('POST', '/api/agents/launch', new URLSearchParams(), body, local))?.status).toBe(409);
+    expect((await handleApi('POST', '/api/agents/launch', new URLSearchParams(), { ...body, sourceInstanceRevision: 0 }, local))?.status).toBe(400);
+    expect((await handleApi('POST', '/api/agents/launch', new URLSearchParams(), { ...body, workRef: { externalId: 'TODO-1' } }, local))?.status).toBe(400);
+    expect((await handleApi('POST', '/api/agents/launch', new URLSearchParams(), body, { ...local, taskSources: undefined }))?.status).toBe(503);
+    expect(launch).not.toHaveBeenCalled();
+  });
+  it('does not consult a disabled Todo provider for an explicit Jira ticket', async () => {
+    const launch = vi.fn(() => 'jira-run'); const get = vi.fn(() => { throw new Error('Todo disabled'); });
+    const result = await handleApi('POST', '/api/agents/launch', new URLSearchParams(), { mode: 'ticket', ticketId: 'TODO-123', repo: 'o/r' }, { ...deps, launch, jiraEnabled: () => true, todos: { get } as unknown as RouterDeps['todos'] });
+    expect(result?.status).toBe(200); expect(get).not.toHaveBeenCalled(); expect(launch).toHaveBeenCalled();
   });
 });

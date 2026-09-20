@@ -11,7 +11,10 @@ export interface LaunchRunBody {
   title?: string;
   repo: string;
   task?: string;
-  mode?: 'ticket' | 'freeform' | 'rerun' | 'review' | 'todo';
+  mode?: 'ticket' | 'freeform' | 'rerun' | 'review' | 'todo' | 'source';
+  workRef?: { sourceId: string; externalId: string };
+  sourceInstanceId?: string;
+  sourceInstanceRevision?: number;
   prNumber?: number;
   feedback?: string;
   model?: string;

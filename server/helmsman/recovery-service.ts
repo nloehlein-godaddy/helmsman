@@ -1,3 +1,4 @@
+import type { TaskSourceStore } from './task-sources/store';
 import Database from 'better-sqlite3';
 import { copyFileSync, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,9 +9,9 @@ import type { ExecutionStore } from './execution-store';
 import type { OperationStore, OperatorResolution } from './operations';
 import type { PluginLifecycle } from './plugins/lifecycle';
 import type { LegacyExecutionAdoption } from './legacy-execution-adoption';
-import { persistedJson } from './persistence';
+import { persistedJson, persistenceHash } from './persistence';
 
-export type RecoveryAction = 'retry-attachment' | 'stop-execution' | 'reconcile-operation' | 'cancel-admission' | 'retire-checkpoint' | 'resolve-operation';
+export type RecoveryAction = 'retry-attachment' | 'stop-execution' | 'reconcile-operation' | 'cancel-admission' | 'retire-checkpoint' | 'resolve-operation' | 'retry-source-settlement';
 interface Actions { actions: RecoveryAction[] }
 export interface RecoverySnapshot {
   version: 1; mode: 'normal' | 'safe-start'; readOnly: boolean; errors: string[]; truncated: boolean;
@@ -22,10 +23,12 @@ export interface RecoverySnapshot {
   checkpoints: (Actions & { id: string; runId: string; attempt: number; state: string; format: string })[];
   operations: (Actions & { id: string; runId: string | null; type: string; status: string; providerId: string; attemptCount: number;
     evidence: { sequence: number; generation: number; kind: string; at: string; hasEvidence: boolean }[] })[];
+  sourceClaims: (Actions & { claimId: string; runId: string; repo: string | null; sourceId: string; providerId: string; state: string; processStatus: string | null; settlementReason: string | null })[];
   lifecycle: { id: string; artifactHash: string; desiredEnabled: boolean; health: string; state: string; blockers: { kind: string; ownerId: string }[] }[];
 }
 
 export interface RecoveryCallbacks {
+  retrySourceSettlement?(claimId: string): Promise<unknown>;
   retryAttachment?(runId: string): Promise<unknown>;
   requestStop?(runId: string): void | Promise<void>;
   reconcileOperation?(id: string): Promise<unknown>;
@@ -50,6 +53,7 @@ interface RecoverySource {
   operations(): Iterable<unknown>;
   evidence(id: string): Iterable<unknown>;
   lifecycle(): Iterable<unknown>;
+  sourceClaims(): Iterable<unknown>;
   repoFor(runId: string): string | null;
 }
 const row = (value: unknown): Row => {
@@ -83,7 +87,7 @@ const LIMIT = 1000;
 
 function project(source: RecoverySource, readOnly: boolean, callbacks: RecoveryCallbacks, repo: string | null): RecoverySnapshot {
   const result: RecoverySnapshot = { version: 1, mode: readOnly ? 'safe-start' : 'normal', readOnly, errors: [], truncated: false,
-    runs: [], attempts: [], admissions: [], reservations: [], pins: [], checkpoints: [], operations: [], lifecycle: [] };
+    runs: [], attempts: [], admissions: [], reservations: [], pins: [], checkpoints: [], operations: [], sourceClaims: [], lifecycle: [] };
   const scoped = (value: string | null) => repo === null || value?.toLowerCase() === repo.toLowerCase();
   const actions = (available: (RecoveryAction | false | undefined)[]): RecoveryAction[] => readOnly ? [] : available.filter((value): value is RecoveryAction => Boolean(value));
   const snapshotOwners = new Set<string>();
@@ -162,12 +166,31 @@ function project(source: RecoverySource, readOnly: boolean, callbacks: RecoveryC
       actions: actions([status !== 'completed' && status !== 'leased' && callbacks.reconcileOperation && 'reconcile-operation',
         ['blocked', 'uncertain'].includes(status) && callbacks.resolveOperation && 'resolve-operation']) };
   });
+  result.sourceClaims = records('Source claim', source.sourceClaims, value => {
+    const claimId = id(value.id), runId = id(value.runId);
+    const foundRepo = value.repo === null ? null : repoName(value.repo);
+    if (!scoped(foundRepo) || value.state === 'settled') return null;
+    const instance = row(value.instance), binding = row(instance.binding), reference = row(value.ref);
+    const claimState = state(value.state, ['reserved', 'claimed', 'settling']);
+    if (typeof binding.providerId !== 'string') throw new Error('Invalid source provider');
+    const providerId = binding.providerId.split('/').map(part => id(part)).join('/');
+    const processStatus = value.processStatus == null ? null : state(value.processStatus, ['running', 'succeeded', 'failed', 'stopped']);
+    const settlement = value.settlement == null ? null : row(value.settlement);
+    const settlementReason = typeof settlement?.reason === 'string' ? settlement.reason.slice(0, 2048)
+      : claimState === 'settling' ? 'Source settlement is pending. The recorded worker outcome is unchanged.' : null;
+    return { claimId, runId, repo: foundRepo, sourceId: id(reference.sourceId), providerId, state: claimState, processStatus, settlementReason,
+      actions: actions([!claimId.startsWith('legacy-') && processStatus !== 'running'
+        && !result.checkpoints.some(item => item.runId === runId && item.state === 'resumable')
+        && (claimState === 'settling' || processStatus !== null || value.admissionState === 'failed')
+        && callbacks.retrySourceSettlement && 'retry-source-settlement']) };
+  });
   result.pins = records('Artifact pin', source.pins, value => {
     const kind = state(value.kind, ['admission', 'execution', 'checkpoint', 'operation', 'dependency']), ownerId = id(value.ownerId);
     if (repo !== null && !(kind === 'checkpoint' && result.checkpoints.some(item => item.id === ownerId)
       || kind === 'operation' && result.operations.some(item => item.id === ownerId)
       || kind === 'admission' && result.admissions.some(item => item.runId === ownerId)
-      || kind === 'execution' && snapshotOwners.has(ownerId))) return null;
+      || kind === 'execution' && snapshotOwners.has(ownerId)
+      || kind === 'dependency' && result.sourceClaims.some(item => `source-claim:${item.claimId}` === ownerId))) return null;
     return { kind, ownerId, pluginId: id(value.pluginId), artifactHash: hash(value.artifactHash) };
   });
   result.lifecycle = records('Plugin lifecycle', source.lifecycle, value => {
@@ -182,7 +205,7 @@ function project(source: RecoverySource, readOnly: boolean, callbacks: RecoveryC
 
 export function createRecoveryService(options: {
   db: Pick<Db, 'activeRuns' | 'getRun'>; executions: ExecutionStore; admissions: AdmissionStore; operations: OperationStore;
-  lifecycle: Pick<PluginLifecycle, 'list'>; callbacks?: RecoveryCallbacks; legacy?: Pick<LegacyExecutionAdoption, 'list'>;
+  lifecycle: Pick<PluginLifecycle, 'list'>; taskSources?: Pick<TaskSourceStore, 'claims' | 'taskSnapshot'>; callbacks?: RecoveryCallbacks; legacy?: Pick<LegacyExecutionAdoption, 'list'>;
 }): RecoveryService {
   const callbacks = options.callbacks ?? {};
   const source: RecoverySource = {
@@ -197,6 +220,11 @@ export function createRecoveryService(options: {
     checkpoints: () => [...new Set(options.executions.pins().filter(pin => pin.kind === 'checkpoint').map(pin => pin.ownerId))].flatMap(id => {
       const value = options.executions.checkpoint(id); return value ? [value] : [];
     }),
+    sourceClaims: () => (options.taskSources?.claims() ?? []).filter(claim => claim.state !== 'settled').map(claim => ({ ...claim,
+      repo: options.db.getRun(claim.runId)?.repo ?? options.admissions.get(claim.runId)?.repo
+        ?? (claim.taskSnapshotHash ? options.taskSources?.taskSnapshot(claim.taskSnapshotHash)?.task.repo : null) ?? null,
+      processStatus: options.db.getRun(claim.runId)?.status ?? null, admissionState: options.admissions.get(claim.runId)?.state ?? null,
+    })),
     operations: () => options.operations.list(), evidence: id => options.operations.attempts(id), lifecycle: () => options.lifecycle.list(),
     repoFor: runId => options.db.getRun(runId)?.repo ?? options.admissions.get(runId)?.repo ?? null,
   };
@@ -209,15 +237,16 @@ export function createRecoveryService(options: {
       let value: Row;
       try { value = row(persistedJson(input)); } catch { throw new RecoveryActionError(400, 'Invalid recovery action.'); }
       const action = value.action;
-      if (!['retry-attachment', 'stop-execution', 'reconcile-operation', 'cancel-admission', 'retire-checkpoint', 'resolve-operation'].includes(String(action))) throw new RecoveryActionError(400, 'Unknown recovery action.');
+      if (!['retry-attachment', 'stop-execution', 'reconcile-operation', 'cancel-admission', 'retire-checkpoint', 'resolve-operation', 'retry-source-settlement'].includes(String(action))) throw new RecoveryActionError(400, 'Unknown recovery action.');
       const runAction = action === 'retry-attachment' || action === 'stop-execution' || action === 'cancel-admission';
-      const isResolution = !['retry-attachment', 'stop-execution', 'reconcile-operation'].includes(String(action));
-      const fields = ['action', runAction ? 'runId' : 'id', ...(isResolution ? ['actor', 'reason', 'evidence'] : []), ...(action === 'resolve-operation' ? ['outcome'] : [])];
+      const isResolution = !['retry-attachment', 'stop-execution', 'reconcile-operation', 'retry-source-settlement'].includes(String(action));
+      const targetField = runAction ? 'runId' : action === 'retry-source-settlement' ? 'claimId' : 'id';
+      const fields = ['action', targetField, ...(isResolution ? ['actor', 'reason', 'evidence'] : []), ...(action === 'resolve-operation' ? ['outcome'] : [])];
       if (Object.keys(value).some(key => !fields.includes(key)) || fields.some(key => !Object.hasOwn(value, key))) throw new RecoveryActionError(400, 'Recovery action fields are invalid.');
       let target: string;
-      try { target = id(value[runAction ? 'runId' : 'id']); } catch { throw new RecoveryActionError(400, 'Invalid recovery target.'); }
+      try { target = id(value[targetField]); } catch { throw new RecoveryActionError(400, 'Invalid recovery target.'); }
       const snapshot = service.snapshot();
-      const entry = action === 'retry-attachment' || action === 'stop-execution' ? snapshot.attempts.find(item => item.runId === target)
+      const entry = action === 'retry-source-settlement' ? snapshot.sourceClaims.find(item => item.claimId === target) : action === 'retry-attachment' || action === 'stop-execution' ? snapshot.attempts.find(item => item.runId === target)
         : action === 'cancel-admission' ? snapshot.admissions.find(item => item.runId === target)
           : action === 'retire-checkpoint' ? snapshot.checkpoints.find(item => item.id === target) : snapshot.operations.find(item => item.id === target);
       if (!entry?.actions.includes(action as RecoveryAction)) throw new RecoveryActionError(409, 'This recovery action is unavailable for the retained state.');
@@ -227,7 +256,8 @@ export function createRecoveryService(options: {
           || value.evidence === null || value.evidence === undefined || Buffer.byteLength(JSON.stringify(value.evidence)) > 16_384) throw new RecoveryActionError(400, 'Actor, reason, and bounded evidence are required.');
         resolution = { actor: value.actor.trim(), reason: value.reason.trim(), evidence: persistedJson(value.evidence) };
       }
-      if (action === 'retry-attachment') await callbacks.retryAttachment!(target);
+      if (action === 'retry-source-settlement') await callbacks.retrySourceSettlement!(target);
+      else if (action === 'retry-attachment') await callbacks.retryAttachment!(target);
       else if (action === 'stop-execution') await callbacks.requestStop!(target);
       else if (action === 'reconcile-operation') await callbacks.reconcileOperation!(target);
       else if (action === 'cancel-admission') await callbacks.cancelAdmission!(target, resolution!);
@@ -263,7 +293,7 @@ export function withReadonlyRecoveryCopy<T>(path: string, read: (sql: Database.D
 }
 
 export function readRecoverySnapshot(path: string, repo: string | null = null): RecoverySnapshot {
-  const empty: RecoverySource = { runs: () => [], attempts: () => [], admissions: () => [], reservations: () => [], pins: () => [], checkpoints: () => [], operations: () => [], evidence: () => [], lifecycle: () => [], repoFor: () => null };
+  const empty: RecoverySource = { runs: () => [], attempts: () => [], admissions: () => [], reservations: () => [], pins: () => [], checkpoints: () => [], operations: () => [], evidence: () => [], lifecycle: () => [], sourceClaims: () => [], repoFor: () => null };
   if (!validRecoveryRepo(repo)) throw new RecoveryActionError(400, 'Invalid galleon filter.');
   if (!existsSync(path)) return project(empty, true, {}, repo);
   try {
@@ -305,6 +335,17 @@ export function readRecoverySnapshot(path: string, repo: string | null = null): 
         checkpoints: () => decode(read('execution_checkpoints', "WHERE state='resumable'"), value => json(value.json)),
         operations: () => decode(read('operations'), value => ({ ...json(value.draft), id: value.id, status: value.status, deliveryAttempts: value.deliveryAttempts })),
         evidence: id => decode(read('operation_attempts', 'WHERE operationId=? ORDER BY sequence', [id]), value => ({ ...value, evidence: value.evidence === 'null' ? null : true })),
+        sourceClaims: () => decode(read('work_claims', "WHERE state!='settled'"), value => {
+          const claim = json(value.json); const reference = row(claim.ref);
+          if (claim.id !== value.id || reference.sourceId !== value.sourceId || reference.externalId !== value.externalId || claim.admissionId !== value.admissionId || claim.state !== value.state) throw new Error('Source claim index integrity failed');
+          const runId = id(claim.runId);
+          const task = typeof claim.taskSnapshotHash === 'string' && hasTable('source_task_snapshots')
+            ? connection.prepare('SELECT json FROM source_task_snapshots WHERE hash=?').get(claim.taskSnapshotHash) as Row | undefined : undefined;
+          const run = hasTable('runs') ? connection.prepare('SELECT status FROM runs WHERE id=?').get(runId) as Row | undefined : undefined;
+          const snapshot = task ? json(task.json) : null;
+          if (snapshot && (persistenceHash(snapshot) !== claim.taskSnapshotHash || row(row(snapshot.task).ref).sourceId !== reference.sourceId || row(row(snapshot.task).ref).externalId !== reference.externalId)) throw new Error('Source claim snapshot integrity failed');
+          return { ...claim, repo: repoFor(runId) ?? (snapshot ? row(snapshot.task).repo : null), processStatus: run?.status ?? null };
+        }),
         lifecycle: () => decode(read('plugin_lifecycle'), value => ({ ...value, desiredEnabled: value.desiredEnabled === 1,
           state: value.health === 'failed' ? 'failed' : value.desiredEnabled === 1 ? value.health === 'active' ? 'active' : 'installed'
             : hasTable('artifact_pins') && connection.prepare('SELECT 1 FROM artifact_pins WHERE pluginId=? LIMIT 1').get(id(value.pluginId)) ? 'draining' : 'disabled' })),

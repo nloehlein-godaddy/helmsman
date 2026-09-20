@@ -126,44 +126,45 @@ describe('source and todo response ordering', () => {
     expect(root.querySelector<HTMLButtonElement>('[data-todo-refresh]')?.disabled).toBe(false);
   });
 
-  it('does not let an old config/context refresh revert a saved Jira toggle', async () => {
-    const { root, view, click, deferRead } = await setup('/config?repo=org/a', true);
+  it('keeps both sources available when a delayed context read reports an old Jira setting', async () => {
+    const { root, view, click, deferRead, setJiraEnabled } = await setup('/config?repo=org/a', true);
     const delayed = deferRead('/api/context');
     const oldRefresh = view.refresh();
     await delayed.started;
-    const source = root.querySelector<HTMLSelectElement>('.config-row[data-key=JIRA_ENABLED] .config-input')!;
-    source.value = 'false';
-    click('.config-save[data-key=JIRA_ENABLED]');
-    await vi.waitFor(() => expect(root.querySelector('[data-view=todos]')).not.toBeNull());
+    setJiraEnabled(false);
     delayed.release();
     await oldRefresh;
-    await vi.waitFor(() => expect(root.querySelector<HTMLSelectElement>('.config-row[data-key=JIRA_ENABLED] .config-input')?.value).toBe('false'));
-    expect(root.querySelector('[data-view=triage], [data-view=bugs]')).toBeNull();
+    expect(root.querySelector('[data-view=todos]')).not.toBeNull();
+    expect(root.querySelector('[data-view=triage]')).not.toBeNull();
+    expect(root.querySelector('.config-row[data-key=JIRA_ENABLED]')).toBeNull();
     click('[data-view=todos]');
     await vi.waitFor(() => expect(root.querySelector('[data-page=todos]')).not.toBeNull());
   });
 
-  it.each(['/triage?repo=org/a', '/bugs?repo=org/a'])('redirects %s when another window disables Jira during ordinary polling', async path => {
+  it.each(['/triage?repo=org/a', '/bugs?repo=org/a'])('preserves %s when another window disables Jira during ordinary polling', async path => {
     const { root, view, reads, setJiraEnabled } = await setup(path, true);
     const initialConfigReads = reads.filter(path => path === '/api/config').length;
     const initialDashboardReads = reads.filter(path => path === '/api/dashboard').length;
     setJiraEnabled(false);
     vi.spyOn(Date, 'now').mockReturnValue(Date.now() + LOCAL_POLL_MS + 1);
     await view.refresh(false);
-    expect(root.querySelector('[data-page=todos]')).not.toBeNull();
-    expect(root.querySelector('[data-view=triage], [data-view=bugs]')).toBeNull();
-    expect(window.location.pathname).toBe('/todos');
+    expect(root.querySelector('[data-view=todos]')).not.toBeNull();
+    expect(root.querySelector('[data-view=triage]')).not.toBeNull();
+    expect(window.location.pathname).toBe(path.split('?')[0]);
     expect(reads.filter(path => path === '/api/config')).toHaveLength(initialConfigReads);
     expect(reads.filter(path => path === '/api/dashboard')).toHaveLength(initialDashboardReads);
   });
 
-  it('redirects Todos when another window reenables Jira', async () => {
+  it('preserves the Todos route and draft when another window reenables Jira', async () => {
     const { root, view, setJiraEnabled } = await setup();
+    const title = root.querySelector<HTMLInputElement>('[data-todo-form] [name=title]')!;
+    title.value = 'Keep this draft'; title.dispatchEvent(new Event('input', { bubbles: true }));
     setJiraEnabled(true);
     vi.spyOn(Date, 'now').mockReturnValue(Date.now() + LOCAL_POLL_MS + 1);
     await view.refresh(false);
-    expect(root.querySelector('[data-page=config]')).not.toBeNull();
-    expect(root.querySelector('[data-view=todos]')).toBeNull();
-    expect(window.location.pathname).toBe('/config');
+    expect(root.querySelector('[data-page=todos]')).not.toBeNull();
+    expect(root.querySelector('[data-view=triage]')).not.toBeNull();
+    expect(root.querySelector<HTMLInputElement>('[data-todo-form] [name=title]')?.value).toBe('Keep this draft');
+    expect(window.location.pathname).toBe('/todos');
   });
 });

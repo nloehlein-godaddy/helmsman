@@ -2,7 +2,8 @@ import type { PluginPageServices } from './services';
 export type { PluginPageServices } from './services';
 export type { AssessmentInput, OutcomeAssessment, OutcomeSummary, OutcomeRun, OutcomeDay, OutcomeWindow } from './outcomes';
 export type { UsageQuery, UsageSnapshot, UsageRun, UsageTotals, ProviderUsage, UsageCostEstimate, PricingEstimate } from './usage';
-export type { PluginBackendModule, PluginBackendContext, PluginBackendDefinition, PluginSetting, PluginStorage, PluginJson, PricingProvider } from './backend';
+export type { PluginBackendModule, PluginBackendContext, PluginBackendDefinition, PluginSetting, PluginStorage, PluginJson, PricingProvider, TaskSourceDeclaration } from './backend';
+export * from './tasks';
 
 export interface PluginPageDefinition {
   readonly id: string;

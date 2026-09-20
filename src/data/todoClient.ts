@@ -1,5 +1,37 @@
 import { TODO_PRIORITIES, TODO_STATES, type Todo, type TodoInput } from './todos';
 
+const mutationStorageKey = 'helmsman.todos.pending-mutations.v1';
+function pendingMutations(): Map<string, string> {
+  const stored = sessionStorage.getItem(mutationStorageKey);
+  if (stored === null) return new Map();
+  const entries: unknown = JSON.parse(stored);
+  if (!Array.isArray(entries) || entries.length > 128 || !entries.every(entry => Array.isArray(entry) && entry.length === 2
+    && typeof entry[0] === 'string' && typeof entry[1] === 'string' && /^[a-f\d-]{36}$/i.test(entry[1]))) {
+    throw new Error('Pending Todo changes could not be recovered. Their mutation identities must be retained before retrying.');
+  }
+  return new Map(entries as [string, string][]);
+}
+function mutation(path: string, method: string, input: unknown): { path: string; complete(): void } {
+  const normalized = input && typeof input === 'object' && !Array.isArray(input)
+    ? Object.fromEntries(Object.entries(input).sort(([a], [b]) => a.localeCompare(b))) : input;
+  const key = JSON.stringify([path, method, normalized]);
+  const pending = pendingMutations();
+  let requestId = pending.get(key);
+  if (!requestId) {
+    if (pending.size >= 128) throw new Error('Too many unconfirmed Todo changes. Retry pending changes before making more changes.');
+    requestId = crypto.randomUUID(); pending.set(key, requestId);
+    sessionStorage.setItem(mutationStorageKey, JSON.stringify([...pending]));
+  }
+  return { path: `${path}?requestId=${encodeURIComponent(requestId)}`, complete: () => {
+    const remaining = pendingMutations();
+    if (remaining.get(key) === requestId) {
+      remaining.delete(key);
+      if (remaining.size) sessionStorage.setItem(mutationStorageKey, JSON.stringify([...remaining]));
+      else sessionStorage.removeItem(mutationStorageKey);
+    }
+  } };
+}
+
 export interface TodosResponse {
   todos: Todo[];
   jiraEnabled: boolean;
@@ -38,10 +70,12 @@ export async function fetchTodos(): Promise<TodosResponse> {
 }
 
 async function saveTodo(path: string, method: 'POST' | 'PUT', input: TodoInput): Promise<Todo> {
-  const data = await request(path, {
+  const pending = mutation(path, method, input);
+  const data = await request(pending.path, {
     method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   });
   if (!isTodo(data.todo)) throw new Error('Unable to confirm the saved todo. Refresh before retrying.');
+  pending.complete();
   return data.todo;
 }
 
@@ -54,6 +88,8 @@ export function updateTodo(id: string, input: TodoInput): Promise<Todo> {
 }
 
 export async function deleteTodo(id: string): Promise<void> {
-  const data = await request(`/api/todos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const pending = mutation(`/api/todos/${encodeURIComponent(id)}`, 'DELETE', null);
+  const data = await request(pending.path, { method: 'DELETE' });
   if (data.ok !== true) throw new Error('Unable to confirm deletion. Refresh before retrying.');
+  pending.complete();
 }

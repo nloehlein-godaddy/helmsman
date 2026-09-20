@@ -1,0 +1,15 @@
+{
+  "packageVersion": 1,
+  "manifest": { "manifestVersion": 1, "id": "example.alternative-local-tasks", "version": "0.1.0", "sdkVersion": 1, "pages": [] },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "source.js",
+    "provides": [{ "id": "helmsman/task-source", "version": 1, "localId": "collection" }],
+    "taskSources": {
+      "collection": { "identityFormats": ["helmsman.local-task/v1"], "effectIds": [], "commandIds": ["create", "update", "delete"], "access": ["local-records"] }
+    },
+    "settings": {},
+    "storageVersion": 1
+  }
+}

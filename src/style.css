@@ -1028,3 +1028,12 @@ select { text-transform: none; }
 .page-intro h1 { margin: 0 0 8px; font: 700 18px var(--mono); }
 .page-intro p { margin: 0; max-width: 72ch; line-height: 1.6; color: var(--text-dim); }
 .newrun-task-field { grid-column: 1 / -1; }
+
+.task-source-settings { display: grid; gap: 1rem; }
+.source-config { min-width: 0; display: grid; gap: .75rem; margin: 0; padding: 1rem; border: 1px solid var(--line); }
+.source-config legend { padding: 0 .5rem; }
+.source-config textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.source-config details > .interface-field { margin-top: .75rem; }
+.source-schedule-option { display: block; }
+
+.source-config-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 1rem; }

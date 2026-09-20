@@ -13,6 +13,39 @@ describe('plugin packages', () => {
     provides: [{ id: 'helmsman/pricing', version: 1, localId: 'rates' }],
     settings: { rateAmount: { type: 'number', default: 1, minimum: 0, maximum: 5 } } });
 
+  const taskSource = () => ({ entry: 'source.js', storageVersion: 1, settings: {},
+    provides: [{ id: 'helmsman/task-source', version: 1, localId: 'tasks' }],
+    taskSources: { tasks: { identityFormats: ['helmsman.local-task/v1'], effectIds: [], commandIds: ['create'], access: ['local-records'] } } });
+
+  it('accepts task source declarations while preserving existing pricing packages', () => {
+    const source = taskSource();
+    const parsed = parsePluginPackage({ ...descriptor(), backend: source });
+    source.taskSources.tasks.commandIds.push('delete');
+    expect(parsed.backend?.taskSources?.tasks?.commandIds).toEqual(['create']);
+    expect(Object.isFrozen(parsed.backend?.taskSources?.tasks?.access)).toBe(true);
+    expect(Object.isFrozen(parsed.backend?.taskSources)).toBe(true);
+    expect(parsePluginPackage({ ...descriptor(), backend: backend() }).backend?.taskSources).toBeUndefined();
+  });
+
+  it.each([
+    {}, { tasks: {} }, { wrong: { identityFormats: ['helmsman.local-task/v1'], effectIds: [], commandIds: [], access: [] } },
+    { tasks: { identityFormats: [], effectIds: [], commandIds: [], access: [] } },
+    { tasks: { identityFormats: ['bad'], effectIds: [], commandIds: [], access: [] } },
+    { tasks: { identityFormats: ['jira.issue-id/v1'], effectIds: ['assign'], commandIds: [], access: [] } },
+    { tasks: { identityFormats: ['helmsman.local-task/v1'], effectIds: [], commandIds: ['create'], access: [] } },
+    { tasks: { identityFormats: ['jira.issue-id/v1'], effectIds: [], commandIds: [], access: ['network'] } },
+    { tasks: { identityFormats: ['jira.issue-id/v1'], effectIds: ['assign', 'assign'], commandIds: [], access: ['connection-http'] } },
+    { tasks: { identityFormats: ['jira.issue-id/v1'], effectIds: [], commandIds: [], access: ['connection-http'], extra: true } },
+  ])('rejects invalid task source declarations %j', taskSources => {
+    expect(() => parsePluginPackage({ ...descriptor(), backend: { ...taskSource(), taskSources } })).toThrow();
+  });
+
+  it('requires source access declarations exactly when the capability is declared', () => {
+    const { taskSources, ...missing } = taskSource();
+    expect(() => parsePluginPackage({ ...descriptor(), backend: missing })).toThrow();
+    expect(() => parsePluginPackage({ ...descriptor(), backend: { ...backend(), taskSources } })).toThrow();
+  });
+
   it('accepts deeply frozen backend-only packages and explicitly trusted builtins', () => {
     const input = descriptor();
     const result = parsePluginPackage({ ...input, manifest: { ...input.manifest, pages: [] }, entries: {}, backend: backend() });

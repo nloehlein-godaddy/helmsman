@@ -1,4 +1,5 @@
 import type { PricingEstimate, UsageQueryService, UsageSnapshot } from './usage';
+import type { TaskSourceProviderV1 } from './tasks';
 
 export type PluginJson = null | boolean | number | string | readonly PluginJson[] | { readonly [key: string]: PluginJson };
 export type PluginSetting =
@@ -6,9 +7,17 @@ export type PluginSetting =
   | { readonly type: 'string'; readonly default: string; readonly maxLength: number }
   | { readonly type: 'boolean'; readonly default: boolean };
 
+export interface TaskSourceDeclaration {
+  readonly identityFormats: readonly string[];
+  readonly effectIds: readonly string[];
+  readonly commandIds: readonly string[];
+  readonly access: readonly ('local-records' | 'connection-http')[];
+}
+
 export interface PluginBackendDefinition {
   readonly entry: string;
-  readonly provides: readonly { readonly id: 'helmsman/pricing'; readonly version: 1; readonly localId: string }[];
+  readonly provides: readonly { readonly id: 'helmsman/pricing' | 'helmsman/task-source'; readonly version: 1; readonly localId: string }[];
+  readonly taskSources?: Readonly<Record<string, TaskSourceDeclaration>>;
   readonly settings: Readonly<Record<string, PluginSetting>>;
   readonly storageVersion: 1;
 }
@@ -31,6 +40,7 @@ export interface PluginBackendContext {
   readonly usage: UsageQueryService;
   onDispose(cleanup: () => void | Promise<void>): void;
   registerPricing(localId: string, provider: PricingProvider): void;
+  registerTaskSource(localId: string, provider: TaskSourceProviderV1): void;
 }
 
 export interface PluginBackendModule {

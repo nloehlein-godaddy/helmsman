@@ -5,6 +5,13 @@ import type { DashboardResponse } from './data/live';
 import type { CmuxTabView } from './logic/cmuxPanel';
 import { DEFAULT_THEME_ID } from './data/themes';
 
+const views: DashboardView[] = [];
+function createView(root: HTMLElement): DashboardView {
+  const view = new DashboardView(root);
+  views.push(view);
+  return view;
+}
+
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
   onmessage: ((m: MessageEvent<string>) => void) | null = null;
@@ -55,6 +62,7 @@ describe('DashboardView drawer survives polling', () => {
   });
 
   afterEach(() => {
+    for (const view of views.splice(0)) view.destroy();
     (globalThis as { EventSource: unknown }).EventSource = realEventSource;
     globalThis.fetch = realFetch as typeof globalThis.fetch;
     document.body.innerHTML = '';
@@ -72,7 +80,7 @@ describe('DashboardView drawer survives polling', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
 
     await view.refresh();
     const launchBtn: HTMLButtonElement | null = root.querySelector<HTMLButtonElement>('.launch-btn');
@@ -93,6 +101,22 @@ describe('DashboardView drawer survives polling', () => {
     expect(FakeEventSource.instances[0].closed).toBe(false);
   });
 
+  it('launches dashboard work by its own source identity while Jira is enabled', async () => {
+    const response = await buildResponse();
+    response.jiraEnabled = true;
+    const source = { instanceId: 'local-instance', instanceRevision: 4, ref: { sourceId: 'local-collection', externalId: 'TODO-1' } };
+    response.snapshot.queue = [{ id: 'TODO-1', title: 'Local work', repo: response.snapshot.repo, priority: 'P1', status: 'backlog', source }];
+    const fetcher = vi.fn(async (input: RequestInfo | URL): Promise<Response> => Response.json(String(input).includes('/api/agents/launch') ? { runId: 'source-run' } : response));
+    globalThis.fetch = fetcher as typeof globalThis.fetch;
+    const root = document.querySelector<HTMLElement>('#app')!;
+    const view = createView(root); await view.refresh();
+    root.querySelector<HTMLButtonElement>('.launch-btn')!.click();
+    await vi.waitFor(() => expect(fetcher.mock.calls.some(([input]) => String(input).includes('/api/agents/launch'))).toBe(true));
+    const call = (fetcher.mock.calls as unknown as [RequestInfo | URL, RequestInit][]).find(([input]) => String(input).includes('/api/agents/launch'))!;
+    expect(JSON.parse(String(call[1]?.body))).toEqual({ mode: 'source', repo: response.snapshot.repo, sourceInstanceId: source.instanceId, sourceInstanceRevision: 4, workRef: source.ref });
+    view.destroy();
+  });
+
   it('renders a PR link and ticket status in the drawer footer when the run reaches the gate', async () => {
     const response: DashboardResponse = await buildResponse();
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
@@ -108,7 +132,7 @@ describe('DashboardView drawer survives polling', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.launch-btn')!.click();
@@ -151,7 +175,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const stopBtn: HTMLButtonElement | null = root.querySelector<HTMLButtonElement>('.agent-stop');
@@ -190,7 +214,7 @@ describe('DashboardView drawer survives polling', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const row: HTMLElement | null = root.querySelector<HTMLElement>('.agent-row');
@@ -214,7 +238,7 @@ describe('DashboardView drawer survives polling', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.launch-btn')!.click();
@@ -245,7 +269,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const freeformRadio: HTMLInputElement | null = root.querySelector<HTMLInputElement>(
@@ -286,7 +310,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const repoSelect: HTMLSelectElement = root.querySelector<HTMLSelectElement>('.newrun-repo')!;
@@ -319,7 +343,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const freeformRadio: HTMLInputElement = root.querySelector<HTMLInputElement>(
@@ -370,7 +394,7 @@ describe('DashboardView drawer survives polling', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const row: HTMLElement | null = root.querySelector<HTMLElement>('.recent-run');
@@ -407,7 +431,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.page-tab[data-view="config"]')!.click();
@@ -464,7 +488,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
     expect(configGetCalls).toBe(1);
 
@@ -498,7 +522,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     expect(root.querySelector('.auto-claim-toggle')).toBeNull();
@@ -546,7 +570,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.page-tab[data-view="prs"]')!.click();
@@ -617,7 +641,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.page-tab[data-view="prs"]')!.click();
@@ -671,7 +695,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.page-tab[data-view="prs"]')!.click();
@@ -743,7 +767,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.page-tab[data-view="prs"]')!.click();
@@ -806,7 +830,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.page-tab[data-view="prs"]')!.click();
@@ -847,7 +871,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.page-tab[data-view="prs"]')!.click();
@@ -908,7 +932,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const row: HTMLElement | null = root.querySelector<HTMLElement>('.recent-run');
@@ -949,7 +973,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -998,7 +1022,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1041,7 +1065,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1075,7 +1099,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1116,7 +1140,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1156,7 +1180,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1186,7 +1210,7 @@ describe('DashboardView drawer survives polling', () => {
       return new Response(JSON.stringify(payload));
     }) as typeof globalThis.fetch;
     const root = document.querySelector<HTMLElement>('#app')!;
-    const view = new DashboardView(root);
+    const view = createView(root);
     await view.refresh();
     root.querySelector<HTMLAnchorElement>('[data-view="cmux"]')!.click();
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('could not be refreshed'));
@@ -1232,7 +1256,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1296,7 +1320,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1333,7 +1357,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1375,7 +1399,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1408,7 +1432,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="cmux"]')!.click();
@@ -1441,7 +1465,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => response }) as unknown as Response) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
 
     expect(document.documentElement.dataset.theme).toBe('dracula');
     expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#bd93f9');
@@ -1460,7 +1484,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => response }) as unknown as Response) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    void new DashboardView(root);
+    void createView(root);
 
     expect(document.documentElement.dataset.theme).toBe(DEFAULT_THEME_ID);
     expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#dfb778');
@@ -1472,7 +1496,7 @@ describe('DashboardView drawer survives polling', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     expect(root.querySelector('.theme-select')).toBeNull();
@@ -1502,7 +1526,7 @@ describe('DashboardView drawer survives polling', () => {
     }) as unknown as Response);
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
     const root = document.querySelector<HTMLElement>('#app')!;
-    const view = new DashboardView(root);
+    const view = createView(root);
     await view.refresh();
     const tabs = Array.from(root.querySelectorAll<HTMLAnchorElement>('.page-tab'));
     const dashboard = tabs[0];
@@ -1562,6 +1586,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
   });
 
   afterEach(() => {
+    for (const view of views.splice(0)) view.destroy();
     (globalThis as { EventSource: unknown }).EventSource = realEventSource;
     globalThis.fetch = realFetch as typeof globalThis.fetch;
     document.body.innerHTML = '';
@@ -1599,7 +1624,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const rows: NodeListOf<HTMLElement> = root.querySelectorAll<HTMLElement>('.agent-row');
@@ -1640,7 +1665,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const rows: NodeListOf<HTMLElement> = root.querySelectorAll<HTMLElement>('.agent-row');
@@ -1672,7 +1697,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const plate = (): HTMLElement | null => root.querySelector<HTMLElement>('.faceplate[data-panel="shipped"]');
@@ -1695,7 +1720,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const row = root.querySelector('.recent-run[data-runid="run-9"]');
@@ -1728,7 +1753,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
       return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } });
     });
     const root = document.querySelector<HTMLElement>('#app')!;
-    const view = new DashboardView(root);
+    const view = createView(root);
     await view.refresh();
     root.querySelector<HTMLAnchorElement>('[data-view=triage]')!.click();
     await vi.waitFor(() => expect(root.querySelector('.launch-btn[data-ticket="AIROBUILD-6319"]')).not.toBeNull());
@@ -1762,7 +1787,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="triage"]')!.click();
     await new Promise((r) => setTimeout(r, 0));
@@ -1781,7 +1806,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
   it('does not collapse the runs drawer when there are no tabs (no orphaned collapsed empty state)', async () => {
     localStorage.setItem('helmsman.collapsed', JSON.stringify(['runs:drawer']));
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     const drawer: HTMLElement = view['runDrawerEl'] as HTMLElement;
     expect(drawer.classList.contains('is-collapsed')).toBe(false);
     expect(drawer.querySelector('.run-drawer-empty')).not.toBeNull();
@@ -1802,7 +1827,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
     root.querySelector<HTMLElement>('.agent-row')!.click();
     await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
@@ -1832,7 +1857,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
 
     const select: HTMLSelectElement = root.querySelector<HTMLSelectElement>('.repo-select')!;
@@ -1842,7 +1867,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
 
     document.body.innerHTML = '<div id="app"></div>';
     const root2: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view2: DashboardView = new DashboardView(root2);
+    const view2: DashboardView = createView(root2);
     await view2.refresh();
     expect(fetchMock.mock.calls.some(([i]) => String(i).includes('/api/dashboard?repo=acme%2Fother'))).toBe(true);
   });
@@ -1856,7 +1881,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     }) as typeof globalThis.fetch;
 
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = new DashboardView(root);
+    const view: DashboardView = createView(root);
     await view.refresh();
     root.querySelector<HTMLElement>('.agent-row')!.click();
     await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
@@ -1908,7 +1933,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     }) as typeof globalThis.fetch;
 
     const root = document.querySelector<HTMLElement>('#app')!;
-    const view = new DashboardView(root);
+    const view = createView(root);
     await view.refresh();
     root.querySelector<HTMLButtonElement>('.view-toggle[data-view="bugs"]')!.click();
     await new Promise((r) => setTimeout(r, 0));

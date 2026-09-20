@@ -6,7 +6,7 @@ const todo = {
   createdAt: '2026-09-18T12:00:00Z', updatedAt: '2026-09-18T12:00:00Z', runId: null, completedAt: null,
 };
 const reply = (data: unknown, status = 200): Response => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); sessionStorage.clear(); });
 
 describe('todo client', () => {
   it('loads validated todos together with the current source configuration', async () => {
@@ -30,9 +30,9 @@ describe('todo client', () => {
     const input = { title: 'Search', repo: 'owner/repo', acceptanceCriteria: 'Match descriptions' };
     await createTodo(input);
     await updateTodo('TODO/1', input);
-    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/todos');
+    expect(fetcher.mock.calls[0]?.[0]).toMatch(/^\/api\/todos\?requestId=/);
     expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'POST', body: JSON.stringify(input) });
-    expect(fetcher.mock.calls[1]?.[0]).toBe('/api/todos/TODO%2F1');
+    expect(fetcher.mock.calls[1]?.[0]).toMatch(/^\/api\/todos\/TODO%2F1\?requestId=/);
     expect(fetcher.mock.calls[1]?.[1]).toMatchObject({ method: 'PUT' });
   });
 
@@ -47,6 +47,35 @@ describe('todo client', () => {
     const fetcher = vi.fn().mockResolvedValue(reply({ ok: true }));
     vi.stubGlobal('fetch', fetcher);
     await deleteTodo('TODO-1');
-    expect(fetcher).toHaveBeenCalledWith('/api/todos/TODO-1', expect.objectContaining({ method: 'DELETE' }));
+    expect(fetcher).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/todos\/TODO-1\?requestId=/), expect.objectContaining({ method: 'DELETE' }));
   });
+
+  it('reuses a mutation identity after response loss and renews it after confirmed success', async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error('Response lost')).mockImplementation(() => Promise.resolve(reply({ todo })));
+    vi.stubGlobal('fetch', fetcher);
+    const input = { title: 'Replay', repo: 'owner/repo' };
+    await expect(createTodo(input)).rejects.toThrow('Response lost');
+    await createTodo(input);
+    await createTodo(input);
+    expect(fetcher.mock.calls[0]?.[0]).toBe(fetcher.mock.calls[1]?.[0]);
+    expect(fetcher.mock.calls[1]?.[0]).not.toBe(fetcher.mock.calls[2]?.[0]);
+  });
+  it('retains mutation identity across module reload and normalized form field ordering', async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error('Response lost')).mockImplementation(() => Promise.resolve(reply({ todo })));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(createTodo({ title: 'Reload retry', repo: 'owner/repo' })).rejects.toThrow('Response lost');
+    vi.resetModules();
+    const reloaded = await import('./todoClient');
+    await reloaded.createTodo({ repo: 'owner/repo', title: 'Reload retry' });
+    expect(fetcher.mock.calls[0]?.[0]).toBe(fetcher.mock.calls[1]?.[0]);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('does not dispatch a mutation when its replay identity cannot be persisted', async () => {
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage unavailable'); });
+    await expect(createTodo({ title: 'Unpersisted', repo: 'owner/repo' })).rejects.toThrow('Storage unavailable');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
 });

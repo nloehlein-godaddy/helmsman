@@ -1,7 +1,7 @@
 # Helmsman
 
-A control plane for Jira-backlog-driven coding agents. Launch a CLI agent against a
-ticket, watch it work live (explore → implement → test → open a PR), and keep a human
+A control plane for coding agents working from Jira and local task sources. Launch a CLI agent against a
+task, watch it work live (explore → implement → test → open a PR), and keep a human
 approval gate before anything merges — running multiple agents across repos, one at a
 time per repo. The dashboard (backlog queue, current run, Ship’s log, shipped PRs)
 is the view; the **Helmsman server** behind it spawns and supervises the agents.
@@ -34,9 +34,9 @@ runtime framework.
 ## Data
 
 `GET /api/dashboard` is served by the **Helmsman server** (`server/helmsman/`), which
-queries Jira + GitHub and assembles a `DashboardSnapshot`; in dev, Vite proxies `/api`
-to it. `src/data/mock.ts` is the server-side fallback payload the endpoint substitutes
-per-source when a live source can't be reached (see [Degraded mode](#degraded-mode)).
+queries enabled task-source providers and GitHub to assemble a `DashboardSnapshot`;
+in dev, Vite proxies `/api` to it. Source failures are reported as unavailable;
+source-aware task discovery does not substitute sample work for a failed provider.
 
 ## Commands
 
@@ -399,11 +399,15 @@ and restart behavior. UI customization and local Git controls are on the same pa
 
 ### Local todos
 
-In Config → Voyage source, disable Jira to use a local backlog. The change is live
-and persisted: Todos replaces the Jira-specific Triage and Bugs tabs, and Helm's
-queue uses local todos. Re-enabling Jira keeps your todos and saved credentials.
-Helmsman stops issuing Jira requests while disabled; already running agents keep
-their original task context.
+Todos and Jira coexist. In **Config → Task sources**, enable each source independently,
+change its label and allowed galleons, and edit advanced non-secret settings. The
+panel follows the header galleon unless you select an explicit panel override; the
+override never changes the header. Todos, Triage and Bugs retain their routes when a
+source becomes unavailable, and unsaved form changes remain available.
+
+Disabling a source stops new work. Admitted voyages keep their recorded provider,
+configuration and connection, with retained artifacts available for settlement.
+The Helm backlog carries each task's canonical source identity and display URL.
 
 Each todo has a title, repository (`owner/name`), priority P0–P4, description,
 acceptance criteria, state, timestamps, and a link to its latest voyage. Repositories
@@ -421,16 +425,35 @@ against persisted voyages. Todos are stored in the same SQLite database as voyag
 
 ### Auto-claim
 
-The Todos tab offers opt-in auto-claim for the selected repository. The backend API
-is also available for either source. Every `AUTO_CLAIM_INTERVAL_MS` a
-per-repo heartbeat pulls the top backlog ticket for the repo's mapped Jira project
-(`REPO_PROJECT_MAP`) and launches an agent — but only while that repo is idle, so it
-never double-claims (it defers to the same single-flight gate as manual Launch). One
-ticket per tick; off by default; toggling off stops further claims. With Jira disabled,
-it selects described To do items by priority (P0 first), then creation order; no Jira
-project mapping is required. In Jira mode, a repo needs a `REPO_PROJECT_MAP` entry.
-Toggle state is held in memory
-(`POST /api/repos/:repo/auto-claim {enabled}`), so it resets when Helmsman restarts.
+Choose automatic sources per galleon in **Config → Task sources → Automatic starts**.
+Initial conversion selects only the previously active source; enabling another
+source does not silently add it to scheduling. The saved source selection survives
+restart. Scheduling rotates among selected available sources, honors each provider's
+ready-work ordering, and uses the same claim/concurrency gates as manual launch.
+Todos without a description remain editable drafts and are excluded from ready work.
+
+The Todos tab's automatic-start control enables the galleon's scheduler. At most
+one item is admitted per heartbeat while the galleon is idle. This opt-in control
+(`POST /api/repos/:repo/auto-claim {enabled}`) remains in memory and resets on restart;
+it is separate from the persisted selection of automatic sources.
+
+### Task-source plugins and recovery
+
+An installed compatible provider can replace a verified logical source through
+**Replace source provider**: explicitly choose a candidate, enter an operator and
+reason, validate, then adopt. The host rechecks source/configuration revisions and
+preserves existing task identity, stored data, enablement, and earlier voyage bindings.
+An operator-seeded Jira source remains usable through its original connection but
+cannot claim verified identity for cross-provider adoption.
+
+A completed worker can still have an unsettled source claim. **Recovery → Source
+claims** displays the original worker outcome, source/provider, settlement state and
+retained dependency pins. Retry source settlement uses retained execution and request
+evidence; it does not relaunch the worker or manufacture an outcome. Safe start
+shows the same diagnostics read-only.
+
+See [task-source authoring](docs/task-source-authoring.md), [recovery](docs/recovery.md),
+[plugin packages](docs/plugin-packages.md), and the [phase completion ledger](docs/plugin-implementation-progress.md).
 
 ### Agent backends
 
@@ -490,7 +513,7 @@ request an immediate poll, followed by the normal five-minute interval.
 
 | Value | Default | Where it applies / how to set it | Change |
 | --- | --- | --- | --- |
-| `JIRA_ENABLED` | `true` | Config → Voyage source. Disable to use persistent local Todos for the backlog and auto-claim, without Jira requests. Saved Jira credentials remain available when re-enabled. | Live |
+| `JIRA_ENABLED` | `true` | Initial Jira source enablement during conversion. Manage an existing source independently in Config → Task sources; Todos remains available. | Initial conversion |
 | `JIRA_BASE_URL` | Empty | Jira Cloud site URL, e.g. `https://your-team.atlassian.net`, without an issue/API path. Required with email and token to enable Jira. | Restart |
 | `JIRA_EMAIL` | Empty | Email of the account that owns the API token. Never returned to the UI. | Restart |
 | `JIRA_API_TOKEN` | Empty | Atlassian API token for that account; see setup for read/write permissions. Config accepts a replacement without revealing the existing token and stores it in SQLite. Empty token updates are rejected. | Live, write-only |

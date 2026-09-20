@@ -1,3 +1,4 @@
+import { TaskSourceSettings } from './taskSourceSettings';
 import { applyBootTerminology } from './logic/bootTerminology';
 import { term, setPirateMode, isPirateMode } from './logic/terminology';
 import { loadProfile } from './data/profile';
@@ -146,6 +147,7 @@ export class DashboardView {
   private autoClaimRepos: string[] = [];
   private caps: AgentCaps = { maxAttempts: 1, maxCostUsd: null };
   private uiConfig: UiConfig = { config: {}, overridden: [] };
+  private taskSourceSettings = new TaskSourceSettings(() => { if (this.view === 'config' && !this.destroyed) this.paintConfig(); });
   private configLoaded = false;
   private configLoading = false;
   private configError: string | null = null;
@@ -540,11 +542,6 @@ export class DashboardView {
       this.clarifications?.destroy();
       this.clarifications = null;
     }
-    if (!this.jiraEnabled && (route.view === 'triage' || route.view === 'bugs')) {
-      route = { ...route, view: 'todos', pane: null };
-    } else if (this.jiraEnabled && route.view === 'todos') {
-      route = { ...route, view: 'config', pane: null };
-    }
     const seq = ++this.routeSeq;
     if (this.view === 'runs' && route.view !== 'runs') {
       ++this.runHistorySeq;
@@ -620,7 +617,7 @@ export class DashboardView {
     else if (this.isPluginPage()) await this.pageHost?.refresh();
     else if (route.view === 'runs') historyLoad = this.loadRunHistory();
     else if (route.view === 'config') {
-      await this.loadUiConfig();
+      await Promise.all([this.loadUiConfig(), this.taskSourceSettings.load(this.selectedRepo, this.repos)]);
       if (seq !== this.routeSeq) return;
       void this.loadLocalGit();
     }
@@ -746,9 +743,6 @@ export class DashboardView {
       this.autoClaimRepos = agents.autoClaim;
       this.caps = agents.caps;
     }
-    if (force && this.configLoaded && !this.configError && this.uiConfig.config.JIRA_ENABLED !== undefined) {
-      this.jiraEnabled = this.uiConfig.config.JIRA_ENABLED !== false && this.uiConfig.config.JIRA_ENABLED !== 'false';
-    }
     if (context) {
       this.repos = [...new Set([...(response?.repos ?? this.repos), ...context.repos])].sort();
       this.jiraBaseUrl = context.jiraBaseUrl;
@@ -761,18 +755,8 @@ export class DashboardView {
         this.dashboardRepo = undefined;
         this.lastDashboardRefresh = -Infinity;
       }
-      const sourceSelect = this.root.querySelector<HTMLSelectElement>('#jira-enabled');
-      if (sourceSelect && sourceSelect !== document.activeElement && !this.configDrafts.has('JIRA_ENABLED')
-        && sourceSelect.value === sourceSelect.dataset.configValue) {
-        sourceSelect.value = String(this.jiraEnabled);
-        sourceSelect.dataset.configValue = sourceSelect.value;
-      }
     }
     this.syncShell();
-    if ((!this.jiraEnabled && (this.view === 'triage' || this.view === 'bugs')) || (this.jiraEnabled && this.view === 'todos')) {
-      await this.navigate({ ...this.route, view: this.jiraEnabled ? 'config' : 'todos', pane: null }, 'replace');
-      return;
-    }
     if (localDue && slackSeq === this.slackSeq) {
       this.slack = slack ?? {
         ...this.slack,
@@ -1596,6 +1580,8 @@ export class DashboardView {
 
   private paintConfig(): void {
     const focused = document.activeElement;
+    const sourceFocusId = focused instanceof HTMLElement ? focused.closest<HTMLElement>('[data-source-id]')?.dataset.sourceId : undefined;
+    const sourceFocusField = focused instanceof HTMLElement ? focused.dataset.sourceField : undefined;
     const focusKey = focused instanceof HTMLInputElement || focused instanceof HTMLSelectElement
       ? focused.closest<HTMLElement>('.config-row')?.dataset.key : undefined;
     const selection = focused instanceof HTMLInputElement && focused.type === 'text'
@@ -1608,6 +1594,7 @@ export class DashboardView {
       loading: this.configLoading,
       error: this.configError,
       unavailable: !this.configLoaded,
+      taskSourcesHtml: this.taskSourceSettings.render(),
     }));
     for (const row of this.root.querySelectorAll<HTMLElement>('.config-row[data-key]')) {
       const key = row.dataset.key;
@@ -1626,6 +1613,12 @@ export class DashboardView {
         input.focus({ preventScroll: true });
         if (selection && input instanceof HTMLInputElement && input.type === 'text') input.setSelectionRange(...selection);
       }
+    }
+    this.taskSourceSettings.bind(this.root.querySelector<HTMLElement>('[data-task-source-settings]'));
+    if (sourceFocusId && sourceFocusField) {
+      const field = [...this.root.querySelectorAll<HTMLElement>('[data-source-id]')].find(row => row.dataset.sourceId === sourceFocusId)
+        ?.querySelector<HTMLElement>(`[data-source-field="${sourceFocusField}"]`);
+      field?.focus({ preventScroll: true });
     }
     this.bindHeadControls();
   }
@@ -1660,10 +1653,6 @@ export class DashboardView {
       this.todos.items = result.todos;
       this.todos.error = null;
       this.repos = [...new Set([...this.repos, ...result.todos.map(todo => todo.repo)])].sort();
-      if (this.jiraEnabled && this.view === 'todos') {
-        await this.navigate({ ...this.route, view: 'config', pane: null }, 'replace');
-        return;
-      }
     } catch (error: unknown) {
       if (seq !== this.todosSeq || this.destroyed) return;
       this.todos.error = error instanceof Error ? error.message : 'Unable to load todos.';
@@ -1677,7 +1666,7 @@ export class DashboardView {
   }
 
   private async saveTodo(form: HTMLFormElement): Promise<void> {
-    if (this.todos.pendingAction || this.jiraEnabled) return;
+    if (this.todos.pendingAction) return;
     ++this.todosSeq;
     this.todos.loading = false;
     const input = readTodoForm(form);
@@ -1702,7 +1691,7 @@ export class DashboardView {
   }
 
   private async handleTodoAction(button: HTMLButtonElement): Promise<void> {
-    if (this.todos.pendingAction || this.jiraEnabled) return;
+    if (this.todos.pendingAction) return;
     if (button.hasAttribute('data-todo-auto-claim')) {
       const repo = this.selectedRepo;
       if (!repo) return;
@@ -2892,9 +2881,14 @@ export class DashboardView {
     const seq: number = ++this.launchSeq;
     btn.disabled = true;
     try {
-      const result: LaunchResult = this.jiraEnabled
-        ? await launchAgent(ticketId, title ?? ticketId, repo)
-        : await launchRun({ mode: 'todo', todoId: ticketId, repo });
+      if (btn.dataset.sourceInvalid) throw new Error('Task source information is unavailable. Refresh and retry.');
+      const sourceInstanceId = btn.dataset.sourceInstance;
+      const sourceInstanceRevision = Number(btn.dataset.sourceRevision);
+      const sourceId = btn.dataset.sourceId;
+      const externalId = btn.dataset.sourceItem;
+      const result: LaunchResult = sourceInstanceId && sourceId && externalId && Number.isSafeInteger(sourceInstanceRevision) && sourceInstanceRevision > 0
+        ? await launchRun({ mode: 'source', repo, sourceInstanceId, sourceInstanceRevision, workRef: { sourceId, externalId } })
+        : await launchAgent(ticketId, title ?? ticketId, repo);
       if (seq !== this.launchSeq) return;
       this.openRunTab(result.runId, ticketId);
     } catch (err: unknown) {
@@ -3012,21 +3006,6 @@ export class DashboardView {
         if (!currentInput) continue;
         currentInput.dataset.configValue = key === 'JIRA_API_TOKEN' ? '' : value;
         if (key === 'JIRA_API_TOKEN' && currentInput.value === value) currentInput.value = '';
-      }
-      if (key === 'JIRA_ENABLED') {
-        this.jiraEnabled = value !== 'false';
-        this.jiraBaseUrl = null;
-        this.snapshot = null;
-        this.dashboardRepo = undefined;
-        this.lastDashboardRefresh = -Infinity;
-        ++this.todosSeq;
-        const context = await getContext();
-        if (this.destroyed) return;
-        if (context) {
-          this.repos = context.repos;
-          this.jiraBaseUrl = context.jiraBaseUrl;
-        }
-        this.syncShell();
       }
       this.configPendingKeys.delete(key);
       if (this.configPendingKeys.size === 0) await this.refresh();

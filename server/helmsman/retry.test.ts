@@ -38,6 +38,14 @@ describe('retry intent reconstruction', () => {
       .toEqual({ repo: row.repo, adapter: 'codex', mode: 'todo', todoId: 'TODO-7' });
   });
 
+  it('preserves immutable work identity and instance revision for source retries', () => {
+    const intent = { repo: row.repo, mode: 'source', workRef: { sourceId: '11111111-1111-4111-8111-111111111111', externalId: '100' }, sourceInstanceId: 'instance', sourceInstanceRevision: 4 };
+    expect(retryIntent({ ...row, ticketId: 'RENAMED-7', launchJson: launchIntentJson(intent), taskJson: JSON.stringify({ source: {}, task: 'rendered source requirements' }) }))
+      .toEqual({ ...intent, adapter: 'codex' });
+    expect(() => retryIntent(withTask({ source: {}, task: 'rendered source requirements' }))).toThrow('source binding');
+    expect(() => retryIntent({ ...row, launchJson: JSON.stringify({ ...intent, workRef: null }) })).toThrow('source binding');
+  });
+
   it.each([
     { mode: 'review', prNumber: 12 },
     { mode: 'rerun', prNumber: 12, feedback: 'Fix it.' },

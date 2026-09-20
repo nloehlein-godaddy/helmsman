@@ -74,6 +74,7 @@ export interface ExecutionStore {
   pins(pluginId?: string): readonly ArtifactPin[];
   retainPins(pins: readonly ArtifactPin[]): void;
   releasePins(kind: ArtifactPin['kind'], ownerId: string): void;
+  releaseSourceClaimPins(claimId: string): void;
   cleanupEligibility(runId: string): { allowed: true } | { allowed: false; reasons: readonly string[] };
   releaseReservation(runId: string, evidence: PluginJson): void;
 }
@@ -477,6 +478,16 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
         sql.prepare('DELETE FROM artifact_pins WHERE kind=? AND ownerId=?').run(kind, ownerId);
       });
     },
+    releaseSourceClaimPins(claimId) {
+      transaction(() => {
+        if (!nonempty(claimId)) throw new PersistenceValidationError('Source claim identity is required');
+        const exists = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_claims'").get();
+        const row = exists ? sql.prepare('SELECT id,state,json FROM work_claims WHERE id=?').get(claimId) as { id: string; state: string; json: string } | undefined : undefined;
+        const claim = row ? persistedJson(JSON.parse(row.json)) as { id?: unknown; state?: unknown; settlement?: { claimId?: unknown; disposition?: unknown } } | null : null;
+        if (!row || row.state !== 'settled' || claim?.id !== claimId || claim.state !== 'settled' || claim.settlement?.claimId !== claimId || !['released', 'completed'].includes(String(claim.settlement?.disposition))) throw new PersistenceConflictError('Unsettled source claim pins must be retained');
+        sql.prepare("DELETE FROM artifact_pins WHERE kind='dependency' AND ownerId=?").run(`source-claim:${claimId}`);
+      });
+    },
     cleanupEligibility(runId) {
       const reasons: string[] = [];
       if (legacyObligations().some(item => item.runId === runId)) reasons.push('Legacy execution or checkpoint requires verified adoption');
@@ -485,6 +496,8 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
       if (sql.prepare('SELECT runId FROM execution_reservations WHERE runId=?').get(runId)) reasons.push('Execution ownership remains reserved');
       if ((sql.prepare('SELECT * FROM execution_attempts WHERE runId=?').all(runId) as AttemptRow[]).map(decodeAttempt).some(item => !item.outcome)) reasons.push('Execution liveness is unresolved');
       if (sql.prepare("SELECT id FROM execution_checkpoints WHERE runId=? AND state='resumable'").get(runId)) reasons.push('A resumable checkpoint retains execution artifacts');
+      const hasClaims = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_claims'").get();
+      if (hasClaims && (sql.prepare("SELECT json FROM work_claims WHERE state!='settled'").all() as { json: string }[]).some(row => { const claim = persistedJson(JSON.parse(row.json)) as { runId?: unknown } | null; return claim?.runId === runId; })) reasons.push('Task source ownership remains unsettled');
       const hasOperations = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='operations'").get();
       if (hasOperations) {
         const columns = sql.pragma('table_info(operations)') as Array<{ name: string }>;

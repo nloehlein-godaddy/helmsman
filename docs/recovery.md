@@ -6,6 +6,15 @@ A voyage's execution result and attachment health are separate. A blocked attach
 
 Pending external effects remain visible after process completion. Reconcile checks the recorded provider, target, identity, and remote receipt. An uncertain Slack browser send or GitHub review never triggers a blind resend. Explicit resolutions require actor, reason, and evidence. Treat a definitely-not-applied resolution as a factual assertion about the remote result, not a way to dismiss an inconvenient error.
 
+Source claims are independent of worker outcomes. A successful voyage can retain a
+`settling` source claim when a local update or remote completion fails. The Source
+claims table shows its logical source, exact provider, galleon, recorded worker
+outcome and settlement reason. Its dependency pins appear in the same scoped view.
+**Retry source settlement** invokes recovery against retained requests and verified
+execution evidence; it does not accept a replacement outcome, rebind a provider,
+or relaunch work. A missing provider or unresolved ownership can still block retry.
+Safe start exposes these claims without activating providers or offering actions.
+
 Legacy running voyages and retained pre-PR checkpoints without historical runtime and ownership evidence are blocked. Helmsman does not assign today's provider identity to old work. Their original history, measured usage, workflow references, and workspaces remain intact. The legacy safety audit is not an executable adoption or checkpoint-migration tool.
 
 Plugin disable removes presentation and denies new work. Retained execution, checkpoint, dependency, and operation pins can keep a provider draining and prevent upgrade, uninstall, or collection. A checkpoint migration requires a registered validator for the retained provider and records append-only provenance. Without that validator, restore the retained provider or explicitly retire a verified checkpoint through Recovery.

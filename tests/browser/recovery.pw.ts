@@ -12,6 +12,7 @@ test('core recovery preserves header scope and requires evidence for explicit re
     return route.fulfill({ json: { version: 1, mode: 'normal', readOnly: false, errors: [], truncated: false,
       runs: [{ id: 'voyage-1', repo: 'fleet/alpha', status: 'running', attempt: 1, attachment: 'blocked', actions: [] }],
       attempts: [{ runId: 'voyage-1', repo: 'fleet/alpha', attempt: 1, preparation: 'launched', attachment: 'blocked', diagnosticCode: 'ownership-unknown', actions: ['retry-attachment'] }],
+      sourceClaims: [{ claimId: 'source-claim-1', runId: 'completed-voyage', repo: 'fleet/alpha', sourceId: 'local-collection', providerId: 'example.local/todos', state: 'settling', processStatus: 'succeeded', settlementReason: 'Source completion is pending.', actions: ['retry-source-settlement'] }],
       admissions: [], reservations: [{ runId: 'voyage-1', repo: 'fleet/alpha', reason: 'unresolved' }], pins: [], checkpoints: [], lifecycle: [],
       operations: [{ id: 'operation-1', runId: 'voyage-1', type: 'github.review', status: 'uncertain', providerId: 'helmsman.legacy-runtime', actions: ['resolve-operation'] }],
     } });
@@ -35,6 +36,10 @@ test('core recovery preserves header scope and requires evidence for explicit re
   await page.getByRole('button', { name: 'Record resolution' }).click();
   await expect.poll(() => actions.length).toBe(2);
   expect(actions[1]).toMatchObject({ action: 'resolve-operation', id: 'operation-1', actor: 'operator', evidence: { note: 'Review 42 on the pinned commit' }, outcome: 'acknowledged' });
+  await expect(page.getByRole('cell', { name: 'succeeded', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Retry source settlement' }).click();
+  await expect.poll(() => actions.length).toBe(3);
+  expect(actions[2]).toEqual({ action: 'retry-source-settlement', claimId: 'source-claim-1' });
   await page.getByLabel('Recovery filter').selectOption('fleet/bravo');
   await expect.poll(() => queries.at(-1)).toBe('fleet/bravo');
   expect(await page.evaluate(() => localStorage.getItem('runner.repoScope'))).toBe('fleet/alpha');

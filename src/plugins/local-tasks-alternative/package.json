@@ -1,0 +1,6 @@
+{
+  "name": "example-alternative-local-tasks",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
+}

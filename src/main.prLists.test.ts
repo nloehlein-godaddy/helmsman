@@ -4,6 +4,7 @@ import { loadDashboard as loadMockSnapshot } from './data/mock';
 import type { OpenPr } from './types';
 
 const originalFetch = globalThis.fetch;
+const views: DashboardView[] = [];
 const pr = (repo: string, number: number): OpenPr => ({ repo, number, title: `Change ${number}`, reviewDecision: '', draft: false, createdAt: '2026-09-16T12:00:00Z' });
 const json = (data: unknown): Response => new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
 const list = (prs: OpenPr[]) => ({ prs, degraded: false, truncated: false });
@@ -31,6 +32,7 @@ async function setup(extra: (url: URL) => Promise<Response> | Response | null, a
   });
   const root = document.querySelector<HTMLElement>('#app')!;
   const view = new DashboardView(root);
+  views.push(view);
   await view.refresh();
   return { root, view };
 }
@@ -46,6 +48,7 @@ beforeEach(() => {
   localStorage.clear();
 });
 afterEach(() => {
+  for (const view of views.splice(0)) view.destroy();
   globalThis.fetch = originalFetch;
   document.body.innerHTML = '';
   localStorage.clear();

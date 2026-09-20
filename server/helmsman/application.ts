@@ -33,6 +33,15 @@ import { openOutcomeStore, createOutcomeTelemetrySink } from './outcomes';
 import { openUsageStore } from './usage-store';
 import { createUsageQueryService } from './usage-service';
 import { builtinPricing } from './plugins/builtin-pricing';
+import { builtinTaskSources } from './plugins/builtin-task-sources';
+import { readPluginArtifact } from './plugins/artifacts';
+import { openTaskSourceStore, type WorkClaimRecord } from './task-sources/store';
+import { openSourceConnectionStore } from './task-source-connections';
+import { bootstrapTaskSources } from './task-source-bootstrap';
+import { createTaskSourceRuntime } from './task-source-runtime';
+import { sourceExecutionSettings, sourceExecutionSnapshot } from './task-source-execution';
+import type { SourceInstanceV1 } from '../../src/plugins/tasks';
+import type { ArtifactBinding } from './execution-store';
 import { activateBackendPlugins } from './plugins/backend';
 import { retainActivatedPluginPages } from './plugins/activation';
 import { openRunTelemetry } from './run-telemetry';
@@ -73,13 +82,11 @@ import { fetchRepoOpenPrs, fetchReviewRequestedPrs } from '../pr-lists';
 import { fetchGithubProfile } from '../github-profile';
 import { getLocalGit, mutateLocalGit } from '../local-git';
 import type { PrFileDiff } from '../../src/types';
-import { openTodoStore, TodoConflictError } from './todos';
-import { todoTask, reconcileTodoRuns } from './todo-source';
+import { openTodoStore } from './todos';
+import { reconcileTodoRuns } from './todo-source';
 import { repositoryScope } from './repository-scope';
 import { AutoClaimScheduler, type BacklogItem } from './scheduler';
 import { ConfigStore, publicConfig, WRITABLE_SECRET_KEYS } from './config-store';
-import { fetchQueueIssues } from '../jira';
-import { jiraTask } from './jira-task';
 import { launchIntentJson, RetryError, type LaunchIntent } from './retry';
 import { createBridge, type Bridge } from './cmux/bridge';
 import { createWezTermBridge } from './wezterm/bridge';
@@ -98,7 +105,6 @@ import { createOutboundMeter } from './outbound-meter';
 import { keysFor } from './cmux/actions';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
-import type { JiraIssue } from '../types';
 
 let pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1');
 const outboundMeter = createOutboundMeter();
@@ -117,8 +123,10 @@ legacyExecutions.audit(db.listRuns(-1));
 const admissions = openAdmissionStore(persistence, executions);
 const lifecycle = openPluginLifecycle(persistence, executions);
 const operations = openOperationStore(persistence, executions);
+const sourceStore = openTaskSourceStore(persistence);
+const sourceConnections = openSourceConnectionStore(persistence);
 const todos = openTodoStore(persistence.sql);
-reconcileTodoRuns(todos, db, runId => Boolean(admissions.get(runId)?.state.match(/^(pending|blocked)$/)));
+reconcileTodoRuns(todos, db, runId => Boolean(admissions.get(runId)?.state.match(/^(pending|blocked)$/)) || sourceStore.claims().some(claim => claim.runId === runId && !claim.id.startsWith('legacy-')));
 for (const admission of admissions.pending()) admissions.block(admission.runId, 'Restart interrupted preparation; retained bindings require reconciliation');
 const slackStore = openSlackStore(persistence.sql);
 const voyageNotifications = openVoyageNotifications(persistence.sql);
@@ -141,12 +149,13 @@ const usageStore = openUsageStore(persistence.sql);
 const outcomeStore = openOutcomeStore(persistence.sql, undefined, usageStore);
 const runTelemetry = openRunTelemetry(persistence.sql, usageStore, createOutcomeTelemetrySink(outcomeStore));
 const usageQueries = createUsageQueryService({ db, usage: usageStore });
+const builtinBackends = [builtinPricing, ...builtinTaskSources];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
-  runtimeArtifact: currentRuntime.artifact, builtins: [{ package: builtinPricing.package, artifactHash: currentRuntime.artifact.artifactHash }], resetHealth: true });
+  runtimeArtifact: currentRuntime.artifact, builtins: builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })), resetHealth: true });
 pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator);
 const backendPlugins = await activateBackendPlugins({ root: pluginDirectory(), coordinator: pluginCoordinator,
   snapshot: process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1' ? await loadPluginSnapshot(pluginDirectory(), false, pluginCoordinator) : pluginSnapshot,
-  usage: usageQueries, builtins: [builtinPricing], defaultPricingProvider: 'helmsman.standard-pricing/standard' });
+  usage: usageQueries, builtins: builtinBackends, defaultPricingProvider: 'helmsman.standard-pricing/standard' });
 for (const error of backendPlugins.errors) process.stderr.write(`${error}\n`);
 pluginSnapshot = retainActivatedPluginPages(pluginSnapshot, backendPlugins.activePluginIds());
 for (const [slot, contribution] of Object.entries(pluginSnapshot.catalog.bindings)) appPages.select(slot, contribution);
@@ -197,6 +206,23 @@ const slackEffects = createLegacySlackEffects({ persistence, operations, artifac
   },
 });
 const startupCfg: AppConfig = configStore.current();
+const unmaskedConfig = () => loadConfig({ ...configStore.effectiveEnv(), JIRA_ENABLED: 'true' });
+const sourceBootstrap = await bootstrapTaskSources({ store: sourceStore, connections: sourceConnections, registry: backendPlugins.taskSources,
+  config: { ...unmaskedConfig(), jiraEnabled: startupCfg.jiraEnabled }, repos: repositoryScope(unmaskedConfig(), todos.list()),
+  jiraCredentials: () => unmaskedConfig().jira, signal: AbortSignal.timeout(30_000) });
+for (const diagnostic of sourceBootstrap.diagnostics) process.stderr.write(`${diagnostic}\n`);
+export const taskSourceRuntime = createTaskSourceRuntime({ store: sourceStore, registry: backendPlugins.taskSources, connections: sourceConnections,
+  executions, admissions, operations, db, ...sourceBootstrap, config: () => configStore.current(), jiraCredentials: () => unmaskedConfig().jira,
+  artifacts: sourceArtifactClosure, verifyArtifacts: verifyEffectArtifacts, isStopped: stopRequested,
+  report: message => process.stderr.write(`${message}\n`) });
+taskSourceRuntime.schedule.initialize({ repos: taskSourceRuntime.repos(), defaultSourceId: startupCfg.jiraEnabled ? sourceBootstrap.jiraSourceId : sourceBootstrap.todoSourceId });
+const sourceTodos = taskSourceRuntime.todoApi ?? {
+  list: () => { throw new Error('Local task source is unavailable'); }, get: () => { throw new Error('Local task source is unavailable'); },
+  create: () => { throw new Error('Local task source is unavailable'); }, update: () => { throw new Error('Local task source is unavailable'); }, remove: () => { throw new Error('Local task source is unavailable'); },
+};
+function presentationEnv() { return { ...configStore.effectiveEnv(), JIRA_ENABLED: taskSourceRuntime.jiraEnabled() ? 'true' : 'false' }; }
+function applicationRepos(cfg = configStore.current()) { return [...new Set([...repositoryScope(cfg, []), ...taskSourceRuntime.repos()])]; }
+
 // cmux is macOS-only; wezterm is the cross-platform terminal driving the same
 // panel. TERM_BRIDGE forces one, otherwise take whichever suits the platform.
 const termBridge: string = process.env.TERM_BRIDGE ?? (process.platform === 'win32' ? 'wezterm' : 'cmux');
@@ -248,6 +274,7 @@ const webhooks = openWebhookIntake(persistence.sql, {
   allowedRepos: () => { const cfg = configStore.current(); return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])]; },
   canStart: repo => pm.canStart(repo).ok, getRun: id => db.getRun(id), isRunActive: id => pm.hasRun(id), launch,
 });
+await taskSourceRuntime.recoverAdmissions();
 applicationStartup.ready();
 const gatewayServer = gateway.server();
 const gatewayPort = await listenScopedGateway(gatewayServer, { runsDir: RUNS_DIR, docker: runHost === 'docker',
@@ -304,10 +331,34 @@ if (host.kind === 'docker') {
 }
 
 
-async function verifyEffectArtifacts(artifacts: readonly import('./execution-store').ArtifactBinding[]): Promise<void> {
-  if (artifacts.length !== 1 || artifacts[0]?.pluginId !== currentRuntime.artifact.pluginId
-    || artifacts[0].artifactHash !== currentRuntime.artifact.artifactHash
-    || !await verifyLegacyRuntime(runtimeArtifactsRoot, artifacts[0].artifactHash)) throw new Error('Retained effect runtime is unavailable');
+function sourceArtifactClosure(instance: SourceInstanceV1, claim?: WorkClaimRecord): readonly ArtifactBinding[] {
+  const captured = claim ? executions.pins().filter(pin => pin.kind === 'dependency' && pin.ownerId === `source-claim:${claim.id}`) : [];
+  const result = new Map<string, ArtifactBinding>();
+  function visit(pluginId: string, artifactHash: string): void {
+    const prior = result.get(pluginId);
+    if (prior) { if (prior.artifactHash !== artifactHash) throw new Error('Source artifact closure conflicts'); return; }
+    const row = persistence.sql.prepare('SELECT json FROM plugin_artifacts WHERE pluginId=? AND artifactHash=?').get(pluginId, artifactHash) as { json: string } | undefined;
+    const artifact = row ? (persistedJson(JSON.parse(row.json)) as unknown as { artifact: ArtifactBinding }).artifact : null;
+    if (!artifact || artifact.pluginId !== pluginId || artifact.artifactHash !== artifactHash || !Array.isArray(artifact.requires)) throw new Error('Source artifact closure is unavailable');
+    result.set(pluginId, artifact);
+    for (const dependency of artifact.requires) {
+      const hash = captured.find(pin => pin.pluginId === dependency)?.artifactHash ?? pluginCoordinator.state(dependency)?.artifactHash;
+      if (!hash) throw new Error('Source artifact dependency is unavailable');
+      visit(dependency, hash);
+    }
+  }
+  visit(instance.binding.pluginId, instance.binding.artifactHash);
+  return [...result.values()];
+}
+async function verifyEffectArtifacts(artifacts: readonly ArtifactBinding[]): Promise<void> {
+  for (const artifact of artifacts) {
+    if (artifact.pluginId === currentRuntime.artifact.pluginId || builtinBackends.some(plugin => plugin.package.manifest.id === artifact.pluginId)) {
+      if (artifact.artifactHash !== currentRuntime.artifact.artifactHash || !await verifyLegacyRuntime(runtimeArtifactsRoot, artifact.artifactHash)) throw new Error('Retained effect runtime is unavailable');
+    } else {
+      const archive = await readPluginArtifact(pluginDirectory(), artifact.artifactHash);
+      if (archive.package.manifest.id !== artifact.pluginId || archive.package.manifest.version !== artifact.packageVersion) throw new Error('Retained source artifact is unavailable');
+    }
+  }
 }
 const runEffects = new Map<string, LegacyRunEffects>();
 function effectsFor(runId: string): LegacyRunEffects {
@@ -338,8 +389,15 @@ function executionSnapshot(row: RunRow) {
 
 function runnerDurability(cfg: AppConfig) {
   return createRunnerDurability({ persistence, db, executions, admissions, lifecycle, operations, runsDir: RUNS_DIR, maxConcurrency,
-    finalize: (row, snapshot) => effectsFor(row.id).prepareFinalization(row, snapshot),
-    snapshot: (run, task) => legacyExecutionSnapshot({ run, task, artifact: currentRuntime.artifact, host: host.kind === 'docker' && (isPrePrAdapter(run.adapter) || run.adapter.startsWith('docker-review:')) ? 'detached' : host.kind, config: cfg }),
+    finalize: (row, snapshot) => { taskSourceRuntime.finalize(row); effectsFor(row.id).prepareFinalization(row, snapshot); },
+    snapshot: (run, task) => {
+      const input = { run, task, artifact: currentRuntime.artifact, host: host.kind === 'docker' && (isPrePrAdapter(run.adapter) || run.adapter.startsWith('docker-review:')) ? 'detached' as const : host.kind, config: cfg };
+      if (!task.source) return legacyExecutionSnapshot(input);
+      const claim = sourceStore.claim(task.source.claimId);
+      const source = sourceStore.taskSnapshot(task.source.taskSnapshotHash);
+      if (!claim || !source) throw new Error('Source execution bindings are unavailable');
+      return sourceExecutionSnapshot({ ...input, claim, source, sourceArtifacts: taskSourceRuntime.sourceArtifacts(claim) });
+    },
     verify: async snapshot => {
       const runtime = snapshot.artifacts.find(artifact => artifact.pluginId === currentRuntime.artifact.pluginId);
       if (!runtime || runtime.artifactHash !== currentRuntime.artifact.artifactHash
@@ -349,7 +407,8 @@ function runnerDurability(cfg: AppConfig) {
       if (!savedRun?.taskJson || persistenceHash(nonsecretExecutionTask(JSON.parse(savedRun.taskJson) as AgentTask)) !== persistenceHash(snapshot.task)) throw new Error('Saved task differs from the immutable execution snapshot');
       const expectedHost = host.kind === 'docker' && savedRun && (isPrePrAdapter(savedRun.adapter) || savedRun.adapter.startsWith('docker-review:')) ? 'detached' : host.kind;
       if (hostBinding?.contributionId !== expectedHost) throw new Error('Restore the retained worker host before recovery');
-      const expected = legacyExecutionSettings(cfg);
+      await verifyEffectArtifacts(snapshot.artifacts);
+      const expected = snapshot.bindings.some(binding => binding.capability === 'helmsman/task-source') ? sourceExecutionSettings(cfg) : legacyExecutionSettings(cfg);
       if (persistenceHash(snapshot.settings.execution) !== persistenceHash(expected)) throw new Error('Execution settings or connection identity changed; restore the retained binding before recovery');
       if (snapshot.workflowSnapshotId && !workflows.resolveSnapshot(snapshot.workflowSnapshotId)) throw new Error('Retained workflow snapshot is unavailable');
     },
@@ -373,7 +432,7 @@ function baseRunnerDeps(cfg: AppConfig, runId: string): Omit<RunnerDeps, 'adapte
     removeWorktree: (repo: string, path: string) => path.startsWith(`${DOCKER_WORKSPACES}${sep}`) ? removeDockerWorkspace(DOCKER_WORKSPACES, path) : removeWorktree(AGENTS_ROOT, repo, path),
     now: () => new Date().toISOString(),
     jira: cfg.jira ? effectsFor(runId).jira : null,
-    prepareFinalization: row => effectsFor(runId).prepareFinalizationLookups(row, executionSnapshot(row)),
+    prepareFinalization: async row => { await taskSourceRuntime.prepareFinalization(row); await effectsFor(runId).prepareFinalizationLookups(row, executionSnapshot(row)); },
     botAccountId: cfg.botAccountId ?? undefined,
     statusInProgress: cfg.statusInProgress,
     statusInReview: cfg.statusInReview,
@@ -421,6 +480,7 @@ function drainEffects(): Promise<void> {
     await publicationService.drainPending();
     await slackEffects.drainPending();
     await manualReviewEffects.drainPending();
+    await taskSourceRuntime.drain();
   })().catch(error => { process.stderr.write(`Operation recovery failed: ${String(error)}\n`); }).finally(() => { drainingEffects = null; });
   return drainingEffects;
 }
@@ -457,7 +517,7 @@ async function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: 
   if (result.status !== 'attached') { pm.remove(row.id); return result; }
   return { ...result, completion: result.completion.finally(() => {
     const status = db.getRun(row.id)?.status;
-    if (status && status !== 'running') todos.finishRun(row.id, status);
+    if (status && status !== 'running' && !taskSourceRuntime.claimForRun(row.id)) todos.finishRun(row.id, status);
     pm.remove(row.id);
     void drainEffects().then(pollCreatedPrReviews);
   }) };
@@ -466,14 +526,18 @@ async function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: 
 async function resumeVoyage(runId: string): Promise<void> {
   const row = db.getRun(runId);
   if (!row) throw new ResumeError('Voyage not found.');
+  const sourceClaim = taskSourceRuntime.claimForRun(runId);
+  if (sourceClaim && (sourceClaim.state !== 'claimed' || !sourceClaim.receipt || !sourceClaim.taskSnapshotHash)) throw new ResumeError('The retained task source claim is no longer available for continuation.');
   if (operations.list({ runId }).some(operation => operation.status !== 'completed')) throw new ResumeError('Reconcile the previous attempt’s external operations before continuing.');
   const cfg = restoreExecutionConfig(executionSnapshot(row), loadConfig({ ...configStore.effectiveEnv(), JIRA_ENABLED: 'true' }));
-  const repos = repositoryScope(cfg, todos.list());
+  const repos = applicationRepos(cfg);
   if (!repos.some(repo => repo.toLowerCase() === row.repo.toLowerCase())) throw new ResumeError('Configure this galleon before continuing the voyage.');
   const gate = pm.canStart(row.repo);
   if (!gate.ok) throw new ResumeError(gate.reason ?? 'Cannot continue this voyage while another voyage is active.');
   if (cfg.maxCostUsd !== null && (row.costUsd ?? 0) >= cfg.maxCostUsd) throw new ResumeError('The voyage has reached its cost cap. Update the cap before continuing.');
   const task = row.taskJson ? JSON.parse(row.taskJson) as Partial<AgentTask> | null : null;
+  if (sourceClaim && (!task?.source || task.source.claimId !== sourceClaim.id || task.source.taskSnapshotHash !== sourceClaim.taskSnapshotHash
+    || task.source.instanceId !== sourceClaim.instance.id)) throw new ResumeError('The saved task no longer matches its retained source claim.');
   if (!task?.task && !task?.todoId && !cfg.jira) throw new ResumeError('Configure Jira before continuing this Jira voyage.');
   const control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null };
   pm.add(row.id, row.repo, () => { recordStopRequest(row.id); control.stopped = true; void control.stop?.(); });
@@ -542,31 +606,22 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const priorTask = priorRun?.taskJson ? JSON.parse(priorRun.taskJson) as AgentTask | null : null;
   if (priorTask && Boolean(priorTask.dockerExecution) !== (host.kind === 'docker')) throw new RetryError('Retry requires the original local or Docker execution mode.');
   if (body.retryOf && adapterId === 'command' && !cfg.agentCmd) throw new RetryError('The original command agent is no longer configured. Configure it before retrying.');
-  let localTodo = body.mode === 'todo' && body.todoId ? todos.get(body.todoId) : null;
-  if (body.mode === 'todo') {
-    if (cfg.jiraEnabled) throw new TodoConflictError('Disable Jira before launching todos.');
-    if (!localTodo) throw new TodoConflictError('Todo not found.');
-    const gate = pm.canStart(localTodo.repo);
-    if (!gate.ok) throw new TodoConflictError(gate.reason ?? 'Cannot start voyage.');
-    body = { ...body, repo: localTodo.repo, ticketId: localTodo.id, title: localTodo.title };
-  } else if (body.ticketId && todos.get(body.ticketId) && !body.task && (!body.mode || body.mode === 'ticket')) {
-    throw new TodoConflictError('Local todos must be launched from Todos with Jira disabled.');
-  } else if (!cfg.jiraEnabled && body.ticketId && !body.task && (!body.mode || body.mode === 'ticket')) {
-    throw new TodoConflictError('Jira is disabled. Start a voyage from Todos.');
-  }
-  const launchJson = launchIntentJson(body);
+  let sourceSelection = taskSourceRuntime.selection(body);
+  if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
+  let launchJson = launchIntentJson(body);
+  const admissionArtifacts = [currentRuntime.artifact, ...(sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : [])];
   persistence.transaction(() => {
-    admissions.admit({ runId, repo: body.repo, request: persistedJson(JSON.parse(launchJson)),
-      settings: legacyExecutionSettings(cfg), artifacts: [currentRuntime.artifact] }, maxConcurrency);
-    if (localTodo) {
-      localTodo = todos.claim(localTodo.id, runId, body.retryOf);
-      if (!localTodo) throw new TodoConflictError('Todo is no longer ready to launch.');
-    }
+    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson(JSON.parse(launchJson)),
+      settings: sourceSelection ? sourceExecutionSettings(cfg) : legacyExecutionSettings(cfg), artifacts: admissionArtifacts }, maxConcurrency); };
+    if (sourceSelection) taskSourceRuntime.reserve(runId, body.repo, sourceSelection, admit, body.retryOf);
+    else admit();
   });
   const control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null };
+  const admissionController = new AbortController();
   pm.add(runId, body.repo, () => {
     recordStopRequest(runId);
     control.stopped = true;
+    admissionController.abort();
     void control.stop?.();
   });
   const adapter: AgentAdapter =
@@ -581,11 +636,15 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   void (async (): Promise<void> => {
     try {
       let taskObj: AgentTask;
-      if (priorTask) {
+      if (sourceSelection) {
+        const preparedSource = await taskSourceRuntime.prepare(runId, body.repo, sourceSelection, admissionController.signal, body.retryOf);
+        sourceSelection = preparedSource.selection;
+        body = taskSourceRuntime.canonical(body, sourceSelection);
+        launchJson = launchIntentJson(body);
+        taskObj = preparedSource.task;
+      } else if (priorTask) {
         if (priorTask.repo.toLowerCase() !== body.repo.toLowerCase()) throw new RetryError('Saved task belongs to another galleon.');
         taskObj = { ...priorTask, prePrResume: undefined };
-      } else if (localTodo) {
-        taskObj = todoTask(localTodo);
       } else if (body.mode === 'rerun') {
         const pr: PrStatus | null =
           cfg.github && body.prNumber ? await fetchPrStatus(cfg.github, body.repo, body.prNumber) : null;
@@ -639,9 +698,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         };
       } else {
         const ticketId: string = body.ticketId ?? 'freeform';
-        taskObj = body.ticketId && !body.task
-          ? await jiraTask(cfg.jira, { ticketId, title: body.title, repo: body.repo })
-          : { ticketId, title: body.title ?? ticketId, repo: body.repo, jiraBaseUrl: cfg.jira?.baseUrl ?? '', task: body.task };
+        taskObj = { ticketId, title: body.title ?? ticketId, repo: body.repo, jiraBaseUrl: cfg.jira?.baseUrl ?? '', task: body.task };
       }
       taskObj.model ??= body.model;
       taskObj.effort ??= body.effort;
@@ -665,6 +722,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         skills: adapter.id === 'codex' && taskObj.review || !taskObj.review && !taskObj.prBranch && (adapter.id === 'codex' || cfg.prePr.reviewerCount > 1) ? ['review-agent'] : [] });
       taskObj = prepared.task;
       const runAdapter = !taskObj.review && !taskObj.prBranch ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.dockerExecution ? dockerReviewAdapter(adapter) : adapter;
+      admissionController.signal.throwIfAborted();
       await startRun(taskObj, {
         ...baseRunnerDeps(cfg, runId),
         launchJson,
@@ -686,6 +744,10 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         bus.publish(runId, { kind: 'error', text: message });
         return;
       }
+      if (taskSourceRuntime.claimForRun(runId)) {
+        try { await taskSourceRuntime.abort(runId, control.stopped ? 'stopped-before-launch' : 'preflight-failed'); }
+        catch (settlementError) { process.stderr.write(`Source admission ${runId} remains protected: ${String(settlementError)}\n`); }
+      }
       if (db.getRun(runId)) db.updateRun(runId, { status: 'failed', endedAt: ts });
       else db.insertRun({
         id: runId, ticketId: body.ticketId ?? body.mode ?? 'freeform', repo: body.repo,
@@ -703,7 +765,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       }
       if (finalRun?.status !== 'running') gateway.revokeRun(runId);
       const status = finalRun?.status;
-      if (status && status !== 'running') todos.finishRun(runId, status);
+      if (status && status !== 'running' && !taskSourceRuntime.claimForRun(runId)) todos.finishRun(runId, status);
       const admission = admissions.get(runId);
       if (admission && ['pending', 'blocked'].includes(admission.state) && finalRun?.status === 'failed') admissions.fail(runId, 'Preflight failed before a worker attempt was prepared');
       pm.remove(runId);
@@ -714,17 +776,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
 }
 
 function fetchTopBacklog(repo: string): Promise<BacklogItem | null> {
-  const cfg: AppConfig = configStore.current();
-  if (!cfg.jiraEnabled) {
-    const todo = todos.list().find(item => item.repo === repo && item.state === 'todo' && item.description.trim());
-    return Promise.resolve(todo ? { ticketId: todo.id, title: todo.title, todoId: todo.id, mode: 'todo' } : null);
-  }
-  const project: string | undefined = cfg.repoProjectMap[repo];
-  if (!project || !cfg.jira) return Promise.resolve(null);
-  return fetchQueueIssues({ ...cfg.jira, project }).then(
-    (issues: JiraIssue[]): { ticketId: string; title: string } | null =>
-      issues[0]?.key && issues[0]?.fields?.summary ? { ticketId: issues[0].key, title: issues[0].fields.summary } : null,
-  );
+  return taskSourceRuntime.schedule.next(repo, AbortSignal.timeout(30_000));
 }
 
 const scheduler: AutoClaimScheduler = new AutoClaimScheduler({
@@ -858,7 +910,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-const recoveryService = createRecoveryService({ db, executions, admissions, operations, lifecycle, legacy: legacyExecutions, callbacks: {
+const recoveryService = createRecoveryService({ db, executions, admissions, operations, lifecycle, legacy: legacyExecutions, taskSources: taskSourceRuntime.store, callbacks: {
   requestStop: runId => { if (!pm.hasAttached(runId) || !pm.stop(runId)) throw new Error('Verified worker attachment is unavailable'); },
   retryAttachment: async runId => {
     if (pm.hasAttached(runId)) throw new Error('This voyage already has an attachment');
@@ -870,6 +922,7 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
   },
   reconcileOperation: async id => {
     const operation = operations.get(id);
+    if (operation?.kind === 'task-source.effect') { await dispatchOperation(operations, id, taskSourceRuntime.effects.resolve, { reconcile: operation.requiresReconciliation }); await taskSourceRuntime.drain(); return; }
     if (operation?.origin.kind === 'manual-review') { await manualReviewEffects.dispatch(id); return; }
     if (operation?.kind === 'slack.review-request') { await slackEffects.dispatch(id); return; }
     if (operation && ['git.push', 'github.pr-create', 'github.pr-edit'].includes(operation.kind)) {
@@ -879,17 +932,21 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
     if (!operation?.origin.runId) throw new Error('Recorded operation origin is unavailable');
     await effectsFor(operation.origin.runId).dispatch(id);
   },
-  cancelAdmission: (runId, resolution) => persistence.transaction(() => {
+  cancelAdmission: async (runId, resolution) => {
+    if (taskSourceRuntime.claimForRun(runId)) await taskSourceRuntime.abort(runId, 'cancelled');
+    persistence.transaction(() => {
     const admission = admissions.get(runId);
     if (!admission) throw new Error('Admission is unavailable');
     admissions.fail(runId, `${resolution.actor}: ${resolution.reason}`);
     const timestamp = new Date().toISOString();
     if (!db.getRun(runId)) db.insertRun({ id: runId, repo: admission.repo, ticketId: 'unstarted', adapter: 'unstarted', status: 'stopped', attempt: 1, prNumber: null,
       startedAt: admission.createdAt, endedAt: timestamp, costUsd: null, worktreePath: null, launchJson: JSON.stringify(admission.request) });
-    todos.finishRun(runId, 'stopped');
+    if (!taskSourceRuntime.claimForRun(runId)) todos.finishRun(runId, 'stopped');
     db.appendEvent(runId, 'admission-cancelled', JSON.stringify(resolution), new Date().toISOString());
-  }),
-  retireCheckpoint: (id, resolution) => executions.retireCheckpoint(id, resolution),
+    });
+  },
+  retrySourceSettlement: claimId => taskSourceRuntime.retrySettlement(claimId),
+  retireCheckpoint: async (id, resolution) => { executions.retireCheckpoint(id, resolution); await taskSourceRuntime.drain(); },
   resolveOperation: (id, resolution) => { operations.resolve(id, resolution); },
 } });
 
@@ -945,6 +1002,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         return !clarificationRuntime.hasUnanswered(runId);
       },
       outcomes,
+      taskSources: taskSourceRuntime.service,
+      sourceSchedule: taskSourceRuntime.schedule,
       usage: usageQueries,
       pricing: async snapshot => (await backendPlugins.pricing(snapshot)).estimate,
       campaigns,
@@ -954,9 +1013,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       context: () => {
         const cfg = configStore.current();
         return {
-          repos: repositoryScope(cfg, todos.list()),
-          jiraEnabled: cfg.jiraEnabled,
-          jiraBaseUrl: cfg.jira?.baseUrl ?? null,
+          repos: applicationRepos(cfg),
+          jiraEnabled: taskSourceRuntime.jiraEnabled(),
+          jiraBaseUrl: unmaskedConfig().jira?.baseUrl ?? null,
         };
       },
       slack: { snapshot: slackSnapshot, markRead: (id) => {
@@ -964,11 +1023,11 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         return id.startsWith('voyage-') ? voyageNotifications.markRead(id, now) : slackStore.markRead(id, now);
       } },
       slackReviewRequest: (input) => slackEffects.request(input),
-      todos,
-      jiraEnabled: () => configStore.current().jiraEnabled,
-      dashboard: (repo) => buildDashboardResponse(configStore.effectiveEnv(), new Date(), undefined, repo, todos.list()),
-      triage: (repo) => buildTriageResponse(configStore.effectiveEnv(), undefined, repo),
-      bugs: (repo) => buildBugsResponse(configStore.effectiveEnv(), new Date(), undefined, repo),
+      todos: sourceTodos,
+      jiraEnabled: () => taskSourceRuntime.jiraEnabled(),
+      dashboard: async (repo) => buildDashboardResponse(presentationEnv(), new Date(), undefined, repo, [], { service: taskSourceRuntime.service, jiraEnabled: taskSourceRuntime.jiraEnabled() }),
+      triage: (repo) => buildTriageResponse(presentationEnv(), undefined, repo),
+      bugs: (repo) => buildBugsResponse(presentationEnv(), new Date(), undefined, repo),
       db,
       canStart: (repo: string) => pm.canStart(repo),
       launch,
@@ -1001,20 +1060,20 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       },
       reviewRequestedPrs: (repo) => {
         const cfg: AppConfig = configStore.current();
-        const repos = repositoryScope(cfg, todos.list());
+        const repos = applicationRepos(cfg);
         return fetchReviewRequestedPrs(cfg.github, repos, repo);
       },
       repoOpenPrs: (repo) => fetchRepoOpenPrs(configStore.current().github, repo),
       localGit: (repo) => {
         const cfg = configStore.current();
-        const repos = repositoryScope(cfg, todos.list());
+        const repos = applicationRepos(cfg);
         return getLocalGit(AGENTS_ROOT, repo, repos, {
           activeWorktreePaths: () => db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
         });
       },
       localGitAction: (repo, body) => {
         const cfg = configStore.current();
-        const repos = repositoryScope(cfg, todos.list());
+        const repos = applicationRepos(cfg);
         return mutateLocalGit(AGENTS_ROOT, repo, repos, body, {
           activeWorktreePaths: () => db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
         });

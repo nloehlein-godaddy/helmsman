@@ -1,4 +1,5 @@
 export interface AgentTask {
+  source?: { version: 1; taskSnapshotHash: string; claimId: string; instanceId: string };
   contactHints?: { explicitContactId?: string; assigneeId?: string; reporterId?: string };
   ticketId: string;
   todoId?: string;

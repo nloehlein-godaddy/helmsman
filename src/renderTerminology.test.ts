@@ -57,7 +57,8 @@ describe('pirate interface wording', () => {
       ['Completed work', 'Out to sea'], ['Activity log', "Ship's log"],
     ]));
     expect(element.querySelector('#slack-review-setup')?.textContent).toContain('signed-in Slack browser');
-    expect(element.querySelector('#work-source-title')?.textContent).toBe(enabled ? 'Voyage source' : 'Run source');
+    expect(element.textContent).toContain('Task sources');
+    expect(element.querySelector('[data-key=JIRA_ENABLED]')).toBeNull();
   });
 
   it.each(['dashboard', 'prs', 'runs', 'todos', 'triage', 'bugs', 'cmux', 'config'] as const)('provides one accessible footer flag on %s', active => {

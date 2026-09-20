@@ -3,6 +3,7 @@ export type Priority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4';
 export type TicketStatus = 'backlog' | 'in-progress' | 'in-review' | 'done';
 
 export interface Ticket {
+  source?: { url?: string | null; instanceId: string; instanceRevision: number; ref: { sourceId: string; externalId: string } };
   id: string;
   title: string;
   priority: Priority;

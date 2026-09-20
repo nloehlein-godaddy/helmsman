@@ -39,7 +39,8 @@ export async function setConfig(key: string, value: string): Promise<{ ok: boole
       const body: unknown = await res.json().catch(() => null);
       return { ok: false, error: isRecord(body) && typeof body.error === 'string' ? body.error : undefined };
     }
-    return { ok: true };
+    const body: unknown = await res.json().catch(() => null);
+    return isRecord(body) && body.ok === true ? { ok: true } : { ok: false, error: 'Unable to confirm the saved setting. Your draft is kept.' };
   } catch {
     return { ok: false };
   }

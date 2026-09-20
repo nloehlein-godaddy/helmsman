@@ -1,7 +1,7 @@
 import { parsePluginManifest } from './manifest';
 import type { PluginManifest } from './sdk';
 import { isLocalId } from './manifest';
-import type { PluginBackendDefinition, PluginSetting } from './backend';
+import type { PluginBackendDefinition, PluginSetting, TaskSourceDeclaration } from './backend';
 
 export interface PluginPackage {
   readonly packageVersion: 1;
@@ -61,15 +61,37 @@ function record(value: unknown, fields: readonly string[], label: string): Recor
 }
 
 function parseBackend(value: unknown): PluginBackendDefinition {
-  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion'], 'Backend');
+  const hasSources = value !== null && typeof value === 'object' && Object.hasOwn(value, 'taskSources');
+  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : [])], 'Backend');
   if (!isPluginAssetPath(input.entry) || !/\.m?js$/.test(input.entry) || input.storageVersion !== 1) throw new PluginPackageError('Invalid backend entry or storage version.');
   if (!Array.isArray(input.provides) || input.provides.length > 16) throw new PluginPackageError('Invalid backend capabilities.');
   const provides = input.provides.map(value => {
     const item = record(value, ['id', 'version', 'localId'], 'Capability');
-    if (item.id !== 'helmsman/pricing' || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
-    return Object.freeze({ id: 'helmsman/pricing' as const, version: 1 as const, localId: item.localId });
+    if (item.id !== 'helmsman/pricing' && item.id !== 'helmsman/task-source' || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
+    return Object.freeze({ id: item.id, version: 1 as const, localId: item.localId });
   });
   if (new Set(provides.map(item => item.localId)).size !== provides.length) throw new PluginPackageError('Duplicate backend capability.');
+  const sourceIds = provides.filter(item => item.id === 'helmsman/task-source').map(item => item.localId);
+  if (hasSources !== (sourceIds.length > 0)) throw new PluginPackageError('Task sources require matching access declarations.');
+  const taskSources: Record<string, TaskSourceDeclaration> = Object.create(null) as Record<string, TaskSourceDeclaration>;
+  if (hasSources) {
+    const declarations = record(input.taskSources, sourceIds, 'Task sources');
+    const strings = (value: unknown, valid: (item: unknown) => item is string, minimum: number, label: string): readonly string[] => {
+      if (!Array.isArray(value) || value.length < minimum || value.length > 32 || !value.every(valid)
+        || new Set(value).size !== value.length) throw new PluginPackageError(`Invalid task source ${label}.`);
+      return Object.freeze([...value].sort());
+    };
+    for (const localId of sourceIds) {
+      const declaration = record(declarations[localId], ['identityFormats', 'effectIds', 'commandIds', 'access'], 'Task source declaration');
+      const identityFormats = strings(declaration.identityFormats, (item): item is string => typeof item === 'string'
+        && item.length <= 128 && /^[a-z][a-z0-9.-]*\/[a-z0-9.-]+$/.test(item), 1, 'identity formats');
+      const effectIds = strings(declaration.effectIds, isLocalId, 0, 'effect IDs');
+      const commandIds = strings(declaration.commandIds, isLocalId, 0, 'command IDs');
+      const access = strings(declaration.access, (item): item is 'local-records' | 'connection-http' => item === 'local-records' || item === 'connection-http', 0, 'access') as TaskSourceDeclaration['access'];
+      if (effectIds.length && !access.includes('connection-http') || commandIds.length && !access.includes('local-records')) throw new PluginPackageError('Task source handlers require their matching access capability.');
+      taskSources[localId] = Object.freeze({ identityFormats, effectIds, commandIds, access });
+    }
+  }
   if (!input.settings || typeof input.settings !== 'object' || Array.isArray(input.settings) || Object.keys(input.settings).length > 64) throw new PluginPackageError('Invalid settings schema.');
   const settings: Record<string, PluginSetting> = {};
   for (const key of Object.keys(input.settings).sort()) {
@@ -86,7 +108,8 @@ function parseBackend(value: unknown): PluginBackendDefinition {
     validatePluginSetting(parsed, schema.default);
     settings[key] = parsed;
   }
-  return Object.freeze({ entry: input.entry, provides: Object.freeze(provides), settings: Object.freeze(settings), storageVersion: 1 });
+  return Object.freeze({ entry: input.entry, provides: Object.freeze(provides), settings: Object.freeze(settings), storageVersion: 1,
+    ...(hasSources ? { taskSources: Object.freeze(taskSources) } : {}) });
 }
 
 export function validatePluginSetting(schema: PluginSetting, value: unknown): void {

@@ -138,6 +138,34 @@ test('packaged SDK type-checks a separately authored TypeScript plugin without a
   assert.match(stdout, /Packed independent.typescript/);
 });
 
+test('independent source adopts existing local work and runs a durable claim after restart without application source', async () => {
+  const state = join(temporary, 'source-state');
+  await mkdir(state);
+  const cli = (...args) => isolated([join(installation, 'server/helmsman/plugins/cli.js'), '--dir', join(state, 'plugins'), '--db', join(state, 'state.sqlite'), ...args]);
+  for (const name of ['todos', 'local-tasks-alternative']) {
+    const author = join(temporary, `source-author-${name}`);
+    await cp(join(installation, 'plugin-sources', name), author, { recursive: true });
+    await cp(join(installation, 'sdk'), join(author, 'node_modules/@helmsman/plugin-sdk'), { recursive: true });
+    await run(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', author], { cwd: author, timeout: 20_000 });
+    const descriptor = JSON.parse(await readFile(join(author, 'plugin-package.json'), 'utf8'));
+    await cp(join(author, 'plugin-package.json'), join(author, 'dist/plugin-package.json'));
+    const javascript = await readFile(join(author, 'dist', descriptor.backend.entry), 'utf8');
+    assert.doesNotMatch(javascript, /from\s+['"](?:@helmsman|\.\.\/)/);
+    const archive = join(temporary, `${name}.hmp`);
+    await cli('pack', join(author, 'dist'), archive);
+    await cli('install', archive);
+    await cli('enable', descriptor.manifest.id);
+    await rm(author, { recursive: true });
+  }
+  const fixture = join(temporary, 'source-adoption.mjs');
+  await cp(join(root, 'tests/distribution/source-adoption.mjs'), fixture);
+  const adopted = await isolated([fixture, installation, 'adopt', state]);
+  assert.match(adopted.stdout, /independent source adopted and claim committed/);
+  await cli('disable', 'example.local-todos');
+  const resumed = await isolated([fixture, installation, 'resume', state]);
+  assert.match(resumed.stdout, /independent source worker completed after restart/);
+});
+
 test('rebuild refuses runtime data, user changes, and symlinks without deleting any bytes', async () => {
   const output = join(temporary, 'protected-output');
   await buildDistribution({ outDir: output });

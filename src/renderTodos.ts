@@ -22,6 +22,7 @@ export interface TodosViewOpts {
   selectedRepo: string | null;
   themeId: string;
   autoClaimEnabled?: boolean;
+  jiraEnabled?: boolean;
 }
 
 const stateLabels = (): Record<TodoState, string> => ({
@@ -118,5 +119,5 @@ export function renderTodos(state: TodosViewState, opts: TodosViewOpts): string 
 }
 
 export function renderTodosView(state: TodosViewState, opts: TodosViewOpts): string {
-  return renderAppShell({ active: 'todos', ...opts, jiraEnabled: false, readout: null }, renderTodos(state, opts));
+  return renderAppShell({ active: 'todos', ...opts, readout: null }, renderTodos(state, opts));
 }

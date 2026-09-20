@@ -1,8 +1,13 @@
+import type { WorkRefV1 } from '../../src/plugins/tasks';
+
 export interface BacklogItem {
   ticketId: string;
   title: string;
   todoId?: string;
-  mode?: 'todo';
+  mode?: 'todo' | 'source';
+  workRef?: WorkRefV1;
+  sourceInstanceId?: string;
+  sourceInstanceRevision?: number;
 }
 
 export interface SchedulerDeps {
