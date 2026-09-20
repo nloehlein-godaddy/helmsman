@@ -1,7 +1,10 @@
 # Helmsman plugin architecture plan
 
 Date: 2026-09-20  
-Status: Proposed; implementation has not started.
+Revision: 2 — incorporates both independent reviews.  
+Status: Proposed implementation baseline; implementation has not started.
+
+The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 
 ## Objective and recommendation
 
@@ -32,155 +35,255 @@ The core provides infrastructure and enforces application invariants. Features c
 | Credential broker and publication safeguards | GitHub integration, PR pages and review workflows |
 | Storage, events, commands, logging | Costs, outcomes, campaigns, terminal, triage, bugs |
 
-The plugin manager and recovery controls remain available even when every optional feature is disabled.
+The plugin manager, minimal recovery controls, and a safe startup mode remain in the core even when every optional feature is disabled. Core APIs enforce galleon scope, concurrency and publication checks for compliant plugins; arbitrary trusted code running with host privileges can bypass these boundaries. Strong isolation is outside v1.
 
 Disabling Costs must not stop usage recording or budget enforcement. Hiding the Runs page must not stop active runs. Presentation plugins may be replaced independently of the services that record or execute work.
 
-## 2. Establish a public plugin contract
+## 2. Define contribution and capability contracts
 
-A plugin is an independently built package containing a manifest, optional frontend/backend entry points, and its own assets. Installing one must not require editing or rebuilding Helmsman source.
+A plugin is an independently built package containing a manifest, optional frontend/backend entry points, and assets. Installation must work against a production distribution without Helmsman source or a host rebuild.
 
-The manifest declares:
+Keep these identities and versions separate:
 
-- Stable plugin ID, version, and supported SDK versions.
-- Required and optional capabilities.
-- Pages, panels, commands, settings, and backend services.
-- Requested access, storage schema version, and activation conditions.
+| Item | Meaning |
+|---|---|
+| Plugin ID and package version | Publisher-owned implementation identity and release |
+| Manifest schema version | Package metadata format understood by the loader |
+| SDK compatibility range | Public host API versions supported by the package |
+| Capability ID and contract version | Interoperable service protocol, independent of implementing package |
+| Contribution ID | Namespaced page, panel, command, or settings contribution, such as `acme.costs/summary` |
+| Storage schema version | Persisted-data format and migration compatibility |
 
-Use separate contracts for presentation and providers:
+The manifest also declares entry points, assets, runtime requirements, contributions, package dependencies, provided/required/optional capabilities, requested access, settings schemas, and activation requirements. Validate manifests and runtime payloads; TypeScript types are insufficient at external boundaries.
+
+### Presentation slots and routes
+
+- Distinguish a contribution from the slot it can fill. A stable slot such as `helmsman/costs-page` identifies a replaceable presentation role; the selected contribution identifies its implementation.
+- A slot owner declares its contract version and cardinality: one selected contribution or an ordered collection. Core owns shell slots; page plugins own their internal slots. Slot declarations must not import the selected implementation.
+- Persist explicit bindings. Shipped defaults apply only to unconfigured installations. A missing selected contribution produces a placeholder or recovery link rather than silently choosing a different plugin.
+- Each page owns a namespaced canonical route, for example `/plugins/acme.costs/summary`. Stable aliases such as `/outcomes` bind to slots, so replacement preserves existing links. Reserve core and legacy paths; reject collisions during activation.
+- The host validates common scope parameters. Contributions validate their own versioned query state, including source-specific IDs. Invalid state produces a bounded error or documented default, never unchecked input passed to providers.
+- Preserve unknown contribution IDs, layout positions, and route state when a plugin is absent. Disabling an open page navigates to an available host page without deleting its saved state.
+
+### Capability resolution
+
+Package dependencies require an implementation package; capability requirements require a compatible service contract. Prefer capabilities for interchangeable providers. Reject required dependency cycles and incompatible versions before activation; publish registrations only after successful activation.
+
+Each capability declares whether consumers select one provider or enumerate many. For single-provider requests, resolve an authorized explicit launch selection, then workflow binding, galleon binding, and global binding, in that order. An explicit invalid binding is an error, not permission to fall through. Only an unconfigured binding with exactly one compatible provider may use that provider automatically. Zero or multiple candidates produce an actionable diagnostic.
+
+For multi-provider discovery, return compatible configured providers in stable ID order; consumers select or enumerate them explicitly. Missing optional services are represented as unavailable capabilities and must be guarded by consumers. No selection depends on package installation order.
+
+### Contracts introduced as features migrate
 
 | Contract | Responsibility |
 |---|---|
-| Page / panel | Mount, receive scope changes, refresh, dispose |
+| Page / panel | Mount, receive context updates, refresh, dispose |
+| Usage query / pricing | Read durable measured usage; compute separately identified estimates |
 | Task source | Find work, load details, claim it, update lifecycle |
 | Code host | Read changes, publish PRs, submit reviews |
 | Messaging | Receive events and send explicitly authorized messages |
 | Agent provider / execution host | Build commands, interpret output, launch, monitor, stop |
-| Workflow / pricing provider | Define execution stages or supply cost estimates |
+| Workflow | Define stages and request core-supervised execution |
 
-Avoid designing every contract upfront. Stabilize each against actual extractions and at least two implementations. Plugins communicate through versioned services, commands, and events, rather than imports from another plugin's implementation. Validate data at plugin boundaries; TypeScript types alone do not validate external values.
+Stabilize each contract against actual extractions and at least two implementations before declaring it public and stable. Plugins communicate through versioned services, commands, and events, never private implementation imports. Do not design the entire execution SDK in Phase A.
 
-## 3. Make replacement an explicit feature
+## 3. Separate work identity from implementation selection
 
-Installing two providers is different from selecting which one a workflow uses.
-
-Add explicit bindings for task sources, agents, messaging, and execution hosts, configurable globally and where appropriate per galleon or workflow. Allow Jira and Todos to coexist.
-
-Use source-neutral work identities, for example:
+Jira and Todos must coexist. A work item identifies a stable logical source, not a plugin package:
 
 ```ts
 type WorkRef = {
-  providerId: string;
-  connectionId: string;
+  sourceId: string;
   externalId: string;
+};
+
+type ProviderBinding = {
+  pluginId: string;
+  version: string;
+  artifactHash: string;
+  capabilityVersion: string;
+  connectionId: string;
 };
 ```
 
-Jira-specific URLs, IDs, and transitions belong to the Jira plugin.
+`sourceId` is a host-managed namespace for a logical collection of work, such as a Jira tenant or local Todo collection. It survives package replacement and credential rotation. `externalId` is the source's canonical immutable item ID; human-readable ticket keys are display fields. Claims and deduplication use logical identity, not implementation IDs.
 
-Separate these user actions:
+Connections reference that logical source and carry credential handles and provider settings. Registering a second connection to the same verified source reuses its namespace; ambiguous source identity requires explicit adoption instead of creating duplicate identities silently.
 
-- **Hide a panel:** change presentation.
-- **Disable a plugin:** stop its registrations and background work.
-- **Replace a provider:** change an explicit binding.
-- **Uninstall:** remove its package, retaining data unless deletion is requested.
+A source's configured binding determines how an existing `WorkRef` resolves. Generic default precedence from section 2 selects providers for unbound/new work; it cannot reinterpret an existing source. Replacements must explicitly adopt a compatible source, validate identifier and data semantics, and map settings or migrate owned data. Existing runs and pending operations retain their recorded implementation binding until deliberately migrated.
 
-Replacing a Todos UI should preserve its task provider. Replacing the task provider may require a data migration; the architecture should make that distinction visible.
+Admission freezes the neutral task snapshot, work reference, provider bindings, and provider-owned versioned context. Jira URLs, transitions, and API payloads remain in its plugin. Replacing a UI does not migrate task data; changing a provider may require migration.
 
-## 4. Build the host and SDK
+| User action | Defined effect |
+|---|---|
+| Hide a panel | Change presentation only |
+| Disable a plugin | Remove UI and new-work admission; drain existing obligations under section 6 |
+| Replace a provider | Validate and change bindings for new work, preserving logical identity |
+| Uninstall | Remove activation registration after obligations drain; retain data and referenced artifacts |
 
-Introduce packages along these lines:
+Data deletion and artifact retirement are explicit operations with dependency and retention checks.
 
-```text
-apps/helmsman/
-packages/plugin-sdk/
-packages/plugin-testkit/
-packages/core/
-plugins/helm/
-plugins/todos/
-plugins/jira/
-plugins/slack/
-plugins/costs/
-```
+## 4. Build a usable loading and authoring boundary early
 
-First-party plugins may remain in this galleon for development, but must build against the same public SDK available to external authors.
+Create the smallest SDK, loader, packager, sample, and test harness needed for the first external slice. Keep existing source locations initially. Extract packages when the working boundary justifies them; a monorepo directory reorganization is not a prerequisite.
 
-The host supplies:
+First-party plugins must use the same SDK as external authors. Add import-boundary checks that reject private host and cross-plugin imports. Temporary legacy adapters live inside the host and have an explicit retirement phase; they are not published plugin APIs.
 
-- Registration for navigation, pages, panels, settings, and namespaced backend endpoints.
-- Read-only header scope, with explicit panel-local overrides that never change the header scope.
-- Theme tokens, terminology, accessible UI primitives, and notifications.
-- Namespaced storage, validated settings, and credential access.
-- Managed subscriptions, timers, cancellation, and cleanup.
-- Compatibility checks, dependency resolution, health reporting, and activation failures.
+### Package and runtime format
 
-Keep the frontend framework-neutral with a `mount → update → dispose` boundary. Helmsman currently uses vanilla TypeScript; adopting React is a separate decision. Plugin authors could bundle React internally.
+- Browser and backend entry points are prebuilt ESM. Plugins bundle runtime dependencies, including any frontend framework. V1 excludes plugin-specific native addons, host dependency installation, and package install scripts.
+- The SDK publishes type declarations and bundleable helpers. Live services arrive through an injected versioned context; plugins do not rely on host module paths or host-owned React instances. Backend Node built-ins remain available under the trusted-code model.
+- Packages declare their supported Node range, checked against Helmsman's runtime. The production server serves immutable plugin assets under plugin ID and artifact hash and supports contributed route reloads. Asset requests never fall through to the SPA HTML response.
+- Store validated artifacts by content hash, with pinned transitive plugin dependencies. Verify entry points, asset paths, SDK/capability compatibility, and storage compatibility before activation.
+- Installation stages and validates an archive before atomically publishing its installed record. Installing does not execute plugin code. Reject archive traversal, symlinks, duplicate/escaping paths, and configured size limits. Partial installation remains recoverable after a crash.
+- V1 supports explicit activation and a controlled restart for backend install/upgrade; hot code replacement is not required. Restart proceeds only when active work can safely reattach or has drained. UI bindings may change without rebuilding the host.
+- Support one loaded backend version and one UI version per plugin in v1. Queue upgrades until current obligations drain and the execution-binding checks in section 6 pass. Retained old artifacts support pinned recovery or compatible rollback, not simultaneous runtimes for different versions of one plugin.
+
+### Frontend and host services
+
+Use a framework-neutral `mount → update → dispose` contract. Each instance owns its container and scoped CSS, with documented theme tokens rather than dependencies on application CSS classes. React can be bundled inside a plugin without migrating Helmsman to React.
+
+The injected context provides read-only effective galleon scope, theme and terminology updates, navigation, commands, notifications, and an abort signal. Explicit panel overrides stay local and never change header scope. Plugins translate application copy through namespaced terminology keys, never user content or technical identifiers.
+
+The host owns global navigation and event dispatch. Plugins register shortcuts and subscriptions through disposable APIs instead of attaching unmanaged document handlers. Unmount cancels pending requests, removes owned listeners, and invalidates stale updates. Mount/activation failure rolls back partial registrations and owned resources.
+
+Backend context supplies namespaced endpoints, validated settings, credential handles, managed tasks, and owned storage APIs. No public SDK exposes shared database handles or the host environment. These are API discipline boundaries, not a sandbox against trusted malicious code. Start with focused storage transactions and the existing domain stores behind host adapters rather than inventing a general database framework.
+
+### Costs as a real frontend and backend proof
+
+Move durable usage types, recording, and a versioned read/query contract into the core boundary. Remove the dependency from core telemetry to optional Outcomes implementation/types. Costs presents this data; pricing plugins supply estimation policy.
+
+Build an external alternative Costs view and a small external pricing provider with namespaced settings and storage. Estimates carry rate provenance, currency, coverage, and as-of time; missing prices remain unknown. Estimates remain distinct from recorded spend and do not silently become budget-cap inputs. Disabling either plugin must leave recording, historical usage, and existing budget policy intact.
 
 ## 5. Migrate in phases with concrete exit criteria
 
-| Phase | Work | Completion gate |
+| Phase | Deliverables | Completion gate |
 |---|---|---|
-| **A. Foundation** | Introduce SDK, manifest validation, contribution registries, lifecycle management, and adapters around existing features. | Existing pages retain their URLs and behavior through the new host. |
-| **B. First external plugin** | Extract Costs presentation; decouple durable telemetry from optional outcomes processing. Create a separately packaged alternative Costs panel. | Install and select the alternative without modifying Helmsman source. Disable it without losing usage history. |
-| **C. Task sources** | Extract Todos end to end, introduce source-neutral work references, then extract Jira. | Both sources operate simultaneously; switching providers requires configuration only. |
-| **D. Shell and Helm** | Replace fixed navigation, route, and panel lists. Extract Helm and register each panel independently. | Users can replace Helm or individual panels; saved layouts survive missing plugins. |
-| **E. Remaining features** | Extract Slack, PR views, terminal UI, campaigns, clarifications, bugs, and triage using established contracts. | Each feature owns its settings, requests, subscriptions, and cleanup. |
-| **F. Execution extensions** | Generalize agent providers, execution hosts, workflows, scheduling, and recovery. | Runs survive restart using their recorded provider and workflow versions. |
-| **G. Author experience** | Publish SDK, templates, development loader, test harness, packaging tools, and compatibility documentation. | An external author builds a useful plugin using published documentation alone. |
+| **A. Narrow host foundation** | Record the v1 contract decisions in sections 2–4. Add SDK declarations/helpers, manifest validator, minimal dynamic slots/routes, lifecycle registration, safe startup, archive loader, packager, and external sample harness. Wrap only shell/Costs surfaces; retain other legacy paths. | Production build can load a separately built sample and reload its deep link. Invalid packages and route collisions fail without partial registration. Existing pages still work. |
+| **B. External frontend and backend slice** | Extract durable usage query boundary, Costs UI, and a small pricing capability. Package alternative Costs and pricing implementations outside this galleon, including settings/storage and basic author docs. | Install against a production distribution with source unavailable. Explicitly swap implementations without rebuilding. Verify settings persistence, missing-provider behavior, preserved usage, and no private imports. |
+| **C. Persistence and recovery prerequisites** | Implement section 6 lifecycle states, artifact pinning, migration ledger, legacy decoding, recovery diagnostics, and durable operation protocol behind existing providers. Add fixture and crash tests before extracting task sources. | Drain/restart, blocked recovery, remote-success/local-crash reconciliation, and compatible rollback tests pass. Recovery distinguishes attachment failure from run completion. No destructive migration is needed. |
+| **D. Coexisting task sources** | Extract Todos, then Jira. Introduce stable source identity, neutral task snapshots, explicit bindings, and connection adoption. Remove Jira/Todo mutual exclusion. | Both launch independently; replacing an implementation preserves task identity and existing operation targets. Two compatible implementations pass the task-source contract suite. |
+| **E. Helm and feature extraction** | Extract Helm and each panel; progressively migrate remaining page, setting, and integration registrations. Extract Slack, PR views, terminal UI, campaigns, clarifications, bugs, and triage behind established ports. | Replace Helm or a panel independently. Each extracted feature owns cleanup/settings; missing contributions preserve layout. Any feature requiring an unfinished execution contract stays behind a legacy adapter until F. |
+| **F. Execution extension completion** | Generalize remaining agent, execution-host, workflow, and scheduling contracts using the C recovery foundation. Extract execution portions deferred from E and retire their adapters. | Alternative implementations launch, stop, recover, and finalize through public APIs. Recorded bindings are honored across restart; human gates and concurrency limits pass regression tests. |
+| **G. SDK stabilization and legacy removal** | Expand templates and author docs, stabilize proven contract versions, enforce deprecation policy, remove remaining legacy switches/import exceptions, and reorganize packages where useful. | An independent author builds frontend and backend plugins from public docs. Every optional shipped feature uses public contracts and has no private host imports. |
 
-Phase B is the architectural checkpoint. If the external plugin still needs private imports or core edits, fix the boundary before extracting more features.
+A and B form one narrow architectural milestone. Do not wrap every page before delivering it. C is a mandatory gate before task-provider extraction; F extends execution choices rather than introducing recovery safety for the first time.
 
-## 6. Specify lifecycle and persistence before enabling removal
+For each extraction, preserve behavior through one active implementation path. Validate read equivalence with fixtures or shadow reads when useful; never run old and new write paths simultaneously. Cut over admission explicitly. Rollback requires compatible data and retained bindings, not merely changing a feature flag.
 
-These rules prevent disabling a feature from corrupting ongoing work:
+## 6. Define lifecycle, persistence, and recovery protocols
 
-- Disable blocks new work, cancels background polling, and removes contributions.
-- Active runs retain their required plugin versions until they finish; immediate termination is a separate action.
-- Required dependencies cannot disappear silently. Show affected consumers and block incompatible changes.
-- Run snapshots record plugin versions, provider bindings, workflow configuration, and artifact identities.
-- Recovery never substitutes a different provider when the recorded one is missing.
-- Storage migrations are versioned and backed up. Package rollback is permitted only when its data remains compatible.
-- Disabled plugins retain their data, settings, and layout positions.
-- Reliable workflow side effects use durable delivery and idempotency; an in-memory UI event bus is insufficient.
+### Plugin lifecycle and artifact retention
 
-Preserve existing URLs through compatibility aliases and migrate persisted tasks and runs incrementally.
-
-## 7. Choose the trust model deliberately
-
-There are two viable scopes:
-
-| Option | Tradeoff |
+| State | Behavior |
 |---|---|
-| **Trusted installed plugins — recommended for v1** | Smaller implementation; operators explicitly trust installed code with application privileges. |
-| **Sandboxed third-party plugins** | Requires isolated browser execution, restricted backend runtimes, and brokered filesystem/network access. More work and a narrower API. |
+| Installed | Validated artifact available; no code activated |
+| Active | Contributions and compatible services available; new work permitted |
+| Draining | UI removed and new work denied; only existing execution, finalization, and operation obligations continue |
+| Disabled | No active obligations or managed background work; settings/data/layout retained |
+| Failed | Activation or execution service unavailable, with diagnostic and explicit retry/recovery path; existing obligations retained |
 
-A permission manifest, iframe-free mount API, or ordinary child process does not make arbitrary code safe. Design SDK messages to support later isolation, but describe v1's trust boundary accurately.
+Disable cancels ordinary polling and removes presentation immediately, then enters draining if obligations remain. Persist desired enablement separately from runtime health, so a failed draining plugin can recover only to service its existing obligations. A provider cannot disappear beneath a required dependent: block the change with an affected-consumer list or explicitly drain those consumers too.
 
-For initial distribution, support local development packages and version-pinned plugin archives with integrity checks. Defer a marketplace and automatic updates.
+Reference counts include active runs, recoverable runs, pending side effects, and pinned dependency closures. Hold artifact/schema pins for all resumable checkpoints until explicitly retired; retain provenance for historical runs even after their executable artifacts can be deleted. Completion alone does not release a pin when finalization or resumable checkpoints remain.
+
+Uninstall and garbage collection reject referenced artifacts. Upgrades wait for runtime obligations to drain, then inspect every retained execution/checkpoint binding in the affected dependency closure. Any binding requiring a different loaded version blocks activation until it is explicitly retired or migrated, even when the new package is schema-compatible. Apply this rule to provider dependencies as well as the upgraded package.
+
+Checkpoint migration requires a provider-supported validation of execution state, artifacts, and contract compatibility. Record the new binding in an append-only migration record while preserving the original snapshot and provenance. Without that migration support, the upgrade remains blocked. Storage compatibility alone never authorizes rebinding execution. V1 does not load two versions of one plugin. Stop/abandon actions are separate operator decisions, never inferred from a disable timeout.
+
+### Admission snapshots and restart recovery
+
+Persist an execution dependency record before launch: logical work identity, normalized task, exact artifact hashes and dependency closure, resolved capability versions/bindings, host reference, workflow revision, compatible non-secret settings, and owned-data schema requirements. Include prepared-but-not-launched records in reconciliation so a crash cannot cause a duplicate launch.
+
+Snapshot credential handles and connection identity, never secrets. Resolve live credentials at use time; rotation must preserve the authorized connection identity. Revoked/missing credentials block the affected operation with a reason. Provider replacement must not retarget an admitted run or pending operation.
+
+Separate execution status from attachment health (`pending`, `attached`, `blocked`, `failed`). [`server/helmsman/recovery.ts`](../server/helmsman/recovery.ts) currently dispatches asynchronous reattachment without surfacing rejection. Replace that contract with an explicit attachment handshake and separately tracked completion; persist diagnostics and expose retry in core recovery controls.
+
+If a pinned plugin, compatible schema, or credential is unavailable, preserve processes, logs, worktrees, and concurrency reservations. Never silently substitute a default provider, mark an unknown process completed, or let orphan cleanup remove its workspace. Keep core recovery controls available; attempt stop through available host controls and report when missing host support prevents it. Do not admit conflicting work until liveness/ownership is resolved.
+
+Legacy adapters decode existing Jira/Todo launch payloads, host references, and workflow snapshots. Migration fixtures must cover active, completed, failed, and resumable legacy runs, preserving IDs and relationships.
+
+### Storage ownership and rollback
+
+Keep the current shared SQLite database initially. Inventory tables, assign an owner and migration authority, and add a host-coordinated migration ledger with exclusive migration locking. Plugins access owned storage through namespaced SDK operations; compatibility adapters preserve existing store behavior while ownership moves.
+
+Use additive transactional migrations and declared schema compatibility ranges. For non-transactional preparation, stage artifacts separately and record resumable migration steps; do not activate against partially migrated state. Validate plugin storage declarations before execution and coordinate schema changes across all loaded consumers.
+
+Use a SQLite-consistent backup mechanism that includes WAL state. Restoring the entire database is application-wide recovery with writes stopped, never an automatic rollback for one plugin. Prefer a forward fix or compatible package rollback; reject downgrade when current data is unsupported. Reverting activation does not imply reverting a committed data migration.
+
+### Durable side-effect protocol
+
+Before a task-provider extraction, replace informal lifecycle callbacks with a minimal operation ledger/outbox:
+
+1. Persist an operation ID, originating run/state revision, immutable provider binding and target, versioned payload, and pending state in the same transaction as its originating core state change where possible.
+2. A host-owned dispatcher leases the operation, invokes the pinned provider with the same idempotency key on every attempt, and records acknowledgment or retry state. An expired lease permits recovery, not a new logical operation.
+3. After ambiguous remote success, query/reconcile external evidence before retrying. Providers declare their idempotency/reconciliation support. Where the result cannot be determined safely, mark the operation uncertain and request an explicit resolution instead of blindly repeating a publication.
+4. Retain operations through plugin disable/restart. Missing providers or credentials mark them blocked. Retries never select a newer default binding.
+5. Show pending, retrying, blocked, uncertain, and completed obligations in recovery controls. Run process success is distinct from fully settled external effects.
+
+When a state update spans stores that cannot share a transaction, persist a recoverable intent first and reconcile both sides by operation ID. Do not claim exactly-once external delivery: require one durable logical obligation and provider-specific duplicate suppression or visible uncertainty.
+
+## 7. State the v1 trust and failure boundaries
+
+The proposed v1 supports explicitly trusted installed plugins in the existing browser and Node contexts. Operators review requested access and activate installed packages deliberately. Integrity hashes verify bytes, not publisher trust or behavior. A manifest or ordinary child process is not a sandbox.
+
+Containment guarantees cover handled validation, activation, registration, request, and subscription failures. Same-context code can still block the browser or terminate the server. Do not promise arbitrary plugin crash isolation. Catch individual event-listener failures and dispose owned resources, while documenting these limits.
+
+Provide a CLI/config safe-start option that skips all optional plugin activation, including first-party plugins. Core diagnostics can disable the failing package, inspect blocked work, and restore a compatible version. Safe start must not resume provider-dependent work or delete its artifacts; it is a recovery mode, not normal operation.
+
+Keep broker interfaces and payloads versioned to permit later isolation. Sandboxed untrusted plugins require isolated frontend execution and OS/container restrictions on backend filesystem, process, credential, and network access; that is a separate milestone. Also defer marketplace discovery, automatic updates, universal concurrent plugin versions, and a frontend framework rewrite.
 
 ## 8. Validate the architecture through behavior
 
-Each extraction should pass TypeScript, production build, relevant unit/integration tests, and browser visual tests. Add a browser test harness early; the current setup is primarily Vitest/jsdom.
+Each extraction passes TypeScript, production build, relevant unit/integration tests, and browser visual tests. Add the browser harness and external package fixture in A/B, not at the end. Use published SDK contract suites for both first-party and external implementations.
 
-The important acceptance cases are:
+| Gate | Required evidence |
+|---|---|
+| External installation | Build outside this galleon and install into production with application source unavailable; no host rebuild/private imports; direct route reload and asset loading work. |
+| Replacement | Two implementations target the same slot/capability; selection and aliases are explicit and reversible; layouts and route state survive removal/reinstall. |
+| Resolution | Ambiguous/missing bindings, version conflicts, cycles, collisions, and optional absence produce deterministic results; no hidden installation-order fallback. |
+| Scope and presentation | Header scope propagates, panel overrides stay local, theme/terminology updates work, CSS stays scoped, keyboard/responsive layouts match existing designs. |
+| Cleanup | Hide does not stop providers; disable removes ordinary polling/UI and rejects new work; only draining obligations continue; stale responses cannot remount views. |
+| Backend proof | External pricing uses published usage queries plus namespaced settings/storage; disabling Costs/pricing preserves usage and budget policy. |
+| Atomic activation | Inject crashes during extraction, migration, registration, and activation rollback; restart yields a usable safe-start path with no partial registrations. |
+| Live disable | Disable a task source during execution, finish/restart, and reconcile one logical completion obligation without losing its binding. |
+| Blocked recovery | Remove a pinned provider or revoke credentials; preserve process/workspace/leases, report blocked attachment, and recover without duplicate admission. |
+| Storage and upgrade | Upgrade while another feature records usage; coordinate migration, preserve unrelated writes, and reject incompatible downgrade/unsafe restore. |
+| Checkpoint version pin | Complete a resumable run under v1, then attempt a schema-compatible v2 upgrade, including a provider-dependency upgrade. Block activation or explicitly migrate the checkpoint; restart/resume without concurrent versions or silent artifact substitution. |
+| Remote uncertainty | Crash after remote success before local acknowledgment; deduplicate/reconcile, or expose uncertainty without blind replay or target changes. |
+| Legacy compatibility | Replay Jira/Todo/host/checkpoint fixtures; preserve identifiers, task history, navigation links, and resumability or explicit blocked reasons. |
+| Execution invariants | Human-only merges, publication gates, required clarification gates, concurrency limits, and budget accounting survive every extraction. |
 
-- Third-party plugin installation requires no core changes.
-- Jira and Todos coexist.
-- Header galleon scope propagates correctly; panel overrides remain local.
-- Disabled plugins stop requests, timers, and subscriptions.
-- Late responses cannot revive disabled views.
-- Missing or failed plugins leave the shell usable.
-- Plugin upgrades preserve data and active-run recovery.
-- Human merge gates, publication checks, and budget limits remain enforced.
-- Existing layouts, terminology modes, navigation, and keyboard behavior remain intact.
+Plugin failures in these gates mean handled failures unless explicitly testing process crash and safe-start recovery; sandbox-level containment is not implied.
 
 ## First implementation milestone
 
-Deliver the plugin host plus an externally packaged Costs replacement. That proves extensibility before committing to a broad migration.
+Complete A/B: a narrow host boundary with an externally packaged Costs replacement and a small external pricing provider, installed against production without source edits or rebuilds. Include usable packaging/docs, route reloads, explicit replacement, settings/storage, and unchanged usage recording.
+
+Do not begin broad extraction until this passes. Complete C's lifecycle, storage, delivery, and recovery gates before extracting task providers. This proves both frontend and backend extensibility while keeping migration safety ahead of the features that depend on it.
+
+## Review disposition
+
+All twelve prioritized findings are incorporated as design requirements. This records plan changes, not implementation completion or renewed reviewer approval.
+
+| Finding | Disposition in revision 2 |
+|---|---|
+| R1.1 — Composition contract | Section 2 defines slots, contribution IDs, bindings, aliases, collisions, and missing-layout preservation; minimum registries move to A. |
+| R1.2 — Capability resolution | Section 2 separates dependencies/capabilities, defines cardinality, precedence, ambiguity, optional absence, and cycle handling; section 6 pins admission. |
+| R1.3 — Work identity | Section 3 separates logical source/item identity from implementation and connection bindings and requires explicit adoption. |
+| R1.4 — Backend proof | Section 4 and B require public usage queries and a separately packaged pricing provider with settings/storage. |
+| R1.5 — Package compatibility | Sections 2/4 distinguish version domains and specify ESM, bundling, asset paths, runtime checks, restart policy, and single-version loading. |
+| R1.6 — Frontend ownership | Section 4 defines container/CSS ownership, context updates, terminology, managed events, cancellation, and cleanup. |
+| R2.1 — Phase prerequisites | A/B contain the minimal loader, registries, packager, harness, and author docs; remaining pages stay on legacy paths until extraction. |
+| R2.2 — Recovery representation | Section 6 and C add dependency records, attachment handshake, blocked diagnostics, and preservation of uncertain running work. |
+| R2.3 — Disable/upgrade lifecycle | Section 6 defines draining, desired enablement, obligation/artifact pins, resumable checkpoint retention, and upgrade restrictions. |
+| R2.4 — Storage rollback | Section 6 establishes table ownership, migration coordination, additive schemas, WAL-consistent backups, and application-wide restore policy. |
+| R2.5 — Durable effects | Section 6 and C require an outbox, immutable operation targets, leases, idempotency/reconciliation, and explicit uncertainty. |
+| R2.6 — Trust/failure limits | Section 7 narrows containment guarantees and adds safe startup; section 4 specifies atomic archive installation and validation. |
 
 ## Independent reviews
 
-Two separate agents reviewed the proposal independently on 2026-09-20. Neither edited the plan or coordinated with the other reviewer. The reviews below are preserved as returned; their recommendations are not automatically accepted amendments to the proposal.
+Two separate agents reviewed revision 1 independently on 2026-09-20. Neither edited the plan or coordinated with the other reviewer. The reviews below are preserved as returned and refer to revision 1's section/phase numbering. Revision 2 incorporates their findings as mapped above; the reviews are historical assessments, not endorsements of this revision.
 
 The agents received different review assignments:
 
