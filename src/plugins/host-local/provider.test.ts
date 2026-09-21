@@ -1,9 +1,11 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExecutionHostLaunchSpecV1 } from '@helmsman/plugin-sdk';
-import { executionHostProcessStartIdentity } from '@helmsman/plugin-sdk/node';
+import { executionHostProcessStartIdentity, isExecutionHostProcessOwned } from '@helmsman/plugin-sdk/node';
 import { createCmuxExecutionHost, createDetachedExecutionHost, createWeztermExecutionHost } from './provider';
 
 const roots: string[] = [];
@@ -35,7 +37,7 @@ async function receipt(spec: ExecutionHostLaunchSpecV1): Promise<void> {
   await writeFile(spec.receiptPath, JSON.stringify({ version: 1, runId: spec.runId, launchId: spec.launchId, attempt: spec.attempt, pid: process.pid, processStart }));
 }
 
-describe('local execution host providers', () => {
+describe.skipIf(process.platform === 'win32')('local execution host providers', () => {
   it('launches and discovers exact detached wrapper ownership', async () => {
     const spec = await fixture();
     const provider = createDetachedExecutionHost();
@@ -85,4 +87,158 @@ describe('local execution host providers', () => {
     await expect(provider.isAlive({ ...ref, state: { kind: 'wezterm', paneId: '7' } })).rejects.toThrow('ownership is unknown');
     await expect(provider.stop({ ...ref, identity: { ...ref.identity, launchId: 'other' } })).rejects.toThrow();
   });
+});
+
+
+async function treeFixture(ignoreTerm = false, exitParent = false, lifetime = 9500): Promise<ExecutionHostLaunchSpecV1> {
+  const spec = await fixture();
+  const descendant = `
+    const fs = require('node:fs');
+    ${ignoreTerm ? "process.on('SIGTERM', () => {});" : ''}
+    fs.writeFileSync('descendant-ready', String(process.pid));
+    setTimeout(() => fs.writeFileSync('late-write', 'escaped'), 750);
+    const interval = setInterval(() => fs.writeFileSync('ticks', String(Date.now())), 20);
+    setTimeout(() => { clearInterval(interval); process.exit(0); }, ${lifetime - 500});
+  `;
+  const worker = `
+    const fs = require('node:fs');
+    const { spawn } = require('node:child_process');
+    ${ignoreTerm ? "process.on('SIGTERM', () => {});" : ''}
+    fs.writeFileSync('supervisor-pid', String(process.ppid));
+    spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: 'ignore' });
+    ${exitParent ? "const wait = setInterval(() => { if (fs.existsSync('descendant-ready')) process.exit(0); }, 10);" : `setTimeout(() => process.exit(0), ${lifetime});`}
+  `;
+  return { ...spec, args: ['-e', worker] };
+}
+
+async function waitForFile(path: string): Promise<void> {
+  await vi.waitFor(() => expect(existsSync(path)).toBe(true), { timeout: 4000, interval: 20 });
+}
+
+async function settled(spec: ExecutionHostLaunchSpecV1, provider: ReturnType<typeof createDetachedExecutionHost>, ref: Awaited<ReturnType<typeof provider.launch>>): Promise<void> {
+  await vi.waitFor(async () => expect(await provider.discover(spec, ref)).toMatchObject({ status: 'found', evidence: { state: 'exited' } }), { timeout: 8000, interval: 25 });
+}
+
+describe.skipIf(process.platform === 'win32')('owned local worker trees', () => {
+  it.each(['detached', 'cmux', 'wezterm'] as const)('settles ordinary descendants before the %s exit receipt without signalling the terminal group', async kind => {
+    const spec = await treeFixture();
+    let terminalChild: ChildProcess | undefined;
+    const launchTerminalWrapper = () => { terminalChild = spawn(process.execPath, [spec.wrapperPath, spec.specPath], { stdio: 'ignore' }); };
+    const provider = kind === 'detached' ? createDetachedExecutionHost() : kind === 'cmux'
+      ? createCmuxExecutionHost({ run: async args => {
+        if (args[1] === 'new-workspace') launchTerminalWrapper();
+        return { stdout: 'workspace:42 run-launch_local', code: 0 };
+      } })
+      : createWeztermExecutionHost({ resolveSocket: () => '/test/socket', run: async args => {
+        if (args[1] === 'spawn') { launchTerminalWrapper(); return { stdout: '7', code: 0 }; }
+        return { stdout: JSON.stringify([{ pane_id: 7 }]), code: 0 };
+      } });
+    const ref = await provider.launch(spec);
+    try {
+      await waitForFile(join(spec.cwd, 'descendant-ready'));
+      await provider.stop(ref);
+      await settled(spec, provider, ref);
+      await new Promise(resolve => setTimeout(resolve, 900));
+      expect(existsSync(join(spec.cwd, 'late-write'))).toBe(false);
+      if (terminalChild) await vi.waitFor(() => expect(terminalChild?.exitCode).toBe(0));
+    } finally {
+      if (await provider.isAlive(ref)) { await provider.stop(ref); await settled(spec, provider, ref); }
+    }
+  }, 12000);
+
+  it('escalates TERM-ignoring descendants before publishing the terminal receipt', async () => {
+    const spec = await treeFixture(true);
+    const provider = createDetachedExecutionHost();
+    const ref = await provider.launch(spec);
+    try {
+      await waitForFile(join(spec.cwd, 'ticks'));
+      await provider.stop(ref);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(existsSync(spec.exitPath)).toBe(false);
+      await settled(spec, provider, ref);
+      const ticks = await readFile(join(spec.cwd, 'ticks'), 'utf8');
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(await readFile(join(spec.cwd, 'ticks'), 'utf8')).toBe(ticks);
+    } finally {
+      if (await provider.isAlive(ref)) { await provider.stop(ref); await settled(spec, provider, ref); }
+    }
+  }, 12000);
+
+  it('settles background descendants when their main worker exits successfully', async () => {
+    const spec = await treeFixture(false, true);
+    const provider = createDetachedExecutionHost();
+    const ref = await provider.launch(spec);
+    await settled(spec, provider, ref);
+    expect(JSON.parse(await readFile(spec.exitPath, 'utf8')).exitCode).toBe(0);
+    await new Promise(resolve => setTimeout(resolve, 900));
+    expect(existsSync(join(spec.cwd, 'late-write'))).toBe(false);
+  });
+
+  it('refuses a mismatched process-start identity without signalling the worker', async () => {
+    const spec = await treeFixture();
+    const provider = createDetachedExecutionHost();
+    const ref = await provider.launch(spec);
+    try {
+      await waitForFile(join(spec.cwd, 'descendant-ready'));
+      const state = ref.state as { kind: string; pid: number; processStart: string };
+      const wrongStart = `${state.processStart}:wrong`;
+      const wrong = { ...ref, state: { ...state, processStart: wrongStart } };
+      await expect(provider.stop(wrong)).rejects.toThrow('ownership is unknown');
+      await writeFile(spec.receiptPath, JSON.stringify({ version: 1, ...ref.identity, pid: state.pid, processStart: wrongStart }));
+      await expect(provider.stop(wrong)).rejects.toThrow('Refusing to stop an unverified');
+      expect(await isExecutionHostProcessOwned(state.pid, state.processStart)).toBe(true);
+      expect(existsSync(spec.exitPath)).toBe(false);
+      await writeFile(spec.receiptPath, JSON.stringify({ version: 1, ...ref.identity, pid: state.pid, processStart: state.processStart }));
+    } finally {
+      await provider.stop(ref);
+      await settled(spec, provider, ref);
+    }
+  });
+});
+
+
+it.skipIf(process.platform === 'win32')('withholds terminal evidence while a crashed supervisor leaves live workers', async () => {
+  const spec = await treeFixture(false, false, 1600);
+  const provider = createDetachedExecutionHost();
+  const ref = await provider.launch(spec);
+  await waitForFile(join(spec.cwd, 'ticks'));
+  const pid = Number(await readFile(join(spec.cwd, 'supervisor-pid'), 'utf8'));
+  const start = await executionHostProcessStartIdentity(pid);
+  expect(await isExecutionHostProcessOwned(pid, start)).toBe(true);
+  process.kill(pid, 'SIGKILL');
+  await new Promise(resolve => setTimeout(resolve, 150));
+  expect(existsSync(spec.exitPath)).toBe(false);
+  const before = await readFile(join(spec.cwd, 'ticks'), 'utf8');
+  await new Promise(resolve => setTimeout(resolve, 100));
+  expect(await readFile(join(spec.cwd, 'ticks'), 'utf8')).not.toBe(before);
+  await settled(spec, provider, ref);
+  expect(JSON.parse(await readFile(spec.exitPath, 'utf8')).exitCode).toBe(1);
+});
+
+it.skipIf(process.platform === 'win32')('cleans the owned group after its wrapper owner crashes without inventing a receipt', async () => {
+  const spec = await treeFixture();
+  const provider = createDetachedExecutionHost();
+  const ref = await provider.launch(spec);
+  await waitForFile(join(spec.cwd, 'descendant-ready'));
+  const state = ref.state as { pid: number; processStart: string };
+  expect(await isExecutionHostProcessOwned(state.pid, state.processStart)).toBe(true);
+  process.kill(state.pid, 'SIGKILL');
+  await new Promise(resolve => setTimeout(resolve, 900));
+  expect(existsSync(join(spec.cwd, 'late-write'))).toBe(false);
+  expect(existsSync(spec.exitPath)).toBe(false);
+  expect(await provider.discover(spec, ref)).toMatchObject({ status: 'unknown' });
+});
+
+it('refuses new Windows local launches while preserving receipt inspection', async () => {
+  const spec = await fixture();
+  await receipt(spec);
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  Object.defineProperty(process, 'platform', { ...descriptor, value: 'win32' });
+  try {
+    for (const provider of [createDetachedExecutionHost(), createCmuxExecutionHost(), createWeztermExecutionHost()]) {
+      await expect(provider.prepareRun({} as never)).rejects.toThrow('POSIX process-group supervision');
+      await expect(provider.launch(spec)).rejects.toThrow('POSIX process-group supervision');
+    }
+  } finally { Object.defineProperty(process, 'platform', descriptor); }
+  expect((await createDetachedExecutionHost().discover(spec)).status).toBe('found');
 });

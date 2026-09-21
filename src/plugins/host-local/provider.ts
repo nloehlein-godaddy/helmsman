@@ -11,7 +11,6 @@ import type {
   ExecutionHostReferenceV1,
 } from '@helmsman/plugin-sdk';
 import {
-  executionHostProcessStartIdentity,
   isExecutionHostIdentityMatch,
   isExecutionHostProcessOwned,
   readExecutionHostExitReceipt,
@@ -26,6 +25,10 @@ const detachedEnvironment = (): NodeJS.ProcessEnv => {
   delete environment.JIRA_EMAIL;
   return environment;
 };
+function requireLocalSupervision(): void {
+  if (process.platform === 'win32') throw new Error('Local execution requires POSIX process-group supervision; Windows local hosts are unavailable');
+}
+
 const metadata = (label: string): ExecutionHostProviderV1['metadata'] => ({
   version: 1,
   label,
@@ -176,8 +179,9 @@ async function stop(ref: ExecutionHostReferenceV1, kind: LocalState['kind']): Pr
 export function createDetachedExecutionHost(): ExecutionHostProviderV1 {
   return {
     metadata: metadata('Detached'),
-    async prepareRun() { return null; },
+    async prepareRun() { requireLocalSupervision(); return null; },
     async launch(spec) {
+      requireLocalSupervision();
       const prior = await readExecutionHostLaunchReceipt(spec);
       if (prior) {
         const discovered = await receiptDiscovery(spec, undefined, receipt => ({ kind: 'detached', pid: receipt.pid, processStart: receipt.processStart ?? '' }));
@@ -191,14 +195,8 @@ export function createDetachedExecutionHost(): ExecutionHostProviderV1 {
         child.once('error', reject);
       });
       child.unref();
-      const pid = child.pid;
-      if (!pid) throw new Error('Detached execution did not return a process identity');
-      const processStart = await executionHostProcessStartIdentity(pid);
-      if (!processStart) {
-        try { process.kill(pid, 'SIGTERM'); } catch {}
-        throw new Error('Detached execution process ownership is unavailable');
-      }
-      return reference(spec, { kind: 'detached', pid, processStart });
+      const receipt = await waitForReceipt(spec);
+      return reference(spec, { kind: 'detached', pid: receipt.pid, processStart: receipt.processStart! });
     },
     discover(spec, ref) {
       return receiptDiscovery(spec, ref, receipt => ({ kind: 'detached', pid: receipt.pid, processStart: receipt.processStart ?? '' }));
@@ -233,8 +231,9 @@ export function createCmuxExecutionHost(options: CmuxExecutionHostOptions = {}):
   });
   return {
     metadata: metadata('cmux'),
-    async prepareRun() { return null; },
+    async prepareRun() { requireLocalSupervision(); return null; },
     async launch(spec) {
+      requireLocalSupervision();
       if (await readExecutionHostLaunchReceipt(spec)) throw new Error('Existing cmux launch requires ownership reconciliation');
       await writeSpec(spec);
       const command = `${quote(process.execPath)} ${quote(spec.wrapperPath)} ${quote(spec.specPath)}`;
@@ -326,8 +325,9 @@ export function createWeztermExecutionHost(options: WeztermExecutionHostOptions 
   });
   return {
     metadata: metadata('WezTerm'),
-    async prepareRun() { return null; },
+    async prepareRun() { requireLocalSupervision(); return null; },
     async launch(spec) {
+      requireLocalSupervision();
       if (await readExecutionHostLaunchReceipt(spec)) throw new Error('Existing WezTerm launch requires ownership reconciliation');
       const selectedSocket = await socket();
       if (!selectedSocket) throw new Error('WezTerm is not running');

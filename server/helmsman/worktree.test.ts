@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createReviewWorktree, createWorktreeFromBranch, sweepOrphanedWorktrees, discoverRepoDirs, type Worktree } from './worktree';
@@ -115,7 +115,7 @@ describe('createWorktreeFromBranch', () => {
       await rm(agentsRoot, { recursive: true, force: true });
     }
   });
-  it('reuses the branch when a prior rerun left its worktree behind (no refusing-to-fetch)', async () => {
+  it('refuses to replace a prior rerun worktree even when it is clean', async () => {
     const agentsRoot: string = await mkdtemp(join(tmpdir(), 'agents-'));
     try {
       const sourceDir: string = join(agentsRoot, 'source');
@@ -132,9 +132,9 @@ describe('createWorktreeFromBranch', () => {
       const first: Worktree = await createWorktreeFromBranch(agentsRoot, 'o/repo', 'run-1', 'fix/x');
       expect(existsSync(first.path)).toBe(true);
 
-      const second: Worktree = await createWorktreeFromBranch(agentsRoot, 'o/repo', 'run-2', 'fix/x');
-      expect(existsSync(second.path)).toBe(true);
-      expect(existsSync(first.path)).toBe(false);
+      await expect(createWorktreeFromBranch(agentsRoot, 'o/repo', 'run-2', 'fix/x')).rejects.toThrow();
+      expect(existsSync(join(repoDir, '.worktrees', 'run-2'))).toBe(false);
+      expect(existsSync(first.path)).toBe(true);
     } finally {
       await rm(agentsRoot, { recursive: true, force: true });
     }
@@ -215,4 +215,31 @@ it('rejects a moved rerun head before removing the original branch worktree', as
     await expect(createWorktreeFromBranch(agentsRoot, 'o/repo', 'second', 'fix/pinned', original)).rejects.toThrow('PR branch changed');
     expect(existsSync(first.path)).toBe(true); expect(existsSync(join(repo, '.worktrees', 'second'))).toBe(false);
   } finally { await rm(agentsRoot, { recursive: true, force: true }); }
+});
+
+
+it.each([true, false])('preserves an occupied dirty developer worktree with retained head verification %s', async pinned => {
+  const root = await mkdtemp(join(tmpdir(), 'dirty-rerun-'));
+  try {
+    const source = join(root, 'source'); const repo = join(root, 'repo'); const developer = join(root, 'developer checkout');
+    await mkdir(source);
+    await execFileAsync('git', ['-C', source, 'init', '-q', '-b', 'main']);
+    await execFileAsync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
+    await execFileAsync('git', ['-C', source, 'config', 'user.name', 'Test']);
+    await writeFile(join(source, 'tracked.txt'), 'original');
+    await execFileAsync('git', ['-C', source, 'add', '.']);
+    await execFileAsync('git', ['-C', source, 'commit', '-qm', 'base']);
+    const head = (await execFileAsync('git', ['-C', source, 'rev-parse', 'HEAD'])).stdout.trim();
+    await execFileAsync('git', ['-C', source, 'branch', 'fix/pr']);
+    await execFileAsync('git', ['clone', '-q', source, repo]);
+    await execFileAsync('git', ['-C', repo, 'worktree', 'add', developer, 'fix/pr']);
+    await writeFile(join(developer, 'tracked.txt'), 'unsaved tracked changes');
+    await writeFile(join(developer, 'untracked.txt'), 'untracked work');
+    if (pinned) await expect(createWorktreeFromBranch(root, 'org/repo', 'stale', 'fix/pr', 'f'.repeat(40))).rejects.toThrow('PR branch changed');
+    await expect(createWorktreeFromBranch(root, 'org/repo', 'rerun', 'fix/pr', pinned ? head : undefined)).rejects.toThrow();
+    expect(await readFile(join(developer, 'tracked.txt'), 'utf8')).toBe('unsaved tracked changes');
+    expect(await readFile(join(developer, 'untracked.txt'), 'utf8')).toBe('untracked work');
+    expect((await execFileAsync('git', ['-C', developer, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(head);
+    expect(existsSync(join(repo, '.worktrees', 'rerun'))).toBe(false);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

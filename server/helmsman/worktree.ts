@@ -24,19 +24,6 @@ export async function createWorktree(agentsRoot: string, repo: string, runId: st
   return { path, branch };
 }
 
-async function removeWorktreeForBranch(repoDir: string, branch: string): Promise<void> {
-  const result = await run('git', ['-C', repoDir, 'worktree', 'list', '--porcelain']).catch(() => null);
-  if (!result) return;
-  const target: string = `refs/heads/${branch}`;
-  let currentPath: string | null = null;
-  for (const line of result.stdout.split('\n')) {
-    if (line.startsWith('worktree ')) currentPath = line.slice('worktree '.length).trim();
-    else if (line.startsWith('branch ') && line.slice('branch '.length).trim() === target && currentPath) {
-      await removeWorktreeAt(repoDir, currentPath).catch(() => undefined);
-      currentPath = null;
-    } else if (line === '') currentPath = null;
-  }
-}
 
 export async function createWorktreeFromBranch(agentsRoot: string, repo: string, runId: string, branch: string, expectedHeadSha?: string): Promise<Worktree> {
   const repoDir: string = join(agentsRoot, repoBasename(repo));
@@ -47,8 +34,6 @@ export async function createWorktreeFromBranch(agentsRoot: string, repo: string,
     const fetched = await run('git', ['-C', repoDir, 'rev-parse', '--verify', 'FETCH_HEAD^{commit}']);
     if (fetched.stdout.trim().toLowerCase() !== expectedHeadSha.toLowerCase()) throw new Error('PR branch changed after preparation');
   }
-  await run('git', ['-C', repoDir, 'worktree', 'prune']).catch(() => undefined);
-  await removeWorktreeForBranch(repoDir, branch);
   if (expectedHeadSha !== undefined) await run('git', ['-C', repoDir, 'branch', '-f', '--', branch, expectedHeadSha]);
   else await run('git', ['-C', repoDir, 'fetch', 'origin', `+${branch}:${branch}`], { maxBuffer: 1024 * 1024 * 16 });
   const path: string = join(repoDir, '.worktrees', runId);

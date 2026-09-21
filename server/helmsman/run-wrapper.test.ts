@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 
 const WRAPPER = join(__dirname, 'run-wrapper.mjs');
 
-describe('run-wrapper', () => {
+describe.skipIf(process.platform === 'win32')('run-wrapper', () => {
   it('captures stdout+stderr to the log and the exit code to the sentinel', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wrap-'));
     const specPath = join(dir, 'spec.json');
