@@ -21,6 +21,7 @@ export interface SuggestedContactAdminServiceV1 {
   list(input: SuggestedContactAdminListQueryV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<SuggestedContactAdminPageV1>>;
   load(input: SuggestedContactAdminLoadQueryV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<SuggestedContactAdminContactV1>>;
   submit(input: SuggestedContactAdminInputV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<SuggestedContactAdminReceiptV1>>;
+  retry?(input: SuggestedContactAdminReceiptQueryV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<SuggestedContactAdminReceiptV1>>;
   receipt(input: SuggestedContactAdminReceiptQueryV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<SuggestedContactAdminReceiptV1 | null>>;
   pending(): Promise<readonly SuggestedContactAdminPendingV1[]>;
   acknowledge(input: SuggestedContactAdminReceiptQueryV1, signal?: AbortSignal): Promise<void>;

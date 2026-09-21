@@ -22,7 +22,7 @@ Questions use scoped cursor pages of 25 and observation-time totals. Required un
 
 Both panels retain only the current result page and a bounded cursor stack of 128 entries. Page identity, rows and continuation cursors change together only after a successful read. A failed Next, Previous or First page request leaves the prior displayed page and controls intact. Refresh rereads that displayed page; clicking the navigation action again retries the intended page change. First page resets expired or exhausted cursor navigation after its read succeeds. Cursor lifetime is service-owned; reload begins at page one. An update draft retains its original contact revision across list refreshes; rebasing requires discarding that edit and explicitly opening a new one after refresh.
 
-Drafts are separate from reserved command inputs. The host journals use contribution caller identity, so multiple panel instances of the same contribution share unresolved commands while keeping distinct instance drafts. New answer submissions require proven attempt/channel/revision and fresh journal access. Create reserves both IDs in the host journal. Check receipt never redelivers; Retry original supplies the exact saved input, allowing the host to reuse original IDs. Refresh never resubmits or acknowledges requests.
+Drafts are separate from reserved command inputs. The host journals use contribution caller identity, so multiple panel instances of the same contribution share unresolved commands while keeping distinct instance drafts. New answer submissions require proven attempt/channel/revision and fresh journal access. Create reserves both IDs in the host journal. Check receipt never redelivers; Retry original uses the optional exact-request `retry` method; the host reads the retained command without reserving new IDs. If another tab acknowledged it, retry sends nothing. Older hosts without this method keep receipt checks available and disable retry. Refresh never resubmits or acknowledges requests.
 
 Terminal results require explicit **Save result and dismiss request**. The panel persists a bounded summary containing request identity, original answer/contact metadata and outcome together with all current drafts, then acknowledges the original journal entry. Server receipts retain full durable outcomes. An answer accepted by the server is not proof of worker consumption. Contact saves send no messages.
 
@@ -37,7 +37,7 @@ flowchart TD
     CAS -->|Saved| Submit[Submit canonical intent through caller-owned journal]
     Submit --> Unknown[Unknown delivery or terminal receipt]
     Unknown --> Check[Explicit receipt lookup]
-    Unknown --> Retry[Explicit retry of original input]
+    Unknown --> Retry[Explicit retry of retained request ID]
     Check --> Receipt[Terminal receipt]
     Retry --> Receipt
     Receipt --> Save[Explicit save of result and all current drafts]

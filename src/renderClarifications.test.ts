@@ -24,13 +24,13 @@ function fixture() {
   const data = { questions: [question()], pending: [] as ClarificationCommandPendingV1[], contactPending: [] as SuggestedContactAdminPendingV1[] };
   const services = {
     clarifications: { version: 1, list: vi.fn<ClarificationViewServices['clarifications']['list']>(async input => ({ status: 'available', value: { version: 1, repo: input.repo, items: data.questions, nextCursor: null, total: data.questions.length, observedAt: time } })), load: vi.fn() },
-    clarificationCommands: { version: 1, pending: vi.fn(async () => data.pending), receipt: vi.fn(), acknowledge: vi.fn(async query => { data.pending = data.pending.filter(entry => entry.command.requestId !== query.requestId); }),
+    clarificationCommands: { version: 1, retry: vi.fn<NonNullable<ClarificationViewServices['clarificationCommands']['retry']>>(async query => { const entry = data.pending.find(item => item.command.repo === query.repo && item.command.requestId === query.requestId); return entry ? { status: 'available', value: accepted(entry.command) } : { status: 'unavailable', reason: 'not-found' }; }), pending: vi.fn(async () => data.pending), receipt: vi.fn(), acknowledge: vi.fn(async query => { data.pending = data.pending.filter(entry => entry.command.requestId !== query.requestId); }),
       submit: vi.fn<ClarificationViewServices['clarificationCommands']['submit']>(async input => {
         const command = { ...input, requestId: uuid }; const receipt = accepted(command); data.pending = [{ command, receipt }];
         data.questions = data.questions.map(item => item.id === input.questionId ? { ...item, state: 'answered', answer: input.answer.trim(), answeredAt: time, blocksPublication: false, answerability: { available: false, reason: 'not-pending' } } : item);
         return { status: 'available', value: receipt };
       }) },
-    suggestedContacts: { version: 1, list: vi.fn<ClarificationViewServices['suggestedContacts']['list']>(async () => ({ status: 'available', value: { version: 1, scope: 'global', items: [], nextCursor: null, observedAt: time } })), load: vi.fn(), submit: vi.fn(), receipt: vi.fn(), pending: vi.fn(async () => data.contactPending), acknowledge: vi.fn() },
+    suggestedContacts: { version: 1, list: vi.fn<ClarificationViewServices['suggestedContacts']['list']>(async () => ({ status: 'available', value: { version: 1, scope: 'global', items: [], nextCursor: null, observedAt: time } })), load: vi.fn(), submit: vi.fn(), retry: vi.fn<NonNullable<ClarificationViewServices['suggestedContacts']['retry']>>(async () => ({ status: 'unavailable', reason: 'not-found' })), receipt: vi.fn(), pending: vi.fn(async () => data.contactPending), acknowledge: vi.fn() },
   } satisfies ClarificationViewServices;
   function mount(options: Partial<Parameters<typeof mountClarifications>[1]> = {}) {
     const container = document.createElement('main'); document.body.append(container);
@@ -85,8 +85,8 @@ it('retains changed drafts while explicitly retrying an original unresolved comm
   const f = fixture(); const command: ClarificationCommandV1 = { version: 1, requestId: uuid, repo: 'org/app', runId: 'run-1', questionId: 'question-1', expectedAttempt: 1, expectedChannelId: uuid, expectedQuestionRevision: 1, answer: 'Original answer' };
   f.data.pending = [{ command, receipt: null }]; const { container, controller } = f.mount(); await ready(container); await controller.refresh(); draft(container, 'Edited unsent answer');
   expect(f.services.clarificationCommands.submit).not.toHaveBeenCalled(); container.querySelector<HTMLButtonElement>('[data-pending-action="retry"]')!.click();
-  await vi.waitFor(() => expect(f.services.clarificationCommands.submit).toHaveBeenCalled()); const { requestId: _id, ...input } = command;
-  expect(f.services.clarificationCommands.submit).toHaveBeenCalledWith(input, expect.any(AbortSignal));
+  await vi.waitFor(() => expect(f.services.clarificationCommands.retry).toHaveBeenCalled());
+  expect(f.services.clarificationCommands.retry).toHaveBeenCalledWith({ repo: command.repo, requestId: uuid }, expect.any(AbortSignal)); expect(f.services.clarificationCommands.submit).not.toHaveBeenCalled();
   expect(createClarificationDraftStore().read().answers[clarificationDraftKey(question())]).toBe('Edited unsent answer');
 });
 it('keeps unknown outcomes pending and checking a missing receipt never resubmits or acknowledges', async () => {
@@ -212,4 +212,28 @@ it.each(['answer', 'contact'] as const)('discards only a preexisting unsaved %s 
   await vi.waitFor(() => expect(container.textContent).toContain('Saved browser state removed'));
   expect(kind === 'answer' ? base.read().answers[key] : base.read().contact.name).toBe(kind === 'answer' ? undefined : '');
   expect(f.services.clarificationCommands.acknowledge).not.toHaveBeenCalled();
+});
+
+it.each(['answer', 'contact'] as const)('never submits a new %s from a stale compatibility retry row', async kind => {
+  const f = fixture();
+  if (kind === 'answer') f.data.pending = [{ command: { version: 1, requestId: uuid, repo: 'org/app', runId: 'run-1', questionId: 'question-1', expectedAttempt: 1, expectedChannelId: uuid, expectedQuestionRevision: 1, answer: 'Original' }, receipt: null }];
+  else f.data.contactPending = [{ command: { version: 1, scope: 'global', kind: 'create', requestId: uuid, id: uuid, name: 'Owner', address: 'room', enabled: true }, receipt: null }];
+  const { container, controller } = f.mount(); await ready(container); await controller.refresh(); draft(container, 'Unsent draft');
+  f.data.pending = []; f.data.contactPending = []; container.querySelector<HTMLButtonElement>('[data-pending-action="retry"]')!.click();
+  const service = kind === 'answer' ? f.services.clarificationCommands : f.services.suggestedContacts;
+  await vi.waitFor(() => expect(service.retry).toHaveBeenCalledOnce());
+  expect(service.retry).toHaveBeenCalledWith(kind === 'answer' ? { repo: 'org/app', requestId: uuid } : { scope: 'global', requestId: uuid }, expect.any(AbortSignal));
+  await vi.waitFor(() => expect(container.textContent).toContain('outcome unavailable: not-found'));
+  expect(service.submit).not.toHaveBeenCalled(); expect(service.acknowledge).not.toHaveBeenCalled();
+  expect(form(container).querySelector('textarea')?.value).toBe('Unsent draft');
+});
+it.each(['answer', 'contact'] as const)('disables compatibility %s retry when the optional exact-retry facet is absent', async kind => {
+  const f = fixture();
+  if (kind === 'answer') f.data.pending = [{ command: { version: 1, requestId: uuid, repo: 'org/app', runId: 'run-1', questionId: 'question-1', expectedAttempt: 1, expectedChannelId: uuid, expectedQuestionRevision: 1, answer: 'Original' }, receipt: null }];
+  else f.data.contactPending = [{ command: { version: 1, scope: 'global', kind: 'create', requestId: uuid, id: uuid, name: 'Owner', address: 'room', enabled: true }, receipt: null }];
+  const services: ClarificationViewServices = f.services;
+  const service = kind === 'answer' ? services.clarificationCommands : services.suggestedContacts; delete service.retry;
+  const { container, controller } = f.mount(); await ready(container); await controller.refresh();
+  const retry = container.querySelector<HTMLButtonElement>('[data-pending-action="retry"]')!; expect(retry.disabled).toBe(true); retry.click(); expect(service.submit).not.toHaveBeenCalled();
+  expect(container.querySelector<HTMLButtonElement>('[data-pending-action="check"]')?.disabled).toBe(false);
 });

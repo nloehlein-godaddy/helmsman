@@ -111,7 +111,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <div class="flow-step flow-common"><h3>Draft → durable reservation → exact command</h3><p>Reserve a request identity before sending an answer or global contact command. Keep changed unsent text separate. Require an enabled declared contribution and the effective question scope.</p></div>
 <div class="host-options">
-<article class="flow-step"><h3>Existing request receipt</h3><p>Same caller, request and input replay the retained result. Reusing the identity with changed input is rejected. A lost response preserves the original command for an explicit receipt check or exact retry.</p></article>
+<article class="flow-step"><h3>Existing request receipt</h3><p>Same caller, request and input replay the retained result. Reusing the identity with changed input is rejected. A lost response preserves the original command for an explicit receipt check or exact retry. Retry reads the retained caller request without reserving new IDs. If another tab has acknowledged it, retry is unavailable and sends nothing.</p></article>
 <article class="flow-step"><h3>New request transaction</h3><p>Answers check current run, stop intent, deadline, attempt/channel and question revision. Global contacts check reserved identity or revision. Mutation or rejection and terminal receipt commit together; receipt failure rolls back mutation.</p></article>
 </div>
 <div class="flow-arrow" aria-hidden="true">↓</div>

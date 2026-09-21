@@ -6,6 +6,7 @@ export class ClarificationJournalValidationError extends Error {}
 export interface ClarificationJournalOptions { indexedDB?: IDBFactory; databaseName?: string; uuid?: () => string; }
 export interface ClarificationJournal<Input, Command, Receipt, Query> {
   reserve(input: Input, signal?: AbortSignal): Promise<Command>;
+  retained(query: Query, signal?: AbortSignal): Promise<Command | null>;
   record(receipt: Receipt): Promise<Receipt>;
   acknowledge(query: Query, signal?: AbortSignal): Promise<void>;
   pending(signal?: AbortSignal): Promise<readonly { readonly command: Command; readonly receipt: Receipt | null }[]>;
@@ -59,6 +60,19 @@ export function createClarificationJournal<Input, Command extends { readonly req
     } finally { database.close(); }
   }
   return {
+    retained(value, signal) {
+      const query = contract.parseQuery(value);
+      return transaction<Command | null>('readonly', signal, (table, done, fail) => {
+        const read = table.index('request').get([caller, query.requestId]);
+        read.onsuccess = () => {
+          try {
+            if (read.result === undefined) { done(null); return; }
+            const saved = entry(read.result);
+            done(contract.matches(saved.command, query) ? saved.command : null);
+          } catch (error) { fail(error); }
+        };
+      });
+    },
     reserve(value, signal) {
       const input = contract.parseInput(value); const identity = key(input);
       return transaction<Command>('readwrite', signal, (table, done, fail) => {

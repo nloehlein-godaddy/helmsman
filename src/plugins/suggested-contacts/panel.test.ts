@@ -17,6 +17,9 @@ async function fixture(initial: PanelOpaqueStateV1 | null = null) {
       const receipt: SuggestedContactAdminReceiptV1 = { version: 1, scope: 'global', requestId: uuid, input: { ...input, id: command.id }, status: 'succeeded', reason: null,
         result: { id: command.id, revision: input.kind === 'create' ? 1 : input.expectedRevision + 1, name: input.name, address: input.address, enabled: input.enabled, createdAt: now } };
       data.pending = [{ command, receipt: data.loss ? null : receipt }]; return data.loss ? { status: 'unavailable', reason: 'connection-failed' } : { status: 'available', value: receipt };
+    }), retry: vi.fn<NonNullable<SuggestedContactAdminServiceV1['retry']>>(async query => {
+      const entry = data.pending.find(item => item.command.requestId === query.requestId);
+      return entry?.receipt ? { status: 'available', value: entry.receipt } : { status: 'unavailable', reason: entry ? 'connection-failed' : 'not-found' };
     }), receipt: vi.fn<SuggestedContactAdminServiceV1['receipt']>(async () => ({ status: 'available', value: data.pending[0]?.receipt ?? null })), acknowledge: vi.fn(async query => { expect(JSON.stringify(data.saved)).toContain(query.requestId); data.pending = []; }) };
   let instance: PluginPanelInstance;
   const compare = vi.fn<NonNullable<PluginPanelContext['compareAndSetState']>>(async (expected, next) => { if (data.quota) throw new Error('Quota'); if (JSON.stringify(expected) !== JSON.stringify(data.saved)) throw new Error('Conflict'); data.saved = structuredClone(next); state = { ...state, savedState: data.saved }; await instance.update(state); });
@@ -47,8 +50,8 @@ describe('independent global suggested contacts', () => {
   it('checks without sending and retries original create metadata without choosing new contact IDs', async () => {
     const f = await fixture(); f.data.loss = true; input(f.container, 'name', 'Original'); input(f.container, 'address', 'room'); button(f.container, 'Create global contact').click(); await vi.waitFor(() => expect(f.container.textContent).toContain('Outcome unknown'));
     input(f.container, 'name', 'New draft'); button(f.container, 'Check receipt').click(); await vi.waitFor(() => expect(f.service.receipt).toHaveBeenCalledOnce()); expect(f.service.submit).toHaveBeenCalledOnce();
-    await vi.waitFor(() => expect(button(f.container, 'Retry original').disabled).toBe(false)); button(f.container, 'Retry original').click(); await vi.waitFor(() => expect(f.service.submit).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(f.service.submit).mock.calls[1]?.[0]).toEqual({ version: 1, scope: 'global', kind: 'create', name: 'Original', address: 'room', enabled: true }); expect(f.data.pending[0]?.command.id).toBe(id);
+    await vi.waitFor(() => expect(button(f.container, 'Retry original').disabled).toBe(false)); button(f.container, 'Retry original').click(); await vi.waitFor(() => expect(f.service.retry).toHaveBeenCalledOnce());
+    expect(f.service.retry).toHaveBeenCalledWith({ scope: 'global', requestId: uuid }, expect.any(AbortSignal)); expect(f.service.submit).toHaveBeenCalledOnce(); expect(f.data.pending[0]?.command.name).toBe('Original'); expect(f.data.pending[0]?.command.id).toBe(id);
   });
   it('protects pending drafts/results and retains a newer edit on failed result storage', async () => {
     const f = await fixture(); input(f.container, 'name', 'Original'); input(f.container, 'address', 'room'); button(f.container, 'Create global contact').click(); await vi.waitFor(() => expect(f.container.querySelector('[data-request-id]')).not.toBeNull());
@@ -79,4 +82,20 @@ it.each(['next', 'previous'] as const)('retains the displayed global-contact pag
   await f.instance.refresh?.(); expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: direction === 'next' ? null : 'next' }), expect.any(AbortSignal));
   button(f.container, label).click(); await vi.waitFor(() => expect(f.container.textContent).toContain(`Page ${direction === 'next' ? 2 : 1}`));
   expect(f.container.textContent).toContain(direction === 'next' ? 'Second page contact' : 'First page contact');
+});
+
+it.each(['missing-retry', 'removed-request'] as const)('never allocates another contact after %s', async scenario => {
+  const f = await fixture(); f.data.loss = true; input(f.container, 'name', 'Original'); input(f.container, 'address', 'room'); button(f.container, 'Create global contact').click();
+  await vi.waitFor(() => expect(button(f.container, 'Retry original').disabled).toBe(false)); input(f.container, 'name', 'Retained draft');
+  if (scenario === 'missing-retry') {
+    delete f.service.retry; await f.instance.refresh?.(); expect(button(f.container, 'Retry original').disabled).toBe(true);
+    button(f.container, 'Retry original').click();
+  } else {
+    f.data.pending = []; button(f.container, 'Retry original').click();
+    await vi.waitFor(() => expect(f.service.retry).toHaveBeenCalledWith({ scope: 'global', requestId: uuid }, expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(f.container.textContent).toContain('Original outcome is unavailable'));
+    expect(f.data.pending).toHaveLength(0);
+  }
+  expect(f.service.submit).toHaveBeenCalledOnce(); expect(f.service.acknowledge).not.toHaveBeenCalled();
+  expect(f.container.querySelector<HTMLInputElement>('[name="name"]')?.value).toBe('Retained draft');
 });

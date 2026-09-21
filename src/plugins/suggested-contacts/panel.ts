@@ -97,10 +97,11 @@ class Contacts implements PluginPanelInstance {
     void this.action(async token => {
       if (action === 'save') { if (entry.receipt) await this.saveResult(entry.receipt, token); return; }
       if (action === 'retry' && (!this.ready || !this.saved.writable || !await this.saved.save() || !this.active(token))) return;
-      const { requestId: _request, ...intent } = entry.command; const { id: _id, ...create } = intent;
-      const input: SuggestedContactAdminInputV1 = intent.kind === 'create' ? { ...create, kind: 'create' } : intent;
-      const result = action === 'retry' ? await this.context.services.suggestedContacts!.submit(input, this.controller.signal)
-        : await this.context.services.suggestedContacts!.receipt({ scope: 'global', requestId: entry.command.requestId }, this.controller.signal);
+      const service = this.context.services.suggestedContacts!;
+      if (action === 'retry' && !service.retry) throw new Error('Original request retry is unavailable. Check its receipt instead.');
+      const query = { scope: 'global' as const, requestId: entry.command.requestId };
+      const result = action === 'retry' ? await service.retry!(query, this.controller.signal)
+        : await service.receipt(query, this.controller.signal);
       if (!this.active(token)) return;
       this.notice = result?.status === 'available' ? result.value ? 'Original receipt found. Save its result before dismissing the request.' : 'No receipt is recorded. Retry original retains the request and contact identity.' : 'Original outcome is unavailable. The request and draft are retained.';
     });
@@ -154,7 +155,7 @@ class Contacts implements PluginPanelInstance {
       for (const entry of this.pending) {
         const row = node('article'); row.dataset.requestId = entry.command.requestId; row.append(node('p', `${entry.command.kind} · ${entry.command.id}${entry.command.kind === 'update' ? ` · Original revision ${entry.command.expectedRevision}` : ''}`), node('small', entry.command.requestId), node('p', `${entry.command.name} · ${entry.command.address} · ${entry.command.enabled ? 'Enabled' : 'Disabled'}`), node('p', entry.receipt ? `${entry.receipt.status}${entry.receipt.reason ? `: ${entry.receipt.reason}` : ''}` : 'Outcome unknown'));
         if (entry.receipt) row.append(this.button('Save result and dismiss request', () => this.reconcile(entry, 'save'), !this.saved.writable));
-        else row.append(this.button('Check receipt', () => this.reconcile(entry, 'check')), this.button('Retry original', () => this.reconcile(entry, 'retry'), !this.ready || !this.saved.writable)); requests.append(row);
+        else row.append(this.button('Check receipt', () => this.reconcile(entry, 'check')), this.button('Retry original', () => this.reconcile(entry, 'retry'), !this.ready || !this.saved.writable || !this.context.services.suggestedContacts?.retry)); requests.append(row);
       } root.append(requests);
     }
     const saved = node('details'); saved.open = this.savedOpen; saved.append(node('summary', 'Saved global drafts and results')); saved.addEventListener('toggle', () => { if (saved.isConnected) this.savedOpen = saved.open; });

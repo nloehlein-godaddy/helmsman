@@ -33,6 +33,15 @@ export function createHostSuggestedContactAdminService(lifetime: AbortSignal, op
       call.check(); const result = await record(await call.request('/api/suggested-contact-admin/commands', value => parseSuggestedContactAdminReceiptV1(value, command), command), call);
       return result.status === 'unavailable' ? result : result.value === null ? clarificationUnavailable('invalid-response') : clarificationAvailable(result.value);
     },
+    async retry(value, signal) {
+      const input = parseSuggestedContactAdminReceiptQueryV1(value); const call = operation(signal); let command;
+      try { command = await clarificationAbortable(journal.retained(input, call.signal), call.signal); }
+      catch (error) { call.check(); return clarificationUnavailable(error instanceof ClarificationJournalValidationError || error instanceof SourceContractValidationError ? 'invalid-response' : 'service-unavailable'); }
+      call.check();
+      if (!command) return clarificationUnavailable('not-found');
+      const result = await record(await call.request('/api/suggested-contact-admin/commands', value => parseSuggestedContactAdminReceiptV1(value, command), command), call);
+      return result.status === 'unavailable' ? result : result.value === null ? clarificationUnavailable('invalid-response') : clarificationAvailable(result.value);
+    },
     async receipt(value, signal) {
       const input = parseSuggestedContactAdminReceiptQueryV1(value); const call = operation(signal);
       return record(await call.request(`/api/suggested-contact-admin/receipts/${encodeURIComponent(input.requestId)}?scope=global`, value => value === null ? null : parseSuggestedContactAdminReceiptV1(value, input)), call);

@@ -271,3 +271,17 @@ The planned legacy cutover composition will contain the independently authored v
 - Concurrent tabs reserve consistently and conflicting server submissions produce one success. Response loss preserves original identity and draft. Timeout/cancellation rejections commit their lifecycle transition, and receipt failure rolls it back.
 - Global contacts preserve name/address/enabled semantics; create retry cannot duplicate, stale update revisions reject, and contact outage leaves question reads and answers available. No save sends a message and no answer receipt claims worker consumption.
 - Authored viewer selection preserves effective scope, stable panel state and rehoming lifecycle. PR compatibility remains explicitly accounted for until extraction. Independent SDK-only package installation, public-route tests and visual cutover proof are required before claiming the presentation slice complete.
+
+### Exact-request retry follow-up
+
+Postcommit review of authored forms exposed a shared browser-journal hazard: `submit(originalInput)` is an initial submission API, and can reserve another identity after another tab acknowledges the original. Clarification/contact services now have an optional exact-request retry operation; their consumers disable retry on older hosts rather than falling back to submission. The correction's acceptance evidence is recorded in the ledger.
+
+Before the next page cutover, apply and verify the same boundary for run commands, task-source commands and source administration:
+
+- Add optional `retry(receiptQuery, signal)` to each service. Read the exact caller-owned retained command, validate scope and stored evidence, and never reserve identities. Missing entries fail closed. Acknowledgment after lookup may replay only the original command and cannot recreate its journal entry.
+- Update New run, Run viewer, Running, Recent, Backlog, Underway, Triage, Todos and Source settings, including its automatic settings panel. Keep an intentional new Run retry action separate from redelivery of its original command.
+- Preserve ID-less submitted Todo drafts. They cannot establish an original request identity by themselves. Reconcile through an existing matching journal when available; otherwise retain evidence and require explicit reconciliation without issuing another command as a retry.
+- Prove stale peer rows after acknowledgment cause no new request or side effect; new reservations remain untouched; acknowledgment during exact lookup/delivery retains original IDs; inactive/foreign callers, canceled operations and malformed storage fail closed. Older hosts retain receipt checks while retry stays unavailable.
+- Keep source/provider bindings, launch settings, draft/result ordering and recovery-required outcomes intact. Existing server uniqueness guards for admitted retries do not replace browser identity guarantees; freeform launch has no equivalent target-attempt deduplication.
+
+These fixes precede the PR compatibility extraction, Runs cutover and clarification alias migration. They do not reduce the remaining E/F/G scope.

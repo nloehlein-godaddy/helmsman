@@ -22,6 +22,9 @@ async function fixture(initial: PanelOpaqueStateV1 | null = null) {
       const receipt: ClarificationCommandReceiptV1 = { version: 1, requestId, input, status: 'succeeded', reason: null, result: { questionId: input.questionId, revision: input.expectedQuestionRevision + 1, answer: input.answer, answeredAt: now } };
       data.pending = [{ command, receipt: data.loss ? null : receipt }];
       return data.loss ? { status: 'unavailable', reason: 'connection-failed' } : { status: 'available', value: receipt };
+    }), retry: vi.fn<NonNullable<ClarificationCommandServiceV1['retry']>>(async query => {
+      const entry = data.pending.find(item => item.command.repo === query.repo && item.command.requestId === query.requestId);
+      return entry?.receipt ? { status: 'available', value: entry.receipt } : { status: 'unavailable', reason: entry ? 'connection-failed' : 'not-found' };
     }), receipt: vi.fn<ClarificationCommandServiceV1['receipt']>(async () => ({ status: 'available', value: data.pending[0]?.receipt ?? null })), acknowledge: vi.fn(async query => { expect(JSON.stringify(data.saved)).toContain(query.requestId); data.pending = data.pending.filter(value => value.command.requestId !== query.requestId); }) };
   let instance: PluginPanelInstance;
   const compare = vi.fn<NonNullable<PluginPanelContext['compareAndSetState']>>(async (expected, next) => { if (data.quota) throw new Error('Quota'); if (JSON.stringify(expected) !== JSON.stringify(data.saved)) throw new Error('Conflict'); data.saved = structuredClone(next); state = { ...state, savedState: data.saved }; await instance.update(state); });
@@ -50,7 +53,7 @@ describe('independent authored questions', () => {
   it('retains immutable original delivery through response loss and changed drafts; check does not resend', async () => {
     const f = await fixture(); f.data.loss = true; edit(f.container, 'Original'); button(f.container, 'Accept answer').click(); await vi.waitFor(() => expect(f.container.textContent).toContain('Outcome unknown'));
     edit(f.container, 'New unsent text'); button(f.container, 'Check receipt').click(); await vi.waitFor(() => expect(f.commands.receipt).toHaveBeenCalledOnce()); expect(f.commands.submit).toHaveBeenCalledOnce();
-    await vi.waitFor(() => expect(button(f.container, 'Retry original').disabled).toBe(false)); button(f.container, 'Retry original').click(); await vi.waitFor(() => expect(f.commands.submit).toHaveBeenCalledTimes(2)); expect(vi.mocked(f.commands.submit).mock.calls[1]?.[0].answer).toBe('Original'); expect(f.container.querySelector('textarea')?.value).toBe('New unsent text');
+    await vi.waitFor(() => expect(button(f.container, 'Retry original').disabled).toBe(false)); button(f.container, 'Retry original').click(); await vi.waitFor(() => expect(f.commands.retry).toHaveBeenCalledOnce()); expect(f.commands.retry).toHaveBeenCalledWith({ repo: 'org/a', requestId }, expect.any(AbortSignal)); expect(f.commands.submit).toHaveBeenCalledOnce(); expect(f.data.pending[0]?.command.answer).toBe('Original'); expect(f.container.querySelector('textarea')?.value).toBe('New unsent text');
   });
   it('blocks acknowledgment when newer draft/result state cannot save, then retries without resubmission', async () => {
     const f = await fixture(); edit(f.container, 'Original'); button(f.container, 'Accept answer').click(); await vi.waitFor(() => expect(f.container.querySelector('[data-request-id]')).not.toBeNull());
@@ -98,4 +101,20 @@ it.each(['next', 'previous'] as const)('retains the displayed question page afte
   expect(f.container.textContent).toContain(`Page ${displayed}`); button(f.container, label).click();
   await vi.waitFor(() => expect(f.container.textContent).toContain(`Page ${direction === 'next' ? 2 : 1}`));
   expect(f.container.textContent).toContain(direction === 'next' ? 'Second page question' : 'First page question');
+});
+
+it.each(['missing-retry', 'removed-request'] as const)('never creates another answer request after %s', async scenario => {
+  const f = await fixture(); f.data.loss = true; edit(f.container, 'Original'); button(f.container, 'Accept answer').click();
+  await vi.waitFor(() => expect(button(f.container, 'Retry original').disabled).toBe(false)); edit(f.container, 'Retained draft');
+  if (scenario === 'missing-retry') {
+    delete f.commands.retry; await f.instance.refresh?.(); expect(button(f.container, 'Retry original').disabled).toBe(true);
+    button(f.container, 'Retry original').click();
+  } else {
+    f.data.pending = []; button(f.container, 'Retry original').click();
+    await vi.waitFor(() => expect(f.commands.retry).toHaveBeenCalledWith({ repo: 'org/a', requestId }, expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(f.container.textContent).toContain('Original outcome is unavailable'));
+    expect(f.data.pending).toHaveLength(0);
+  }
+  expect(f.commands.submit).toHaveBeenCalledOnce(); expect(f.commands.acknowledge).not.toHaveBeenCalled();
+  expect(f.container.querySelector('textarea')?.value).toBe('Retained draft');
 });

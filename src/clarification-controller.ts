@@ -56,7 +56,11 @@ export function mountClarifications(container: HTMLElement, options: {
       }
     }
     container.querySelectorAll('details').forEach(item => { item.open = details.get(item.className) ?? false; });
-    container.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = busy || !visible || button.hasAttribute('data-protected'); });
+    container.querySelectorAll<HTMLButtonElement>('button').forEach(button => {
+      const kind = button.closest<HTMLElement>('[data-pending-kind]')?.dataset.pendingKind;
+      const retryUnavailable = button.dataset.pendingAction === 'retry' && !(kind === 'answer' ? services.clarificationCommands.retry : services.suggestedContacts.retry);
+      button.disabled = busy || !visible || button.hasAttribute('data-protected') || retryUnavailable;
+    });
   }
   function transition(): void { activity.abort(); activity = new AbortController(); generation++; sequence++; busy = false; }
   function persist(form: HTMLFormElement): boolean {
@@ -149,16 +153,17 @@ export function mountClarifications(container: HTMLElement, options: {
     if (kind === 'answer') {
       const entry = pending.find(entry => entry.command.requestId === requestId); if (!entry) return; const query = { repo: entry.command.repo, requestId: entry.command.requestId };
       if (actionName === 'acknowledge') { if (entry.receipt) await accept(entry.receipt, token); return; }
-      const { requestId: _requestId, ...input } = entry.command;
-      const result = actionName === 'retry' ? await services.clarificationCommands.submit(input, activity.signal) : await services.clarificationCommands.receipt(query, activity.signal);
+      if (actionName === 'retry' && !services.clarificationCommands.retry) throw new Error('Original answer retry is unavailable. Check its receipt instead.');
+      const result = actionName === 'retry' ? await services.clarificationCommands.retry!(query, activity.signal) : await services.clarificationCommands.receipt(query, activity.signal);
       if (!current(token)) return; if (result.status === 'unavailable') throw new Error(`Original answer outcome unavailable: ${result.reason}`);
       if (result.value) await accept(result.value, token); else notice = 'No receipt is recorded yet. The original request and draft are retained.';
     } else if (kind === 'contact') {
       const entry = contactPending.find(entry => entry.command.requestId === requestId); if (!entry) return;
       if (actionName === 'acknowledge') { if (entry.receipt) await accept(entry.receipt, token); return; }
-      const { requestId: _requestId, ...intent } = entry.command; const { id: _id, ...create } = intent;
-      const result = actionName === 'retry' ? await services.suggestedContacts.submit(intent.kind === 'create' ? { ...create, kind: 'create' } : intent, activity.signal)
-        : await services.suggestedContacts.receipt({ scope: 'global', requestId: entry.command.requestId }, activity.signal);
+      if (actionName === 'retry' && !services.suggestedContacts.retry) throw new Error('Original contact retry is unavailable. Check its receipt instead.');
+      const query = { scope: 'global' as const, requestId: entry.command.requestId };
+      const result = actionName === 'retry' ? await services.suggestedContacts.retry!(query, activity.signal)
+        : await services.suggestedContacts.receipt(query, activity.signal);
       if (!current(token)) return; if (result.status === 'unavailable') throw new Error(`Original contact outcome unavailable: ${result.reason}`);
       if (result.value) await accept(result.value, token); else notice = 'No receipt is recorded yet. The original request and draft are retained.';
     }

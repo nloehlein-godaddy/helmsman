@@ -20,6 +20,7 @@ export interface ClarificationCommandPendingV1 { readonly command: Clarification
 export interface ClarificationCommandServiceV1 {
   readonly version: 1;
   submit(input: ClarificationCommandInputV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<ClarificationCommandReceiptV1>>;
+  retry?(input: ClarificationCommandReceiptQueryV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<ClarificationCommandReceiptV1>>;
   receipt(input: ClarificationCommandReceiptQueryV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<ClarificationCommandReceiptV1 | null>>;
   pending(): Promise<readonly ClarificationCommandPendingV1[]>;
   acknowledge(input: ClarificationCommandReceiptQueryV1, signal?: AbortSignal): Promise<void>;

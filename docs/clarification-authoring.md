@@ -46,8 +46,10 @@ flowchart TD
     Reserve --> Submit[Submit immutable original request]
     Submit -->|Unknown transport outcome| Retain[Keep request and draft]
     Retain --> Lookup[Check original receipt]
-    Lookup -->|No receipt| Retry[Explicit retry with original intent]
-    Retry --> Submit
+    Lookup -->|No receipt| Retry[Explicit retry of retained request ID]
+    Retry --> Retained{Original caller journal still contains request?}
+    Retained -->|Yes| Submit
+    Retained -->|No| Missing[Unavailable; never reserve a replacement]
     Submit --> Commit[Atomic admission or rejection receipt]
     Lookup -->|Recorded receipt| Present[Persist presented result and affected draft]
     Commit --> Present
@@ -56,7 +58,7 @@ flowchart TD
     Delivery --> Consumption[Worker may consume answer]
 ```
 
-Use `pending()` to restore unresolved work, `receipt({ repo, requestId }, signal?)` to reconcile and explicit `submit` of the original pending command's input to retry. Remove `requestId` when passing an input back to `submit`; the host finds the existing identity. A null receipt is an unknown outcome, never permission to invent a new request. Refresh does not imply resubmission. After saving the result and affected draft, call `acknowledge({ repo, requestId }, signal?)`. Only recorded terminal results can be removed. Cancellation during acknowledgment aborts its storage transaction; unknown requests are never silently discarded. Storage failure prevents initial transmission or retains the unresolved request for later recovery.
+Use `pending()` to restore unresolved work, `receipt({ repo, requestId }, signal?)` to reconcile and the optional `retry({ repo, requestId }, signal?)` to retry an exact retained request. Retry reads the caller-owned journal and delivers its immutable original command; it never reserves a request. If another tab has already acknowledged that entry, retry is unavailable and sends nothing. Acknowledgment after the retry reads the command still cannot change its identity: the server replays the original receipt. Older hosts may omit `retry`; disable that action while keeping receipt checks available. Never fall back to `submit` for retry, because a removed reservation would allocate a new identity. A null receipt is an unknown outcome, never permission to invent a new request. Refresh does not imply resubmission. After saving the result and affected draft, call `acknowledge({ repo, requestId }, signal?)`. Only recorded terminal results can be removed. Cancellation during acknowledgment aborts its storage transaction; unknown requests are never silently discarded. Storage failure prevents initial transmission or retains the unresolved request for later recovery.
 
 Each contribution journal permits 256 entries and 8 MiB of encoded pending state. It never evicts unresolved requests to make room. Disabled presentation can leave these requests pending; restoring the same contribution restores its journal. A different contribution has a different caller identity and cannot adopt another caller's requests.
 
@@ -66,7 +68,7 @@ Contacts are a separate explicitly global service. List/load queries and create/
 
 Contact DTOs preserve `id`, positive `revision`, `name`, `address`, `enabled` and `createdAt`. Names and addresses are trimmed nonempty text with maxima of 160 and 320 UTF-16 code units. Address can be a Jira account ID or other identifier; it is not restricted to email. Create requires explicit `enabled`. The browser atomically reserves both contact and request UUIDs once. There is one unresolved create per contribution; retry reuses both IDs. Updates target an existing ID and expected revision. Existing legacy IDs remain valid. Saving contacts changes metadata only and never sends a notification.
 
-Contact commands have the same `submit`, `receipt`, `pending` and explicit `acknowledge` protocol as answers. Receipt/acknowledgment queries carry `{ scope: 'global', requestId }`. Contact create receipts include the host-reserved ID in their immutable intent. To explicitly retry a pending create, strip both `requestId` and reserved `id` before passing the original public input to `submit`; update retries strip only `requestId`. Preserve all other canonical fields unchanged. Rejected stale updates require acknowledged results before submitting a refreshed revision.
+Contact commands have the same `submit`, optional `retry`, `receipt`, `pending` and explicit `acknowledge` protocol as answers. Retry/receipt/acknowledgment queries carry `{ scope: 'global', requestId }`. Contact create receipts include the host-reserved ID in their immutable intent. Retry delivers that retained command with both its original request and contact IDs. A missing reservation cannot create a new contact; disable retry when the host omits the method. Rejected stale updates require acknowledged results before submitting a refreshed revision.
 
 ## Verification and compatibility
 

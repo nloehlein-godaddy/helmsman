@@ -13,3 +13,5 @@ Previous drafts and requests opens the retained compatibility contribution with 
 Build with `node build.mjs` after installing TypeScript and the distributed `@helmsman/plugin-sdk`. Runtime modules are package-relative; SDK imports are types only. Rename both package IDs and the page's cross-package initial-layout references when copying for independent installation. See [authored clarification authoring](../../../docs/authored-clarifications.md) and [implementation status](../../../docs/plugin-implementation-progress.md).
 
 _Helmsman · not reported - not reported_
+
+Retry requires the host's optional exact-request `retry` method. It never calls `submit` to recreate a missing reservation; older hosts disable retry and retain receipt checks.

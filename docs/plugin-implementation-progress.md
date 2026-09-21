@@ -233,3 +233,13 @@ Independent review fixed clean-state saves bypassing comparison and failed pagin
 READMEs, package/SDK/operator guides and Markdown/offline HTML flows reflect these boundaries. All 83 documentation files passed local-target checks. Updated HTML flows rendered without horizontal overflow at desktop and mobile sizes and were visually inspected. Exact-commit architecture review and push remain pending. This increment does not complete E4 or Phase E; Runs/PR and clarification alias migration, remaining integrations, F and G stay open.
 
 _Helmsman · not reported - not reported_
+
+## Phase E4 exact-commit retry correction acceptance
+
+Review of `612057b` found that an explicit Retry original action used `submit` with the retained input. If another tab had already acknowledged the original reservation, that path could reserve a new request and, for contact creation, a new contact ID. Instance-specific saved-state comparison cannot prevent this across distinct instances. The correction adds optional exact-request retry operations that read the original caller-owned journal without reserving identities. Missing requests fail closed; older hosts keep receipt lookup available and disable retry. Authored panels and the compatibility controller use this operation exclusively for redelivery.
+
+Correction validation passed 32 host-service/contract tests and 52 consumer tests, final TypeScript and production/distribution builds, and all nine Node distribution checks. The corrected source-denied questions scenario passed in 27.3 seconds and contacts in 9.9 seconds. Both prove that a stale peer retry after acknowledgment sends zero commands and recreates no journal; contact creation retains exactly one original contact. Desktop/mobile screenshots were inspected for both scenarios. Independent host and consumer reviews are clean. All 83 documentation files pass local-target checks, and matching Markdown/offline HTML flows describe exact retained-request retry; desktop/mobile HTML inspection is clean. Exact-fix-commit review and push remain pending.
+
+A sibling scan found the same submit-as-retry pattern in run, task-source and source-administration consumers; the next verification/fix batch must cover those public services and every retry consumer before continuing page cutovers. This finding does not reopen unrelated completed extraction work, but its command-identity guarantee requires explicit correction evidence. No completion or push of this correction is claimed here.
+
+_Helmsman · not reported - not reported_

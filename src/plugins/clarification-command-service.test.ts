@@ -40,7 +40,7 @@ it('retains response loss and retries the exact canonical intent under its origi
   expect(await f.service.submit({ ...input, answer: ' Yes ' })).toEqual({ status: 'unavailable', reason: 'connection-failed' });
   const original = command; expect((await f.service.pending())[0]).toEqual({ command: original, receipt: null });
   f.fetcher.mockImplementation(async (_url, init) => { expect(JSON.parse(String(init?.body)).command).toEqual(original); return Response.json(receipt(original)); });
-  expect((await f.service.submit(input)).status).toBe('available');
+  expect((await f.service.retry!({ repo: input.repo, requestId: original.requestId })).status).toBe('available');
   await f.service.acknowledge({ repo: input.repo, requestId: original.requestId }); expect(await f.service.pending()).toEqual([]);
 });
 it('rejects unknown acknowledgment and receipt rebinding without losing pending identity', async () => {
@@ -102,4 +102,64 @@ it('bounds pending reservations without evicting unresolved requests', async () 
   for (let index = 0; index < 256; index++) await f.journal.reserve({ ...input, questionId: `question-${index}` });
   await expect(f.journal.reserve({ ...input, questionId: 'overflow' })).rejects.toThrow('Reconcile pending');
   expect(await f.journal.pending()).toHaveLength(256);
+});
+
+it('does not allocate or dispatch a stale retry after another service acknowledges its original request', async () => {
+  const f = setup(); const command = await f.journal.reserve(input); const query = { repo: input.repo, requestId: command.requestId };
+  const peer = createHostClarificationCommandService(f.lifetime.signal, { caller, scope: () => ({ repo: input.repo, active: true, epoch: 1, signal: f.lifetime.signal }),
+    fetch: f.fetcher, journal: createClarificationCommandJournal(caller, { indexedDB: f.indexedDB }) });
+  expect((await f.service.pending())[0]?.command).toEqual(command);
+  await f.journal.record(receipt(command)); await peer.acknowledge(query);
+  const next = await f.journal.reserve({ ...input, answer: 'New explicit answer' }); const reserve = vi.spyOn(f.journal, 'reserve');
+  expect(await f.service.retry!(query)).toEqual({ status: 'unavailable', reason: 'not-found' });
+  expect(reserve).not.toHaveBeenCalled(); expect(f.fetcher).not.toHaveBeenCalled();
+  expect(await f.journal.pending()).toEqual([{ command: next, receipt: null }]);
+});
+it('retains original answer identity when acknowledgment races after exact retry lookup', async () => {
+  const f = setup(); const command = await f.journal.reserve(input); const query = { repo: input.repo, requestId: command.requestId };
+  await f.journal.record(receipt(command));
+  const peer = createClarificationCommandJournal(caller, { indexedDB: f.indexedDB }); const retained = f.journal.retained.bind(f.journal);
+  vi.spyOn(f.journal, 'retained').mockImplementationOnce(async (query, signal) => { const saved = await retained(query, signal); await peer.acknowledge(query); return saved; });
+  const reserve = vi.spyOn(f.journal, 'reserve');
+  f.fetcher.mockImplementation(async (_url, init) => { expect(JSON.parse(String(init?.body)).command).toEqual(command); return Response.json(receipt(command)); });
+  expect(await f.service.retry!(query)).toEqual({ status: 'available', value: receipt(command) });
+  expect(reserve).not.toHaveBeenCalled(); expect(await f.journal.pending()).toEqual([]);
+});
+it('rejects foreign retry scope and caller before dispatching a retained answer', async () => {
+  const f = setup(); const command = await f.journal.reserve(input); const retained = vi.spyOn(f.journal, 'retained');
+  expect(await f.service.retry!({ repo: 'org/foreign', requestId: command.requestId })).toEqual({ status: 'unavailable', reason: 'forbidden' });
+  expect(retained).not.toHaveBeenCalled();
+  const foreign = createHostClarificationCommandService(f.lifetime.signal, { caller: 'example.other/panel', scope: () => ({ repo: null, active: true, epoch: 1, signal: f.lifetime.signal }),
+    fetch: f.fetcher, journal: createClarificationCommandJournal('example.other/panel', { indexedDB: f.indexedDB }) });
+  expect(await foreign.retry!({ repo: input.repo, requestId: command.requestId })).toEqual({ status: 'unavailable', reason: 'not-found' });
+  expect(await f.journal.retained({ repo: 'org/other', requestId: command.requestId })).toBeNull(); expect(f.fetcher).not.toHaveBeenCalled();
+});
+it('cancels a delayed exact answer lookup without dispatching or changing its journal', async () => {
+  const f = setup(); const command = await f.journal.reserve(input); let release!: (value: ClarificationCommandV1) => void;
+  vi.spyOn(f.journal, 'retained').mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+  const pending = f.service.retry!({ repo: input.repo, requestId: command.requestId });
+  const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' }); f.change(); await rejected; release(command);
+  expect(f.fetcher).not.toHaveBeenCalled(); expect(await f.journal.pending()).toEqual([{ command, receipt: null }]);
+});
+it('fails closed for unavailable retry storage and malformed retry queries', async () => {
+  const f = setup(); const command = await f.journal.reserve(input);
+  vi.spyOn(f.journal, 'retained').mockRejectedValueOnce(new Error('Storage unavailable'));
+  expect(await f.service.retry!({ repo: input.repo, requestId: command.requestId })).toEqual({ status: 'unavailable', reason: 'service-unavailable' });
+  await expect(f.service.retry!(null as never)).rejects.toThrow(); expect(f.fetcher).not.toHaveBeenCalled();
+  expect(await f.journal.pending()).toEqual([{ command, receipt: null }]);
+});
+it('rejects malformed retained receipt data without dispatching or replacing its request', async () => {
+  const f = setup(); const command = await f.journal.reserve(input);
+  await new Promise<void>((resolve, reject) => {
+    const open = f.indexedDB.open('helmsman.clarification-commands', 1); open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result; const tx = db.transaction('pending', 'readwrite'); const table = tx.objectStore('pending');
+      const read = table.index('request').get([caller, command.requestId]);
+      read.onsuccess = () => { table.put({ ...read.result, receipt: {} }); };
+      tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => { db.close(); reject(tx.error); };
+    };
+  });
+  const reserve = vi.spyOn(f.journal, 'reserve');
+  expect(await f.service.retry!({ repo: input.repo, requestId: command.requestId })).toEqual({ status: 'unavailable', reason: 'invalid-response' });
+  expect(reserve).not.toHaveBeenCalled(); expect(f.fetcher).not.toHaveBeenCalled(); await expect(f.journal.pending()).rejects.toThrow();
 });

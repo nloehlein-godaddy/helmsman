@@ -115,7 +115,9 @@ flowchart TD
     Remove --> Journals[Command journals remain unchanged]
     Remove -->|Retry retained result save| Save
     Submit -->|Response lost| Pending[Keep original reserved command<br/>User checks receipt or retries exact input]
-    Pending --> Submit
+    Pending --> Retained{Original request remains in caller journal?}
+    Retained -->|Yes; same IDs and input| Submit
+    Retained -->|No| MissingRequest[Unavailable; never reserve a replacement]
     Legacy[Unknown question provenance] --> ReadOnly[Visible and read-only<br/>Required unanswered obligation still blocks publication]
 ```
 

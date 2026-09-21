@@ -11,3 +11,5 @@ Per-panel state retains one create draft, up to 64 update drafts and 32 compact 
 The compatibility recovery link preserves header scope and opens the original contribution. No compatibility drafts, journals or receipts are adopted or automatically replayed. Build with `node build.mjs` against the copied distributed SDK and TypeScript. Runtime imports remain inside this package. See [authored clarification authoring](../../../docs/authored-clarifications.md).
 
 _Helmsman · not reported - not reported_
+
+Retry requires the host's optional exact-request `retry` method. It never calls `submit` to recreate a missing reservation; older hosts disable retry and retain receipt checks.

@@ -25,6 +25,17 @@ export function createHostClarificationCommandService(lifetime: AbortSignal, opt
       call.check(); const result = await record(await call.request('/api/clarification-command', value => parseClarificationCommandReceiptV1(value, command), { command, scopeRepo: call.scope.repo }), call);
       return result.status === 'unavailable' ? result : result.value === null ? clarificationUnavailable('invalid-response') : clarificationAvailable(result.value);
     },
+    async retry(value, signal) {
+      const input = parseClarificationCommandReceiptQueryV1(value); const call = operation(signal);
+      if (!call.allowed(input.repo)) return clarificationUnavailable('forbidden');
+      let command;
+      try { command = await clarificationAbortable(journal.retained(input, call.signal), call.signal); }
+      catch (error) { call.check(); return clarificationUnavailable(error instanceof ClarificationJournalValidationError || error instanceof SourceContractValidationError ? 'invalid-response' : 'service-unavailable'); }
+      call.check();
+      if (!command) return clarificationUnavailable('not-found');
+      const result = await record(await call.request('/api/clarification-command', value => parseClarificationCommandReceiptV1(value, command), { command, scopeRepo: call.scope.repo }), call);
+      return result.status === 'unavailable' ? result : result.value === null ? clarificationUnavailable('invalid-response') : clarificationAvailable(result.value);
+    },
     async receipt(value, signal) {
       const input = parseClarificationCommandReceiptQueryV1(value); const call = operation(signal);
       if (!call.allowed(input.repo)) return clarificationUnavailable('forbidden');
