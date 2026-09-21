@@ -1,0 +1,15 @@
+# Native terminal authoring
+
+Native terminal packages are backend-only packages that register one `helmsman/native-terminal@1` provider. Declare the contribution in `backend.provides` and `backend.nativeTerminals` with `access: ["native-session"]`. A native terminal package cannot mix unrelated backend capabilities.
+
+Import the public provider types from `@helmsman/plugin-sdk`. Package sources may use Node built-ins, but must not import application modules, private server helpers, execution-host packages, or another plugin package. Capture the executable and socket path as package settings. Each subprocess must use those retained settings, bounded output, a timeout, and the optional invocation `AbortSignal`.
+
+`sessionIdentity()` is synchronous and stable while the activation, resolved socket, and socket generation remain unchanged. It must change after restart, socket replacement, or a different resolved socket. On platforms that cannot inspect a socket entry, bind identity to its parent-directory generation. If neither can be inspected, fail closed. An unavailable provider never selects another terminal.
+
+`listTabs` returns normalized opaque window, workspace, and surface references. `readScreen`, `send`, and `sendKey` operate only on the supplied surface. Keep references and results within the SDK bounds and pass user text as an argument rather than shell syntax. The host retains repository attribution, action policy, durable command receipts, stale-target checks, and no-replay semantics.
+
+A provider whose metadata declares `browser: true` must implement all structured browser primitives. These methods expose tree, focus, evaluate, click, fill, and wait operations; they do not expose raw CLI argument execution. Core retains workspace and origin guards, known-surface fencing, shared locking, request bounds, and cancellation. Browser transport retention uses the provider binding and captured settings, while the ephemeral startup session identity only invalidates observed terminal targets.
+
+The shipped [`terminal-cmux`](../src/plugins/terminal-cmux/README.md) package provides terminal and browser methods. [`terminal-wezterm`](../src/plugins/terminal-wezterm/README.md) provides terminal methods and explicitly has no browser support. Terminal and browser selections are independent, so selecting WezTerm for terminal use does not change a retained or selected cmux browser transport.
+
+Build and install packages using [Plugin packages](plugin-packages.md). Disabled or missing selected providers remain unavailable, and retained obligations resolve their original provider artifact without current-provider fallback.

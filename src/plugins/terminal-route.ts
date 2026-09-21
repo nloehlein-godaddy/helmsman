@@ -4,13 +4,16 @@ export interface TerminalRouteV1 {
   readonly pane: 'tabs' | 'screen' | null;
 }
 
+export function isTerminalSurfaceRefV1(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 256 && !/[\x00-\x1f\x7f]/.test(value);
+}
+
 export function parseTerminalRouteV1(value: unknown): TerminalRouteV1 | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const route = value as Record<string, unknown>;
   if (route.version !== 1 || Object.keys(route).some(key => !['version', 'surface', 'pane'].includes(key))) return null;
   const surface = route.surface;
-  if (surface !== null && (typeof surface !== 'string' || !/^(?:surface:[1-9]\d*|\d+)$/.test(surface)
-    || !Number.isSafeInteger(Number(surface.replace(/^surface:/, ''))))) return null;
+  if (surface !== null && !isTerminalSurfaceRefV1(surface)) return null;
   if (route.pane !== null && route.pane !== 'tabs' && route.pane !== 'screen') return null;
   return Object.freeze({ version: 1, surface, pane: route.pane });
 }

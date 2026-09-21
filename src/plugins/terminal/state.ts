@@ -3,7 +3,7 @@ import type { TerminalControlInputV1, TerminalControlReceiptV1, TerminalTargetV1
 export interface DraftState { version: 1; selected: string | null; drafts: Record<string, string>; collapsed: { tabs: boolean; screen: boolean }; }
 export const emptyState = (): DraftState => ({ version: 1, selected: null, drafts: {}, collapsed: { tabs: false, screen: false } });
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
-export function validSurface(value: unknown): value is string { return typeof value === 'string' && (/^surface:[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value.slice(8))) || /^\d+$/.test(value) && Number.isSafeInteger(Number(value))); }
+export function validSurface(value: unknown): value is string { return typeof value === 'string' && value.trim().length > 0 && value.length <= 256 && !/[\x00-\x1f\x7f]/.test(value); }
 export function validTarget(value: unknown): value is TerminalTargetV1 { return object(value) && validSurface(value.surfaceRef) && typeof value.revision === 'string' && value.revision.length > 0 && value.revision.length <= 256 && (value.repo === null || typeof value.repo === 'string' && /^[a-z\d][a-z\d-]*\/[a-z\d_.-]+$/i.test(value.repo)); }
 export const sameTarget = (a: TerminalTargetV1 | null | undefined, b: TerminalTargetV1 | null | undefined) => !!a && !!b && a.repo === b.repo && a.surfaceRef === b.surfaceRef && a.revision === b.revision;
 export const surfaceKey = (target: Pick<TerminalTargetV1, 'repo' | 'surfaceRef'>) => JSON.stringify([target.repo, target.surfaceRef]);

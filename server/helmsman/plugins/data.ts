@@ -399,3 +399,57 @@ export function initializeExecutionHostSettings(root: string, pkg: PluginPackage
     for (const [name, value] of Object.entries(values)) sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO NOTHING').run(pkg.manifest.id, name, JSON.stringify(value));
   }); } finally { sql.close(); }
 }
+
+export type NativeTerminalSelectionKind = 'terminal' | 'browser';
+export interface NativeTerminalProviderSelection { readonly providerId: string | null; readonly revision: string; }
+function nativeTerminalSelectionKey(kind: NativeTerminalSelectionKind): string {
+  if (kind !== 'terminal' && kind !== 'browser') throw new Error('Invalid native terminal selection kind');
+  return `native-terminal-selection-v1:${kind}`;
+}
+function nativeTerminalSelection(sql: Database.Database, kind: NativeTerminalSelectionKind): NativeTerminalProviderSelection {
+  const row = sql.prepare('SELECT value FROM backend_meta WHERE key=?').get(nativeTerminalSelectionKey(kind)) as { value: string } | undefined;
+  if (!row) return { providerId: null, revision: 'initial' };
+  const value = pluginJson(JSON.parse(row.value)) as unknown as NativeTerminalProviderSelection;
+  if (!value || typeof value !== 'object' || Object.keys(value).length !== 2 || value.providerId !== null && !isContributionId(value.providerId)
+    || typeof value.revision !== 'string' || !/^[a-f\d-]{36}$/.test(value.revision)) throw new Error('Invalid native terminal provider selection');
+  return value;
+}
+export function readNativeTerminalProviderSelection(root: string, kind: NativeTerminalSelectionKind): NativeTerminalProviderSelection {
+  const sql = database(root); try { return nativeTerminalSelection(sql, kind); } finally { sql.close(); }
+}
+function writeNativeTerminalSelection(sql: Database.Database, kind: NativeTerminalSelectionKind, providerId: string | null): void {
+  sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run(nativeTerminalSelectionKey(kind), JSON.stringify({ providerId, revision: randomUUID() }));
+}
+export function selectNativeTerminalProvider(root: string, kind: NativeTerminalSelectionKind, providerId: string | null): void {
+  if (providerId !== null && !isContributionId(providerId)) throw new Error('Invalid native terminal provider ID');
+  const sql = database(root); try { immediateTransaction(sql, () => writeNativeTerminalSelection(sql, kind, providerId)); } finally { sql.close(); }
+}
+export function nativeTerminalProviderSelectionInitialized(root: string, kind: NativeTerminalSelectionKind): boolean {
+  const key = nativeTerminalSelectionKey(kind); const sql = database(root);
+  try { return Boolean(sql.prepare('SELECT 1 FROM backend_meta WHERE key IN (?,?)').get(`${key}:initialized`, key)); } finally { sql.close(); }
+}
+export function initializeNativeTerminalProviderSelection(root: string, kind: NativeTerminalSelectionKind, providerId: string): void {
+  const key = nativeTerminalSelectionKey(kind); const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(`${key}:initialized`, '1').changes;
+    if (!first || sql.prepare('SELECT 1 FROM backend_meta WHERE key=?').get(key)) return;
+    if (!isContributionId(providerId)) throw new Error('Invalid initial native terminal provider ID');
+    writeNativeTerminalSelection(sql, kind, providerId);
+  }); } finally { sql.close(); }
+}
+export function initializeNativeTerminalSettings(root: string, pkg: PluginPackage, input: Readonly<Record<string, PluginJson>>): void {
+  const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(`native-terminal-settings-initialized-v1:${pkg.manifest.id}`, '1').changes;
+    if (!first) return;
+    const values = pluginJson(input);
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('Native terminal settings must be a JSON object');
+    if (!pkg.backend?.nativeTerminals) throw new Error('Native terminal package declaration is required');
+    for (const [name, value] of Object.entries(values)) {
+      const field = Object.hasOwn(pkg.backend.settings, name) ? pkg.backend.settings[name] : undefined;
+      if (!field) throw new Error('Unknown initial native terminal setting'); validatePluginSetting(field, value);
+    }
+    for (const [name, value] of Object.entries(values)) sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO NOTHING').run(pkg.manifest.id, name, JSON.stringify(value));
+  }); } finally { sql.close(); }
+}

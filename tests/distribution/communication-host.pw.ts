@@ -42,6 +42,10 @@ writeFileSync(root+'/plugin-package.json',JSON.stringify({packageVersion:1,manif
     await review.getByRole('button', { name: 'Send review request', exact: true }).click();
     await expect(review).toContainText('recovery-required');
     expect(JSON.parse(await readFile(sends, 'utf8'))).toMatchObject({ count: 0, attempts: 1 });
+    const operation = JSON.parse(await host.script('inspect-native-browser-binding.mjs', `import Database from ${JSON.stringify(pathToFileURL(join(host.app, 'node_modules/better-sqlite3/lib/index.js')).href)};const db=new Database(process.env.HELMSMAN_DB,{readonly:true});try{const rows=db.prepare('SELECT draft FROM operations').all().map(row=>JSON.parse(row.draft));console.log(JSON.stringify(rows.find(row=>row.kind==='communication.review-request')));}finally{db.close();}`));
+    const browserTransport = operation.target.browserTransport;
+    expect(browserTransport.provider).toMatchObject({ binding: { providerId: 'helmsman.terminal-cmux/cmux' }, settings: { binary: 'cmux', socketPath: '' }, metadata: { browser: true } });
+    expect(operation.artifacts).toEqual(expect.arrayContaining([expect.objectContaining({ pluginId: browserTransport.provider.binding.pluginId, artifactHash: browserTransport.provider.binding.artifactHash })]));
     await review.getByRole('button', { name: 'Retry original request', exact: true }).click();
     await expect.poll(async () => JSON.parse(await readFile(sends, 'utf8')).count).toBe(1);
     await expect(review.getByRole('button', { name: 'Check original receipt', exact: true })).toBeVisible();
@@ -73,6 +77,15 @@ writeFileSync(root+'/plugin-package.json',JSON.stringify({packageVersion:1,manif
     await review.getByRole('heading', { level: 2 }).scrollIntoViewIfNeeded(); await expect(review.getByRole('heading', { level: 2 })).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath('communication-review-mobile.png') });
     await host.cli('disable', 'example.fixture-communication'); origin = await host.start(); const receipt = await request.get(`${origin}/api/communication-command/receipts/${retained!.command.requestId}?repo=org%2Fb`, { headers: { 'x-helmsman-contribution': 'example.authored-communication/review-request' } }); expect(await receipt.json()).toMatchObject({ status: 'succeeded' }); expect(JSON.parse(await readFile(sends, 'utf8')).count).toBe(1);
+
+    await host.stop();
+    await host.cli('configure', 'helmsman.terminal-cmux', JSON.stringify({ binary: 'changed-browser-binary', socketPath: '/changed-browser-socket' }));
+    await host.cli('disable', 'helmsman.terminal-cmux');
+    origin = await host.start();
+    const retainedBrowser = await host.script('load-disabled-native-browser.mjs', `const {loadRetainedNativeTerminalProvider}=await import(${JSON.stringify(pathToFileURL(join(host.app, 'server/helmsman/native-terminal-retained-loader.js')).href)});const transport=${JSON.stringify(browserTransport)};const loaded=await loadRetainedNativeTerminalProvider({pluginsRoot:process.env.HELMSMAN_PLUGINS_DIR,runtimeArtifactsRoot:${JSON.stringify(join(host.env.RUNS_DIR!, '.runtime-artifacts'))},record:transport.provider,artifacts:transport.artifacts});try{if(!loaded.provider.browser||loaded.provider.metadata.browser!==true||typeof loaded.provider.sessionIdentity()!=='string')throw new Error('Original browser provider unavailable');console.log('RETAINED_BROWSER_ACCEPTED');}finally{await loaded.dispose();}`);
+    expect(retainedBrowser).toContain('RETAINED_BROWSER_ACCEPTED');
+    const disabledReceipt = await request.get(`${origin}/api/communication-command/receipts/${retained!.command.requestId}?repo=org%2Fb`, { headers: { 'x-helmsman-contribution': 'example.authored-communication/review-request' } });
+    expect(disabledReceipt.ok()).toBe(true); expect(await disabledReceipt.json()).toMatchObject({ status: 'succeeded' });
     await host.cli('disable', 'example.authored-communication'); await page.goto(`${origin}/communication?repo=org/a`); await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible();
     expect(errors).toEqual([]); expect(host.output()).not.toContain('Source checkout is unavailable');
   } finally { await host.close(); }

@@ -92,3 +92,7 @@ Agent-only packages declare `helmsman/agent@1` and use `AgentBackendModuleV1`. T
 ## Execution hosts
 
 `helmsman/execution-host@1` packages use `ExecutionHostBackendModuleV1` with captured settings, registration, cancellation and disposal. The provider owns launch, native ownership discovery, stop, nonsecret run preparation and optional isolated child stages. Core pins the provider and configuration in the execution snapshot and retains receipts, workspace, concurrency and publication safeguards. Backend packages can bundle the separate `@helmsman/plugin-sdk/node` helpers; the browser entry contains no Node imports. See [execution host authoring](execution-host-authoring.md).
+
+## Native terminal and browser providers
+
+`helmsman/native-terminal@1` uses a restricted registration context with captured settings, cancellation and disposal. Providers own terminal discovery, screen reads, text/keys and optional structured browser primitives. Core retains galleon attribution, target revisions, no-replay terminal receipts, browser workspace/origin guards and durable communication operation authority. Terminal and browser selections are independent. Communication targets retain the original browser artifact, settings and dependency closure for reconciliation. See [native terminal authoring](native-terminal-authoring.md).

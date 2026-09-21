@@ -2,20 +2,37 @@ import { spawnSync } from 'node:child_process';
 import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, relative } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const require = createRequire(import.meta.url);
+const ts = require('typescript');
 const dist = join(root, 'dist');
 
-async function copySdkRuntime(source, destination) {
-  for (const entry of await readdir(source, { withFileTypes: true })) {
-    const from = join(source, entry.name); const to = join(destination, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name !== 'node_modules') await copySdkRuntime(from, to);
-    } else if (entry.isFile() && entry.name.endsWith('.js')) {
-      await mkdir(dirname(to), { recursive: true });
-      await copyFile(from, to);
+async function copySdkRuntime(entry, destination) {
+  const sourceRoot = dirname(entry);
+  const queued = [entry];
+  const copied = new Set();
+  for (const source of queued) {
+    if (copied.has(source)) continue;
+    copied.add(source);
+    const local = relative(sourceRoot, source);
+    if (!local || local.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(local) || !source.endsWith('.js')) {
+      throw new Error(`Invalid browser SDK runtime module: ${source}`);
+    }
+    const contents = await readFile(source, 'utf8');
+    const target = join(destination, local);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, contents);
+    for (const imported of ts.preProcessFile(contents, true, true).importedFiles) {
+      if (!imported.fileName.startsWith('.')) continue;
+      const resolved = resolve(dirname(source), imported.fileName);
+      const dependency = extname(resolved) ? resolved : `${resolved}.js`;
+      const dependencyLocal = relative(sourceRoot, dependency);
+      if (dependencyLocal === '..' || dependencyLocal.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(dependencyLocal) || !dependency.endsWith('.js')) {
+        throw new Error(`Browser SDK runtime import escapes the package: ${imported.fileName}`);
+      }
+      queued.push(dependency);
     }
   }
 }
@@ -41,6 +58,6 @@ if (result.status !== 0) process.exit(result.status ?? 1);
 let sdkEntry;
 try { sdkEntry = require.resolve('@helmsman/plugin-sdk'); }
 catch { sdkEntry = fileURLToPath(await import.meta.resolve('@helmsman/plugin-sdk')); }
-await copySdkRuntime(dirname(sdkEntry), join(dist, 'sdk'));
+await copySdkRuntime(sdkEntry, join(dist, 'sdk'));
 await rewriteSdkImports(dist);
 await copyFile(new URL('./plugin-package.json', import.meta.url), new URL('./dist/plugin-package.json', import.meta.url));

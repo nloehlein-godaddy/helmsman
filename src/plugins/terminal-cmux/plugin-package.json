@@ -1,0 +1,16 @@
+{
+  "packageVersion": 1,
+  "manifest": { "manifestVersion": 1, "id": "helmsman.terminal-cmux", "version": "0.1.0", "sdkVersion": 1, "pages": [] },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "backend.js",
+    "provides": [{ "id": "helmsman/native-terminal", "version": 1, "localId": "cmux" }],
+    "nativeTerminals": { "cmux": { "access": ["native-session"] } },
+    "settings": {
+      "binary": { "type": "string", "default": "cmux", "maxLength": 4096 },
+      "socketPath": { "type": "string", "default": "", "maxLength": 4096 }
+    },
+    "storageVersion": 1
+  }
+}

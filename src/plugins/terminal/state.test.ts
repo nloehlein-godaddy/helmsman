@@ -1,5 +1,5 @@
 import { beforeEach, expect, it } from 'vitest';
-import { emptyState, parseDraft, TerminalStorage } from './state';
+import { emptyState, parseDraft, TerminalStorage, validSurface } from './state';
 import type { TerminalControlReceiptV1 } from '@helmsman/plugin-sdk';
 beforeEach(()=>localStorage.clear());
 const prefix='helmsman.terminal.v1:helmsman.terminal/panel:terminal:';
@@ -7,3 +7,16 @@ const makeReceipt=():TerminalControlReceiptV1=>({version:1,requestId:'b0ef36b8-e
 it('retains a maximum-sized image receipt and inspection evidence within the public response bound',()=>{const storage=new TerminalStorage('helmsman.terminal/panel','terminal');const value=makeReceipt();storage.result(value);storage.inspected(value);expect(storage.results()).toEqual([value]);});
 it('preserves corrupt or future inspection records and refuses to overwrite their original bytes',()=>{const storage=new TerminalStorage('helmsman.terminal/panel','terminal');const value=makeReceipt();const key=prefix+`inspected:${value.requestId}`;localStorage.setItem(key,'{"version":9,"future":true}');expect(()=>storage.results()).toThrow('inspection evidence');expect(()=>storage.inspected(value)).toThrow('Original data is kept');expect(localStorage.getItem(key)).toBe('{"version":9,"future":true}');});
 it('requires mounted identity and keeps unknown draft fields unchanged',()=>{expect(()=>new TerminalStorage(undefined,'terminal')).toThrow('identity');expect(()=>parseDraft({...emptyState(),future:true})).toThrow('unsupported format');expect(()=>parseDraft({...emptyState(),collapsed:{tabs:false,screen:false,future:true}})).toThrow('unsupported format');});
+
+it('retains opaque references from authored native providers across draft and receipt storage', () => {
+  const selected = 'remote/session-a?pane=one';
+  expect(validSurface(selected)).toBe(true);
+  expect(validSurface('bad\nref')).toBe(false);
+  const storage = new TerminalStorage('helmsman.terminal/panel', 'terminal');
+  storage.saveDraft({ ...emptyState(), selected });
+  expect(storage.readDraft().selected).toBe(selected);
+  const receipt = makeReceipt();
+  const opaque = { ...receipt, input: { ...receipt.input, target: { ...receipt.input.target, surfaceRef: selected } } };
+  storage.result(opaque);
+  expect(storage.results()).toEqual([opaque]);
+});

@@ -7,7 +7,10 @@ import { localGitContributionEnabled } from './local-git-runtime';
 import { createCampaignPublicService } from './campaigns-public-service';
 import { campaignContributionEnabled } from './campaigns-runtime';
 import { createTerminalService } from './terminal-service';
-import { createNativeTerminalRuntime, terminalContributionEnabled } from './terminal-runtime';
+import { terminalContributionEnabled } from './terminal-runtime';
+import { createSelectedNativeTerminalRuntime } from './native-terminal-runtime';
+import { builtinNativeTerminals } from './plugins/builtin-terminals';
+import { nativeTerminalProviderSelectionInitialized, initializeNativeTerminalProviderSelection, initializeNativeTerminalSettings } from './plugins/data';
 import { createCommunicationRuntime, communicationContributionEnabled } from './communication-runtime';
 import { createCommunicationReadService } from './communication-read-service';
 import { createCommunicationCommandService } from './communication-command-service';
@@ -134,7 +137,6 @@ import { repositoryScope } from './repository-scope';
 import { AutoClaimScheduler, type BacklogItem } from './scheduler';
 import { ConfigStore, publicConfig } from './config-store';
 import { launchIntentJson, RetryError, type LaunchIntent } from './retry';
-import type { Bridge } from './cmux/bridge';
 import { openSlackStore } from './slack/store';
 import { openVoyageNotifications } from './voyage-notifications';
 import { createSlackWatcher, type SlackWatcher } from './slack/watcher';
@@ -146,7 +148,6 @@ import { createGithubReviewWatcher } from './github-review-watcher';
 import { createCreatedPrReviews } from './created-pr-reviews';
 import { fetchReviewHead, fetchReviewScope, selectReviewModel } from './review-policy';
 import { createOutboundMeter } from './outbound-meter';
-import { keysFor } from './cmux/actions';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
 
@@ -216,7 +217,22 @@ for (const plugin of builtinExecutionHosts) {
   const values = Object.fromEntries(Object.entries(mapping).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0));
   initializeExecutionHostSettings(pluginDirectory(), plugin.package, values);
 }
-const builtinBackends = [...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
+const defaultNativeTerminal = process.platform === 'win32' ? 'helmsman.terminal-wezterm/wezterm' : 'helmsman.terminal-cmux/cmux';
+for (const kind of ['terminal', 'browser'] as const) {
+  if (nativeTerminalProviderSelectionInitialized(pluginDirectory(), kind)) continue;
+  const legacy = kind === 'browser' ? 'cmux' : process.env.TERM_BRIDGE?.trim() || (process.platform === 'win32' ? 'wezterm' : 'cmux');
+  const providerId = ({ cmux: 'helmsman.terminal-cmux/cmux', wezterm: 'helmsman.terminal-wezterm/wezterm' } as Record<string, string>)[legacy];
+  if (!providerId) throw new Error('Unknown TERM_BRIDGE. Select a native terminal with plugins select-native-terminal.');
+  initializeNativeTerminalProviderSelection(pluginDirectory(), kind, providerId);
+}
+for (const plugin of builtinNativeTerminals) {
+  const mapping = plugin.package.manifest.id === 'helmsman.terminal-cmux'
+    ? { socketPath: process.env.CMUX_SOCKET_PATH }
+    : { binary: process.env.WEZTERM_BIN, socketPath: process.env.WEZTERM_UNIX_SOCKET };
+  const values = Object.fromEntries(Object.entries(mapping).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0));
+  initializeNativeTerminalSettings(pluginDirectory(), plugin.package, values);
+}
+const builtinBackends = [...builtinNativeTerminals, ...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -337,13 +353,8 @@ const runCommands = createApplicationRunCommands({ store: openRunCommandStore(pe
   catalog: () => pluginSnapshot.catalog, repos: applicationRepos, todos: sourceTodos, jiraEnabled: () => taskSourceRuntime.jiraEnabled(),
   canStart: repo => pm.canStart(repo), launch: input => launch(input), stop: runId => pm.stop(runId) });
 
-// cmux is macOS-only; wezterm is the cross-platform terminal driving the same
-// panel. TERM_BRIDGE forces one, otherwise take whichever suits the platform.
-const termBridge: string = process.env.TERM_BRIDGE ?? (process.platform === 'win32' ? 'wezterm' : 'cmux');
-const nativeTerminal = createNativeTerminalRuntime(termBridge);
-const cmux: Bridge = nativeTerminal.bridge;
-process.stdout.write(`terminal bridge: ${termBridge}\n`);
-const terminal = createTerminalService({ persistence, bridge: cmux, sessionIdentity: nativeTerminal.sessionIdentity,
+const nativeTerminal = createSelectedNativeTerminalRuntime({ root: pluginDirectory(), registry: backendPlugins.nativeTerminals, defaultProviderId: defaultNativeTerminal });
+const terminal = createTerminalService({ persistence, bridge: nativeTerminal.bridge, sessionIdentity: nativeTerminal.sessionIdentity,
   repos: applicationRepos,
   roots: () => [...applicationRepos().map(repo => ({ repo, path: join(AGENTS_ROOT, repoBasename(repo)) })),
     ...db.listRuns(10_000).flatMap(run => run.worktreePath && applicationRepos().includes(run.repo) ? [{ repo: run.repo, path: run.worktreePath }] : [])],
@@ -354,8 +365,10 @@ const terminal = createTerminalService({ persistence, bridge: cmux, sessionIdent
     const extension = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' }[mimeType];
     if (!extension) return { ok: false, error: 'Unsupported image type' };
     const file = join(tmpdir(), `helmsman-clip-${randomUUID()}.${extension}`);
-    await writeFile(file, Buffer.from(dataBase64, 'base64'));
-    return cmux.send(surface, `${file} `, false);
+    const session = nativeTerminal.sessionIdentity();
+    await writeFile(file, Buffer.from(dataBase64, 'base64'), { mode: 0o600 });
+    if (session !== nativeTerminal.sessionIdentity()) throw new ClarificationServiceError(409, 'conflict');
+    return nativeTerminal.bridge.send(surface, `${file} `, false);
   },
 });
 
@@ -665,6 +678,8 @@ const pullRequestCommands = createPullRequestCommandService({ persistence, opera
   resolve: pullRequestProviderEffects.resolve,
 });
 const communicationRuntime = createCommunicationRuntime({ root: pluginDirectory(), registry: backendPlugins.communications, operations,
+  nativeTerminals: backendPlugins.nativeTerminals, defaultBrowserProviderId: 'helmsman.terminal-cmux/cmux',
+  browserRuntime: { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot) },
   env: () => configStore.effectiveEnv(), artifacts: providerArtifacts, verifyArtifacts: verifyEffectArtifacts, assertReviewable: assertCommunicationReviewable });
 async function assertCommunicationReviewable(repo: string, number: number): Promise<void> {
   const github = configStore.current().github;
@@ -1492,31 +1507,6 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       submitReview: (repo, prNumber, event, body, requestId, expectedHeadSha) => manualReviewEffects.submit({
         repo, prNumber, event, body, requestId: requestId ?? randomUUID(), expectedHeadSha,
       }),
-      cmuxListTabs: () => cmux.listTabs(),
-      cmuxReadScreen: (surface: string, lines: number) => cmux.readScreen(surface, lines),
-      cmuxSend: (surface: string, text: string, enter: boolean) => cmux.send(surface, text, enter),
-      cmuxPasteImage: async (surface: string, dataBase64: string, ext: string) => {
-        const safeExt: string = /^[a-z0-9]{1,5}$/i.test(ext) ? ext.toLowerCase() : 'png';
-        const file: string = join(tmpdir(), `helmsman-clip-${randomUUID()}.${safeExt}`);
-        try {
-          await writeFile(file, Buffer.from(dataBase64, 'base64'));
-        } catch (err: unknown) {
-          return { ok: false as const, error: `write failed: ${String(err)}` };
-        }
-        const r = await cmux.send(surface, `${file} `, false);
-        if (!r.ok) return r;
-        return { ok: true as const, path: file };
-      },
-      cmuxAction: async (surface: string, provider: string | null, action: string) => {
-        const keys = keysFor(provider, action as never);
-        if (!keys) return { ok: false as const, error: 'unknown action' };
-        for (const k of keys) {
-          const r = await cmux.sendKey(surface, k);
-          if (!r.ok) return r;
-        }
-        return { ok: true as const, keys };
-      },
-      cmuxKey: (surface: string, key: string) => cmux.sendKey(surface, key),
     }).finally(() => {
       if (inspectController) { req.off('aborted', cancelInspect); res.off('close', cancelInspect); }
     });

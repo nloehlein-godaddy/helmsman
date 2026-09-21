@@ -1,4 +1,5 @@
 import type { CommunicationDestinationV1, CommunicationProviderContextV1 } from '../../src/plugins/communication-provider';
+import type { NativeTerminalRetainedProviderV1, NativeTerminalProviderRegistry } from './native-terminal-providers';
 import { builtinFrontendManifests } from '../../src/plugins/frontend-manifests';
 import { isContributionId } from '../../src/plugins/manifest';
 import type { PluginCatalog } from '../../src/plugins/runtime';
@@ -6,7 +7,9 @@ import type { ArtifactBinding, ProviderBinding } from './execution-store';
 import type { OperationStore } from './operations';
 import { persistenceHash, stableJson } from './persistence';
 import { createCommunicationBrowserSession } from './communication-browser';
-import { createCommunicationProviderEffects } from './communication-provider-effects';
+import { createCommunicationProviderEffects, type CommunicationReviewBrowserTransportV1 } from './communication-provider-effects';
+import { loadRetainedNativeTerminalProvider } from './native-terminal-retained-loader';
+import { assertNativeTerminalSelectionCurrent, resolveNativeTerminalSelection } from './native-terminal-selection';
 import { resolveSelectedCommunicationProvider, type CommunicationProviderRegistry } from './communication-providers';
 import { slackSettings } from './slack/config';
 import { slackReviewSettings } from './slack/review-request';
@@ -24,37 +27,64 @@ export function communicationContributionEnabled(catalog: PluginCatalog, caller:
 
 export function createCommunicationRuntime(options: {
   root: string; registry: CommunicationProviderRegistry; operations: OperationStore;
+  nativeTerminals: NativeTerminalProviderRegistry; defaultBrowserProviderId: string;
+  browserRuntime: { readonly pluginsRoot: string; readonly runtimeArtifactsRoot: string };
   env(): Record<string, string | undefined>;
-  artifacts(binding: ProviderBinding): readonly ArtifactBinding[];
+  artifacts(binding: Pick<ProviderBinding, 'pluginId' | 'artifactHash'>): readonly ArtifactBinding[];
   verifyArtifacts(artifacts: readonly ArtifactBinding[]): Promise<void>;
   assertReviewable?(repo: string, number: number): Promise<void>;
 }) {
-  function connection() {
-    const settings = slackSettings(options.env());
+  const browserSelectionOptions = { root: options.root, registry: options.nativeTerminals, defaultProviderId: options.defaultBrowserProviderId, kind: 'browser' as const };
+  function browserSelection() {
+    const resolved = resolveNativeTerminalSelection(browserSelectionOptions);
+    const registration = options.nativeTerminals.resolve(resolved.record.binding);
+    if (!registration.provider.browser || !registration.record.metadata.browser) throw new Error('Selected browser provider is unavailable.');
+    assertNativeTerminalSelectionCurrent(browserSelectionOptions, resolved);
+    return { resolved, browser: registration.provider.browser, sessionIdentity: () => registration.provider.sessionIdentity() };
+  }
+  function connectionFor(record: NativeTerminalRetainedProviderV1, settings = slackSettings(options.env())) {
     if (!/^[A-Z\d]{3,32}$/.test(settings.clientId)) return null;
-    return { connectionId: persistenceHash({ workspace: settings.clientId, surface: settings.surface ?? null }), credentialHandle: 'slack-browser' };
+    return { connectionId: persistenceHash({ workspace: settings.clientId, surface: settings.surface ?? null,
+      browser: { binding: record.binding, settings: record.settings } }), credentialHandle: 'native-browser' };
+  }
+  function connection() {
+    try { return connectionFor(browserSelection().resolved.record); }
+    catch { return null; }
   }
   const selected = () => resolveSelectedCommunicationProvider({ root: options.root, registry: options.registry, connection });
-  function scanIdentity(binding = selected(), settings = slackSettings(options.env())) {
-    return stableJson({ binding, settings: { ...settings, surface: settings.surface ?? null } });
+  function scanIdentity(binding = selected(), settings = slackSettings(options.env()), browser = browserSelection().resolved) {
+    return stableJson({ binding, settings: { ...settings, surface: settings.surface ?? null }, browser });
   }
   function destination(binding: ProviderBinding): CommunicationDestinationV1 | null {
     const env = options.env(); const browser = slackSettings(env); const review = slackReviewSettings(env);
-    if (binding.connectionId !== connection()?.connectionId || binding.credentialHandle !== 'slack-browser' || !review.enabled) return null;
+    if (binding.connectionId !== connection()?.connectionId || binding.credentialHandle !== 'native-browser' || !review.enabled) return null;
     return Object.freeze({ providerId: binding.contributionId, artifactHash: binding.artifactHash,
       workspace: browser.clientId, channel: review.channel, mention: review.mention, connectionId: binding.connectionId });
   }
-  function session(binding: ProviderBinding, target: CommunicationDestinationV1, signal: AbortSignal) {
-    const browser = slackSettings(options.env());
-    if (binding.connectionId !== connection()?.connectionId || target.workspace !== browser.clientId) throw new Error('Retained communication connection changed.');
-    return { surface: browser.surface ?? null, watchedChannel: { id: browser.channelId, name: browser.channelName },
-      browser: createCommunicationBrowserSession({ workspace: target.workspace, surface: browser.surface ?? null, signal }) };
+  function admissionSession(binding: ProviderBinding, target: CommunicationDestinationV1, signal: AbortSignal) {
+    const settings = slackSettings(options.env()); const selectedBrowser = browserSelection();
+    if (binding.connectionId !== connectionFor(selectedBrowser.resolved.record, settings)?.connectionId || target.workspace !== settings.clientId)
+      throw new Error('Retained communication connection changed.');
+    const artifacts = options.artifacts(selectedBrowser.resolved.record.binding);
+    return { surface: settings.surface ?? null, watchedChannel: { id: settings.channelId, name: settings.channelName },
+      browser: createCommunicationBrowserSession({ workspace: target.workspace, surface: settings.surface ?? null, signal, browser: selectedBrowser.browser, sessionIdentity: selectedBrowser.sessionIdentity }),
+      browserTransport: { provider: selectedBrowser.resolved.record, artifacts, surface: settings.surface ?? null },
+      assertCurrent: () => assertNativeTerminalSelectionCurrent(browserSelectionOptions, selectedBrowser.resolved) };
+  }
+  async function retainedSession(transport: CommunicationReviewBrowserTransportV1, target: CommunicationDestinationV1, signal: AbortSignal) {
+    const loaded = await loadRetainedNativeTerminalProvider({ ...options.browserRuntime, record: transport.provider, artifacts: transport.artifacts, signal });
+    const browser = loaded.provider.browser;
+    if (!browser || !loaded.provider.metadata.browser) { await loaded.dispose(); throw new Error('Retained communication browser provider is unavailable.'); }
+    const settings = slackSettings(options.env());
+    return { surface: transport.surface, watchedChannel: { id: settings.channelId, name: settings.channelName },
+      browser: createCommunicationBrowserSession({ workspace: target.workspace, surface: transport.surface, signal, browser,
+        sessionIdentity: () => loaded.provider.sessionIdentity() }), dispose: loaded.dispose };
   }
   const assertAdmission = () => {
     const binding = selected();
     if (!binding || !destination(binding)) throw new Error('Selected communication provider is unavailable.');
   };
-  const effects = createCommunicationProviderEffects({ registry: options.registry, selected, destination, session,
+  const effects = createCommunicationProviderEffects({ registry: options.registry, selected, destination, admissionSession, retainedSession,
     artifacts: options.artifacts, verifyArtifacts: options.verifyArtifacts, assertAdmission, withSession: withSlackBrowserLock,
     async authorize(binding, operation, context) {
       const review = operation.target as { repo?: unknown; number?: unknown } | null;
@@ -72,19 +102,30 @@ export function createCommunicationRuntime(options: {
   });
   return Object.freeze({ effects, selected, assertAdmission,
     destination(): CommunicationDestinationV1 | null { const binding = selected(); return binding ? destination(binding) : null; },
-    scanKey(): string { return scanIdentity(); },
+    scanKey(): string {
+      try { return scanIdentity(); }
+      catch {
+        const settings = slackSettings(options.env());
+        return stableJson({ binding: null, settings: { ...settings, surface: settings.surface ?? null }, browser: null, unavailable: true });
+      }
+    },
     async scan(input: { since: string | null }) {
-      const binding = selected(); const settings = slackSettings(options.env());
+      const selectedBrowser = browserSelection(); const binding = selected(); const settings = slackSettings(options.env());
       if (!binding || !settings.enabled || settings.error) throw new Error('Selected communication scanner is unavailable.');
       const target = destination(binding);
       if (!target) throw new Error('Communication integration is disabled.');
-      const initial = scanIdentity(binding, settings);
+      if (binding.connectionId !== connectionFor(selectedBrowser.resolved.record, settings)?.connectionId) throw new Error('Communication browser selection changed before read.');
+      const initial = scanIdentity(binding, settings, selectedBrowser.resolved);
       const registration = options.registry.resolve({ providerId: binding.contributionId, pluginId: binding.pluginId, artifactHash: binding.artifactHash,
         contractVersion: 1, connectionId: null, credentialHandle: null }, 'admission');
       const controller = new AbortController();
       const context: CommunicationProviderContextV1 = { signal: controller.signal, destination: target,
-        ...session(binding, target, controller.signal), beforeSend: async () => { throw new Error('Communication scans cannot send.'); } };
+        surface: settings.surface ?? null, watchedChannel: { id: settings.channelId, name: settings.channelName },
+        browser: createCommunicationBrowserSession({ workspace: target.workspace, surface: settings.surface ?? null, signal: controller.signal,
+          browser: selectedBrowser.browser, sessionIdentity: selectedBrowser.sessionIdentity }),
+        beforeSend: async () => { throw new Error('Communication scans cannot send.'); } };
       const result = await withSlackBrowserLock(() => registration.provider.scanReviewRequests(input, context));
+      assertNativeTerminalSelectionCurrent(browserSelectionOptions, selectedBrowser.resolved);
       if (scanIdentity() !== initial) throw new Error('Communication scanner changed during read.');
       if (!result || typeof result.complete !== 'boolean' || !Array.isArray(result.messages) || result.messages.length > 10_000) throw new Error('Invalid communication scan response.');
       return { complete: result.complete, messages: result.messages.map(message => {

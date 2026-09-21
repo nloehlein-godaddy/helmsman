@@ -41,7 +41,7 @@ Scope all selectors to the validated channel/search view. These are UI implement
 
 ## Proposed implementation
 
-1. Add a browser adapter modeled on `server/helmsman/cmux/bridge.ts`, with bounded commands, timeouts, and schema validation. Read rendered DOM; keep authentication in the browser.
+1. Add a browser adapter using the public `helmsman/native-terminal@1` browser primitives (see `src/plugins/terminal-cmux/provider.ts`), with bounded commands, timeouts, and schema validation. Read rendered DOM; keep authentication in the browser.
 2. Run a separate non-overlapping watcher every 300 seconds. Validate channel identity and newest-first sorting before accepting records. Search with a date window overlapping the last successful scan, expand snippets, and traverse pages through the required boundary. Never interpret a missing view or loading state as an empty successful scan.
 3. Persist source messages and content fingerprints in SQLite. Use client context + channel + exact string timestamp for source identity. Preserve Slack permalinks and thread parent IDs. A later request for the same PR is a separate request.
 4. Resolve parent context for review requests lacking a PR link. Keep ambiguous requests unresolved instead of guessing from unrelated nearby links. Exclude the user’s own asks; distinguish personal, group, and channel-wide asks without assuming group membership.

@@ -52,12 +52,6 @@ const deps: RouterDeps = {
   localGit: async () => ({ status: 200, json: { repo: 'o/r', path: '/agents/r', branches: [], worktrees: [], error: null } }),
   prDiff: async (_repo: string, _prNumber: number) => [{ filename: 'a.ts', status: 'modified', additions: 1, deletions: 0, patch: '@@ x @@' }],
   submitReview: async (_repo: string, _prNumber: number, _event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', _body: string) => ({ ok: true as const }),
-  cmuxListTabs: async () => ({ connected: true, tabs: [] }),
-  cmuxReadScreen: async (_surface: string, _lines: number) => ({ ok: true as const, text: '' }),
-  cmuxSend: async (_surface: string, _text: string, _enter: boolean) => ({ ok: true as const }),
-  cmuxPasteImage: async (_surface: string, _dataBase64: string, _ext: string) => ({ ok: true as const, path: '/tmp/x.png' }),
-  cmuxAction: async (_surface: string, _provider: string | null, _action: string) => ({ ok: true as const, keys: [] }),
-  cmuxKey: async (_surface: string, _key: string) => ({ ok: true as const }),
 };
 
 describe('handleApi', () => {
@@ -692,96 +686,14 @@ describe('POST /api/pr/review', () => {
   });
 });
 
-function baseCmuxDeps(over: Partial<RouterDeps>): RouterDeps {
-  return {
-    cmuxListTabs: () => Promise.resolve({ connected: true, tabs: [] }),
-    cmuxReadScreen: () => Promise.resolve({ ok: true, text: 'screen' }),
-    cmuxSend: () => Promise.resolve({ ok: true }),
-    cmuxAction: () => Promise.resolve({ ok: true, keys: ['Enter'] }),
-    cmuxKey: () => Promise.resolve({ ok: true }),
-    ...over,
-  } as unknown as RouterDeps;
-}
-
-describe('cmux endpoints', () => {
-  it('GET /api/cmux/tabs returns the bridge result', async () => {
-    const res = await handleApi('GET', '/api/cmux/tabs', new URLSearchParams(), null, baseCmuxDeps({}));
-    expect(res).toEqual({ status: 200, json: { connected: true, tabs: [] } });
-  });
-
-  it('GET /api/cmux/screen requires a surface', async () => {
-    const res = await handleApi('GET', '/api/cmux/screen', new URLSearchParams(), null, baseCmuxDeps({}));
-    expect(res?.status).toBe(400);
-  });
-
-  it('POST /api/cmux/send forwards text + enter, requires surface and text', async () => {
-    const calls: unknown[] = [];
-    const cmuxDeps = baseCmuxDeps({
-      cmuxSend: (s, t, e) => {
-        calls.push([s, t, e]);
-        return Promise.resolve({ ok: true });
-      },
-    });
-    const bad = await handleApi('POST', '/api/cmux/send', new URLSearchParams(), { surface: 'surface:1' }, cmuxDeps);
-    expect(bad?.status).toBe(400);
-    const ok = await handleApi('POST', '/api/cmux/send', new URLSearchParams(), { surface: 'surface:1', text: 'ls', enter: true }, cmuxDeps);
-    expect(ok?.status).toBe(200);
-    expect(calls).toEqual([['surface:1', 'ls', true]]);
-  });
-
-  it('POST /api/cmux/paste-image writes the image and returns its path, requires surface and data', async () => {
-    const calls: unknown[] = [];
-    const cmuxDeps = baseCmuxDeps({
-      cmuxPasteImage: (s, d, e) => {
-        calls.push([s, d, e]);
-        return Promise.resolve({ ok: true, path: '/tmp/helmsman-clip-x.png' });
-      },
-    });
-    const bad = await handleApi('POST', '/api/cmux/paste-image', new URLSearchParams(), { surface: 'surface:1' }, cmuxDeps);
-    expect(bad?.status).toBe(400);
-    const ok = await handleApi('POST', '/api/cmux/paste-image', new URLSearchParams(), { surface: 'surface:1', dataBase64: 'aGk=', ext: 'png' }, cmuxDeps);
-    expect(ok?.status).toBe(200);
-    expect((ok?.json as { path?: string }).path).toBe('/tmp/helmsman-clip-x.png');
-    expect(calls).toEqual([['surface:1', 'aGk=', 'png']]);
-  });
-
-  it('POST /api/cmux/action rejects an unknown action', async () => {
-    const cmuxDeps = baseCmuxDeps({ cmuxAction: () => Promise.resolve({ ok: false, error: 'unknown action' }) });
-    const res = await handleApi('POST', '/api/cmux/action', new URLSearchParams(), { surface: 'surface:1', action: 'nope' }, cmuxDeps);
-    expect(res?.status).toBe(400);
-  });
-
-  it('POST /api/cmux/key requires surface and key', async () => {
-    const noSurface = await handleApi('POST', '/api/cmux/key', new URLSearchParams(), { key: 'up' }, baseCmuxDeps({}));
-    expect(noSurface?.status).toBe(400);
-    const noKey = await handleApi('POST', '/api/cmux/key', new URLSearchParams(), { surface: 'surface:1' }, baseCmuxDeps({}));
-    expect(noKey?.status).toBe(400);
-  });
-
-  it('POST /api/cmux/key rejects a disallowed key without calling cmuxKey', async () => {
-    const calls: unknown[] = [];
-    const cmuxDeps = baseCmuxDeps({
-      cmuxKey: (s, k) => {
-        calls.push([s, k]);
-        return Promise.resolve({ ok: true });
-      },
-    });
-    const res = await handleApi('POST', '/api/cmux/key', new URLSearchParams(), { surface: 'surface:1', key: 'f1' }, cmuxDeps);
-    expect(res?.status).toBe(400);
-    expect(calls).toEqual([]);
-  });
-
-  it('POST /api/cmux/key forwards an allowed key to cmuxKey', async () => {
-    const calls: unknown[] = [];
-    const cmuxDeps = baseCmuxDeps({
-      cmuxKey: (s, k) => {
-        calls.push([s, k]);
-        return Promise.resolve({ ok: true });
-      },
-    });
-    const res = await handleApi('POST', '/api/cmux/key', new URLSearchParams(), { surface: 'surface:1', key: 'up' }, cmuxDeps);
-    expect(res).toEqual({ status: 200, json: { ok: true } });
-    expect(calls).toEqual([['surface:1', 'up']]);
+describe('retired native terminal endpoints', () => {
+  it('rejects legacy unscoped reads and writes even when the terminal service is unavailable', async () => {
+    for (const path of ['tabs', 'screen', 'send', 'paste-image', 'action', 'key']) {
+      for (const method of ['GET', 'POST']) {
+        expect(await handleApi(method, `/api/cmux/${path}`, new URLSearchParams(), { surface: 'surface:1', text: 'send' }, deps))
+          .toEqual({ status: 410, json: { error: 'Use scoped terminal services.' } });
+      }
+    }
   });
 });
 

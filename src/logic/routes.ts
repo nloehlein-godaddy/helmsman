@@ -1,3 +1,4 @@
+import { isTerminalSurfaceRefV1 } from '../plugins/terminal-route';
 import { validRepo } from './repo';
 import { parseTaskRepo } from '../plugins/tasks';
 import { LEGACY_PAGE_ALIASES, LEGACY_PAGE_PATHS } from './pagePaths';
@@ -58,18 +59,6 @@ function panelState(value: string | null): string | null {
     }
     return value;
   } catch { return null; }
-}
-
-/**
- * A surface ref reaches us from the URL, so it is validated before it can be
- * put back on the wire. Two terminal bridges produce two shapes:
- *   - cmux: `surface:<n>`, 1-based
- *   - wezterm: a bare pane id, 0-based
- */
-function isSurfaceRef(value: string | null): boolean {
-  if (!value) return false;
-  if (value.startsWith('surface:')) return positiveInteger(value.slice(8)) !== null;
-  return /^\d+$/.test(value) && Number.isSafeInteger(Number(value));
 }
 
 export function parseRoute(url: URL): AppRoute {
@@ -135,7 +124,7 @@ export function parseRoute(url: URL): AppRoute {
     : pane === 'newrun' || selectedPr && pane !== 'tasks' ? { instance: 'pull-request', contribution: 'helmsman.compat-pr/panel' } : null : null;
   const prPanel = prPage && !explicitInstance && (selectedPr || pane && panes.prs.includes(pane)) ? { instance: 'pull-request', contribution: 'helmsman.compat-pr/panel' } : null;
   const communicationPanel = communicationPage && !explicitInstance && selectedPr ? 'review-request' : null;
-  const terminalPanel = terminalPage && !explicitInstance && (isSurfaceRef(surface) || pane && panes.cmux.includes(pane)) ? 'terminal' : null;
+  const terminalPanel = terminalPage && !explicitInstance && (isTerminalSurfaceRefV1(surface) || pane && panes.cmux.includes(pane)) ? 'terminal' : null;
   const instance = explicitInstance ?? terminalPanel ?? runsPanel?.instance ?? prPanel?.instance ?? communicationPanel ?? locatorPane;
   const savedPanelState = panelState(params.get('panelState'));
   const taskPanelState = taskPane ? panelState(JSON.stringify({
@@ -158,7 +147,7 @@ export function parseRoute(url: URL): AppRoute {
     ...(validRun && runRepo ? { runRepo } : {}),
     mode: selectedMode,
     ticket: view !== 'plugin' || helm || runsPage || prPage ? validTicket : null,
-    surface: (view === 'cmux' || terminalPage) && isSurfaceRef(surface) ? surface : null,
+    surface: (view === 'cmux' || terminalPage) && isTerminalSurfaceRefV1(surface) ? surface : null,
     ...(instance && /^[a-z\d][a-z\d_.:-]{0,159}$/i.test(instance) ? { panelInstance: instance, panelState: panelState(params.get('panelState')) } : {}),
     ...(plugin && params.has('panelState') ? { panelState: panelState(params.get('panelState')) } : {}),
     ...(helm && locatorPane && !explicitInstance ? { panelContribution: `helmsman.${locatorPane}/panel` } : {}),

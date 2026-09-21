@@ -225,6 +225,16 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <p class="limit-note">Use <code>select-execution-host</code> and restart after selection. Local detached/cmux/WezTerm and Docker packages use the same contract as authored replacements. Backend receipt helpers live only in <code>@helmsman/plugin-sdk/node</code>. See <a href="execution-host-authoring.md">execution host authoring</a>.</p>
 </section>
+<section aria-labelledby="native-terminal-heading">
+<h2 class="section-heading" id="native-terminal-heading">Native terminal and browser providers</h2>
+<div class="host-options">
+<article class="flow-step"><h3>Terminal selection → scoped observation</h3><p>Core binds the selected provider, settings, selection revision and native session to an opaque surface target. Galleon attribution stays in core; stale targets cannot control a replacement provider.</p></article>
+<article class="flow-step"><h3>Exact receipt → native input → inspection</h3><p>The command is recorded before dispatch. Unknown delivery remains inspectable and never replays input. Receipts remain readable after the native provider is disabled. Legacy unscoped terminal endpoints return 410.</p></article>
+<article class="flow-step"><h3>Separate browser selection → captured transport</h3><p>cmux offers terminal and browser primitives; WezTerm offers terminal I/O. Independent selections preserve WezTerm terminals alongside cmux-backed Slack. Browser operations retain the original provider, settings and artifact closure.</p></article>
+<article class="flow-step"><h3>Guarded browser session → durable communication</h3><p>Core checks workspace, origin, observed surfaces and delivery authority. Reconciliation uses the retained transport after restart or disablement; it never substitutes a current default.</p></article>
+</div>
+<p class="limit-note">Use <code>select-native-terminal</code> and <code>select-browser-host</code>. Native references are opaque bounded strings. See <a href="native-terminal-authoring.md">native terminal authoring</a>.</p>
+</section>
 <section aria-labelledby="profile-navigation-heading">
 <h2 class="section-heading" id="profile-navigation-heading">Header identity and installed-page discovery</h2>
 <div class="host-options">

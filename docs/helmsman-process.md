@@ -328,6 +328,23 @@ flowchart TD
 
 `select-execution-host` selects the local detached/cmux/WezTerm package or Docker package, and accepts independently authored replacements. `prepareRun` captures nonsecret configuration; Docker resolves its image digest there. The browser SDK remains Node-free; backend packages can bundle receipt helpers from `@helmsman/plugin-sdk/node`. New isolated selections require restart for the scoped gateway listener. Disabled providers cannot admit work; existing obligations retain their original host. Graceful shutdown releases only this instance’s leases; startup retries unresolved attachment while crash leases expire. See [execution host authoring](execution-host-authoring.md).
 
+## Native terminal and browser providers
+
+```mermaid
+flowchart TD
+    Terminal[Selected native terminal provider] --> Observe[Core attributes galleon scope<br/>Bind provider, settings, selection and native session]
+    Observe --> Target[Opaque surface reference and observed revision]
+    Target --> Receipt[Persist exact terminal command before dispatch]
+    Receipt --> Native[Provider sends text or key to verified target]
+    Native --> Unknown[Unknown outcome stays inspectable<br/>Never replay input or use another provider]
+    Browser[Separately selected browser host] --> Capture[Capture original browser provider and artifact closure]
+    Capture --> Guard[Core guards workspace, origin and observed surfaces]
+    Guard --> Operation[Communication operation and before-send authorization]
+    Operation --> Recovery[Reconcile through retained transport<br/>Disablement never substitutes current defaults]
+```
+
+cmux supplies terminal and browser primitives; WezTerm supplies terminal I/O. Independent selections preserve WezTerm terminals alongside cmux-backed Slack. Replacing a native provider invalidates old terminal targets while receipts remain readable. Legacy `/api/cmux/*` endpoints return 410. See [native terminal authoring](native-terminal-authoring.md).
+
 ## Header identity and installed-page discovery
 
 ```mermaid

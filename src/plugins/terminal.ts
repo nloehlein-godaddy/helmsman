@@ -92,7 +92,7 @@ function text(value: unknown, maximum: number): string {
 export function parseTerminalTargetV1(input: unknown): TerminalTargetV1 {
   const value = clarificationObject(input); clarificationFields(value, ['repo', 'surfaceRef', 'revision']);
   const surfaceRef = sourceText(value.surfaceRef, 256); const revision = sourceText(value.revision, 64);
-  if (!/^[a-z\d][a-z\d:_.-]*$/i.test(surfaceRef) || !/^[a-f\d]{64}$/.test(revision)) invalidClarification();
+  if (!/^[a-f\d]{64}$/.test(revision)) invalidClarification();
   return Object.freeze({ repo: parseTerminalRepo(value.repo), surfaceRef, revision });
 }
 export function parseTerminalControlInputV1(input: unknown): TerminalControlInputV1 {

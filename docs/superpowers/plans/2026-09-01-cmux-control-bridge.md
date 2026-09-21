@@ -1,5 +1,8 @@
 # cmux Control Bridge Implementation Plan
 
+Historical implementation plan. Phase F replaces the core bridge/model/key modules named below with the SDK-only [cmux](../../../src/plugins/terminal-cmux/README.md) and [WezTerm](../../../src/plugins/terminal-wezterm/README.md) packages. Current contracts and selection are documented in [native terminal authoring](../../native-terminal-authoring.md).
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a dashboard panel that lists all live cmux terminal tabs, streams a selected tab's screen, and sends free-text commands and high-level agent actions to it.

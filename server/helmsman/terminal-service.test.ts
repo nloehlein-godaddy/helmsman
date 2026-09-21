@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openPersistence, type Persistence } from './persistence';
 import { createTerminalService, type TerminalServerOptions } from './terminal-service';
-import type { CmuxTab } from './cmux/model';
+import type { NativeTerminalSurfaceV1 } from '../../src/plugins/native-terminal';
 import type { TerminalControlCommandV1 } from '../../src/plugins/terminal';
 import { handleTerminalApi } from './terminal-routes';
 
@@ -11,13 +11,13 @@ const stores: Persistence[] = [];
 afterEach(() => { for (const store of stores.splice(0)) store.close(); });
 function setup() {
   const persistence = openPersistence(':memory:'); stores.push(persistence);
-  const tab: CmuxTab = { surfaceRef: 'surface:1', windowRef: 'window:1', workspaceRef: 'workspace:1', workspaceTitle: 'org/b', surfaceTitle: 'codex', cwd: '/work/a', type: 'terminal', selected: true };
+  const tab: NativeTerminalSurfaceV1 = { surfaceRef: 'surface:1', windowRef: 'window:1', workspaceRef: 'workspace:1', workspaceTitle: 'org/b', surfaceTitle: 'codex', cwd: '/work/a', type: 'terminal', selected: true };
   let tabs = [tab]; let session = 'first';
   const bridge = { listTabs: vi.fn(async () => ({ connected: true, tabs })), readScreen: vi.fn(async () => ({ ok: true as const, text: 'safe' })),
     send: vi.fn(async (_surface: string, _text: string, _enter: boolean) => ({ ok: true as const })), sendKey: vi.fn(async () => ({ ok: true as const })) };
   const options: TerminalServerOptions = { persistence, bridge, repos: () => ['org/a', 'org/b'], roots: () => [{ repo: 'org/a', path: '/work/a' }, { repo: 'org/b', path: '/work/b' }], sessionIdentity: () => session, authorize: vi.fn() };
   const service = createTerminalService(options);
-  return { persistence, options, bridge, service, tab, tabs: (value: CmuxTab[]) => { tabs = value; }, session: (value: string) => { session = value; },
+  return { persistence, options, bridge, service, tab, tabs: (value: NativeTerminalSurfaceV1[]) => { tabs = value; }, session: (value: string) => { session = value; },
     async command(): Promise<TerminalControlCommandV1> { const snapshot = await service.list(caller, { version: 1, repo: 'org/a' }, 'org/a'); return { version: 1, target: snapshot.tabs[0]!.target, operation: { kind: 'text', text: 'hello', enter: true }, requestId }; } };
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
@@ -134,7 +134,7 @@ it('inspection bypasses a hung control queue, preserves active pending evidence 
 });
 
 it('inspection also fences a control already awaiting live validation and enforces its HTTP body scope', async () => {
-  const f = setup(); const command = await f.command(); const gate = deferred<{ connected: boolean; tabs: CmuxTab[] }>(); const started = deferred<void>();
+  const f = setup(); const command = await f.command(); const gate = deferred<{ connected: boolean; tabs: NativeTerminalSurfaceV1[] }>(); const started = deferred<void>();
   f.bridge.listTabs.mockImplementationOnce(() => { started.resolve(); return gate.promise; });
   const delayed = f.service.control(caller, command, 'org/a'); await started.promise;
   const result = await handleTerminalApi({ caller, service: f.service, method: 'POST', path: '/api/terminal/inspect', query: new URLSearchParams(), body: { command, scopeRepo: 'org/a' } });

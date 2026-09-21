@@ -24,7 +24,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service while the existing core bridge remains the Phase E adapter. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Execution-host extraction is complete, including Docker child stages; workflows, triggers and native terminal implementations remain pending, followed by Phase G compatibility retirement.
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service with native cmux/WezTerm implementations being extracted into separate providers. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Execution-host extraction is complete, including Docker child stages; workflows, triggers and native terminal implementations remain pending, followed by Phase G compatibility retirement.
 
 Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) run inspection, streamed downloads, provisional viewer/history pages and durable clarification services are reviewed and pushed through `3806090`, including exact-request retry, clarification alias selection and public PR inspection. The [run-inspection contract](docs/run-inspect-authoring.md) and [presentation guide](docs/run-presentation-authoring.md) are available. Shared viewer convergence and authored question/contact panels are delivered; `/runs` now selects an authored composition with history, the public PR panel and the shared auxiliary viewer. The `/prs` alias selects the public PR composition.
 
@@ -389,7 +389,7 @@ em dash until a Jira snapshot is loaded, without fetching solely for the header.
 Available panes are `newrun`, `backlog`, `underway`, `running`, `recent`, `repoprs`, `shipped`, and
 `activity` on Helm; `backlog`, `todo`, and `mine` on Triage; `tabs` and `screen` on Terminal;
 `review-requests`, `authored`, `lookup`, and `diff` on PRs; and `recent`, `newrun`, and
-`tasks` on Voyages. Terminal selects an authored composition using the public terminal service; the current core adapter is backed by cmux, and existing `/cmux` links select the same page. Bugs and Config link directly to their page. See [Terminal authoring](docs/terminal-authoring.md).
+`tasks` on Voyages. Terminal selects an authored composition using the public terminal service; native I/O uses the selected provider, and existing `/cmux` links select the same page. Bugs and Config link directly to their page. See [Terminal authoring](docs/terminal-authoring.md).
 
 For native cmux sidebar Codex cost estimates, see [the local integration](docs/cmux-codex-costs.md).
 It uses recorded session tokens and labeled API estimates, independently of the Helmsman server.
@@ -493,6 +493,18 @@ Core renders prompts, chooses effective model/effort, owns admission, workflow a
 validates every provider command and event. A provider-reported result failure makes
 the run fail even when its process exits zero; an unknown result does not. Providers
 do not emit core completion events.
+
+### Native terminals and browser hosts
+
+Use `helmsman plugins select-native-terminal <plugin/id>` for terminal I/O and
+`helmsman plugins select-browser-host <plugin/id>` for communication browsing.
+The shipped providers are `helmsman.terminal-cmux/cmux` and
+`helmsman.terminal-wezterm/wezterm`; cmux supports browser primitives.
+Selections are independent, so WezTerm terminals can coexist with cmux-backed Slack.
+Configure `binary` and `socketPath` on the owning package. `TERM_BRIDGE`,
+`CMUX_SOCKET_PATH`, `WEZTERM_BIN` and `WEZTERM_UNIX_SOCKET` seed initial settings once.
+Existing terminal receipts never resend input after provider changes or disablement.
+See [native terminal authoring](docs/native-terminal-authoring.md).
 
 ### Execution hosts
 

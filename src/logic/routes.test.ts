@@ -140,21 +140,15 @@ describe('routes', () => {
     expect(parse('/runs?ticket=AIRO-0').ticket).toBeNull();
   });
 
-  it('accepts only positive cmux surface references on the terminal page', () => {
-    expect(parse('/terminal?surface=surface%3A15').surface).toBe('surface:15');
-    expect(parse('/runs?surface=surface%3A15').surface).toBeNull();
-    expect(parse('/terminal?surface=surface%3A0').surface).toBeNull();
-    expect(parse('/terminal?surface=workspace%3A15').surface).toBeNull();
-    expect(parse('/terminal?surface=surface%3A9007199254740992').surface).toBeNull();
-  });
-
-  it('accepts bare wezterm pane ids, which are 0-based', () => {
-    expect(parse('/cmux?surface=0').surface).toBe('0');
+  it('preserves opaque authored terminal references while bounding unsafe URL values', () => {
+    for (const surface of ['surface:15', '0', '7', 'remote/session-a?pane=one']) {
+      expect(parse(`/terminal?surface=${encodeURIComponent(surface)}`).surface).toBe(surface);
+      expect(parse(`/runs?surface=${encodeURIComponent(surface)}`).surface).toBeNull();
+    }
+    for (const surface of ['', ' ', 'terminal\ncommand', 'x'.repeat(257)]) {
+      expect(parse(`/terminal?surface=${encodeURIComponent(surface)}`).surface).toBeNull();
+    }
     expect(parse('/cmux?surface=7').surface).toBe('7');
-    expect(parse('/runs?surface=7').surface).toBeNull();
-    expect(parse('/cmux?surface=9007199254740992').surface).toBeNull();
-    expect(parse('/cmux?surface=-1').surface).toBeNull();
-    expect(parse('/cmux?surface=1;rm').surface).toBeNull();
   });
 
   it('serializes canonical paths and encoded parameters', () => {

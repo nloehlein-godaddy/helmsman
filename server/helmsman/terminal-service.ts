@@ -11,12 +11,11 @@ import { clarificationScope, ClarificationServiceError } from './clarification-s
 import { persistenceHash, PersistenceValidationError, type Persistence } from './persistence';
 import { migrateOwned, validateTableColumns } from './migrations';
 import { actionsFor, keysFor } from './cmux/actions';
-import type { Bridge } from './cmux/bridge';
-import type { CmuxTab } from './cmux/model';
+import type { NativeTerminalProviderV1, NativeTerminalSurfaceV1 } from '../../src/plugins/native-terminal';
 
 export interface TerminalServerOptions {
   readonly persistence: Persistence;
-  readonly bridge: Pick<Bridge, 'listTabs' | 'readScreen' | 'send' | 'sendKey'>;
+  readonly bridge: Pick<NativeTerminalProviderV1, 'listTabs' | 'readScreen' | 'send' | 'sendKey'>;
   sessionIdentity(): string;
   repos(): readonly string[];
   roots(): readonly { readonly repo: string; readonly path: string }[];
@@ -30,7 +29,7 @@ const DDL = `CREATE TABLE terminal_control_receipts (
   caller TEXT NOT NULL, requestId TEXT NOT NULL, input TEXT NOT NULL, receipt TEXT NOT NULL, owner TEXT NOT NULL, hash TEXT NOT NULL,
   PRIMARY KEY(caller,requestId)
 )`;
-function providerOf(tab: CmuxTab): string | null { return providerFromTitle(tab.surfaceTitle) ?? (tab.type === 'agent-session' ? 'claude' : null); }
+function providerOf(tab: NativeTerminalSurfaceV1): string | null { return providerFromTitle(tab.surfaceTitle) ?? (tab.type === 'agent-session' ? 'claude' : null); }
 function canonicalPath(value: string): string | null {
   const paths = /^[a-z]:[\\/]/i.test(value) || value.startsWith('\\\\') ? win32 : posix;
   if (!paths.isAbsolute(value) || value.includes('\0') || value.length > 4096) return null;
@@ -73,7 +72,7 @@ export function createTerminalService(options: TerminalServerOptions) {
       return parseTerminalControlReceiptV1({ ...receipt, status: 'pending', reason: null });
     return receipt;
   }
-  function tabRepo(tab: CmuxTab): string | null | undefined {
+  function tabRepo(tab: NativeTerminalSurfaceV1): string | null | undefined {
     const configured = options.repos(); const candidates = new Set<string>(); const cwd = tab.cwd === null ? null : canonicalPath(tab.cwd);
     if (tab.cwd !== null && !cwd) return undefined;
     for (const root of options.roots()) {
@@ -95,7 +94,7 @@ export function createTerminalService(options: TerminalServerOptions) {
     const counts = new Map<string, number>();
     for (const tab of value.tabs) if (tab?.surfaceRef) counts.set(tab.surfaceRef, (counts.get(tab.surfaceRef) ?? 0) + 1);
     let partial = false;
-    const tabs: { raw: CmuxTab; target: TerminalTargetV1 }[] = [];
+    const tabs: { raw: NativeTerminalSurfaceV1; target: TerminalTargetV1 }[] = [];
     if (value.connected) for (const tab of value.tabs) {
       if (!tab || !['terminal', 'agent-session'].includes(tab.type)) continue;
       if (counts.get(tab.surfaceRef) !== 1 || typeof tab.windowRef !== 'string' || typeof tab.workspaceRef !== 'string' || typeof tab.surfaceTitle !== 'string'
