@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { retryRun } from './agents';
-import { fetchLocalGit } from './localGit';
 import { setPirateMode } from '../logic/terminology';
 
 afterEach(() => {
@@ -19,8 +18,7 @@ describe('client error terminology', () => {
     await expect(retryRun('run-1')).rejects.toThrow(enabled
       ? 'The server did not return a new voyage ID. Check recent voyages before retrying.'
       : 'The server did not return a new run ID. Check recent runs before retrying.');
-    expect((await fetchLocalGit('org/repo')).error).toBe(enabled
-      ? 'Local checkout unavailable for this galleon.' : 'Local checkout unavailable for this repository.');
+
   });
 
   it('preserves server error content', async () => {

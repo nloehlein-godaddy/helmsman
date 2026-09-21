@@ -39,6 +39,9 @@ export const RUNS_PAGE_ID = 'helmsman.runs/page';
 export const PR_PAGE_SLOT = 'helmsman/pr-compatibility-page';
 export const PR_PAGE_ID = 'helmsman.compat-pr/page';
 
+export const LOCAL_GIT_PAGE_SLOT = 'helmsman/local-git-page';
+export const LOCAL_GIT_PAGE_ID = 'helmsman.local-git/page';
+
 export const CAMPAIGNS_PAGE_SLOT = 'helmsman/campaigns-page';
 export const CAMPAIGNS_PAGE_ID = 'helmsman.campaigns/page';
 
@@ -54,6 +57,7 @@ interface BuiltinPageSlot extends PageSlot {
 }
 
 export const builtinPageSlots: readonly BuiltinPageSlot[] = Object.freeze([
+  Object.freeze({ id: LOCAL_GIT_PAGE_SLOT, alias: '/local-git', defaultContributionId: LOCAL_GIT_PAGE_ID, panelContract: 'helmsman/local-git-panel' }),
   Object.freeze({ id: CAMPAIGNS_PAGE_SLOT, alias: '/campaigns', defaultContributionId: CAMPAIGNS_PAGE_ID, panelContract: 'helmsman/campaigns-panel' }),
   Object.freeze({ id: TERMINAL_PAGE_SLOT, alias: '/terminal', aliases: Object.freeze(['/cmux']), defaultContributionId: TERMINAL_PAGE_ID, panelContract: 'helmsman/terminal-panel' }),
   Object.freeze({ id: COMMUNICATION_PAGE_SLOT, alias: '/communication', defaultContributionId: COMMUNICATION_PAGE_ID, panelContract: 'helmsman/communication-panel' }),

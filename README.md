@@ -25,7 +25,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service while the existing core bridge remains the Phase E adapter. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Core `/config` retains runtime configuration, customization and local Git. Interchangeable execution primitives (F), including native terminal implementations, and compatibility retirement (G) remain pending.
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service while the existing core bridge remains the Phase E adapter. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Interchangeable execution primitives (F), including native terminal implementations, and compatibility retirement (G) remain pending.
 
 Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) run inspection, streamed downloads, provisional viewer/history pages and durable clarification services are reviewed and pushed through `3806090`, including exact-request retry, clarification alias selection and public PR inspection. The [run-inspection contract](docs/run-inspect-authoring.md) and [presentation guide](docs/run-presentation-authoring.md) are available. Shared viewer convergence and authored question/contact panels are delivered; `/runs` now selects an authored composition with history, the public PR panel and the shared auxiliary viewer. The `/prs` alias selects the public PR composition.
 
@@ -34,6 +34,8 @@ The [authored question/contact guide](docs/authored-clarifications.md) describes
 The [Terminal authoring guide](docs/terminal-authoring.md) covers the selected `/terminal` composition and `/cmux` alias, header and explicit panel scope, revision-bound list/screen/control operations, bounded visible polling, explicit keyboard control, and durable browser/server receipts. Receipt checks never send input, and uncertain controls require inspection before the operator explicitly resumes later controls; the public service has no retry API.
 
 The [Campaign authoring guide](docs/campaigns-authoring.md) covers replaceable campaign presentation, revision-checked mutations, explicit import previews, durable receipts and exact-request recovery. Execution coordination remains core-owned until Phase F.
+
+The [Local Git authoring guide](docs/local-git-authoring.md) covers scoped branches/worktrees, revision-pinned confirmations and durable command inspection without replay. Existing Config deep links select the replaceable `/local-git` page.
 
 ## Stack
 
@@ -372,7 +374,7 @@ and the context needed to open a PR, inspect a voyage, or prepare a new voyage.
 | Prepare a PR relaunch | `/runs?repo=gdcorp-partners/airo-app-builder&pr=10280&mode=rerun&pane=newrun` |
 | Existing voyage's log | `/runs?run=99723f3e-ff89-433a-8621-f30a48b96fd4` |
 | Prepare a ticket voyage | `/helm?repo=gdcorp-partners/airo-app-builder&ticket=AIRO-123&pane=newrun` |
-| Local branches and worktrees | `/config?repo=gdcorp-partners/airo-app-builder&pane=local-git` |
+| Local branches and worktrees | `/local-git?repo=gdcorp-partners/airo-app-builder` |
 | Selected terminal | `/terminal?surface=surface:15&pane=screen` |
 
 Voyage links only prefill the form; opening a link never launches an agent or submits
@@ -403,7 +405,7 @@ The first Triage composition imports prior browser filters, page size and collap
 
 The Config tab edits supported runtime values and offers a write-only Jira token
 update. See [Configuration](#configuration) for every field, its default, storage,
-and restart behavior. UI customization and local Git controls are on the same page.
+and restart behavior. UI customization remains on Config; local Git controls open the replaceable Local Git page.
 
 ### Local todos
 

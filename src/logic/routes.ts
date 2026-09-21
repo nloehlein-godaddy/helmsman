@@ -75,6 +75,12 @@ function isSurfaceRef(value: string | null): boolean {
 export function parseRoute(url: URL): AppRoute {
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
   if (pathname === '/config') {
+    if (url.searchParams.get('pane') === 'local-git') {
+      const next = new URL('/local-git', url.origin);
+      const header = validRepo(url.searchParams.get('repo'));
+      if (header) next.searchParams.set('repo', header);
+      return parseRoute(next);
+    }
     const target = validRepo(url.searchParams.get('slackPrRepo'));
     const number = positiveInteger(url.searchParams.get('slackPr'));
     if (target && number) {

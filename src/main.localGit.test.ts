@@ -1,227 +1,54 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
-import { loadDashboard } from './data/mock';
-import type { LocalGitResponse } from './data/localGit';
+import { appPages, builtinPageSlots } from './plugins/builtins';
+import { appPageModules } from './plugins/builtin-modules';
+import type { PluginPageContext, PluginPageState } from './plugins/sdk';
 
-const json = (value: unknown, status = 200): Response => new Response(JSON.stringify(value), { status });
-const views: DashboardView[] = [];
-const listing = (repo = 'org/a'): LocalGitResponse => ({
-  repo, path: `/repos/${repo}`, error: null,
-  branches: [{ name: 'topic', current: false, upstream: 'origin/topic', upstreamStatus: 'gone', commit: 'abc123' }],
-  worktrees: [{ path: '/repos/topic', branch: 'topic', commit: 'abc123', bare: false, detached: false, locked: false, prunable: false }],
-});
-
-async function setup(post: (body: Record<string, unknown>) => Response | Promise<Response> = body => json({ ...listing(String(body.repo)), branches: [], worktrees: [] })) {
-  window.history.replaceState(null, '', '/config?repo=org/a');
-  const snapshot = await loadDashboard();
-  const writes: Record<string, unknown>[] = [];
-  const reads: string[] = [];
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(String(input), window.location.origin);
-    if (init?.method === 'POST') {
-      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      writes.push(body);
-      if (url.pathname !== '/api/repo/local') throw new Error('Unexpected write');
-      return post(body);
-    }
-    reads.push(url.pathname);
-    if (url.pathname === '/api/context') return json({ repos: ['org/a', 'org/b'], jiraBaseUrl: null });
-    if (url.pathname === '/api/dashboard') return json({ snapshot, degraded: [], repos: ['org/a', 'org/b'], selectedRepo: url.searchParams.get('repo'), jiraBaseUrl: null });
-    if (url.pathname === '/api/agents') return json({ runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } });
-    if (url.pathname === '/api/config') return json({ config: {}, overridden: [] });
-    if (url.pathname === '/api/repo/local') return json(listing(url.searchParams.get('repo') ?? 'org/a'));
-    if (url.pathname === '/api/pr/review-requests' || url.pathname === '/api/pr/open') return json({ prs: [], degraded: false, truncated: false });
-    return json({}, 404);
-  }));
-  const root = document.querySelector<HTMLElement>('#app')!;
-  const view = new DashboardView(root);
-  views.push(view);
-  await view.start();
-  await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-local-branch="topic"]')?.disabled).toBe(false));
-  const click = (selector: string) => root.querySelector<HTMLButtonElement>(selector)!.click();
-  return { root, writes, reads, click };
-}
-
+const disposers: (() => void)[] = []; const states: PluginPageState[] = []; let view: DashboardView | null = null;
+const slot = 'helmsman/local-git-page'; const requests: string[] = [];
+const json = (value: unknown) => new Response(JSON.stringify(value));
 beforeEach(() => {
-  document.body.innerHTML = '<div id="app"></div>';
-  localStorage.clear();
+  document.body.innerHTML = '<div id="app"></div>'; localStorage.clear(); states.length = 0; requests.length = 0;
+  vi.stubGlobal('EventSource', class { constructor() { throw new Error('Legacy streams must be retired'); } });
+  vi.stubGlobal('fetch', vi.fn(async input => {
+    const path = new URL(String(input), window.location.origin).pathname; requests.push(path);
+    if (path === '/api/context') return json({ repos: ['org/a', 'org/b'], jiraEnabled: false, jiraBaseUrl: null });
+    if (path === '/api/agents') return json({ runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } });
+    if (path === '/api/config') return json({ config: {}, overridden: [] });
+    return new Response('{}', { status: 503 });
+  }));
 });
-afterEach(() => {
-  views.splice(0).forEach(view => view.destroy());
-  vi.unstubAllGlobals();
-  document.body.innerHTML = '';
-  localStorage.clear();
+afterEach(() => { view?.destroy(); view = null; appPages.select(slot, null); disposers.splice(0).reverse().forEach(dispose => dispose()); vi.unstubAllGlobals(); document.body.replaceChildren(); });
+function register() {
+  const id = 'example.authored-local-git';
+  const contract = builtinPageSlots.find(item => item.id === slot)?.panelContract;
+  disposers.push(appPages.register({ manifestVersion: 2, sdkVersion: 1, id, version: '1.0.0', panels: [], pages: [{ id: 'page', title: 'Local Git', slots: [slot], panes: [],
+    composition: { id: slot, version: 1, accepts: [{ id: contract!, version: 1 }] } }] }));
+  disposers.push(appPageModules.register(`${id}/page`, { mount(container: HTMLElement, context: PluginPageContext) {
+    states.push(context.state); container.textContent = 'Public replacement'; return { update(state: PluginPageState) { states.push(state); }, dispose() {} };
+  } }));
+  appPages.select(slot, `${id}/page`);
+}
+async function start(path: string) { history.replaceState(null, '', path); const root = document.querySelector<HTMLElement>('#app')!; view = new DashboardView(root); await view.start(); await vi.waitFor(() => expect(states.length).toBeGreaterThan(0)); return root; }
+it.each(['/local-git?repo=org/a', '/config?repo=org/a&pane=local-git'])('opens %s through the selected plugin and preserves scope', async path => {
+  register(); const root = await start(path);
+  expect(states.at(-1)?.repo).toBe('org/a');
+  expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/a');
+  expect(requests).not.toContain('/api/repo/local');
+  const header = root.querySelector<HTMLSelectElement>('.repo-select')!;
+  header.value = 'org/b'; header.dispatchEvent(new Event('change'));
+  await vi.waitFor(() => expect(states.at(-1)?.repo).toBe('org/b'));
 });
-
-describe('local Git actions', () => {
-  it('includes unmerged branches only after opt-in and confirms the previewed force mode', async () => {
-    const { root, writes, click } = await setup(body => body.action === 'preview-delete-untracked-branches'
-      ? json({ ...listing(), cleanup: {
-        expectedHead: 'head123', force: body.force === true,
-        candidates: [{ branch: 'topic', expectedCommit: 'abc123', upstreamStatus: 'gone' }],
-        skipped: [{ branch: 'main', reason: 'Default branch is protected.' }],
-      } }) : json({ ...listing(), branches: [] }));
-    expect(root.querySelector<HTMLInputElement>('.local-git-cleanup-force')?.checked).toBe(false);
-    root.querySelector<HTMLInputElement>('.local-git-cleanup-force')!.click();
-    expect(writes).toEqual([]);
-    click('.local-git-cleanup-preview');
-    await vi.waitFor(() => expect(root.querySelector('.local-git-cleanup-confirm')).not.toBeNull());
-    expect(writes).toEqual([{ repo: 'org/a', action: 'preview-delete-untracked-branches', force: true }]);
-    expect(root.querySelector('.local-git-cleanup-warning')?.textContent).toContain('permanently lose local commits');
-    expect(root.querySelector<HTMLInputElement>('.local-git-cleanup-force')?.checked).toBe(true);
-    expect(root.querySelector('[aria-label="Branches kept"]')?.textContent).toContain('Default branch is protected.');
-    root.querySelector<HTMLInputElement>('.local-git-cleanup-force')!.checked = false;
-    click('.local-git-cleanup-confirm');
-    await vi.waitFor(() => expect(root.querySelector('[data-local-branch=topic]')).toBeNull());
-    expect(writes[1]).toEqual({
-      repo: 'org/a', action: 'delete-untracked-branches', expectedHead: 'head123',
-      branches: [{ branch: 'topic', expectedCommit: 'abc123' }], force: true,
-    });
-    expect(root.querySelector<HTMLInputElement>('.local-git-cleanup-force')?.checked).toBe(false);
-  });
-
-  it('invalidates the confirmation when the unmerged option changes and requires a new preview', async () => {
-    const { root, writes, click } = await setup(body => json({ ...listing(), cleanup: {
-      expectedHead: 'head123', force: body.force === true,
-      candidates: [{ branch: 'topic', expectedCommit: 'abc123', upstreamStatus: 'gone' }], skipped: [],
-    } }));
-    click('.local-git-cleanup-preview');
-    await vi.waitFor(() => expect(root.querySelector('.local-git-cleanup-confirm')).not.toBeNull());
-    root.querySelector<HTMLInputElement>('.local-git-cleanup-force')!.click();
-    expect(root.querySelector('.local-git-cleanup-confirm')).toBeNull();
-    expect(writes).toHaveLength(1);
-    click('.local-git-cleanup-preview');
-    await vi.waitFor(() => expect(root.querySelector('.local-git-cleanup-confirm')).not.toBeNull());
-    expect(writes[1]).toEqual({ repo: 'org/a', action: 'preview-delete-untracked-branches', force: true });
-    click('.local-git-cleanup-cancel');
-    expect(root.querySelector<HTMLInputElement>('.local-git-cleanup-force')?.checked).toBe(false);
-    expect(writes).toHaveLength(2);
-  });
-
-  it('previews bulk cleanup without deleting and confirms the exact branch snapshot', async () => {
-    const cleanup = {
-      expectedHead: 'head123', force: false, candidates: [{ branch: 'topic', expectedCommit: 'abc123', upstreamStatus: 'gone' }],
-      skipped: [{ branch: 'main', reason: 'Default branch is protected.' }],
-    };
-    const { root, writes, click } = await setup(body => body.action === 'preview-delete-untracked-branches'
-      ? json({ ...listing(), cleanup }) : json({ ...listing(), branches: [] }));
-    click('.local-git-cleanup-preview');
-    await vi.waitFor(() => expect(root.querySelector('.local-git-cleanup-confirm')).not.toBeNull());
-    expect(writes).toEqual([{ repo: 'org/a', action: 'preview-delete-untracked-branches' }]);
-    expect(root.querySelector('[data-local-branch=topic]')).not.toBeNull();
-    expect(root.querySelector('[aria-label="Branches kept"]')?.textContent).toContain('Default branch is protected.');
-    click('.local-git-cleanup-confirm');
-    await vi.waitFor(() => expect(root.querySelector('[data-local-branch=topic]')).toBeNull());
-    expect(writes[1]).toEqual({
-      repo: 'org/a', action: 'delete-untracked-branches', expectedHead: 'head123',
-      branches: [{ branch: 'topic', expectedCommit: 'abc123' }],
-    });
-    expect(writes[1]).not.toHaveProperty('force');
-    expect(root.querySelector('.local-git-cleanup')).toBeNull();
-  });
-
-  it('cancels bulk cleanup without sending a deletion request', async () => {
-    const { root, writes, click } = await setup(() => json({ ...listing(), cleanup: {
-      expectedHead: 'head123', force: false, candidates: [{ branch: 'topic', expectedCommit: 'abc123', upstreamStatus: 'gone' }], skipped: [],
-    } }));
-    click('.local-git-cleanup-preview');
-    await vi.waitFor(() => expect(root.querySelector('.local-git-cleanup-cancel')).not.toBeNull());
-    click('.local-git-cleanup-cancel');
-    expect(root.querySelector('.local-git-cleanup')).toBeNull();
-    expect(root.querySelector('[data-local-branch=topic]')).not.toBeNull();
-    expect(writes).toEqual([{ repo: 'org/a', action: 'preview-delete-untracked-branches' }]);
-  });
-
-  it('shows stale bulk-preview failures and requires a fresh preview before another deletion', async () => {
-    const { root, writes, click } = await setup(body => body.action === 'preview-delete-untracked-branches'
-      ? json({ ...listing(), cleanup: {
-        expectedHead: 'head123', force: false, candidates: [{ branch: 'topic', expectedCommit: 'abc123', upstreamStatus: 'gone' }], skipped: [],
-      } })
-      : json({ ...listing(), error: 'The branch changed since preview. Preview cleanup again.' }, 409));
-    click('.local-git-cleanup-preview');
-    await vi.waitFor(() => expect(root.querySelector('.local-git-cleanup-confirm')).not.toBeNull());
-    click('.local-git-cleanup-confirm');
-    await vi.waitFor(() => expect(root.querySelector('.local-git-error')?.textContent).toContain('changed since preview'));
-    expect(root.querySelector('[data-local-branch=topic]')).not.toBeNull();
-    expect(root.querySelector('.local-git-cleanup-confirm')).toBeNull();
-    expect(writes).toHaveLength(2);
-    expect(root.querySelector<HTMLButtonElement>('.local-git-cleanup-preview')?.disabled).toBe(false);
-  });
-
-  it('keeps bulk deletion disabled when every branch is protected or unmerged', async () => {
-    const { root, writes, click } = await setup(() => json({ ...listing(), cleanup: {
-      expectedHead: 'head123', force: false, candidates: [], skipped: [{ branch: 'topic', reason: 'Branch is not fully merged.' }],
-    } }));
-    click('.local-git-cleanup-preview');
-    await vi.waitFor(() => expect(root.querySelector('.local-git-cleanup-confirm')).not.toBeNull());
-    expect(root.querySelector<HTMLButtonElement>('.local-git-cleanup-confirm')?.disabled).toBe(true);
-    click('.local-git-cleanup-confirm');
-    expect(writes).toHaveLength(1);
-  });
-
-  it('requires explicit target confirmation and defaults to safe branch deletion', async () => {
-    const { root, writes, click } = await setup();
-    click('[data-local-branch="topic"]');
-    expect(root.querySelector('.local-git-confirmation')?.textContent).toContain('Delete local branch topic?');
-    expect(root.querySelector<HTMLInputElement>('.local-git-force')?.checked).toBe(false);
-    expect(writes).toEqual([]);
-    click('.local-git-cancel');
-    expect(root.querySelector('.local-git-confirmation')).toBeNull();
-    expect(writes).toEqual([]);
-    click('[data-local-branch="topic"]');
-    click('.local-git-confirm-delete');
-    await vi.waitFor(() => expect(writes).toEqual([{ repo: 'org/a', action: 'delete-branch', branch: 'topic', expectedCommit: 'abc123', force: false }]));
-    await vi.waitFor(() => expect(root.querySelector('[data-local-branch]')).toBeNull());
-  });
-
-  it('shows Git refusal and only forces after an explicit checkbox selection', async () => {
-    const { root, writes, click } = await setup(body => body.force ? json({ ...listing(), branches: [] }) : json({ ...listing(), error: 'Branch is not fully merged. Choose unmerged deletion to proceed.' }, 409));
-    click('[data-local-branch="topic"]');
-    click('.local-git-confirm-delete');
-    await vi.waitFor(() => expect(root.querySelector('.local-git-panel [role="alert"]')?.textContent).toContain('not fully merged'));
-    click('[data-local-branch="topic"]');
-    root.querySelector<HTMLInputElement>('.local-git-force')!.checked = true;
-    click('.local-git-confirm-delete');
-    await vi.waitFor(() => expect(writes).toHaveLength(2));
-    expect(writes[0]?.force).toBe(false);
-    expect(writes[1]?.force).toBe(true);
-  });
-
-  it('names the worktree directory and sends its pinned commit without force', async () => {
-    const { root, writes, click } = await setup();
-    click('[data-local-worktree="/repos/topic"]');
-    expect(root.querySelector('.local-git-confirmation')?.textContent).toContain('/repos/topic');
-    expect(root.querySelector('.local-git-force')).toBeNull();
-    click('.local-git-confirm-delete');
-    await vi.waitFor(() => expect(writes).toEqual([{ repo: 'org/a', action: 'delete-worktree', path: '/repos/topic', expectedCommit: 'abc123' }]));
-  });
-
-  it('keeps ordinary refresh local and checks remotes only on demand', async () => {
-    const { root, writes, reads, click } = await setup();
-    const initial = reads.filter(path => path === '/api/repo/local').length;
-    click('.local-git-actions > .local-git-refresh:not(.local-git-check-remotes)');
-    await vi.waitFor(() => expect(reads.filter(path => path === '/api/repo/local')).toHaveLength(initial + 1));
-    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('.local-git-check-remotes')?.disabled).toBe(false));
-    expect(writes).toEqual([]);
-    click('.local-git-check-remotes');
-    await vi.waitFor(() => expect(writes).toEqual([{ repo: 'org/a', action: 'refresh-remotes' }]));
-  });
-
-  it('disables controls during a write and ignores its result after changing repository', async () => {
-    let finish!: (response: Response) => void;
-    const pending = new Promise<Response>(resolve => { finish = resolve; });
-    const { root, writes, click } = await setup(() => pending);
-    click('[data-local-branch="topic"]');
-    click('.local-git-confirm-delete');
-    expect(Array.from(root.querySelectorAll<HTMLButtonElement>('.local-git-panel button')).every(button => button.disabled)).toBe(true);
-    expect(writes).toHaveLength(1);
-    const select = root.querySelector<HTMLSelectElement>('.repo-select')!;
-    select.value = 'org/b';
-    select.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(root.querySelector('.local-git-checkout')?.textContent).toContain('/repos/org/b'));
-    finish(json({ ...listing('org/a'), branches: [], error: 'Old repository result' }));
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(root.querySelector('.local-git-checkout')?.textContent).toContain('/repos/org/b');
-    expect(root.textContent).not.toContain('Old repository result');
-  });
+it('keeps a disabled Local Git selection unavailable without restoring shell controls', async () => {
+  register(); const root = await start('/local-git?repo=org/a');
+  disposers.splice(0).reverse().forEach(dispose => dispose());
+  await vi.waitFor(() => expect(root.textContent).toContain('Page unavailable'));
+  expect(root.querySelector('.local-git-panel')).toBeNull();
+  expect(requests).not.toContain('/api/repo/local');
+});
+it('Config links to Local Git without reading the legacy endpoint', async () => {
+  history.replaceState(null, '', '/config?repo=org/a');
+  const root = document.querySelector<HTMLElement>('#app')!; view = new DashboardView(root); await view.start();
+  await vi.waitFor(() => expect(root.querySelector<HTMLAnchorElement>('a[href="/local-git?repo=org%2Fa"]')).not.toBeNull());
+  expect(requests).not.toContain('/api/repo/local');
 });

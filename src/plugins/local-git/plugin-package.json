@@ -1,0 +1,80 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.local-git",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Local Git",
+        "slots": [
+          "helmsman/local-git-page"
+        ],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ],
+        "composition": {
+          "id": "helmsman/local-git-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/local-git-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "local-git",
+                "contributionId": "helmsman.local-git/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "local-git"
+                  ],
+                  "activeInstanceId": "local-git",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Local Git",
+        "contract": {
+          "id": "helmsman/local-git-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/local-git",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

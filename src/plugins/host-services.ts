@@ -1,3 +1,4 @@
+import { createHostLocalGitService } from './local-git-service';
 import { createHostCampaignService } from './campaigns-service';
 import { createHostTerminalService } from './terminal-service';
 import { createHostCommunicationService } from './communication-service';
@@ -113,6 +114,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
         pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope, caller }),
         terminal: createHostTerminalService(lifetime, { scope, caller }),
         campaigns: createHostCampaignService(lifetime, { scope, caller }),
+        localGit: createHostLocalGitService(lifetime, { scope, caller }),
         communication: createHostCommunicationService(lifetime, { scope, caller }),
         communicationCommands: createHostCommunicationCommandService(lifetime, { scope, caller }),
         suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope, caller }),

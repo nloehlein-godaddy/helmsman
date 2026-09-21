@@ -1,3 +1,4 @@
+import { createHostLocalGitService } from './local-git-service';
 import { createHostCampaignService } from './campaigns-service';
 import { createHostTerminalService } from './terminal-service';
 import { createHostCommunicationService } from './communication-service';
@@ -194,7 +195,7 @@ export class PluginCompositionHost {
     const contribution = this.options.registry.get(instance.contributionId);
     const compatible = contribution && this.options.definition.accepts.some(contract =>
       contract.id === contribution.contract.id && contract.version === contribution.contract.version)
-      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/terminal', 'helmsman/campaigns', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
+      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/terminal', 'helmsman/campaigns', 'helmsman/local-git', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
     const module = compatible ? this.options.registry.getModule(instance.contributionId) : null;
     if (panel.module !== module || panel.contributionId !== instance.contributionId) {
       panel.host?.dispose(); panel.host = null;
@@ -237,6 +238,7 @@ export class PluginCompositionHost {
         pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         terminal: createHostTerminalService(lifetime, { scope: activity, caller: instance.contributionId }),
         campaigns: createHostCampaignService(lifetime, { scope: activity, caller: instance.contributionId }),
+        localGit: createHostLocalGitService(lifetime, { scope: activity, caller: instance.contributionId }),
         communication: createHostCommunicationService(lifetime, { scope: activity, caller: instance.contributionId }),
         communicationCommands: createHostCommunicationCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope: activity, caller: instance.contributionId }),

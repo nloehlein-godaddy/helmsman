@@ -96,3 +96,7 @@ The Communication gate independently compiles the selected notification header, 
 The Terminal distribution scenario compiles the selected composition and panel against the copied SDK with checkout access denied. It uses a mock terminal fixture to verify header and explicit panel scope, unassociated `All` surfaces, two-second visible polling, bounded 40-line plain-text screens, stale revision rejection, serialized controls, durable receipts, lost-response inspection acknowledgment, reload, and unavailable selection behavior. It must not discover, select, enter keyboard-control mode for, or send input to a native terminal. See [Terminal authoring](terminal-authoring.md).
 
 The Campaign scenario builds a renamed page/panel against the copied SDK with source access denied. It verifies scoped creation, exact receipt recovery, import previews and queued-task confirmation without starting real workers, then checks restart, disabled selections and desktop/mobile layouts. See [Campaign authoring](campaigns-authoring.md) and the implementation ledger for current acceptance status.
+
+## Local Git presentation
+
+The independently buildable `local-git` author package provides the selected `/local-git` page and replaceable panel through `helmsman/local-git@1`. Core retains checkout validation, active-worktree protection and durable command receipts. Lost responses require inspection; no retry operation is exposed. See [Local Git authoring](local-git-authoring.md) and the [implementation ledger](plugin-implementation-progress.md) for delivery evidence.

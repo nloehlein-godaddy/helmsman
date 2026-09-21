@@ -899,3 +899,10 @@ it('returns terminal Todo rejection evidence only for durable source command rej
   update.mockImplementationOnce(async () => { throw new PersistenceConflictError('Unknown delivery'); });
   expect(await handleApi('PUT', '/api/todos/TODO-1', query, { title: 'Wanted' }, local)).toEqual({ status: 409, json: { error: 'Unknown delivery' } });
 });
+
+ it.each(['GET', 'POST'])('retires legacy Local Git %s when its public service is active', async method => {
+  const localGit = vi.fn(); const localGitAction = vi.fn();
+  const publicLocalGit = {} as NonNullable<RouterDeps['publicLocalGit']>;
+  expect((await handleApi(method, '/api/repo/local', new URLSearchParams({ repo: 'o/r' }), { repo: 'o/r', action: 'refresh-remotes' }, { ...deps, publicLocalGit, localGit, localGitAction }))?.status).toBe(410);
+  expect(localGit).not.toHaveBeenCalled(); expect(localGitAction).not.toHaveBeenCalled();
+});

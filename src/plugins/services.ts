@@ -1,3 +1,4 @@
+import type { LocalGitServiceV1 } from './local-git';
 import type { CampaignServiceV1 } from './campaigns';
 import type { TerminalServiceV1 } from './terminal';
 import type { CommunicationServiceV1 } from './communication';
@@ -42,6 +43,7 @@ export interface PluginPageServices {
   readonly communication?: CommunicationServiceV1;
   readonly terminal?: TerminalServiceV1;
   readonly campaigns?: CampaignServiceV1;
+  readonly localGit?: LocalGitServiceV1;
   readonly communicationCommands?: CommunicationCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;

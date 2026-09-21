@@ -251,6 +251,28 @@ flowchart TD
 
 A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. Scheduling and execution implementation replacement remains Phase F. See [Campaign authoring](campaigns-authoring.md).
 
+## Local Git confirmation and recovery
+
+```mermaid
+flowchart TD
+    Page[Selected Local Git composition] --> Read[Scoped checkout snapshot and revision]
+    Read --> Preview[Explicit branch or worktree confirmation<br/>Cleanup preview retains force and expected HEAD]
+    Preview --> Journal[Reserve original caller and command UUID]
+    Journal --> Gate[Serialized checkout identity and revision checks<br/>Protect active worktrees and expected commits]
+    Gate --> Record[Durable receipt before filesystem effect]
+    Record --> Git[Execute once through guarded Git operations]
+    Git --> Known[Validate result and persist receipt]
+    Git --> Unknown[Uncertain outcome remains recovery-required]
+    Known --> Save[Save evidence before browser acknowledgment]
+    Unknown --> Inspect[Operator inspects checkout<br/>Explicit inspection never replays]
+    Journal -->|Dispatch absent| Inspect
+    Inspect --> Fence[Fence delayed original delivery]
+    Fence --> Save
+    Save --> Later[Later independent command may be submitted]
+```
+
+The header galleon remains unchanged by panel overrides. Reads and preview never delete; force and deletion remain explicit decisions. A crash between Git and receipt storage does not prove success or authorize replay. Disabling presentation retains command evidence and host protections. See [Local Git authoring](local-git-authoring.md).
+
 ## Conditional panel-state saves
 
 Authored question/contact panels use conditional panel-state saves. This behavior passed independent package and production acceptance and is pushed as 773cce4:

@@ -1,3 +1,4 @@
+import type { LocalGitServiceV1 } from './local-git';
 import type { CampaignServiceV1 } from './campaigns';
 import type { TerminalServiceV1 } from './terminal';
 import type { CommunicationServiceV1 } from './communication';
@@ -23,7 +24,7 @@ import type { SourceCommandServiceV1 } from './source-command';
 import type { TaskViewsReadServiceV1 } from './task-views';
 
 export interface PluginServiceRequirementV1 {
-  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/pull-request-inspect' | 'helmsman/pull-request-command' | 'helmsman/communication' | 'helmsman/communication-command' | 'helmsman/terminal' | 'helmsman/campaigns' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
+  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/pull-request-inspect' | 'helmsman/pull-request-command' | 'helmsman/communication' | 'helmsman/communication-command' | 'helmsman/terminal' | 'helmsman/campaigns' | 'helmsman/local-git' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
   readonly version: 1;
 }
 
@@ -135,6 +136,7 @@ export interface PluginPanelServicesV1 {
   readonly communication?: CommunicationServiceV1;
   readonly terminal?: TerminalServiceV1;
   readonly campaigns?: CampaignServiceV1;
+  readonly localGit?: LocalGitServiceV1;
   readonly communicationCommands?: CommunicationCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;

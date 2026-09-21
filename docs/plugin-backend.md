@@ -74,3 +74,7 @@ HTTP equivalents are `GET /api/usage/v1`, `GET /api/pricing/v1` (query parameter
 ## Validation
 
 `npm run test:distribution` compiles both Costs implementations and both pricing implementations outside the source tree, installs through the compiled CLI, and runs the real compiled server with source access denied. It verifies scope, deep links, explicit replacement, settings/storage across restart, unavailable selections, and unchanged measured usage. Unit tests cover activation rollback, disposal/timeouts, storage isolation/quotas, malformed results, legacy recording, and capability selection. Browser tests preserve the Costs draft, navigation, cancellation, and visual flows.
+
+## Local Git presentation
+
+The independently buildable `local-git` author package provides the selected `/local-git` page and replaceable panel through `helmsman/local-git@1`. Core retains checkout validation, active-worktree protection and durable command receipts. Lost responses require inspection; no retry operation is exposed. See [Local Git authoring](local-git-authoring.md) and the [implementation ledger](plugin-implementation-progress.md) for delivery evidence.

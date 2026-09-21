@@ -1,3 +1,4 @@
+import localGitPackage from './local-git/plugin-package.json' with { type: 'json' };
 import campaignsPackage from './campaigns/plugin-package.json' with { type: 'json' };
 import terminalPackage from './terminal/plugin-package.json' with { type: 'json' };
 import communicationPackage from './communication/plugin-package.json' with { type: 'json' };
@@ -100,8 +101,9 @@ export const compatibilityClarificationsManifest = compatibilityClarificationsPa
 
 export const compatibilityPrManifest = compatibilityPrPackage.manifest as PluginManifest;
 
+export const localGitManifest = localGitPackage.manifest as PluginManifest;
 export const campaignsManifest = campaignsPackage.manifest as PluginManifest;
 export const terminalManifest = terminalPackage.manifest as PluginManifest;
 export const communicationManifest = communicationPackage.manifest as PluginManifest;
 
-export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([campaignsManifest, terminalManifest, communicationManifest, runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);
+export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([localGitManifest, campaignsManifest, terminalManifest, communicationManifest, runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);

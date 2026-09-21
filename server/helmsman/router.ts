@@ -1,3 +1,5 @@
+import { handleLocalGitApi } from './local-git-routes';
+import type { LocalGitServerService } from './local-git-service';
 import { handleCampaignPublicApi } from './campaigns-public-routes';
 import type { CampaignPublicService } from './campaigns-public-service';
 import { handleTerminalApi } from './terminal-routes';
@@ -149,7 +151,9 @@ export interface RouterDeps {
   prStatus: (repo: string, prNumber: number) => Promise<PrStatus | null>;
   reviewRequestedPrs: (repo: string | null) => Promise<PrListResponse>;
   repoOpenPrs: (repo: string) => Promise<PrListResponse>;
-  localGit: (repo: string) => Promise<ApiResult>;
+  publicLocalGit?: LocalGitServerService;
+  localGitCaller?: string;
+  localGit?: (repo: string) => Promise<ApiResult>;
   localGitAction?: (repo: string, body: unknown) => Promise<ApiResult>;
   prDiff: (repo: string, prNumber: number) => Promise<PrFileDiff[] | null>;
   submitReview: (
@@ -511,6 +515,9 @@ export async function handleApi(
     if (!repo || !isGithubRepo(repo)) return { status: 400, json: { error: 'Galleon must be owner/name' } };
     return { status: 200, json: await deps.repoOpenPrs(repo) };
   }
+  const localGitResult = await handleLocalGitApi({ method, path, query, body: _body, caller: deps.localGitCaller, service: deps.publicLocalGit });
+  if (localGitResult) return localGitResult;
+  if (deps.publicLocalGit && path === '/api/repo/local') return { status: 410, json: { error: 'Use scoped Local Git services.' } };
   if (path === '/api/repo/local' && method === 'POST') {
     const body = _body && typeof _body === 'object' && !Array.isArray(_body) ? _body as Record<string, unknown> : null;
     if (typeof body?.repo !== 'string' || !isGithubRepo(body.repo)) return { status: 400, json: { error: 'Galleon must be owner/name' } };
@@ -520,7 +527,7 @@ export async function handleApi(
   if (path === '/api/repo/local' && method === 'GET') {
     const repo = query.get('repo');
     if (!repo || !isGithubRepo(repo)) return { status: 400, json: { error: 'Galleon must be owner/name' } };
-    return deps.localGit(repo);
+    return deps.localGit ? deps.localGit(repo) : { status: 503, json: { error: 'Local Git is unavailable.' } };
   }
   if (path === '/api/pr' && method === 'GET') {
     const repo: string | null = query.get('repo');

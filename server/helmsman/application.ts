@@ -1,3 +1,5 @@
+import { createLocalGitService } from './local-git-service';
+import { localGitContributionEnabled } from './local-git-runtime';
 import { createCampaignPublicService } from './campaigns-public-service';
 import { campaignContributionEnabled } from './campaigns-runtime';
 import { createTerminalService } from './terminal-service';
@@ -112,7 +114,6 @@ import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discove
 import { findPrNumberByBranch, fetchPrStatus, fetchPrDiff, type PrStatus } from '../github';
 import { fetchRepoOpenPrs, fetchReviewRequestedPrs } from '../pr-lists';
 import { fetchGithubProfile } from '../github-profile';
-import { getLocalGit, mutateLocalGit } from '../local-git';
 import type { PrFileDiff } from '../../src/types';
 import { openTodoStore } from './todos';
 import { reconcileTodoRuns } from './todo-source';
@@ -350,6 +351,12 @@ const gateway = createScopedGateway({ path: persistence.sql, openaiKey: () => pr
   clarificationReady, clarificationGate,
 });
 if (runHost === 'docker' && !process.env.HELMSMAN_DOCKER_IMAGE) throw new Error('Set HELMSMAN_DOCKER_IMAGE to a built Helmsman runtime image before selecting Docker');
+const publicLocalGit = createLocalGitService({ persistence, agentsRoot: AGENTS_ROOT, repos: applicationRepos,
+  activeWorktreePaths: () => db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
+  authorize: caller => {
+    if (!localGitContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden');
+  },
+});
 const campaignsStore = openCampaignStore(persistence.sql);
 const publicCampaigns = createCampaignPublicService({ persistence, store: campaignsStore, repos: applicationRepos,
   workflows: () => [{ ref: 'coding@1', name: 'Coding' }],
@@ -1230,7 +1237,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (await handleRunInspectExport(req, res, url, runInspect)) return;
     if (await handleRunLog(req, res, url.pathname, db, bus)) return;
     const hasBody: boolean = req.method === 'POST' || req.method === 'PUT';
-    const commandBodyLimit = url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/terminal/') ? 3 * 1024 * 1024 + 4096 : undefined;
+    const commandBodyLimit = url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/local-git/') || url.pathname.startsWith('/api/terminal/') ? 3 * 1024 * 1024 + 4096 : undefined;
     const body: unknown = hasBody ? await readBody(req, commandBodyLimit) : null;
     if (url.pathname === '/api/recovery' || url.pathname === '/api/recovery/actions') {
       if (req.method === 'POST' && (req.headers['content-type']?.split(';')[0] !== 'application/json'
@@ -1241,7 +1248,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
     }
-    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/terminal/') || url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
+    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/terminal/') || url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/local-git/') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
       && (req.headers['content-type']?.split(';')[0] !== 'application/json'
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
       res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
@@ -1256,6 +1263,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      publicLocalGit, localGitCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
@@ -1323,20 +1331,6 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         return fetchReviewRequestedPrs(cfg.github, repos, repo);
       },
       repoOpenPrs: (repo) => fetchRepoOpenPrs(configStore.current().github, repo),
-      localGit: (repo) => {
-        const cfg = configStore.current();
-        const repos = applicationRepos(cfg);
-        return getLocalGit(AGENTS_ROOT, repo, repos, {
-          activeWorktreePaths: () => db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
-        });
-      },
-      localGitAction: (repo, body) => {
-        const cfg = configStore.current();
-        const repos = applicationRepos(cfg);
-        return mutateLocalGit(AGENTS_ROOT, repo, repos, body, {
-          activeWorktreePaths: () => db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
-        });
-      },
       prStatus: (repo: string, prNumber: number): Promise<PrStatus | null> => {
         const g: AppConfig['github'] = configStore.current().github;
         return g ? fetchPrStatus(g, repo, prNumber) : Promise.resolve(null);

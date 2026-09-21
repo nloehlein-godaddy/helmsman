@@ -126,3 +126,7 @@ Unit tests cover archive traversal/size/integrity, atomic publication, persisted
 The preview harness uses a production frontend with mocked legacy domain APIs. A separate [distribution harness](distribution.md#acceptance-evidence) copies the runnable server, compiles an independent SDK page, denies source access, and tests real server installation, route reload, and safe-start recovery. The Phase B harness additionally compiles and swaps standalone full/alternative Costs and standard/flat pricing implementations, verifies settings/storage persistence, and preserves measured usage through disable/restart.
 
 The built-in Costs and Communication implementations use the same public SDK/services as independently compiled packages. Their rendering, terminology and styles are owned by the packages; the distribution includes their standalone author projects and the standalone Slack backend provider. External packages reject private-host and cross-package imports.
+
+## Local Git presentation
+
+The independently buildable `local-git` author package provides the selected `/local-git` page and replaceable panel through `helmsman/local-git@1`. Core retains checkout validation, active-worktree protection and durable command receipts. Lost responses require inspection; no retry operation is exposed. See [Local Git authoring](local-git-authoring.md) and the [implementation ledger](plugin-implementation-progress.md) for delivery evidence.

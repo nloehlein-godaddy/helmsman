@@ -1,7 +1,5 @@
 import { term, isPirateMode, TERMINOLOGY, TERMINOLOGY_REFERENCE_KEYS } from './logic/terminology';
-import { renderLocalGit } from './renderLocalGit';
 import { renderThemePreview } from './renderThemePreview';
-import { emptyLocalGit, type LocalGitState } from './data/localGit';
 import { routeHref, type PageView } from './logic/routes';
 import { appPages, COSTS_PAGE_ID, COSTS_PAGE_SLOT, builtinPageSlots, SOURCE_SETTINGS_PAGE_SLOT } from './plugins/builtins';
 import { escapeHtml as esc } from './logic/html';
@@ -169,7 +167,6 @@ export interface ConfigViewOpts {
   repos: string[];
   selectedRepo: string | null;
   themeId: string;
-  localGit?: LocalGitState;
   loading?: boolean;
   error?: string | null;
   unavailable?: boolean;
@@ -268,7 +265,7 @@ export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): stri
       ${sources}
       ${customization}
       <section class="panel config-panel"><h2>Communication</h2><p><a class="app-link" href="/communication${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">Notifications and Slack settings</a></p></section>
-      ${renderLocalGit(opts.localGit ?? emptyLocalGit(opts.selectedRepo))}
+      <section class="panel config-panel"><h2>Local Git</h2><p><a class="app-link" href="/local-git${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">Local branches and worktrees</a></p></section>
       <section class="panel config-panel">
         <div class="panel-head"><span class="panel-title">Runtime settings</span></div>
         <div class="config-warning">Adapter and <span class="mono">AGENT_CMD</span> can run arbitrary commands &mdash; change with care. Auto-claim interval changes apply on restart.</div>

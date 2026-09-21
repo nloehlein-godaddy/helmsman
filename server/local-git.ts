@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { setMaxListeners } from 'node:events';
-import { access, readdir, realpath } from 'node:fs/promises';
+import { access, readdir, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { LocalGitResponse } from '../src/data/localGit';
@@ -15,7 +15,11 @@ type Branch = LocalGitResponse['branches'][number] & {
   deletionBlockedReason: string | null;
 };
 type Worktree = LocalGitResponse['worktrees'][number] & { deletionBlockedReason: string | null };
-export interface LocalGitOptions { activeWorktreePaths?: () => string[] }
+export interface LocalGitOptions {
+  activeWorktreePaths?: () => string[];
+  beforeMutation?(state: LocalGitResponse): Promise<void>;
+  beforeEffect?(): Promise<void>;
+}
 export interface BranchCleanup {
   force: boolean;
   expectedHead: string;
@@ -87,7 +91,7 @@ function preparedRefTransaction(
   });
 }
 
-async function deleteBranchRefs(path: string, branches: { branch: string; expectedCommit: string }[], expectedHead?: string): Promise<void> {
+async function deleteBranchRefs(path: string, branches: { branch: string; expectedCommit: string }[], expectedHead?: string, beforeEffect?: () => Promise<void>): Promise<void> {
   const gitDirs = await linkedWorktreeGitDirs(path);
   const head = (await git(path, ['rev-parse', '--verify', 'HEAD'])).trim();
   const linkedHeads = await Promise.all(gitDirs.map(async gitDir => ({
@@ -103,6 +107,7 @@ async function deleteBranchRefs(path: string, branches: { branch: string; expect
       throw new BranchCleanupConflict('Worktree ownership changed. Refresh and preview branch cleanup again.');
     }
     if (expectedHead && head !== expectedHead) throw new BranchCleanupConflict('Current HEAD changed. Preview branch cleanup again.');
+    await beforeEffect?.();
   };
   const deleteRefs = () => preparedRefTransaction(['-C', path], [
     `verify HEAD ${head}`,
@@ -195,6 +200,14 @@ async function mutationCheckoutError(agentsRoot: string, repo: string, path: str
   const origins = (await git(path, ['config', '--get-all', 'remote.origin.url']).catch(() => '')).trim().split('\n').filter(Boolean);
   if (origins.length !== 1 || githubOriginRepo(origins[0] ?? '')?.toLowerCase() !== repo.toLowerCase()) return 'Configured checkout origin does not match this GitHub galleon.';
   return null;
+}
+
+export async function localGitCheckoutIdentity(agentsRoot: string, repo: string): Promise<string> {
+  const path = resolve(agentsRoot, repoBasename(repo));
+  const canonical = await realpath(path);
+  const common = await realpath((await git(path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim());
+  const [checkout, metadata, origins] = await Promise.all([stat(canonical, { bigint: true }), stat(common, { bigint: true }), git(path, ['config', '--get-all', 'remote.origin.url']).catch(() => '')]);
+  return JSON.stringify({ canonical, common, checkout: [String(checkout.dev), String(checkout.ino), String(checkout.birthtimeNs)], metadata: [String(metadata.dev), String(metadata.ino), String(metadata.birthtimeNs)], origins });
 }
 
 export async function getLocalGit(
@@ -310,6 +323,7 @@ export async function mutateLocalGit(
     try {
       const checkoutError = await mutationCheckoutError(agentsRoot, repo, path);
       if (checkoutError) return fail(409, checkoutError);
+      await options.beforeMutation?.(state.json);
       if (action.action === 'preview-delete-untracked-branches') {
         return { status: 200, json: { ...state.json, cleanup: await cleanupPreview(path, state.json.branches as Branch[], action.force === true) } };
       }
@@ -329,12 +343,13 @@ export async function mutateLocalGit(
             || (branch.upstreamStatus !== 'none' && branch.upstreamStatus !== 'gone')) return fail(409, `Branch ${target.branch} changed or is no longer safe to delete. Preview cleanup again.`);
         }
         if ((await git(path, ['rev-parse', '--verify', 'HEAD'])).trim() !== action.expectedHead) return fail(409, 'Current HEAD changed. Preview branch cleanup again.');
-        await deleteBranchRefs(path, action.branches, action.expectedHead);
+        await deleteBranchRefs(path, action.branches, action.expectedHead, options.beforeEffect);
         let metadataIncomplete = false;
         try {
           const config = await git(path, ['config', '--null', '--list']);
           for (const target of action.branches) {
             if (config.split('\0').some(entry => entry.split('\n')[0]?.startsWith(`branch.${target.branch}.`))) {
+              await options.beforeEffect?.();
               await git(path, ['config', '--remove-section', `branch.${target.branch}`]).catch(() => { metadataIncomplete = true; });
             }
           }
@@ -348,6 +363,7 @@ export async function mutateLocalGit(
         const remotes = (await git(path, ['remote'])).split('\n').filter(Boolean);
         for (const remote of remotes) {
           await git(path, ['check-ref-format', `refs/remotes/${remote}/helmsman-validation`]);
+          await options.beforeEffect?.();
           await git(path, ['fetch', '--prune', '--no-tags', '--no-prune-tags', '--no-recurse-submodules', '--refmap=', '--', remote, `+refs/heads/*:refs/remotes/${remote}/*`], 120_000);
         }
       } else if (action.action === 'delete-branch') {
@@ -368,9 +384,10 @@ export async function mutateLocalGit(
         const trees = parseWorktrees(await git(path, ['worktree', 'list', '--porcelain', '-z']));
         await activePaths(options);
         if (trees.some(tree => tree.branch === action.branch)) return fail(409, 'Branch is checked out in a worktree.');
-        await deleteBranchRefs(path, [{ branch: action.branch, expectedCommit: action.expectedCommit }]);
+        await deleteBranchRefs(path, [{ branch: action.branch, expectedCommit: action.expectedCommit }], undefined, options.beforeEffect);
         const config = await git(path, ['config', '--null', '--list']);
         if (config.split('\0').some(entry => entry.split('\n')[0]?.startsWith(`branch.${action.branch}.`))) {
+          await options.beforeEffect?.();
           await git(path, ['config', '--remove-section', `branch.${action.branch}`]);
         }
       } else {
@@ -396,6 +413,7 @@ export async function mutateLocalGit(
           return fail(409, 'Worktree contains ignored files. Move or remove them before deleting the worktree.');
         }
         if ((await activePaths(options)).has(canonicalTree)) return fail(409, 'Worktree belongs to an active run.');
+        await options.beforeEffect?.();
         await git(path, ['worktree', 'remove', '--', tree.path]);
       }
       return await getLocalGit(agentsRoot, repo, configuredRepos, options);

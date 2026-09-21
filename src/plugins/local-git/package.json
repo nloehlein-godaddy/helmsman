@@ -1,0 +1,6 @@
+{
+  "name": "helmsman-local-git-source",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
+}

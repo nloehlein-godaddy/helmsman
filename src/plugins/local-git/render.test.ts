@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { setPirateMode } from './logic/terminology';
-import type { LocalGitState } from './data/localGit';
-import { renderLocalGit } from './renderLocalGit';
+let pirateMode = true;
+const setPirateMode = (value: boolean) => { pirateMode = value; };
+import type { LocalGitViewState } from './state';
+import { renderLocalGit } from './render';
 
-function render(overrides: Partial<LocalGitState> = {}): HTMLDivElement {
+function render(overrides: Partial<LocalGitViewState> = {}): HTMLDivElement {
   const root = document.createElement('div');
   root.innerHTML = renderLocalGit({
-    repo: 'owner/repo', path: '/workspace/repo', branches: [], worktrees: [], error: null, loading: false,
+    pirateMode, headerRepo: 'header/repo', cleanupForce: false, deleteForce: false, repo: 'owner/repo', path: '/workspace/repo', branches: [], worktrees: [], error: null, loading: false,
     ...overrides,
   });
   return root;
@@ -141,7 +142,7 @@ describe('renderLocalGit', () => {
   });
 
   it('safely skips malformed external entries', () => {
-    const root = render({ branches: [null, {}], worktrees: [null, {}] } as unknown as Partial<LocalGitState>);
+    const root = render({ branches: [null, {}], worktrees: [null, {}] } as unknown as Partial<LocalGitViewState>);
     expect(root.textContent).toContain('No local branches.');
     expect(root.textContent).toContain('No local worktrees.');
   });
@@ -171,11 +172,11 @@ describe('renderLocalGit', () => {
     expect(pending.querySelector('[role="status"]')?.textContent).toBe('Checking remotes…');
   });
 
-  it('links to the selected repo and Config pane', () => {
+  it('links to Local Git with header scope preserved', () => {
     const href = render().querySelector('a.app-link')?.getAttribute('href');
     const url = new URL(href ?? '', 'http://localhost');
-    expect(url.pathname).toBe('/config');
-    expect(url.searchParams.get('repo')).toBe('owner/repo');
-    expect(url.searchParams.get('pane')).toBe('local-git');
+    expect(url.pathname).toBe('/local-git');
+    expect(url.searchParams.get('repo')).toBe('header/repo');
+    expect(url.searchParams.get('pane')).toBeNull();
   });
 });

@@ -4,8 +4,6 @@ import { applyBootTerminology } from './logic/bootTerminology';
 import { term, setPirateMode, isPirateMode } from './logic/terminology';
 import { loadProfile } from './data/profile';
 import { getContext } from './data/context';
-import { emptyLocalGit, fetchLocalGit, updateLocalGit, type LocalGitAction, type LocalGitState } from './data/localGit';
-import { renderLocalGit } from './renderLocalGit';
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
@@ -61,10 +59,6 @@ export class DashboardView {
   private view: PageView = parseRoute(new URL('/helm', window.location.origin)).view;
   private route: AppRoute = parseRoute(new URL('/helm', window.location.origin));
   private routeSeq: number = 0;
-  private localGit: LocalGitState = emptyLocalGit(null);
-  private localGitSeq: number = 0;
-  private localGitPending: { repo: string; promise: Promise<void> } | null = null;
-  private localGitOperations = new Map<string, Promise<void>>();
   private readonly onResize = (): void => { this.revealActiveTab(); };
   private readonly onPopState = (): void => { void this.navigate(parseRoute(new URL(window.location.href)), 'none'); };
   private themeId: string = loadThemeId();
@@ -101,13 +95,6 @@ export class DashboardView {
     }, { signal: this.rootEvents.signal });
     this.root.addEventListener('change', (event: Event): void => {
       const control = event.target;
-      if (control instanceof HTMLInputElement && control.matches('.local-git-cleanup-force')) {
-        if (control.disabled || this.localGit.loading || this.localGit.pendingAction) return;
-        this.localGit = { ...this.localGit, cleanup: undefined, cleanupForce: control.checked };
-        this.paintLocalGit();
-        this.root.querySelector<HTMLInputElement>('.local-git-cleanup-force')?.focus();
-        return;
-      }
       if (!(control instanceof HTMLSelectElement)) return;
       if (control.matches('.repo-select')) {
         const panelState = this.panelRouteState() ?? {};
@@ -248,7 +235,6 @@ export class DashboardView {
     this.refreshTimer = null;
     ++this.routeSeq;
     ++this.refreshSeq;
-    ++this.localGitSeq;
     window.removeEventListener('popstate', this.onPopState);
   }
 
@@ -275,9 +261,6 @@ export class DashboardView {
       this.presentationSelection = null;
       ++this.refreshSeq;
       this.refreshPending = null;
-      ++this.localGitSeq;
-      this.localGitPending = null;
-      this.localGit = emptyLocalGit(scope);
     }
     this.selectedRepo = scope;
     saveRepoScope(scope);
@@ -293,7 +276,6 @@ export class DashboardView {
     else if (route.view === 'config') {
       await this.loadUiConfig();
       if (seq !== this.routeSeq) return;
-      void this.loadLocalGit();
     }
     if (seq !== this.routeSeq) return;
     if (route.view !== 'config') this.paint();
@@ -351,7 +333,6 @@ export class DashboardView {
     if (force) await this.headerContribution.refresh();
     if (this.view === 'config' && force) {
       this.paintConfig();
-      void this.loadLocalGit();
     } else if (this.isPluginPage() && localDue) {
       this.paintPluginPage();
       const compositionId = appPages.getPage(this.route.pluginPage ?? '')?.composition?.id;
@@ -593,77 +574,6 @@ export class DashboardView {
     this.headerContribution.rehome(this.root.querySelector<HTMLElement>('.helm-controls'));
   }
 
-  private paintLocalGit(): void {
-    if (this.view !== 'config') return;
-    const card = this.root.querySelector('.local-git-panel');
-    if (card) card.outerHTML = renderLocalGit(this.localGit);
-  }
-
-  private loadLocalGit(): Promise<void> {
-    const repo = this.selectedRepo;
-    if (!repo) {
-      this.localGit = emptyLocalGit(null);
-      this.paintLocalGit();
-      return Promise.resolve();
-    }
-    const operation = this.localGitOperations.get(repo);
-    if (operation) {
-      const seq = this.localGitSeq;
-      this.localGit = { ...this.localGit, loading: true, pendingAction: 'Waiting for the local Git operation…' };
-      this.paintLocalGit();
-      return operation.then(() => {
-        if (seq === this.localGitSeq && repo === this.selectedRepo) return this.loadLocalGit();
-      });
-    }
-    if (this.localGitPending?.repo === repo) return this.localGitPending.promise;
-    const seq = ++this.localGitSeq;
-    this.localGit = { ...(this.localGit.repo === repo ? this.localGit : emptyLocalGit(repo)), loading: true, confirmation: undefined, cleanup: undefined, pendingAction: undefined };
-    this.paintLocalGit();
-    const promise = fetchLocalGit(repo).then(result => {
-      if (seq !== this.localGitSeq || repo !== this.selectedRepo) return;
-      this.localGit = result;
-      this.paintLocalGit();
-    }).finally(() => {
-      if (this.localGitPending?.promise === promise) this.localGitPending = null;
-    });
-    this.localGitPending = { repo, promise };
-    return promise;
-  }
-
-  private confirmLocalGitDeletion(button: HTMLButtonElement): void {
-    if (button.disabled || this.localGit.loading || this.localGit.pendingAction || this.localGit.repo !== this.selectedRepo) return;
-    const branchName = button.dataset.localBranch;
-    const worktreePath = button.dataset.localWorktree;
-    const branch = this.localGit.branches.find(item => item?.name === branchName);
-    const tree = this.localGit.worktrees.find(item => item?.path === worktreePath);
-    if (branch && !branch.current && !branch.deletionBlockedReason) {
-      this.localGit = { ...this.localGit, cleanup: undefined, confirmation: { action: 'delete-branch', branch: branch.name, expectedCommit: branch.commit } };
-    } else if (tree && !tree.locked && !tree.bare && tree.path !== this.localGit.path && !tree.deletionBlockedReason) {
-      this.localGit = { ...this.localGit, cleanup: undefined, confirmation: { action: 'delete-worktree', path: tree.path, expectedCommit: tree.commit } };
-    } else return;
-    this.paintLocalGit();
-    this.root.querySelector<HTMLButtonElement>('.local-git-cancel')?.focus();
-  }
-
-  private mutateLocalGit(action: LocalGitAction): Promise<void> {
-    const repo = this.selectedRepo;
-    if (!repo || this.localGit.repo !== repo || this.localGit.loading || this.localGit.pendingAction || this.localGitOperations.has(repo)) return Promise.resolve();
-    const seq = ++this.localGitSeq;
-    this.localGit = { ...this.localGit, confirmation: undefined, cleanup: undefined, error: null,
-      pendingAction: action.action === 'refresh-remotes' ? 'Fetching remote status…'
-        : action.action === 'preview-delete-untracked-branches' ? 'Checking eligible branches…' : 'Deleting…' };
-    this.paintLocalGit();
-    const promise = updateLocalGit(repo, action).then(result => {
-      if (seq !== this.localGitSeq || repo !== this.selectedRepo) return;
-      this.localGit = result;
-      this.paintLocalGit();
-    }).finally(() => {
-      if (this.localGitOperations.get(repo) === promise) this.localGitOperations.delete(repo);
-    });
-    this.localGitOperations.set(repo, promise);
-    return promise;
-  }
-
   private captureConfigDrafts(): void {
     for (const row of this.root.querySelectorAll<HTMLElement>('.config-row[data-key]')) {
       const key = row.dataset.key;
@@ -704,7 +614,6 @@ export class DashboardView {
       repos: this.repos,
       selectedRepo: this.selectedRepo,
       themeId: this.themeId,
-      localGit: this.localGit,
       loading: this.configLoading,
       error: this.configError,
       unavailable: !this.configLoaded,
@@ -761,37 +670,6 @@ export class DashboardView {
         saveCollapsed(this.collapsed);
         this.paint();
       }
-      return;
-    }
-
-    const localGitButton = target.closest<HTMLButtonElement>('.local-git-panel button');
-    if (localGitButton) {
-      if (localGitButton.disabled) return;
-      if (localGitButton.matches('.local-git-check-remotes')) void this.mutateLocalGit({ action: 'refresh-remotes' });
-      else if (localGitButton.matches('.local-git-cleanup-preview')) void this.mutateLocalGit({
-        action: 'preview-delete-untracked-branches', ...(this.localGit.cleanupForce ? { force: true } : {}),
-      });
-      else if (localGitButton.matches('.local-git-cleanup-cancel')) {
-        this.localGit = { ...this.localGit, cleanup: undefined, cleanupForce: false };
-        this.paintLocalGit();
-      } else if (localGitButton.matches('.local-git-cleanup-confirm')) {
-        const cleanup = this.localGit.cleanup;
-        if (cleanup?.candidates.length) void this.mutateLocalGit({
-          action: 'delete-untracked-branches', expectedHead: cleanup.expectedHead,
-          branches: cleanup.candidates.map(({ branch, expectedCommit }) => ({ branch, expectedCommit })),
-          ...(cleanup.force ? { force: true } : {}),
-        });
-      }
-      else if (localGitButton.matches('.local-git-cancel')) {
-        this.localGit = { ...this.localGit, confirmation: undefined };
-        this.paintLocalGit();
-      } else if (localGitButton.matches('.local-git-confirm-delete')) {
-        const action = this.localGit.confirmation;
-        if (action) void this.mutateLocalGit(action.action === 'delete-branch'
-          ? { ...action, force: this.root.querySelector<HTMLInputElement>('.local-git-force')?.checked === true }
-          : action);
-      } else if (localGitButton.matches('.local-git-delete')) this.confirmLocalGitDeletion(localGitButton);
-      else if (localGitButton.matches('.local-git-refresh')) void this.loadLocalGit();
       return;
     }
 

@@ -20,11 +20,7 @@ class RunStream {
   }
 }
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
-}
+
 
 const status = (repo: string, number: number) => ({
   number, repo, isOwnPr: true, state: 'open', draft: false, merged: false, headRefName: 'topic',
@@ -84,34 +80,16 @@ afterEach(() => {
 
 describe('URL navigation', () => {
 
-  it('refreshes local Git data without replacing unsaved config and ignores an older repo response', async () => {
-    const first = deferred<Response>();
-    const second = deferred<Response>();
-    const { root, requests } = await setup('/config', (url) => {
-      if (url.pathname === '/api/config') return json({ config: { MAX_ATTEMPTS: '1' }, overridden: [] });
-      if (url.pathname === '/api/repo/local') return url.searchParams.get('repo') === 'org/a' ? first.promise : second.promise;
-      return null;
-    });
-    const choose = (repo: string) => {
-      const select = root.querySelector<HTMLSelectElement>('.repo-select')!;
-      select.value = repo;
-      select.dispatchEvent(new Event('change'));
-    };
-    choose('org/a');
-    await vi.waitFor(() => expect(requests.some(({ url }) => url.pathname === '/api/repo/local' && url.searchParams.get('repo') === 'org/a')).toBe(true));
-    choose('org/b');
-    await vi.waitFor(() => expect(requests.some(({ url }) => url.pathname === '/api/repo/local' && url.searchParams.get('repo') === 'org/b')).toBe(true));
-    await new Promise(resolve => setTimeout(resolve, 0));
-    const input = root.querySelector<HTMLInputElement>('input.config-input')!;
-    input.value = 'unsaved';
-    const payload = (repo: string, name: string) => ({ repo, path: `/repos/${repo}`, branches: [{ name, current: true, upstream: null, commit: 'abcdef' }], worktrees: [], error: null });
-    second.resolve(json(payload('org/b', 'branch-b')));
-    await vi.waitFor(() => expect(root.querySelector('.local-git-panel')?.textContent).toContain('branch-b'));
-    first.resolve(json(payload('org/a', 'branch-a')));
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(root.querySelector('.local-git-panel')?.textContent).not.toContain('branch-a');
-    expect(root.querySelector('input.config-input')).toBe(input);
-    expect(input.value).toBe('unsaved');
+  it('preserves Config drafts while header scope updates the Local Git link', async () => {
+    const { root, requests } = await setup('/config?repo=org/a', url => url.pathname === '/api/config'
+      ? json({ config: { MAX_ATTEMPTS: '1' }, overridden: [] }) : null);
+    await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('input.config-input')).not.toBeNull());
+    root.querySelector<HTMLInputElement>('input.config-input')!.value = 'unsaved';
+    const select = root.querySelector<HTMLSelectElement>('.repo-select')!;
+    select.value = 'org/b'; select.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(root.querySelector<HTMLAnchorElement>('a[href="/local-git?repo=org%2Fb"]')).not.toBeNull());
+    expect(root.querySelector<HTMLInputElement>('input.config-input')?.value).toBe('unsaved');
+    expect(requests.some(({ url }) => url.pathname === '/api/repo/local')).toBe(false);
   });
 
   it('drops malformed parameters before making PR requests or opening streams', async () => {
