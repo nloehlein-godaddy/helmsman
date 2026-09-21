@@ -1,0 +1,28 @@
+pending before GC [
+  {
+    revision: 2,
+    hash: '1200662bd5d853c97cb14291d7fffcb7f9eddeb6dff3484b4e112fb6465aff43'
+  },
+  {
+    revision: 3,
+    hash: 'a8020568c38cd6b4b0ee76207982ef0ccad2ff93374cefdd72854df4d015bf7b'
+  }
+]
+GC deleted pending-intent artifact 1200662bd5d853c97cb14291d7fffcb7f9eddeb6dff3484b4e112fb6465aff43
+catalog enabled, but permanent missing-artifact projection blocks activation {
+  plugins: [
+    {
+      id: 'example.gc-race',
+      hash: 'a8020568c38cd6b4b0ee76207982ef0ccad2ff93374cefdd72854df4d015bf7b',
+      enabled: true
+    }
+  ],
+  bindings: {}
+}
+remaining pending [
+  {
+    revision: 2,
+    hash: '1200662bd5d853c97cb14291d7fffcb7f9eddeb6dff3484b4e112fb6465aff43'
+  }
+]
+PASS: reproduced GC breaking recovery; isolated state /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-state-yxCkhB

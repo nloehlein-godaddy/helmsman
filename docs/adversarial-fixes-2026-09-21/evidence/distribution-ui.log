@@ -1,0 +1,20 @@
+
+Running 13 tests using 1 worker
+
+(node:32347) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/distribution/agent-host.pw.ts:11:1 › independent agents launch through installed core and retain exact providers across disable, restart and continuation (26.8s)
+  ✓   2 tests/distribution/initial-layout-host.pw.ts:4:1 › independent page defaults seed only fresh layouts and survive replacement and intentional removal (11.2s)
+  ✓   3 tests/distribution/isolated-host.pw.ts:8:1 › isolated production distribution installs an independently compiled SDK page and reloads its route (6.6s)
+  ✓   4 tests/distribution/isolated-host.pw.ts:40:1 › independent Helm and backlog packages compose in all four pairings with live selection and retained layout (18.9s)
+  ✓   5 tests/distribution/isolated-host.pw.ts:117:1 › external Costs and pricing implementations swap independently while usage, settings and storage survive restart (12.7s)
+  ✓   6 tests/distribution/isolated-host.pw.ts:202:1 › safe start preserves blocked runs and artifacts and rejects every provider action (2.4s)
+  ✓   7 tests/distribution/isolated-host.pw.ts:241:1 › normal recovery retains legacy ownership across restart and backs up only an offline persistence set (4.8s)
+  ✓   8 tests/distribution/isolated-host.pw.ts:280:1 › task source adoption preserves local identity and disabled state through the production API and restart (6.0s)
+  ✓   9 tests/distribution/isolated-host.pw.ts:337:1 › operator-seeded Jira stays on its namespace through an explicit provider refresh after an app upgrade (4.5s)
+  ✓  10 tests/distribution/isolated-host.pw.ts:385:1 › independently compiled Running and Recent panels keep scoped run commands durable in the isolated production host (15.5s)
+  ✓  11 tests/distribution/isolated-host.pw.ts:465:1 › source-denied New Run and Underway packages preserve typed task identity, drafts and launch receipts (21.0s)
+  ✓  12 tests/distribution/pull-request-inspect-host.pw.ts:7:1 › copied SDK inspection exercises production GitHub projection, immutable previews, scope and cancellation (9.4s)
+  ✓  13 tests/distribution/run-presentation-host.pw.ts:8:1 › installed viewer and history use selected aliases and a scoped auxiliary session in the source-denied shell (12.6s)
+
+  13 passed (2.6m)

@@ -1,0 +1,4 @@
+Packed example.scope-panel: 8236536a5ced9b66f977e4bb98d01703b456ad4bb675a8dbe6541dd05a8776d5
+Installed example.scope-panel (8236536a5ced9b66f977e4bb98d01703b456ad4bb675a8dbe6541dd05a8776d5). Disabled; enable only packages you trust.
+Enabled example.scope-panel. Restart Helmsman and reload browser tabs to apply.
+PASS: release-only public SDK frontend compiles, packs, installs and enables without host source imports; fixture /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/author-dNsjga

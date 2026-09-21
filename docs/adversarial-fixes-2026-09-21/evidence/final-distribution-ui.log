@@ -1,0 +1,31 @@
+
+Running 5 tests using 1 worker
+
+(node:53306) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/distribution/adversarial-fixes.pw.ts:10:1 › installed server rejects browser cross-origin mutations while preserving JSON actions and signed webhook intake (5.9s)
+  ✓  2 tests/distribution/adversarial-fixes.pw.ts:70:1 › installed duplicate panel controls and same-key run tabs retain distinguishable accessible identities (12.3s)
+  ✘  3 tests/distribution/execution-host.pw.ts:11:1 › installed execution hosts own launch, discovery and stop across provider disablement and application restart (14.2s)
+(node:61809) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  4 tests/distribution/run-presentation-host.pw.ts:8:1 › installed viewer and history use selected aliases and a scoped auxiliary session in the source-denied shell (13.1s)
+  ✓  5 tests/distribution/workflow-host.pw.ts:13:1 › independent workflow owns prompts and sequencing with retained continuation and guarded publication (29.5s)
+
+
+  1) tests/distribution/execution-host.pw.ts:11:1 › installed execution hosts own launch, discovery and stop across provider disablement and application restart 
+
+    Error: ENOTEMPTY: directory not empty, rmdir '/private/var/folders/sg/lzdvm2rj7yz0kd2667h2hd800000gp/T/helmsman-isolated-x7iGqm/operator-data/runs'
+
+    Error Context: test-results/distribution/execution-host.pw.ts-insta-42ad9-ent-and-application-restart/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/distribution/execution-host.pw.ts-insta-42ad9-ent-and-application-restart/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/distribution/execution-host.pw.ts-insta-42ad9-ent-and-application-restart/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/distribution/execution-host.pw.ts:11:1 › installed execution hosts own launch, discovery and stop across provider disablement and application restart 
+  4 passed (1.3m)

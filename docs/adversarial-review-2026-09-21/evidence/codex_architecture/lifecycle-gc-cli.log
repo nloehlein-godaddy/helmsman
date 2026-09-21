@@ -1,0 +1,14 @@
+plugins --dir /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/plugins --db /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/state.sqlite install /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/v1.hmp
+Installed example.gc-cli (5957f2b37de4ee227610e48c562f706d18957ef2cedb3272b18b8ae195538343). Disabled; enable only packages you trust.
+plugins --dir /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/plugins --db /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/state.sqlite disable example.gc-cli
+ERROR: injected unavailable plugin-data projection
+plugins --dir /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/plugins --db /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/state.sqlite install /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/v2.hmp
+ERROR: injected unavailable plugin-data projection
+plugins --dir /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/plugins --db /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/state.sqlite collect 5957f2b37de4ee227610e48c562f706d18957ef2cedb3272b18b8ae195538343
+Collected unreferenced plugin artifact 5957f2b37de4ee227610e48c562f706d18957ef2cedb3272b18b8ae195538343.
+plugins --dir /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/plugins --db /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/state.sqlite enable example.gc-cli
+ERROR: ENOENT: no such file or directory, lstat '/private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/plugins/artifacts/5957f2b37de4ee227610e48c562f706d18957ef2cedb3272b18b8ae195538343.json'
+Only unreconciled intent now requires collected old hash: 2 5957f2b37de4ee227610e48c562f706d18957ef2cedb3272b18b8ae195538343
+plugins --dir /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/plugins --db /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P/state.sqlite enable example.gc-cli
+Enabled example.gc-cli. Restart Helmsman and reload browser tabs to apply.
+Restoring only the collected bytes repairs activation; fixture /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/gc-cli-state-JcNj8P

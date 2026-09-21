@@ -1,0 +1,11 @@
+{
+  "before": [],
+  "after": [
+    "fixture/project"
+  ],
+  "crossOrigin": {
+    "type": "opaque",
+    "status": 0
+  },
+  "protectedStatus": 403
+}

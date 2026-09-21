@@ -1,0 +1,519 @@
+
+> helmsman@0.2.0 test
+> vitest run --maxWorkers=4 --reporter=default --reporter=json --outputFile=/private/tmp/helmsman-adversarial-20260921-ec3dd6b/logs/baseline-unit.json
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/integration
+
+ ✓ server/helmsman/resume.test.ts (21 tests) 4591ms
+ ✓ src/plugins/slack/browser.test.ts (24 tests) 7804ms
+     ✓ submits a fresh scoped UI query and deduplicates overlapping pages through the final page  1005ms
+     ✓ does not claim complete coverage when the reported result count exceeds extracted messages  752ms
+     ✓ waits for message rows after search chrome appears and after the next-page indicator changes  1506ms
+     ✓ accepts exact Slack decimal timestamp cursors and overlaps two days for timezone/date boundaries  753ms
+     ✓ returns a validated empty search successfully  752ms
+     ✓ rejects signed-out pages and releases the scan lock after failure  754ms
+     ✓ resumes channel-scoped searches after sending in another channel  752ms
+     ✓ reuses an already-open search dialog after a prior failure  752ms
+     ✓ returns partial when rendered messages change while a page is being read  753ms
+ ✓ server/helmsman/slack/browser.test.ts (25 tests) 7802ms
+     ✓ submits a fresh scoped UI query and deduplicates overlapping pages through the final page  1005ms
+     ✓ does not claim complete coverage when the reported result count exceeds extracted messages  752ms
+     ✓ waits for message rows after search chrome appears and after the next-page indicator changes  1506ms
+     ✓ accepts exact Slack decimal timestamp cursors and overlaps two days for timezone/date boundaries  751ms
+     ✓ returns a validated empty search successfully  752ms
+     ✓ rejects signed-out pages and releases the scan lock after failure  753ms
+     ✓ resumes channel-scoped searches after sending in another channel  753ms
+     ✓ reuses an already-open search dialog after a prior failure  752ms
+     ✓ returns partial when rendered messages change while a page is being read  751ms
+ ✓ src/plugins/todos-ui/panel.test.ts (42 tests) 6142ms
+     ✓ sends search to the provider before pagination while preserving the search control and editor  309ms
+     ✓ keeps unresolved older requests and saves current drafts before explicit terminal dismissal  313ms
+repo-dir discovery failed for /var/folders/sg/lzdvm2rj7yz0kd2667h2hd800000gp/T/does-not-exist-xyz-123: Error: ENOENT: no such file or directory, scandir '/var/folders/sg/lzdvm2rj7yz0kd2667h2hd800000gp/T/does-not-exist-xyz-123'
+ ✓ server/helmsman/worktree.test.ts (14 tests) 1853ms
+     ✓ pins the classified commit through the PR ref while preserving existing branch worktrees  387ms
+     ✓ force-refreshes the local branch ref so a second rerun sees the latest remote commit, not a stale local ref  390ms
+     ✓ reuses the branch when a prior rerun left its worktree behind (no refusing-to-fetch)  308ms
+   ✓ rejects a moved rerun head before removing the original branch worktree  561ms
+ ✓ server/helmsman/pre-pr-runtime.test.ts (31 tests) 5519ms
+     ✓ kills descendants that ignore SIGTERM on timeout  5007ms
+ ✓ server/helmsman/plugins/builtin-frontend.test.ts (14 tests) 2165ms
+     ✓ keeps frontend toggles separate from active built-in backend registration and preserves disablement across restart  401ms
+     ✓ retires frontend health on disable and safe mode while restoring it on re-enable  523ms
+     ✓ fails closed while disablement projection is interrupted and recovers the saved intent  402ms
+ ✓ server/helmsman/publication-git.test.ts (4 tests) 1093ms
+   ✓ isolates actual Git push configuration, URL rewrites, and credentials from source/global/environment config  411ms
+ ✓ src/plugins/newrun/panel.test.ts (29 tests) 3873ms
+     ✓ preserves independent drafts across scope switches and remount  313ms
+ ✓ src/plugins/compat-clarifications/controller.test.ts (28 tests) 3119ms
+   ✓ recovers from the saved-state record cap through explicit result dismissal without deleting pending commands  896ms
+ ✓ server/helmsman/local-git-service.test.ts (7 tests) 1397ms
+   ✓ rechecks native checkout replacement and active-worktree safety inside the existing serialized mutation path  1381ms
+ ✓ src/plugins/local-git/panel.test.ts (23 tests) 2736ms
+ ✓ src/plugins/terminal/panel.test.ts (32 tests) 2554ms
+ ✓ server/helmsman/skills-preflight.test.ts (6 tests) 466ms
+     ✓ enforces bounded skill contents and file counts  422ms
+ ✓ server/local-git.test.ts (44 tests) 28564ms
+     ✓ lists local branches, upstreams and linked, detached, locked and prunable worktrees without changing them  326ms
+     ✓ deletes a merged branch and returns the refreshed listing  302ms
+     ✓ requires explicit force to delete unmerged work  410ms
+     ✓ protects main, master, remote default, current and checked-out branches even with force  489ms
+     ✓ serializes overlapping mutations against the same checkout  320ms
+     ✓ atomically preserves a branch advanced after the preflight SHA check  577ms
+     ✓ never dereferences a branch changed into a symbolic alias after preflight  623ms
+     ✓ refuses primary, locked, protected-default and active worktrees  407ms
+     ✓ rejects mismatched or missing GitHub origin identity  409ms
+     ✓ only updates remote tracking refs when explicitly requested, then identifies gone upstreams  431ms
+     ✓ ignores mirror and custom fetch settings when refreshing remote tracking branches  324ms
+     ✓ previews no-upstream and gone branches, skipping protected, checked-out and unmerged work without changing refs  361ms
+     ✓ deletes only the confirmed branch set atomically and removes their config  459ms
+     ✓ releases HEAD locks after cleaning branches with attached, detached and missing worktrees  571ms
+     ✓ aborts deletion and releases other locks on a prepared worktree guard exit  1084ms
+     ✓ aborts deletion and releases other locks on a prepared worktree guard timeout  11090ms
+     ✓ rejects stale commits and changed HEAD before deleting any branch  544ms
+     ✓ rejects new upstreams and checked-out worktrees after preview  408ms
+     ✓ preserves all branches when a primary worktree checks out a target during cleanup  925ms
+     ✓ preserves all branches when a linked worktree checks out a target during cleanup  1094ms
+     ✓ preserves all branches when a new worktree checks out a target during cleanup  814ms
+     ✓ requires explicit force to preview and delete unmerged branches with none upstream  719ms
+     ✓ requires explicit force to preview and delete unmerged branches with gone upstream  672ms
+     ✓ protects default, checked-out, symbolic, present and unknown-upstream branches even in forced bulk cleanup  905ms
+     ✓ reports completed deletion accurately if Git refuses branch metadata cleanup  790ms
+     ✓ preserves every target if one branch advances at the atomic deletion step  1044ms
+ ✓ server/helmsman/plugins/coordinator.test.ts (9 tests) 1021ms
+     ✓ limits concurrent installs under the authoritative lock and acknowledges every successful installation  510ms
+ ✓ server/helmsman/recovery-service.test.ts (28 tests) 1861ms
+   ✓ opens safe-start metadata without migrations or modifying files and preserves partial diagnostics  342ms
+   ✓ reads committed WAL records without changing source database or sidecars  533ms
+   ✓ exposes failed local source settlement without changing successful worker outcomes, and scopes retained source pins  620ms
+ ✓ server/helmsman/publication-service.test.ts (18 tests) 384ms
+ ✓ src/plugins/running/panel.test.ts (33 tests) 2312ms
+ ✓ src/main.plugins.test.ts (19 tests) 1115ms
+ ✓ src/plugins/campaigns/panel.test.ts (23 tests) 2057ms
+ ✓ server/helmsman/plugins/backend.test.ts (20 tests) 624ms
+ ✓ server/helmsman/runner-clarification.test.ts (9 tests) 1253ms
+ ✓ server/helmsman/plugins/backend-sources.test.ts (7 tests) 812ms
+ ✓ server/helmsman/plugins/cli.test.ts (26 tests) 746ms
+     ✓ supports the executable entry point and returns a failing exit code for invalid arguments  413ms
+ ✓ src/main.shell.test.ts (8 tests) 725ms
+ ✓ src/main.polling.test.ts (8 tests) 843ms
+ ✓ server/helmsman/plugins/store.test.ts (13 tests) 842ms
+ ✓ src/plugins/clarification-command-service.test.ts (16 tests) 259ms
+ ✓ src/plugins/run-viewer/panel.test.ts (19 tests) 1605ms
+ ✓ src/plugins/compat-pr/panel.test.ts (28 tests) 1669ms
+ ✓ server/helmsman/plugins/recovery.test.ts (4 tests) 435ms
+ ✓ server/helmsman/runner-integration.test.ts (6 tests) 921ms
+ ✓ src/main.config.test.ts (8 tests) 837ms
+ ✓ server/helmsman/clarification-services.test.ts (18 tests) 760ms
+     ✓ serializes competing connections with one accepted answer and one durable stale rejection  435ms
+ ✓ server/helmsman/repository-scope.test.ts (5 tests) 637ms
+     ✓ allows todo-only local Git reads and cleanup while retaining checkout and worktree safeguards  632ms
+ ✓ src/plugins/backlog/launch.test.ts (13 tests) 1187ms
+ ✓ src/plugins/triage/panel.test.ts (17 tests) 1422ms
+ ✓ src/plugins/backlog/panel.test.ts (17 tests) 1196ms
+ ✓ src/main.slack.test.ts (3 tests) 577ms
+ ✓ src/plugins/clarifications/panel.test.ts (13 tests) 1206ms
+ ✓ src/plugins/underway/panel.test.ts (15 tests) 1292ms
+ ✓ src/main.pirateMode.test.ts (4 tests) 529ms
+ ✓ src/plugins/source-settings/panel.test.ts (16 tests) 1114ms
+ ✓ src/plugins/suggested-contacts/panel.test.ts (11 tests) 1109ms
+ ✓ src/plugins/helm/page.test.ts (22 tests) 844ms
+ ✓ server/helmsman/plugins/http.test.ts (34 tests) 259ms
+ ✓ server/helmsman/task-source-runtime.test.ts (14 tests) 422ms
+ ✓ src/plugins/communication/notifications.test.ts (18 tests) 453ms
+ ✓ server/helmsman/safe-start.test.ts (28 tests) 212ms
+ ✓ src/main.outcomes.test.ts (5 tests) 405ms
+ ✓ src/plugins/communication/panels.test.ts (18 tests) 1054ms
+ ✓ src/plugins/costs/page.test.ts (11 tests) 530ms
+ ✓ src/plugins/github-settings/panel.test.ts (15 tests) 501ms
+ ✓ src/plugins/download-service.test.ts (15 tests) 787ms
+ ✓ src/plugins/run-inspect-service.test.ts (15 tests) 366ms
+ ✓ server/helmsman/host-evidence.test.ts (8 tests) 356ms
+ ✓ src/main.test.ts (8 tests) 314ms
+ ✓ server/helmsman/native-terminal-providers.test.ts (9 tests) 143ms
+ ✓ server/helmsman/source-command-coordinator.test.ts (16 tests) 235ms
+ ✓ src/plugins/builtin-lifecycle.test.ts (11 tests) 141ms
+ ✓ src/main.runs.test.ts (6 tests) 211ms
+ ✓ src/main.routes.test.ts (3 tests) 190ms
+ ✓ server/helmsman/workflow-providers.test.ts (10 tests) 169ms
+ ✓ src/main.taskPages.test.ts (6 tests) 268ms
+ ✓ server/helmsman/docker-workspace.test.ts (1 test) 225ms
+ ✓ server/helmsman/outcomes.test.ts (45 tests) 95ms
+ ✓ server/helmsman/prepare-run.test.ts (6 tests) 61ms
+ ✓ src/plugins/bugs/panel.test.ts (6 tests) 503ms
+ ✓ server/helmsman/legacy-runtime-artifact.test.ts (5 tests) 144ms
+ ✓ server/helmsman/communication-runtime.test.ts (6 tests) 201ms
+ ✓ server/helmsman/agent-providers.test.ts (9 tests) 132ms
+ ✓ server/helmsman/log-tail.test.ts (3 tests) 517ms
+ ✓ src/plugins/jira-settings/panel.test.ts (12 tests) 441ms
+ ✓ server/helmsman/execution-host-providers.test.ts (9 tests) 110ms
+ ✓ src/plugins/run-command-service.test.ts (28 tests) 150ms
+ ✓ server/helmsman/runner.test.ts (74 tests) 168ms
+ ✓ server/helmsman/run-host.test.ts (22 tests) 420ms
+     ✓ launches the wrapper, reports liveness, and finishes with an exit file  415ms
+ ✓ src/plugins/terminal/page.test.ts (14 tests) 408ms
+ ✓ src/plugins/compat-pr/page.test.ts (14 tests) 410ms
+ ✓ src/plugins/communication/page.test.ts (14 tests) 408ms
+ ✓ src/plugins/campaigns/page.test.ts (14 tests) 406ms
+ ✓ src/plugins/runs/page.test.ts (15 tests) 420ms
+ ✓ src/plugins/local-git/page.test.ts (14 tests) 405ms
+ ✓ src/plugins/jira-settings/page.test.ts (14 tests) 403ms
+ ✓ src/plugins/github-settings/page.test.ts (14 tests) 407ms
+ ✓ server/helmsman/docker-stage.test.ts (8 tests) 35ms
+ ✓ server/helmsman/persistence-backup.test.ts (4 tests) 41ms
+ ✓ server/helmsman/run-log.test.ts (9 tests) 176ms
+ ✓ server/helmsman/source-admin-service.test.ts (15 tests) 119ms
+ ✓ src/plugins/clarifications/page.test.ts (11 tests) 369ms
+ ✓ src/plugins/source-command-service.test.ts (16 tests) 85ms
+ ✓ server/helmsman/cmux/codex-cost-sidebar.test.ts (18 tests) 400ms
+ ✓ server/helmsman/plugins/artifacts.test.ts (27 tests) 107ms
+ ✓ src/plugins/run-history/page.test.ts (9 tests) 307ms
+ ✓ src/plugins/todos-ui/page.test.ts (9 tests) 318ms
+ ✓ src/plugins/run-history/panel.test.ts (7 tests) 307ms
+ ✓ server/helmsman/trigger-providers.test.ts (12 tests) 111ms
+ ✓ src/render.test.ts (20 tests) 140ms
+ ✓ src/plugins/pull-request-command-service.test.ts (8 tests) 141ms
+ ✓ server/helmsman/task-sources/effects.test.ts (14 tests) 246ms
+ ✓ src/main.localGit.test.ts (4 tests) 200ms
+ ✓ src/plugins/run-viewer/page.test.ts (9 tests) 314ms
+ ✓ src/plugins/host-local/provider.test.ts (3 tests) 203ms
+ ✓ src/plugins/triage/page.test.ts (9 tests) 322ms
+ ✓ src/plugins/host-docker/gateway-relay.test.ts (2 tests) 197ms
+ ✓ src/plugins/task-views-read-service.test.ts (13 tests) 222ms
+ ✓ server/helmsman/run-wrapper.test.ts (2 tests) 175ms
+ ✓ server/helmsman/communication-command-service.test.ts (8 tests) 125ms
+ ✓ server/helmsman/plugins/lifecycle.test.ts (10 tests) 76ms
+ ✓ src/plugins/compat-clarifications/page.test.ts (7 tests) 88ms
+ ✓ server/helmsman/legacy-slack-effects.test.ts (8 tests) 80ms
+ ✓ src/plugins/terminal-service.test.ts (9 tests) 25ms
+ ✓ server/helmsman/operation-effects.test.ts (20 tests) 58ms
+ ✓ src/plugins/repoprs/panel.test.ts (20 tests) 84ms
+ ✓ src/plugins/page-host.test.ts (35 tests) 137ms
+ ✓ server/helmsman/task-source-jira-connection.test.ts (14 tests) 74ms
+ ✓ server/helmsman/scoped-gateway.test.ts (9 tests) 129ms
+ ✓ src/plugins/source-admin-service.test.ts (17 tests) 86ms
+ ✓ src/plugins/activity-read-service.test.ts (12 tests) 220ms
+ ✓ server/helmsman/plugins/data.test.ts (5 tests) 93ms
+ ✓ server/helmsman/execution-store.test.ts (23 tests) 90ms
+ ✓ src/plugins/pull-request-inspect-service.test.ts (14 tests) 224ms
+ ✓ server/helmsman/task-sources/admission.test.ts (15 tests) 86ms
+ ✓ server/helmsman/pull-request-inspect-service.test.ts (7 tests) 167ms
+ ✓ server/helmsman/pull-request-read-service.test.ts (16 tests) 170ms
+ ✓ server/helmsman/manual-review-effects.test.ts (9 tests) 61ms
+ ✓ src/plugins/suggested-contact-admin-service.test.ts (10 tests) 28ms
+ ✓ server/helmsman/task-source-schedule.test.ts (10 tests) 85ms
+ ✓ server/helmsman/native-terminal-runtime.test.ts (1 test) 71ms
+ ✓ server/helmsman/pull-request-provider-effects.test.ts (10 tests) 58ms
+ ✓ server/helmsman/legacy-run-effects.test.ts (7 tests) 110ms
+ ✓ src/plugins/execution-host-node.test.ts (3 tests) 24ms
+ ✓ src/plugins/activity/panel.test.ts (6 tests) 152ms
+ ✓ src/plugins/task-read-service.test.ts (32 tests) 138ms
+ ✓ server/helmsman/clarification-protocol.test.ts (13 tests) 84ms
+ ✓ server/helmsman/slack/watcher.test.ts (16 tests) 152ms
+ ✓ server/helmsman/task-source-service.test.ts (8 tests) 68ms
+ ✓ server/helmsman/plugins/backend-scheduling.test.ts (4 tests) 65ms
+ ✓ server/helmsman/run-inspect-export.test.ts (3 tests) 104ms
+ ✓ server/helmsman/pull-request-command-service.test.ts (12 tests) 60ms
+ ✓ server/helmsman/runner-durable.test.ts (11 tests) 43ms
+ ✓ server/helmsman/communication-provider-effects.test.ts (6 tests) 6ms
+ ✓ src/plugins/campaigns-service.test.ts (6 tests) 21ms
+ ✓ src/plugins/pull-request-read-service.test.ts (14 tests) 120ms
+ ✓ src/plugins/run-read-service.test.ts (18 tests) 121ms
+ ✓ src/plugins/composition-layout.test.ts (23 tests) 38ms
+ ✓ server/helmsman/operations.test.ts (12 tests) 63ms
+ ✓ server/helmsman/task-source-adoption.test.ts (8 tests) 49ms
+ ✓ server/helmsman/recovery.test.ts (12 tests) 93ms
+ ✓ src/plugins/host-docker/provider.test.ts (4 tests) 16ms
+ ✓ src/plugins/auxiliary-page-host.test.ts (7 tests) 56ms
+ ✓ src/plugins/clarification-read-service.test.ts (5 tests) 115ms
+ ✓ server/pr-lists.test.ts (35 tests) 45ms
+ ✓ server/helmsman/run-command-application.test.ts (23 tests) 80ms
+ ✓ src/plugins/local-git/render.test.ts (17 tests) 38ms
+ ✓ server/helmsman/task-source-todos.test.ts (9 tests) 86ms
+ ✓ src/main.helmUnderway.test.ts (2 tests) 85ms
+ ✓ server/helmsman/voyage-notifications.test.ts (8 tests) 54ms
+ ✓ src/renderTerminology.test.ts (12 tests) 66ms
+ ✓ server/helmsman/runner-durability.test.ts (10 tests) 45ms
+ ✓ src/plugins/communication-command-service.test.ts (7 tests) 18ms
+ ✓ server/helmsman/task-source-refresh.test.ts (11 tests) 48ms
+ ✓ server/helmsman/legacy-execution-adoption.test.ts (9 tests) 86ms
+ ✓ server/helmsman/artifacts.test.ts (3 tests) 12ms
+ ✓ src/plugins/local-git-service.test.ts (5 tests) 21ms
+ ✓ server/helmsman/review-artifacts.test.ts (6 tests) 12ms
+ ✓ server/helmsman/persistence.test.ts (11 tests) 39ms
+ ✓ server/helmsman/outcome-service.test.ts (5 tests) 81ms
+ ✓ server/helmsman/github-review-watcher.test.ts (35 tests) 84ms
+ ✓ src/logic/bootTerminology.test.ts (4 tests) 31ms
+ ✓ server/helmsman/slack/review-request.test.ts (35 tests) 44ms
+ ✓ server/helmsman/campaigns.test.ts (21 tests) 35ms
+ ✓ src/plugins/composition-host.test.ts (19 tests) 41ms
+ ✓ server/helmsman/campaign-dispatcher.test.ts (16 tests) 57ms
+ ✓ src/renderSlackReview.test.ts (3 tests) 40ms
+ ✓ server/helmsman/config-store.test.ts (28 tests) 40ms
+ ✓ src/plugins/slack/browser-review.test.ts (15 tests) 26ms
+ ✓ src/render.navigation.test.ts (9 tests) 41ms
+ ✓ server/helmsman/trigger-review-preparation.test.ts (5 tests) 57ms
+ ✓ server/helmsman/docker-host.test.ts (21 tests) 22ms
+ ✓ server/helmsman/created-pr-reviews.test.ts (23 tests) 33ms
+ ✓ src/plugins/panel-host.test.ts (6 tests) 25ms
+ ✓ server/helmsman/slack/browser-review-send.test.ts (14 tests) 31ms
+ ✓ server/helmsman/run-command-coordinator.test.ts (25 tests) 41ms
+ ✓ server/helmsman/run-inspect-service.test.ts (14 tests) 38ms
+ ✓ src/plugins/runtime.test.ts (45 tests) 20ms
+ ✓ src/logic/logHighlight.test.ts (6 tests) 17ms
+ ✓ server/helmsman/cmux/codex-cost-install.test.ts (10 tests) 12ms
+ ✓ server/helmsman/usage-store.test.ts (4 tests) 22ms
+ ✓ server/helmsman/campaigns-public-service.test.ts (10 tests) 40ms
+ ✓ server/helmsman/agent-execution.test.ts (2 tests) 19ms
+ ✓ src/plugins/todos/provider.test.ts (34 tests) 29ms
+ ✓ server/helmsman/db.test.ts (19 tests) 37ms
+ ✓ server/helmsman/todos.test.ts (29 tests) 32ms
+ ✓ server/task-source-coexistence.test.ts (1 test) 23ms
+ ✓ src/renderThemePreview.test.ts (4 tests) 24ms
+ ✓ server/helmsman/gateway-listener.test.ts (2 tests) 13ms
+ ✓ server/helmsman/plugins/page-catalog.test.ts (15 tests) 21ms
+ ✓ server/helmsman/integration-settings-service.test.ts (7 tests) 20ms
+ ✓ server/helmsman/run-command-store.test.ts (13 tests) 29ms
+ ✓ src/plugins/costs/alternative.test.ts (6 tests) 26ms
+ ✓ server/helmsman/slack/browser-review.test.ts (11 tests) 28ms
+ ✓ src/plugins/profile/header.test.ts (27 tests) 17ms
+ ✓ src/plugins/download-worker.test.ts (7 tests) 31ms
+ ✓ server/helmsman/run-read-service.test.ts (7 tests) 23ms
+ ✓ server/helmsman/usage-service.test.ts (14 tests) 22ms
+ ✓ src/plugins/compat-pr/render.test.ts (8 tests) 36ms
+ ✓ server/helmsman/clarifications.test.ts (8 tests) 17ms
+ ✓ src/plugins/terminal-cmux/provider.test.ts (8 tests) 7ms
+ ✓ server/github-read-cache.test.ts (11 tests) 14ms
+ ✓ src/plugins/terminal/state.test.ts (4 tests) 12ms
+ ✓ src/plugins/app-composition.test.ts (5 tests) 16ms
+ ✓ server/helmsman/retry.test.ts (27 tests) 5ms
+ ✓ server/helmsman/task-sources/conversion.test.ts (5 tests) 20ms
+ ✓ server/helmsman/inline-review.test.ts (48 tests) 12ms
+ ✓ server/helmsman/terminal-service.test.ts (12 tests) 21ms
+ ✓ server/helmsman/router.test.ts (87 tests) 28ms
+ ✓ server/helmsman/workflow-snapshots.test.ts (4 tests) 18ms
+ ✓ server/helmsman/run-telemetry.test.ts (6 tests) 16ms
+ ✓ src/plugins/terminal/keys.test.ts (8 tests) 3ms
+ ✓ server/helmsman/task-sources/store.test.ts (5 tests) 16ms
+ ✓ server/helmsman/webhook-triggers.test.ts (7 tests) 23ms
+ ✓ server/helmsman/execution-host-execution.test.ts (3 tests) 13ms
+ ✓ src/plugins/registry.test.ts (23 tests) 6ms
+ ✓ src/data/outcomeClient.test.ts (9 tests) 12ms
+ ✓ src/logic/clipboard.test.ts (7 tests) 20ms
+ ✓ server/helmsman/execution-controls.test.ts (8 tests) 12ms
+ ✓ src/plugins/todo-legacy-recovery-service.test.ts (24 tests) 16ms
+ ✓ server/helmsman/todo-source.test.ts (6 tests) 17ms
+ ✓ src/logic/pluginRoutes.test.ts (24 tests) 6ms
+ ✓ src/data/themes.test.ts (25 tests) 13ms
+ ✓ server/helmsman/task-sources/adoption.test.ts (2 tests) 16ms
+ ✓ server/helmsman/store-connection.test.ts (4 tests) 14ms
+ ✓ src/plugins/trigger-github-webhook/provider.test.ts (3 tests) 2ms
+ ✓ server/helmsman/agents/pre-pr-prompt.test.ts (14 tests) 5ms
+ ✓ server/helmsman/pre-pr-workflow.test.ts (106 tests) 14ms
+ ✓ server/github.test.ts (72 tests) 14ms
+ ✓ src/plugins/package.test.ts (78 tests) 11ms
+ ✓ src/logic/routes.test.ts (107 tests) 13ms
+ ✓ src/data/todoClient.test.ts (17 tests) 16ms
+ ✓ src/renderOutcomes.test.ts (3 tests) 15ms
+ ✓ server/helmsman/review-policy.test.ts (14 tests) 7ms
+ ✓ server/helmsman/jira-toggle.test.ts (2 tests) 3ms
+ ✓ src/plugins/scheduling/provider.test.ts (5 tests) 10ms
+ ✓ server/helmsman/task-source-execution.test.ts (3 tests) 5ms
+ ✓ server/helmsman/jira-task.test.ts (20 tests) 13ms
+ ✓ server/helmsman/outbound-meter.test.ts (8 tests) 14ms
+ ✓ src/plugins/integration-settings-service.test.ts (6 tests) 9ms
+ ✓ src/plugins/task-page-migration.test.ts (5 tests) 14ms
+ ✓ server/helmsman/task-source-http.test.ts (21 tests) 12ms
+ ✓ src/plugins/jira/provider.test.ts (45 tests) 14ms
+ ✓ server/helmsman/agent-execution-loading.test.ts (2 tests) 6ms
+ ✓ src/plugins/task-edit-service.test.ts (5 tests) 11ms
+ ✓ src/plugins/github/provider.test.ts (9 tests) 14ms
+ ✓ server/http-failure.test.ts (5 tests) 12ms
+ ✓ server/helmsman/task-source-routes.test.ts (7 tests) 7ms
+ ✓ src/plugins/manifest.test.ts (62 tests) 7ms
+ ✓ src/plugins/newrun/state.test.ts (11 tests) 4ms
+ ✓ src/data/agents.test.ts (43 tests) 9ms
+ ✓ src/plugins/todos-ui/state.test.ts (6 tests) 11ms
+ ✓ src/plugins/jira/views.test.ts (13 tests) 12ms
+ ✓ server/helmsman/activity-read-service.test.ts (5 tests) 7ms
+ ✓ server/helmsman/pull-request-provider-http.test.ts (5 tests) 12ms
+ ✓ server/helmsman/task-sources/registry.test.ts (3 tests) 9ms
+ ✓ server/helmsman/clarification-gate.test.ts (3 tests) 3ms
+ ✓ src/plugins/pull-request-inspect.test.ts (10 tests) 10ms
+ ✓ server/helmsman/webhooks.test.ts (3 tests) 10ms
+ ✓ server/helmsman/task-views-read-service.test.ts (6 tests) 8ms
+ ✓ src/plugins/compat-clarifications/drafts.test.ts (11 tests) 5ms
+ ✓ src/data/config.test.ts (27 tests) 7ms
+ ✓ src/plugins/profile-service.test.ts (3 tests) 9ms
+ ✓ server/helmsman/plugins/imports.test.ts (18 tests) 9ms
+ ✓ server/helmsman/workflow-execution.test.ts (3 tests) 5ms
+ ✓ src/plugins/run-command.test.ts (27 tests) 5ms
+ ✓ src/plugins/clarification-contracts.test.ts (6 tests) 6ms
+ ✓ src/logic/triagePagination.test.ts (14 tests) 4ms
+ ✓ server/helmsman/profile-service.test.ts (5 tests) 6ms
+ ✓ src/plugins/communication-service.test.ts (1 test) 6ms
+ ✓ src/plugins/jira/normalize.test.ts (12 tests) 5ms
+ ✓ server/jira.test.ts (17 tests) 8ms
+ ✓ src/plugins/host-services.test.ts (16 tests) 8ms
+ ✓ server/helmsman/trigger-read-source.test.ts (5 tests) 5ms
+ ✓ server/helmsman/publication-client.test.ts (2 tests) 6ms
+ ✓ src/plugins/run-read.test.ts (13 tests) 4ms
+ ✓ src/plugins/agent-codex/provider.test.ts (3 tests) 3ms
+ ✓ src/plugins/task-read.test.ts (20 tests) 7ms
+ ✓ server/helmsman/event-bus.test.ts (2 tests) 2ms
+ ✓ src/plugins/terminal-wezterm/provider.test.ts (5 tests) 4ms
+ ✓ server/helmsman/agents/codex.test.ts (19 tests) 4ms
+ ✓ src/data/terminology.test.ts (3 tests) 5ms
+ ✓ server/helmsman/agents/pre-pr.test.ts (7 tests) 4ms
+ ✓ server/helmsman/agents/restore.test.ts (5 tests) 3ms
+ ✓ server/helmsman/scheduler.test.ts (10 tests) 4ms
+ ✓ server/helmsman/wezterm/socket.test.ts (17 tests) 5ms
+ ✓ server/helmsman/communication-browser.test.ts (5 tests) 6ms
+ ✓ src/plugins/task-views.test.ts (5 tests) 5ms
+ ✓ src/plugins/suggested-contacts/state.test.ts (2 tests) 2ms
+ ✓ server/helmsman/agents/command.test.ts (9 tests) 3ms
+ ❯ server/helmsman/runtime-paths.test.ts (23 tests | 1 failed) 7ms
+   ✓ resolves application assets independently of the working directory 1ms
+   ✓ selects compiled helpers beside their calling module without loading tsx 0ms
+   ✓ retains TypeScript helper execution for development 0ms
+   ✓ routes host coordinator /app/server/helmsman/pre-pr-cli.ts locally for source and compiled installations 0ms
+   ✓ routes host coordinator C:\app\server\helmsman\pre-pr-cli.ts locally for source and compiled installations 0ms
+   ✓ routes host coordinator pre-pr-cli.ts locally for source and compiled installations 0ms
+   ✓ routes host coordinator /app/server/helmsman/pre-pr-cli.js locally for source and compiled installations 0ms
+   ✓ routes host coordinator C:\app\server\helmsman\pre-pr-cli.js locally for source and compiled installations 0ms
+   ✓ routes host coordinator pre-pr-cli.js locally for source and compiled installations 0ms
+   ✓ routes host coordinator /app/server/helmsman/docker-review-cli.ts locally for source and compiled installations 0ms
+   ✓ routes host coordinator C:\app\server\helmsman\docker-review-cli.ts locally for source and compiled installations 0ms
+   ✓ routes host coordinator docker-review-cli.ts locally for source and compiled installations 0ms
+   ✓ routes host coordinator /app/server/helmsman/docker-review-cli.js locally for source and compiled installations 0ms
+   ✓ routes host coordinator C:\app\server\helmsman\docker-review-cli.js locally for source and compiled installations 0ms
+   ✓ routes host coordinator docker-review-cli.js locally for source and compiled installations 0ms
+   ✓ leaves ordinary worker /app/worker.js on its selected host 0ms
+   ✓ leaves ordinary worker C:\app\worker.ts on its selected host 0ms
+   ✓ leaves ordinary worker /app/pre-pr-cli.js.map on its selected host 0ms
+   ✓ leaves ordinary worker /app/not-pre-pr-cli.js on its selected host 0ms
+   ✓ leaves ordinary worker /app/docker-review-cli.ts/child.js on its selected host 0ms
+   ✓ leaves ordinary worker /app/run-wrapper.mjs on its selected host 0ms
+   × remaps both coordinator paths and file-URL loader dependencies into the retained runtime 3ms
+   ✓ does not remap traversal escapes or similarly named runtime directories 0ms
+ ✓ server/helmsman/pull-request-source.test.ts (6 tests) 7ms
+ ✓ src/plugins/pull-request-command.test.ts (14 tests) 5ms
+ ✓ server/helmsman/agents/docker-review.test.ts (3 tests) 4ms
+ ✓ src/plugins/tasks.test.ts (6 tests) 6ms
+ ✓ src/data/context.test.ts (8 tests) 5ms
+ ✓ server/helmsman/plugins/builtin-triggers.test.ts (2 tests) 2ms
+ ✓ src/plugins/activity-read.test.ts (8 tests) 4ms
+ ✓ server/helmsman/trigger-execution.test.ts (3 tests) 3ms
+ ✓ server/helmsman/communication-read-service.test.ts (4 tests) 5ms
+ ✓ server/snapshot.test.ts (45 tests) 5ms
+ ✓ server/helmsman/agent-attribution.test.ts (20 tests) 6ms
+ ✓ src/plugins/trigger-slack-review/provider.test.ts (5 tests) 5ms
+ ✓ src/plugins/costs/report.test.ts (6 tests) 4ms
+ ✓ server/helmsman/jira-actions.test.ts (8 tests) 3ms
+ ✓ src/plugins/github-settings/state.test.ts (9 tests) 3ms
+ ✓ server/config.test.ts (48 tests) 5ms
+ ✓ src/plugins/helm/layout.test.ts (5 tests) 3ms
+ ✓ src/plugins/modules.test.ts (18 tests) 4ms
+ ✓ src/plugins/clarifications/state.test.ts (7 tests) 4ms
+ ✓ src/logic/agentProvider.test.ts (7 tests) 2ms
+ ✓ src/logic/rack.test.ts (14 tests) 4ms
+ ✓ src/plugins/communication-command.test.ts (4 tests) 3ms
+ ✓ server/helmsman/todo-legacy-recovery-routes.test.ts (4 tests) 3ms
+ ✓ src/logic/prefs.test.ts (12 tests) 3ms
+ ✓ server/helmsman/communication-providers.test.ts (1 test) 2ms
+ ✓ server/helmsman/execution-host-stage.test.ts (3 tests) 4ms
+ ✓ server/helmsman/agents/claude-code.test.ts (11 tests) 4ms
+ ✓ server/helmsman/plugins/activation.test.ts (1 test) 4ms
+ ✓ server/helmsman/pull-request-inspect-routes.test.ts (3 tests) 4ms
+ ✓ server/helmsman/pull-request-command-routes.test.ts (3 tests) 4ms
+ ✓ src/logic/queue.test.ts (4 tests) 2ms
+ ✓ server/helmsman/run-command-routes.test.ts (4 tests) 4ms
+ ✓ server/helmsman/slack/config.test.ts (3 tests) 2ms
+ ✓ server/helmsman/cmux/codex-cost-usage.test.ts (24 tests) 4ms
+ ✓ src/plugins/run-viewer/state.test.ts (6 tests) 3ms
+ ✓ src/plugins/presentation.test.ts (5 tests) 4ms
+ ✓ server/helmsman/agents/claude-stream.test.ts (9 tests) 2ms
+ ✓ src/plugins/panels.test.ts (2 tests) 4ms
+ ✓ src/logic/voyageId.test.ts (5 tests) 2ms
+ ✓ server/helmsman/legacy-execution-snapshot.test.ts (2 tests) 3ms
+ ✓ server/helmsman/recovery-http.test.ts (2 tests) 3ms
+ ✓ src/plugins/run-inspect.test.ts (14 tests) 4ms
+ ✓ server/helmsman/agents/attribution-prompts.test.ts (7 tests) 3ms
+ ✓ src/plugins/agent-command/provider.test.ts (2 tests) 2ms
+ ✓ src/plugins/trigger-campaign/provider.test.ts (2 tests) 2ms
+ ✓ server/helmsman/review-verdict.test.ts (24 tests) 3ms
+ ✓ src/logic/bugMetrics.test.ts (17 tests) 3ms
+ ✓ server/helmsman/process-manager.test.ts (8 tests) 3ms
+ ✓ src/logic/triageFilters.test.ts (7 tests) 3ms
+ ✓ src/plugins/workflow-coding/provider.test.ts (6 tests) 3ms
+ ✓ src/plugins/agent-claude/provider.test.ts (2 tests) 2ms
+ ✓ server/helmsman/cost-estimates.test.ts (16 tests) 2ms
+ ✓ src/logic/terminology.test.ts (11 tests) 3ms
+ ✓ src/plugins/trigger-github-review/provider.test.ts (2 tests) 3ms
+ ✓ server/helmsman/clarification-application.test.ts (2 tests) 3ms
+ ✓ server/helmsman/pull-request-providers.test.ts (3 tests) 3ms
+ ✓ server/helmsman/cmux/actions.test.ts (5 tests) 2ms
+ ✓ src/logic/agentOptions.test.ts (5 tests) 2ms
+ ✓ src/plugins/workflow-review/provider.test.ts (4 tests) 2ms
+ ✓ server/helmsman/plugins/builtin-workflows.test.ts (1 test) 2ms
+ ✓ server/helmsman/plugins/builtin-terminals.test.ts (1 test) 2ms
+ ✓ server/helmsman/plugins/builtin-hosts.test.ts (1 test) 2ms
+ ✓ server/helmsman/contact-policy.test.ts (2 tests) 2ms
+ ✓ src/logic/time.test.ts (4 tests) 2ms
+ ✓ server/helmsman/pre-pr-runtime.integration.test.ts (27 tests) 145320ms
+     ✓ repairs an overlong codex approval once and preserves the original report  7970ms
+     ✓ repairs an overlong claude-code approval once and preserves the original report  7404ms
+     ✓ retains request-changes findings through correction and requires remediation and a fresh review  9346ms
+     ✓ blocks summary-still-long after one correction attempt  2821ms
+     ✓ blocks summary-mutated-findings after one correction attempt  2932ms
+     ✓ blocks summary-mutated-verdict after one correction attempt  2928ms
+     ✓ continues an accepted corrected round-two report without repeating correction or implementation  10023ms
+     ✓ rejects a stale continuation baseSha before running an agent  1466ms
+     ✓ rejects a stale continuation headSha before running an agent  1496ms
+     ✓ rejects a stale continuation branch before running an agent  1535ms
+     ✓ rejects mismatched saved reviewer path review-2-claude-code.json before running an agent  1449ms
+     ✓ rejects mismatched saved reviewer path review-1-codex.json before running an agent  1473ms
+     ✓ enforces the codex writer byline while preserving code and suggestions  8939ms
+     ✓ enforces the claude-code writer byline while preserving code and suggestions  8953ms
+     ✓ uses the actual Codex defaults when writer settings are omitted  9297ms
+     ✓ updates only the managed footer of an existing PR and does not repeat an unchanged edit  12467ms
+     ✓ uses only the writer CLI when one reviewer is configured, even with another installed  7348ms
+     ✓ stops without fixes or publication after the configured final review round  3724ms
+     ✓ implements, obtains both reviews, fixes and re-reviews before publishing the approved commit  10046ms
+     ✓ blocks unanswered clarification before false push or PR creation  4533ms
+     ✓ blocks unanswered clarification before true push or PR creation  4422ms
+     ✓ publishes to the uniquely matching named remote when origin points elsewhere  8251ms
+     ✓ blocks publication for unavailable and preserves author checkout  1551ms
+     ✓ blocks publication for auth and preserves author checkout  3369ms
+     ✓ blocks publication for modified and preserves author checkout  2651ms
+     ✓ blocks publication for remote-moved and preserves author checkout  7068ms
+     ✓ blocks publication for ticket-title and preserves author checkout  1856ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/helmsman/runtime-paths.test.ts > remaps both coordinator paths and file-URL loader dependencies into the retained runtime
+AssertionError: expected 'file:///Users/nloehlein/workspace/ai/…' to be 'file:///private/tmp/helmsman-adversar…' // Object.is equality
+
+Expected: "file:///private/tmp/helmsman-adversarial-20260921-ec3dd6b/integration/retained-runtime/node_modules/tsx/dist/loader.mjs"
+Received: "file:///Users/nloehlein/workspace/ai/projects/helmsman/node_modules/tsx/dist/loader.mjs"
+
+ ❯ server/helmsman/runtime-paths.test.ts:43:59
+     41|   const retained = join(original, 'retained-runtime');
+     42|   const loader = import.meta.resolve('tsx');
+     43|   expect(retainedRuntimePath(loader, original, retained)).toBe(pathToF…
+       |                                                           ^
+     44|   expect(retainedRuntimePath(join(original, 'server/helmsman/pre-pr-cl…
+     45|   expect(retainedRuntimePath(process.execPath, original, retained)).to…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 364 passed (365)
+      Tests  1 failed | 4832 passed (4833)
+   Start at  12:07:37
+   Duration  145.75s (transform 4.25s, setup 0ms, import 12.10s, tests 282.32s, environment 86.83s)
+
+JSON report written to /private/tmp/helmsman-adversarial-20260921-ec3dd6b/logs/baseline-unit.json

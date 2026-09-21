@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import { join } from 'node:path';
+import { installPlugin, selectPluginPage, readPluginState } from '../../integration/release/server/helmsman/plugins/store.js';
+import { createSafeStartServer } from '../../integration/release/server/helmsman/safe-start.js';
+
+const directory = await mkdtemp(new URL('./safe-start-state-', import.meta.url).pathname);
+const root = join(directory, 'plugins'); const id = 'example.recovery-view';
+const major = Number(process.versions.node.split('.')[0]);
+const bytes = Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
+  package: { packageVersion: 1, manifest: { manifestVersion: 1, id, version: '1.0.0', sdkVersion: 1,
+    pages: [{ id: 'page', title: 'Recovery fixture', slots: ['helmsman/costs-page', 'helmsman/helm-page'], panes: [] }] },
+    node: { minMajor: major, maxMajorExclusive: major + 1 }, entries: { page: 'page.js' } },
+  files: [{ path: 'page.js', base64: Buffer.from('export default { mount() { throw Error("Must not execute in safe start"); } };').toString('base64') }] }));
+await installPlugin(root, bytes);
+async function inspect() {
+  const server = createSafeStartServer({ dbPath: join(directory, 'nonexistent.sqlite'), pluginsDir: root, dist: join(directory, 'missing-dist'), env: {} });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    return { recovery: await (await fetch(`${base}/api/recovery`)).json(), catalog: await (await fetch(`${base}/api/plugins/catalog`)).json() };
+  } finally { await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+}
+await selectPluginPage(root, 'helmsman/costs-page', `${id}/page`);
+const before = await inspect();
+assert.equal(before.recovery.plugins[0]?.id, id);
+assert.equal(before.catalog.bindings['helmsman/costs-page'], `${id}/page`);
+console.log('Control: Costs-only binding correctly exposes installed plugin:', before.recovery.plugins);
+await selectPluginPage(root, 'helmsman/helm-page', 'helmsman.helm/page');
+const after = await inspect();
+assert.deepEqual(after.recovery.plugins, []);
+assert.deepEqual(after.catalog.bindings, {});
+assert.equal(readPluginState(root).plugins[0]?.id, id);
+console.log('Adding valid Helm binding loses all safe-start plugin diagnostics:', after.recovery.plugins, after.recovery.errors);
+console.log('Valid on-disk state is unchanged:', readPluginState(root));
+console.log('PASS: safe-start misclassifies supported page binding; isolated state', directory);

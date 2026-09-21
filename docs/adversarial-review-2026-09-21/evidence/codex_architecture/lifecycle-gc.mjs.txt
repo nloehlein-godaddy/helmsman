@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { openPersistence, pendingPersistenceIntents } from '../../integration/release/server/helmsman/persistence.js';
+import { openExecutionStore } from '../../integration/release/server/helmsman/execution-store.js';
+import { openPluginLifecycle } from '../../integration/release/server/helmsman/plugins/lifecycle.js';
+import { createPluginCoordinator, installPlugin, readPluginState } from '../../integration/release/server/helmsman/plugins/store.js';
+
+const directory = await mkdtemp(new URL('./gc-state-', import.meta.url).pathname);
+const root = join(directory, 'plugins');
+const persistence = openPersistence(join(directory, 'state.sqlite'));
+const executions = openExecutionStore(persistence);
+const lifecycle = openPluginLifecycle(persistence, executions);
+let crash = false;
+const coordinator = await createPluginCoordinator({ root, persistence, executions, lifecycle,
+  afterProjection(target) { if (crash && target === 'catalog') throw Error('Injected crash after catalog commit'); } });
+const major = Number(process.versions.node.split('.')[0]);
+function bytes(version) {
+  return Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
+    package: { packageVersion: 1, manifest: { manifestVersion: 1, id: 'example.gc-race', version, sdkVersion: 1, pages: [] },
+      node: { minMajor: major, maxMajorExclusive: major + 1 }, entries: {} }, files: [] }));
+}
+try {
+  const old = await installPlugin(root, bytes('1.0.0'), coordinator);
+  crash = true;
+  await assert.rejects(coordinator.change(old.id, false), /Injected crash/);
+  await assert.rejects(installPlugin(root, bytes('2.0.0'), coordinator), /Injected crash/);
+  assert.notEqual(coordinator.state(old.id).artifactHash, old.hash);
+  console.log('pending before GC', pendingPersistenceIntents(persistence).map(i => ({ revision: i.revision, hash: i.payload.artifactHash })));
+  await coordinator.collect(old.hash);
+  console.log('GC deleted pending-intent artifact', old.hash);
+  await assert.rejects(readFile(join(root, 'artifacts', `${old.hash}.json`)), { code: 'ENOENT' });
+  crash = false;
+  await assert.rejects(coordinator.reconcile(), { code: 'ENOENT' });
+  assert.equal(pendingPersistenceIntents(persistence).length, 1);
+  await assert.rejects(coordinator.change(old.id, true), { code: 'ENOENT' });
+  assert.equal(coordinator.canActivate(old.id), false);
+  console.log('catalog enabled, but permanent missing-artifact projection blocks activation', readPluginState(root));
+  console.log('remaining pending', pendingPersistenceIntents(persistence).map(i => ({ revision: i.revision, hash: i.payload.artifactHash })));
+  console.log('PASS: reproduced GC breaking recovery; isolated state', directory);
+} finally { coordinator.dispose(); persistence.close(); }

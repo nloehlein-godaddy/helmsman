@@ -1,0 +1,69 @@
+{
+  "root": "/private/tmp/helmsman-adversarial-20260921-ec3dd6b",
+  "repository": "/Users/nloehlein/workspace/ai/projects/helmsman",
+  "head": "ec3dd6b544cba1f796c353134dc4af0437cf40a8",
+  "baseline": "e471d86630d78f2285611e81256ff912e5f57d0e",
+  "reviewers": [
+    "codex_architecture",
+    "codex_execution",
+    "codex_ui",
+    "claude_security",
+    "claude_sources",
+    "claude_integrations"
+  ],
+  "environment": {
+    "node": "v24.17.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "abi": "137"
+  },
+  "claude_completions": [
+    {
+      "reviewer": "claude_security",
+      "model": "claude-opus-4-8",
+      "effort": "high",
+      "completion": "success",
+      "is_error": false,
+      "duration_ms": 413731,
+      "num_turns": 37
+    },
+    {
+      "reviewer": "claude_sources",
+      "model": "claude-sonnet-5",
+      "effort": "high",
+      "completion": "success",
+      "is_error": false,
+      "duration_ms": 1077502,
+      "num_turns": 96
+    },
+    {
+      "reviewer": "claude_integrations",
+      "model": "claude-opus-4-8",
+      "effort": "high",
+      "completion": "success",
+      "is_error": false,
+      "duration_ms": 660598,
+      "num_turns": 59
+    }
+  ],
+  "codex_completions": [
+    {
+      "reviewer": "codex_architecture",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "completion": "completed"
+    },
+    {
+      "reviewer": "codex_execution",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "completion": "completed"
+    },
+    {
+      "reviewer": "codex_ui",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "completion": "completed"
+    }
+  ]
+}

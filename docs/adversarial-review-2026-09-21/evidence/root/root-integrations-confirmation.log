@@ -1,0 +1,12 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/integration
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  12:17:56
+   Duration  536ms (transform 125ms, setup 0ms, import 160ms, tests 4ms, environment 273ms)
+

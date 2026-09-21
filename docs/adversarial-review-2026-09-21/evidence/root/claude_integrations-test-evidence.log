@@ -1,0 +1,44 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/claude_integrations
+
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  12:08:37
+   Duration  645ms (transform 166ms, setup 0ms, import 209ms, tests 14ms, environment 315ms)
+
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/claude_integrations
+
+
+ Test Files  4 passed (4)
+      Tests  48 passed (48)
+   Start at  12:10:37
+   Duration  626ms (transform 535ms, setup 0ms, import 716ms, tests 180ms, environment 608ms)
+
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/claude_integrations
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  12:13:35
+   Duration  532ms (transform 123ms, setup 0ms, import 156ms, tests 3ms, environment 274ms)
+
+
+MARKER used: "my review\n\n<!-- helmsman-operation:op-id:hash -->"
+RECONCILE RESULT: {"status":"unknown","reason":"No authenticated review receipt proves delivery; an earlier request may still be in flight.","evidence":{"code":"github-unconfirmed"}}
+CONTROL RESULT: {"status":"acknowledged","receipt":{"repo":"org/project","prNumber":42,"headSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","actor":"actor","reviewId":55}}
+403 RESULT: {"status":"definitely-not-applied","retryable":false,"reason":"GitHub rejected the review (403).","evidence":{"httpStatus":403}}
+429 RESULT: {"status":"definitely-not-applied","retryable":true,"reason":"GitHub rejected the review (429).","evidence":{"httpStatus":429}}
+ ✓ src/plugins/github/zzz-probe-recon.test.ts > PROBE reconcileReview pagination gap > cannot find a posted review that sits beyond the first 100 reviews 2ms
+ ✓ src/plugins/github/zzz-probe-recon.test.ts > PROBE reconcileReview pagination gap > control: finds the marker when it is present on page 1 0ms
+ ✓ src/plugins/github/zzz-probe-recon.test.ts > PROBE invokeReview secondary rate limit > treats a 403 (secondary rate limit) as non-retryable definitely-not-applied 0ms
+ ✓ src/plugins/github/zzz-probe-recon.test.ts > PROBE invokeReview secondary rate limit > control: treats 429 as retryable 0ms

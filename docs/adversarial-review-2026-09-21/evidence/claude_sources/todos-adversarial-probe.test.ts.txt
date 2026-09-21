@@ -1,0 +1,113 @@
+import { describe, expect, it } from 'vitest';
+import { todosProvider } from './provider.js';
+import { LOCAL_TASK_SCHEMA } from './document.js';
+import type { LocalSourceRecordV1, SourceInstanceV1 } from '@helmsman/plugin-sdk';
+
+function instance(overrides: Partial<SourceInstanceV1> = {}): SourceInstanceV1 {
+  return {
+    version: 1, id: 'instance-1', sourceId: 'source-1', label: 'Todos', revision: 1, desiredEnabled: true,
+    identityLevel: 'verified', authority: null,
+    binding: { providerId: 'helmsman.todos/local', pluginId: 'helmsman.todos', artifactHash: 'a'.repeat(64), contractVersion: 1, connectionId: null, credentialHandle: null },
+    settings: {}, allowedRepos: ['owner/project'], ...overrides,
+  } as SourceInstanceV1;
+}
+
+function makeRecord(externalId: string, overrides: Partial<Record<string, unknown>> = {}): LocalSourceRecordV1 {
+  const data = { version: 1, title: `Task ${externalId}`, description: '', acceptanceCriteria: '', priority: 'P2', state: 'todo',
+    createdAt: '2026-09-15T00:00:00.000Z', updatedAt: '2026-09-15T00:00:00.000Z', completedAt: null, ...overrides };
+  return { ref: { sourceId: 'source-1', externalId }, repo: 'owner/project', revision: `rev-${externalId}`, schema: LOCAL_TASK_SCHEMA,
+    data, claim: null, lastRunId: null, claimState: null } as LocalSourceRecordV1;
+}
+
+function fakeLocal(records: LocalSourceRecordV1[], collectionRevision = 1) {
+  let describeCalls = 0;
+  return {
+    async describeCollection() {
+      describeCalls++;
+      return { sourceId: 'source-1', collectionId: 'collection-1', schema: LOCAL_TASK_SCHEMA, revision: collectionRevision, evidenceId: 'evidence-1' };
+    },
+    async get(externalId: string) { return records.find(record => record.ref.externalId === externalId) ?? null; },
+    async list(input: { repo: string; cursor: string | null; limit: number }) {
+      const filtered = records.filter(record => record.repo === input.repo);
+      const offset = input.cursor ? Number(JSON.parse(input.cursor).offset) : 0;
+      const page = filtered.slice(offset, offset + input.limit);
+      const nextOffset = offset + page.length;
+      return { records: page, nextCursor: nextOffset < filtered.length ? JSON.stringify({ offset: nextOffset }) : null };
+    },
+    describeCalls: () => describeCalls,
+  };
+}
+
+function context(local: ReturnType<typeof fakeLocal>, repo: string | null = 'owner/project', inst = instance()) {
+  return { instance: inst, signal: new AbortController().signal, repo, local, http: null } as never;
+}
+
+describe('adversarial probe: ready-vs-todo description filter divergence', () => {
+  it('canonical list() hides ready tasks without a description', async () => {
+    const records = [makeRecord('TODO-1', { description: '' }), makeRecord('TODO-2', { description: 'Has content' })];
+    const local = fakeLocal(records);
+    const page = await todosProvider.list({ repo: 'owner/project', state: 'ready', cursor: null, limit: 10 }, context(local));
+    expect(page.items.map(item => item.displayKey)).toEqual(['TODO-2']);
+  });
+
+  it('listEditableTasks with filter.state="todo" (the editor alias for ready) DOES include description-less tasks', async () => {
+    const records = [makeRecord('TODO-1', { description: '' }), makeRecord('TODO-2', { description: 'Has content' })];
+    const local = fakeLocal(records);
+    const page = await todosProvider.listEditableTasks!({ repo: 'owner/project', editor: { id: 'helmsman/local-task-editor', version: 1 }, filter: { state: 'todo' }, cursor: null, limit: 10 }, context(local));
+    expect(page.items.map(item => item.displayKey).sort()).toEqual(['TODO-1', 'TODO-2']);
+  });
+});
+
+describe('adversarial probe: malformed / stale cursor handling', () => {
+  it('rejects a cursor whose collection revision no longer matches (changed mid-pagination)', async () => {
+    const records = Array.from({ length: 3 }, (_, i) => makeRecord(`TODO-${i + 1}`, { description: 'x' }));
+    const local = fakeLocal(records);
+    const stale = JSON.stringify({ revision: 999, repo: 'owner/project', state: null, offset: 1, search: '' });
+    await expect(todosProvider.list({ repo: 'owner/project', state: null, cursor: stale, limit: 1 }, context(local)))
+      .rejects.toThrow(/changed|reload/i);
+  });
+
+  it('detects a page cursor that fails to advance (would otherwise infinite-loop)', async () => {
+    const records = [makeRecord('TODO-1', { description: 'x' })];
+    const local = {
+      ...fakeLocal(records),
+      async list() { return { records: [], nextCursor: 'same-cursor-forever' }; },
+    };
+    await expect(todosProvider.list({ repo: 'owner/project', state: null, cursor: null, limit: 10 }, context(local as never)))
+      .rejects.toThrow(/did not advance/i);
+  });
+
+  it('detects a page reporting duplicate externalId within a single page', async () => {
+    const dup = makeRecord('TODO-1', { description: 'x' });
+    const local = { ...fakeLocal([]), async list() { return { records: [dup, dup], nextCursor: null }; } };
+    await expect(todosProvider.list({ repo: 'owner/project', state: null, cursor: null, limit: 10 }, context(local as never)))
+      .rejects.toThrow(/duplicate/i);
+  });
+});
+
+describe('adversarial probe: cross-source id collision', () => {
+  it('ref() rejects a record whose sourceId does not match the calling instance, even with an identical externalId', async () => {
+    const foreign = makeRecord('TODO-1');
+    const foreignRef = { ...foreign, ref: { sourceId: 'other-source', externalId: 'TODO-1' } };
+    const local = { ...fakeLocal([]), async get(id: string) { return id === 'TODO-1' ? foreignRef : null; } };
+    await expect(todosProvider.load({ sourceId: 'source-1', externalId: 'TODO-1' }, context(local as never)))
+      .rejects.toThrow();
+  });
+});
+
+describe('adversarial probe: disabled/changed scope mid-operation (collection identity drift)', () => {
+  it('rejects when the collection identity changes between the pre- and post- describeCollection checks', async () => {
+    const records = [makeRecord('TODO-1', { description: 'x' })];
+    let calls = 0;
+    const local = {
+      async describeCollection() {
+        calls++;
+        return { sourceId: 'source-1', collectionId: calls === 1 ? 'collection-1' : 'collection-2', schema: LOCAL_TASK_SCHEMA, revision: 1, evidenceId: 'e' };
+      },
+      async get(id: string) { return records.find(r => r.ref.externalId === id) ?? null; },
+      async list(input: { repo: string; cursor: string | null; limit: number }) { return { records: records.filter(r => r.repo === input.repo), nextCursor: null }; },
+    };
+    await expect(todosProvider.list({ repo: 'owner/project', state: null, cursor: null, limit: 10 }, context(local as never)))
+      .rejects.toThrow(/changed|reload/i);
+  });
+});

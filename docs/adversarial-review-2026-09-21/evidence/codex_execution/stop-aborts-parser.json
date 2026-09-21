@@ -1,0 +1,51 @@
+{
+  "probe": "stop-aborts-parser",
+  "beforeRecovery": {
+    "status": "running",
+    "attempt": {
+      "attachment": "blocked",
+      "attempt": 1,
+      "diagnostic": {
+        "code": "attachment-blocked",
+        "details": null,
+        "message": "This operation was aborted",
+        "retryable": true
+      },
+      "hostRef": {
+        "kind": "detached",
+        "pid": 123
+      },
+      "launchId": "8c04d7ca-d3e2-4a01-800f-b84056d251c6",
+      "outcome": null,
+      "paths": {
+        "exit": "/private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_execution/fixture-MVnQTH/parser-stop.attempt-1.exit",
+        "log": "/private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_execution/fixture-MVnQTH/parser-stop.attempt-1.log",
+        "spec": "/private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_execution/fixture-MVnQTH/parser-stop.attempt-1.json",
+        "worktree": "/private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_execution/fixture-MVnQTH"
+      },
+      "preparation": "launched",
+      "runId": "parser-stop",
+      "snapshotId": "0821c7534966ef8c84b0b16dd96f73a89c4a23448af78b47e956bc4f5d439818"
+    },
+    "reservations": [
+      {
+        "runId": "parser-stop",
+        "repo": "owner/repo",
+        "reason": "unresolved"
+      }
+    ],
+    "events": [
+      {
+        "id": 1,
+        "runId": "parser-stop",
+        "ts": "2026-09-21T19:17:48.314Z",
+        "kind": "error",
+        "text": "Execution recovery blocked: This operation was aborted"
+      }
+    ]
+  },
+  "afterRecovery": {
+    "status": "stopped",
+    "reservations": []
+  }
+}

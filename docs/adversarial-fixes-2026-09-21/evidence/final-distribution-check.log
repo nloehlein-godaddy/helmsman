@@ -1,0 +1,18 @@
+✔ compiled CLI uses bundled native dependencies with application source denied (827.153ms)
+✔ compiled workflow preparation finds its prompts and helpers outside the original working directory (143.004792ms)
+✔ compiled coordinators and run wrapper execute without a TypeScript loader (448.517458ms)
+✔ packaged SDK type-checks a separately authored TypeScript plugin without application imports (777.361417ms)
+✔ copied release guides and author READMEs have complete local documentation links (4739.819541ms)
+✔ documentation closure follows safe markdown, reference and HTML links without copying repository code (11.42975ms)
+✔ independent source adopts existing local work and runs a durable claim after restart without application source (4367.526916ms)
+✔ rebuild refuses runtime data, user changes, and symlinks without deleting any bytes (4020.424459ms)
+Previous distribution retained: /private/var/folders/sg/lzdvm2rj7yz0kd2667h2hd800000gp/T/helmsman-distribution-95mOvm/concurrent-rebuild/release.previous-4a3c714a-578b-405d-8031-bbe785f9dfdb
+✔ rebuild detects files created while staging and retains prior output after a clean replacement (11836.200708ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 27827.36175

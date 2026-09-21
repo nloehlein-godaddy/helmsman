@@ -1,0 +1,6 @@
+{
+  "probe": "dirty-worktree-rerun",
+  "developerWorktreeExists": false,
+  "untrackedFileExists": false,
+  "newWorktreeExists": true
+}

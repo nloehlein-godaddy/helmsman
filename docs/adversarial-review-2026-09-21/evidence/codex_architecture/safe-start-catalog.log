@@ -1,0 +1,24 @@
+Control: Costs-only binding correctly exposes installed plugin: [
+  {
+    id: 'example.recovery-view',
+    hash: 'd25f1d4efa5c5bc584a0244f3a38d463413ebf6bfa73bf149d6ca76a15fa2e46',
+    enabled: false
+  }
+]
+Adding valid Helm binding loses all safe-start plugin diagnostics: [] [
+  'Stored recovery metadata could not be read. Files were left unchanged.'
+]
+Valid on-disk state is unchanged: {
+  plugins: [
+    {
+      id: 'example.recovery-view',
+      hash: 'd25f1d4efa5c5bc584a0244f3a38d463413ebf6bfa73bf149d6ca76a15fa2e46',
+      enabled: false
+    }
+  ],
+  bindings: {
+    'helmsman/costs-page': 'example.recovery-view/page',
+    'helmsman/helm-page': 'helmsman.helm/page'
+  }
+}
+PASS: safe-start misclassifies supported page binding; isolated state /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/safe-start-state-7d4spK

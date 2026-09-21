@@ -26,7 +26,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 Optional pages, panels and integrations use replaceable plugin contributions. Task sources, PR and communication providers, pricing, scheduling, agents, execution hosts, native terminal/browser providers, workflows and triggers have public contracts. Core retains scope, credentials, durable state, admission, budgets, concurrency, publication and recovery. Disabling a selected provider blocks new work without restoring a private fallback; saved layouts and existing obligations remain intact.
 
-Phases A–G are complete. Optional features use public plugin contracts, obsolete new-work routes are retired, and the stable SDK includes independent-author examples and compatibility guidance. Final acceptance and independent review passed, including the manual draft-review correction. See the [implementation ledger](docs/plugin-implementation-progress.md) for accepted evidence.
+Phases A–G are complete. Optional features use public plugin contracts, obsolete new-work routes are retired, and the stable SDK includes independent-author examples and compatibility guidance. Final acceptance and independent review passed, including the manual draft-review correction. See the [implementation ledger](docs/plugin-implementation-progress.md) for accepted evidence and the [adversarial fix ledger](docs/adversarial-fixes-2026-09-21.md) for subsequent hardening, validation and platform limits.
 
 Start with the [independent plugin quickstart](docs/plugin-quickstart.md), [package installation](docs/plugin-packages.md), [compatibility policy](docs/plugin-compatibility.md) and [retired routes](docs/plugin-legacy-retirement.md). The [voyage flow diagrams](docs/helmsman-process.md) describe current presentation, execution and recovery boundaries. Runs, history, the shared viewer and clarification panels are authored packages; `/runs` and `/prs` select compositions using public PR panels and the same auxiliary viewer.
 
@@ -51,6 +51,8 @@ runtime framework.
 Pages and panels read scoped, versioned services from their plugin context. The
 Helmsman server queries the selected task-source and PR providers; Vite proxies
 `/api` to that server during development. Source failures remain unavailable.
+Mutating HTTP requests require `Content-Type: application/json`, a loopback Host, and an absent or matching Origin; cross-site fetch metadata is rejected before routing or body parsing. The development proxy preserves the browser Host. Signature-verified GitHub webhook intake is the sole mutation exemption.
+
 The old `/api/dashboard`, `/api/triage`, `/api/bugs` and private PR routes return
 410; use the public SDK services described in [route retirement](docs/plugin-legacy-retirement.md).
 

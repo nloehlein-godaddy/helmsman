@@ -1,0 +1,14 @@
+PASS: traversal
+PASS: duplicate asset
+PASS: encoded traversal
+PASS: missing entry
+PASS: reserved namespace
+PASS: unsupported SDK
+PASS: unsupported dependencies fail closed
+PASS: bare dependency
+PASS: escaping import
+PASS: computed import
+PASS: browser Node builtin
+PASS: missing relative module
+PASS: bundled literal local helper accepted
+Validation controls passed: 13

@@ -1,0 +1,14 @@
+{
+  "probe": "descendant-after-stop",
+  "receipt": {
+    "version": 1,
+    "runId": "stop-audit",
+    "launchId": "stop-audit-launch",
+    "attempt": 1,
+    "pid": 2173,
+    "processStart": "darwin:Mon Sep 21 12:17:47 2026",
+    "exitCode": 1
+  },
+  "mutationAtTerminalReceipt": false,
+  "mutationAfterStop": "mutation after stop"
+}

@@ -1,0 +1,29 @@
+{
+  "probe": "preparation-failure-restart",
+  "admissionState": "started",
+  "runState": "running",
+  "preparation": "prepared",
+  "recoveries": [
+    {
+      "status": "blocked",
+      "reason": "Prepared worktree requires reconciliation before attachment"
+    },
+    {
+      "status": "blocked",
+      "reason": "Prepared worktree requires reconciliation before attachment"
+    },
+    {
+      "status": "blocked",
+      "reason": "Prepared worktree requires reconciliation before attachment"
+    }
+  ],
+  "reservations": [
+    {
+      "runId": "failed-preparation",
+      "repo": "owner/repo",
+      "reason": "unresolved"
+    }
+  ],
+  "checkoutCalls": 1,
+  "launchCalls": 0
+}

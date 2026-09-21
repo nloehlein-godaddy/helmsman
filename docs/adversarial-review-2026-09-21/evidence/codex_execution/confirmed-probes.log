@@ -1,0 +1,30 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/codex_execution
+
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: is subject to change. To configure the initial branch name to use in all
+hint: of your new repositories, which will suppress this warning, call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+Cloning into '/private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_execution/fixture-q8cjsv/agents/repo'...
+warning: You appear to have cloned an empty repository.
+done.
+To /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_execution/fixture-q8cjsv/origin.git
+ * [new branch]      feature -> feature
+Preparing worktree (checking out 'feature')
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  12:17:12
+   Duration  1.72s (transform 187ms, setup 0ms, import 231ms, tests 1.39s, environment 0ms)
+

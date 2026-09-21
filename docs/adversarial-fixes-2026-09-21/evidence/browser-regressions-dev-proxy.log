@@ -1,0 +1,25 @@
+{
+  "sameOrigin": {
+    "status": 200,
+    "body": {
+      "mutations": 1
+    }
+  },
+  "forwardedHeaders": [
+    {
+      "host": "127.0.0.1:60816",
+      "origin": "http://127.0.0.1:60816",
+      "allowed": true
+    },
+    {
+      "host": "127.0.0.1:60816",
+      "origin": "http://127.0.0.1:60828",
+      "allowed": false
+    }
+  ],
+  "foreignResponse": {
+    "type": "opaque",
+    "status": 0
+  },
+  "mutations": 1
+}

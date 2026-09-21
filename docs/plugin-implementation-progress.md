@@ -482,3 +482,10 @@ Shipped v1 deliberately uses exact protocol majors and self-contained packages; 
 The isolated demo and the user's pre-rewrite server were preserved. The completed source follows the configured `godaddy/master` upstream; no merge into another branch is part of this delivery.
 
 _Helmsman · not reported - not reported_
+
+
+## 2026-09-21 — Adversarial review fixes
+
+All 12 confirmed findings from the six-agent adversarial review are fixed on `fix/adversarial-review-2026-09-21`, integrated from separate worktrees with post-commit architectural review and independent cross-review. Corrections preserve developer worktrees, protect non-read HTTP methods, settle proven pre-launch failures without losing uncertain claims, retain Stop observers, require process-tree/staged cleanup evidence, protect pending artifacts, reuse immutable module identities, validate retained Node ranges and safe-start bindings, paginate GitHub reconciliation, and distinguish duplicate UI choices.
+
+Final verification: 4,922 unit tests across 370 files; TypeScript/app/distribution build; nine distribution checks; affected installed-app and browser composition scenarios; real Git/process regressions; desktop/mobile screenshots and affected documentation links. An initial legacy claim regression and a bodyless Stop test-client mismatch were corrected and rechecked. No live demo was started. The [fix ledger](adversarial-fixes-2026-09-21.md) records commit mappings, evidence, review corrections and limits, including fail-closed Windows local launches and daemonized descendants outside POSIX group containment. The original [review report](adversarial-review-2026-09-21.md) remains the historical snapshot.

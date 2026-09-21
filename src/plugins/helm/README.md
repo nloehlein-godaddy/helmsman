@@ -13,3 +13,5 @@ node /absolute/path/to/release/server/helmsman/plugins/cli.js pack ./dist ./helm
 The entry is `page.ts`; production code imports only public SDK types and its own relative modules. Styles use a package-specific root and supported host theme tokens. The descriptor uses the reserved `helmsman` namespace for the shipped contribution. External authors should choose their own publisher namespace.
 
 Unmounting, hiding or replacing this presentation never alters admitted work. The page retains mounted children while rearranging layout and delegates cancellation, service scope and module resolution to the host. Instance links are revealed once per incoming locator; missing locators do not reset the layout.
+
+Layout controls are grouped by panel title and full instance ID. Their accessible names carry that identity, so duplicated panels can be moved, scoped, or removed independently without guessing their position.

@@ -1,0 +1,49 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { pluginCommand } from '../../integration/release/server/helmsman/plugins/cli.js';
+import { installPluginArtifact, parsePluginArchive } from '../../integration/release/server/helmsman/plugins/artifacts.js';
+import { openPersistence, pendingPersistenceIntents } from '../../integration/release/server/helmsman/persistence.js';
+const Database = createRequire(new URL('../../integration/release/package.json', import.meta.url))('better-sqlite3');
+const directory = await mkdtemp(new URL('./gc-cli-state-', import.meta.url).pathname);
+const root = join(directory, 'plugins');
+const dbPath = join(directory, 'state.sqlite');
+const major = Number(process.versions.node.split('.')[0]);
+const id = 'example.gc-cli';
+function bytes(version) {
+  return Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
+    package: { packageVersion: 1, manifest: { manifestVersion: 1, id, version, sdkVersion: 1, pages: [] },
+      node: { minMajor: major, maxMajorExclusive: major + 1 }, entries: {} }, files: [] }));
+}
+async function cli(...args) {
+  console.log('plugins --dir', root, '--db', dbPath, ...args);
+  try { const result = await pluginCommand(['--dir', root, '--db', dbPath, ...args]); console.log(result); return result; }
+  catch (error) { console.log('ERROR:', error.message); throw error; }
+}
+function dataSQL(sql) {
+  const db = new Database(join(root, 'plugin-data.sqlite'));
+  try { db.exec(sql); } finally { db.close(); }
+}
+const oldBytes = bytes('1.0.0');
+const oldHash = parsePluginArchive(oldBytes).hash;
+const first = join(directory, 'v1.hmp'); const second = join(directory, 'v2.hmp');
+await writeFile(first, oldBytes); await writeFile(second, bytes('2.0.0'));
+await cli('install', first);
+dataSQL("CREATE TRIGGER fail_projection BEFORE INSERT ON plugin_projection_revisions BEGIN SELECT RAISE(ABORT, 'injected unavailable plugin-data projection'); END");
+await assert.rejects(cli('disable', id), /unavailable plugin-data projection/);
+await assert.rejects(cli('install', second), /unavailable plugin-data projection/);
+await cli('collect', oldHash);
+await assert.rejects(readFile(join(root, 'artifacts', `${oldHash}.json`)), { code: 'ENOENT' });
+dataSQL('DROP TRIGGER fail_projection');
+await assert.rejects(cli('enable', id), { code: 'ENOENT' });
+const persistence = openPersistence(dbPath);
+try {
+  const pending = pendingPersistenceIntents(persistence);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].payload.artifactHash, oldHash);
+  console.log('Only unreconciled intent now requires collected old hash:', pending[0].revision, oldHash);
+} finally { persistence.close(); }
+await installPluginArtifact(root, oldBytes);
+await cli('enable', id);
+console.log('Restoring only the collected bytes repairs activation; fixture', directory);

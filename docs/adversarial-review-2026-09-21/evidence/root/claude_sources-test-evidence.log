@@ -1,0 +1,127 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/claude_sources
+
+····················································
+
+ Test Files  5 passed (5)
+      Tests  52 passed (52)
+   Start at  12:10:21
+   Duration  620ms (transform 545ms, setup 0ms, import 720ms, tests 178ms, environment 612ms)
+
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/claude_sources
+
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: ready-vs-todo description filter divergence > canonical list() hides ready tasks without a description 1ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: ready-vs-todo description filter divergence > listEditableTasks with filter.state="todo" (the editor alias for ready) DOES include description-less tasks 0ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: malformed / stale cursor handling > rejects a cursor whose collection revision no longer matches (changed mid-pagination) 1ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: malformed / stale cursor handling > detects a page cursor that fails to advance (would otherwise infinite-loop) 0ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: malformed / stale cursor handling > detects a page reporting duplicate externalId within a single page 0ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: cross-source id collision > ref() rejects a record whose sourceId does not match the calling instance, even with an identical externalId 0ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: disabled/changed scope mid-operation (collection identity drift) > rejects when the collection identity changes between the pre- and post- describeCollection checks 0ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  12:20:46
+   Duration  400ms (transform 26ms, setup 0ms, import 34ms, tests 4ms, environment 267ms)
+
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/claude_sources
+
+ × server/helmsman/outcomes-adversarial-probe.test.ts > adversarial probe: aggregateOutcomes day-bucket alignment with a non-midnight window > still buckets a run correctly when `from` is not UTC midnight 5ms
+   → expected [ '2026-09-01', '2026-09-02', …(1) ] to deeply equal [ '2026-09-01', '2026-09-02' ]
+ ✓ server/helmsman/outcomes-adversarial-probe.test.ts > adversarial probe: PR availability merge order independence > gives the same result whether a "known" record arrives before or after a "stale" duplicate 0ms
+ ✓ server/helmsman/outcomes-adversarial-probe.test.ts > adversarial probe: cost-per-PR divides by distinct PRs, not by run count > averages total cost across N runs by the number of distinct merged PRs, not the number of runs 6ms
+ ✓ server/helmsman/outcomes-adversarial-probe.test.ts > adversarial probe: duplicate run ids collapse via Map (last one silently wins) > documents that aggregateOutcomes treats duplicate run ids in the input array as the same run (Map keyed by id) 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/helmsman/outcomes-adversarial-probe.test.ts > adversarial probe: aggregateOutcomes day-bucket alignment with a non-midnight window > still buckets a run correctly when `from` is not UTC midnight
+AssertionError: expected [ '2026-09-01', '2026-09-02', …(1) ] to deeply equal [ '2026-09-01', '2026-09-02' ]
+
+- Expected
++ Received
+
+  [
+    "2026-09-01",
+    "2026-09-02",
++   "2026-09-03",
+  ]
+
+ ❯ server/helmsman/outcomes-adversarial-probe.test.ts:20:48
+     18|     const totalBucketed = summary.daily.reduce((sum, day) => sum + day…
+     19|     expect(totalBucketed).toBe(2);
+     20|     expect(summary.daily.map(day => day.date)).toEqual(['2026-09-01', …
+       |                                                ^
+     21|   });
+     22| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  12:21:22
+   Duration  452ms (transform 58ms, setup 0ms, import 78ms, tests 12ms, environment 262ms)
+
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/claude_sources
+
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: ready-vs-todo description filter divergence > canonical list() hides ready tasks without a description 2ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: ready-vs-todo description filter divergence > listEditableTasks with filter.state="todo" (the editor alias for ready) DOES include description-less tasks 0ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: malformed / stale cursor handling > rejects a cursor whose collection revision no longer matches (changed mid-pagination) 1ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: malformed / stale cursor handling > detects a page cursor that fails to advance (would otherwise infinite-loop) 0ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: malformed / stale cursor handling > detects a page reporting duplicate externalId within a single page 0ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: cross-source id collision > ref() rejects a record whose sourceId does not match the calling instance, even with an identical externalId 0ms
+ ✓ src/plugins/todos/adversarial-probe.test.ts > adversarial probe: disabled/changed scope mid-operation (collection identity drift) > rejects when the collection identity changes between the pre- and post- describeCollection checks 0ms
+ ✓ server/helmsman/outcomes-adversarial-probe.test.ts > adversarial probe: aggregateOutcomes day-bucket alignment with a non-midnight window > still buckets a run correctly when `from` is not UTC midnight 2ms
+ ✓ server/helmsman/outcomes-adversarial-probe.test.ts > adversarial probe: PR availability merge order independence > gives the same result whether a "known" record arrives before or after a "stale" duplicate 0ms
+ ✓ server/helmsman/outcomes-adversarial-probe.test.ts > adversarial probe: cost-per-PR divides by distinct PRs, not by run count > averages total cost across N runs by the number of distinct merged PRs, not the number of runs 6ms
+ ✓ server/helmsman/outcomes-adversarial-probe.test.ts > adversarial probe: duplicate run ids collapse via Map (last one silently wins) > documents that aggregateOutcomes treats duplicate run ids in the input array as the same run (Map keyed by id) 0ms
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  12:21:42
+   Duration  513ms (transform 110ms, setup 0ms, import 152ms, tests 15ms, environment 595ms)
+
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/claude_sources
+
+·····················································································································································································································································································
+
+ Test Files  20 passed (20)
+      Tests  277 passed (277)
+   Start at  12:21:58
+   Duration  1.46s (transform 4.45s, setup 0ms, import 6.02s, tests 1.63s, environment 3.90s)
+
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial-20260921-ec3dd6b/claude_sources
+
+···············································
+
+ Test Files  4 passed (4)
+      Tests  47 passed (47)
+   Start at  12:22:13
+   Duration  900ms (transform 529ms, setup 0ms, import 717ms, tests 528ms, environment 306ms)

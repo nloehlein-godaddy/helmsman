@@ -1,0 +1,70 @@
+import { describe, expect, it, vi } from 'vitest';
+import { inspectTarget as target } from '../pull-request-inspect.test-fixture';
+import { githubPullRequestProvider, } from './provider';
+import { formatPullRequestReviewBody } from '@helmsman/plugin-sdk';
+
+function context(request: (input: { method: 'GET' | 'POST'; path: string; query: Readonly<Record<string, string>>; body: unknown | null }) => Promise<{ status: number; body: unknown; link?: string }>) {
+  return { signal: new AbortController().signal, configuredAuthor: 'actor', http: { request: vi.fn(request) } };
+}
+
+const input = { id: 'op-id', contentHash: 'hash', repo: target.repo, number: target.number, headSha: target.headSha, actor: 'actor', event: 'COMMENT' as const, body: 'my review' };
+
+describe('PROBE reconcileReview pagination gap', () => {
+  it('cannot find a posted review that sits beyond the first 100 reviews', async () => {
+    const marker = formatPullRequestReviewBody(input);
+    // 100 unrelated reviews fill page 1; the real marker review would be on page 2 (never fetched)
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ id: 1000 + i, commit_id: target.headSha, user: { login: 'someone-else' }, body: `unrelated ${i}`, submitted_at: '2025-01-02T03:04:05.000Z', state: 'COMMENTED' }));
+    const ctx = context(async req => {
+      if (req.path === '/user') return { status: 200, body: { login: 'actor' } };
+      if (req.path === `/repos/${target.repo}/pulls/${target.number}`) return { status: 200, body: { head: { sha: target.headSha }, state: 'open', merged: false } };
+      if (req.path.endsWith('/reviews')) {
+        expect(req.query).toMatchObject({ per_page: '100', page: '1' });
+        return { status: 200, body: page1, link: `<https://api.github.com${req.path}?per_page=100&page=2>; rel="next"` };
+      }
+      throw new Error('unexpected ' + req.path);
+    });
+    const result = await githubPullRequestProvider.reconcileReview!(input, ctx);
+    console.log('MARKER used:', JSON.stringify(marker));
+    console.log('RECONCILE RESULT:', JSON.stringify(result));
+    expect(result.status).toBe('unknown');
+  });
+
+  it('control: finds the marker when it is present on page 1', async () => {
+    const marker = formatPullRequestReviewBody(input);
+    const ctx = context(async req => {
+      if (req.path === '/user') return { status: 200, body: { login: 'actor' } };
+      if (req.path === `/repos/${target.repo}/pulls/${target.number}`) return { status: 200, body: { head: { sha: target.headSha }, state: 'open', merged: false } };
+      if (req.path.endsWith('/reviews')) return { status: 200, body: [{ id: 55, commit_id: target.headSha, user: { login: 'actor' }, body: marker, submitted_at: '2025-01-02T03:04:05.000Z', state: 'COMMENTED' }] };
+      throw new Error('unexpected ' + req.path);
+    });
+    const result = await githubPullRequestProvider.reconcileReview!(input, ctx);
+    console.log('CONTROL RESULT:', JSON.stringify(result));
+    expect(result.status).toBe('acknowledged');
+  });
+});
+
+describe('PROBE invokeReview secondary rate limit', () => {
+  it('treats a 403 (secondary rate limit) as non-retryable definitely-not-applied', async () => {
+    const ctx = context(async req => {
+      if (req.path === '/user') return { status: 200, body: { login: 'actor' } };
+      if (req.path === `/repos/${target.repo}/pulls/${target.number}`) return { status: 200, body: { head: { sha: target.headSha }, state: 'open', merged: false } };
+      if (req.method === 'POST') return { status: 403, body: { message: 'You have exceeded a secondary rate limit' } };
+      throw new Error('unexpected ' + req.path);
+    });
+    const result = await githubPullRequestProvider.invokeReview!(input, ctx);
+    console.log('403 RESULT:', JSON.stringify(result));
+    expect(result).toMatchObject({ status: 'definitely-not-applied', retryable: false });
+  });
+
+  it('control: treats 429 as retryable', async () => {
+    const ctx = context(async req => {
+      if (req.path === '/user') return { status: 200, body: { login: 'actor' } };
+      if (req.path === `/repos/${target.repo}/pulls/${target.number}`) return { status: 200, body: { head: { sha: target.headSha }, state: 'open', merged: false } };
+      if (req.method === 'POST') return { status: 429, body: { message: 'rate limited' } };
+      throw new Error('unexpected ' + req.path);
+    });
+    const result = await githubPullRequestProvider.invokeReview!(input, ctx);
+    console.log('429 RESULT:', JSON.stringify(result));
+    expect(result).toMatchObject({ status: 'definitely-not-applied', retryable: true });
+  });
+});

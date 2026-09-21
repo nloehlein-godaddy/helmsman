@@ -1,0 +1,35 @@
+- heading "Voyage history" [level=2]
+- combobox "Run status filter":
+  - option "All runs" [selected]
+  - option "Running"
+  - option "Completed"
+- button "Refresh"
+- paragraph: 2 matching runs observed 2026-09-21T19:18:59.535Z
+- text: Page 1 · 2 runs shown. Statuses may change between pages.
+- article:
+  - button "TASK-1"
+  - text: org/b · same-b · Attempt 1
+  - paragraph: "Worker: succeeded · Spend unknown"
+  - text: Started 2026-09-21T11:00:00.000Z · Ended 2026-09-21T11:01:00.000Z
+- article:
+  - button "TASK-1"
+  - text: org/a · same-a · Attempt 1
+  - paragraph: "Worker: succeeded · Spend unknown"
+  - text: Started 2026-09-21T10:00:00.000Z · Ended 2026-09-21T10:01:00.000Z
+- button "Previous page" [disabled]
+- button "Next page" [disabled]
+- heading "Voyage viewer" [level=2]
+- button "Refresh"
+- tablist "Open runs":
+  - tab "TASK-1"
+  - button "Close run same-b": ×
+  - tab "TASK-1" [selected]
+  - button "Close run same-a": ×
+- text: org/a · same-a · Attempt 1
+- paragraph: "Worker: succeeded · Spend unknown"
+- button "Pause follow"
+- button "Earlier logs" [disabled]
+- button "Copy preview"
+- button "Copy run ID"
+- button "Download full log"
+- text: "Run-wide log preview · 1 events retained (maximum 300) · text may be clipped at 4,000 characters per event. [2026-09-21T10:00:00.000Z] log: org a evidence"

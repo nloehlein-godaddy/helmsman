@@ -1,0 +1,66 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { installPluginArtifact } from '../../integration/release/server/helmsman/plugins/artifacts.js';
+import { activateBackendPlugins } from '../../integration/release/server/helmsman/plugins/backend.js';
+import { loadRetainedNativeTerminalProvider } from '../../integration/release/server/helmsman/native-terminal-retained-loader.js';
+
+const root = await mkdtemp(new URL('./retained-state-', import.meta.url).pathname);
+const major = Number(process.versions.node.split('.')[0]);
+const metadata = { version: 1, label: 'Isolated browser fixture', browser: true };
+const source = `
+const immutableLookup = new Uint8Array(1024 * 1024).fill(42);
+globalThis.__architectureModuleEvaluations = (globalThis.__architectureModuleEvaluations ?? 0) + 1;
+export default { activate(context) {
+  context.registerNativeTerminal('native', {
+    metadata: ${JSON.stringify(metadata)},
+    sessionIdentity() { return 'fixture-' + immutableLookup[0]; },
+    async listTabs() { return { connected: true, tabs: [] }; },
+    async readScreen() { return { ok: true, text: '' }; },
+    async send() { return { ok: true }; }, async sendKey() { return { ok: true }; },
+    browser: { async tree() { return { windows: [] }; }, async focus() {}, async evaluate() { return null; }, async click() {}, async fill() {}, async wait() {} }
+  });
+} };`;
+async function fixture(id, node) {
+  const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
+    package: { packageVersion: 1, manifest: { manifestVersion: 1, id, version: '1.0.0', sdkVersion: 1, pages: [] },
+      entries: {}, node, backend: { entry: 'backend.js', provides: [{ id: 'helmsman/native-terminal', version: 1, localId: 'native' }],
+        nativeTerminals: { native: { access: ['native-session'] } }, settings: {}, storageVersion: 1 } },
+    files: [{ path: 'backend.js', base64: Buffer.from(source).toString('base64') }] })));
+  const record = { version: 1, binding: { providerId: `${id}/native`, pluginId: id, artifactHash: archive.hash, contractVersion: 1 },
+    origin: 'external', settings: {}, metadata };
+  return { archive, input: { pluginsRoot: root, runtimeArtifactsRoot: join(root, 'unused-runtime'), record,
+    artifacts: [{ pluginId: id, artifactHash: archive.hash, packageVersion: '1.0.0', requires: [] }] } };
+}
+const incompatible = await fixture('example.incompatible', { minMajor: major - 1, maxMajorExclusive: major });
+const normal = await activateBackendPlugins({ root,
+  snapshot: { catalog: { version: 1, safeMode: false, plugins: [], bindings: {} }, artifacts: new Map([['fixture', incompatible.archive]]), errors: [] },
+  usage: { query() { throw Error('No external side effects allowed'); } } });
+assert.match(normal.errors[0], /Node version is incompatible/);
+assert.equal(globalThis.__architectureModuleEvaluations, undefined);
+console.log('ordinary activation correctly rejected incompatible Node manifest:', normal.errors);
+await normal.dispose();
+const incompatibleLoaded = await loadRetainedNativeTerminalProvider(incompatible.input);
+assert.equal(incompatibleLoaded.provider.sessionIdentity(), 'fixture-42');
+console.log('retained activation executed same incompatible artifact:', incompatibleLoaded.provider.sessionIdentity());
+await incompatibleLoaded.dispose();
+
+assert.equal(typeof globalThis.gc, 'function', 'Run this probe with --expose-gc');
+const compatible = await fixture('example.memory', { minMajor: major, maxMajorExclusive: major + 1 });
+globalThis.gc();
+const before = process.memoryUsage().arrayBuffers;
+const evaluationsBefore = globalThis.__architectureModuleEvaluations;
+for (let index = 0; index < 64; index++) {
+  const loaded = await loadRetainedNativeTerminalProvider(compatible.input);
+  assert.equal(loaded.provider.sessionIdentity(), 'fixture-42');
+  await loaded.dispose();
+}
+await new Promise(resolve => setTimeout(resolve, 0));
+globalThis.gc(); globalThis.gc();
+const after = process.memoryUsage().arrayBuffers;
+assert.equal(globalThis.__architectureModuleEvaluations - evaluationsBefore, 64);
+assert.deepEqual(await readdir(join(root, 'runtime')), []);
+assert.ok(after - before >= 63 * 1024 * 1024);
+console.log(JSON.stringify({ moduleEvaluations: globalThis.__architectureModuleEvaluations - evaluationsBefore,
+  retainedArrayBufferBytesAfterGC: after - before, runtimeDirectoriesAfterDispose: 0 }));
+console.log('PASS: incompatible execution and module-memory retention reproduced; isolated state', root);

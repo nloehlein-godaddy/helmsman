@@ -1,0 +1,6 @@
+ordinary activation correctly rejected incompatible Node manifest: [
+  'Plugin example.incompatible activation failed: Backend Node version is incompatible.'
+]
+retained activation executed same incompatible artifact: fixture-42
+{"moduleEvaluations":64,"retainedArrayBufferBytesAfterGC":67116848,"runtimeDirectoriesAfterDispose":0}
+PASS: incompatible execution and module-memory retention reproduced; isolated state /private/tmp/helmsman-adversarial-20260921-ec3dd6b/probes/codex_architecture/retained-state-phL5kC

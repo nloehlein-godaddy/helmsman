@@ -41,6 +41,32 @@ flowchart TD
 
 Triage applies provider filters before pagination and preserves independent cursors under a fixed observation window. Its related voyages are enriched from canonical task claims and checked against actual runs in the selected galleon. Editor associations instead come from the provider; core verifies run existence and galleon scope without asserting claim ownership. Bugs labels approximate counts, unknown metrics and capped resolution samples separately. A source or presentation disablement denies new work while retained execution and effect obligations stay pinned. A historical automatic-start receipt never establishes the current process's enabled state. Package code is trusted; DTO and import validation do not provide a security sandbox.
 
+## Admission, Stop and recovery evidence
+
+```mermaid
+flowchart TD
+    Request[Local mutation request] --> Guard{JSON, loopback Host and matching or absent Origin?}
+    Guard -->|No| Reject[Reject before reading body or dispatching]
+    Guard -->|Yes| Admit[Validate command and reserve durable admission]
+    Admit --> Checkout{Prepare an unoccupied worktree}
+    Checkout -->|Proven never launched failure| Failed[Record lease-fenced terminal failure]
+    Failed --> Source[Settle source ownership independently]
+    Source --> Retry[Release proven execution capacity; retain unresolved source pins]
+    Checkout -->|Ready| Launch[Persist launching evidence before calling retained host]
+    Launch --> Worker[Retained host and parser observe worker]
+    Stop[Stop cancels admission] --> Supervisor[Verified wrapper requests owned process-group cleanup]
+    Supervisor --> Evidence{Group empty and staged cleanup acknowledged?}
+    Evidence -->|No or unknown| Retain[Withhold terminal receipt and retain ownership]
+    Evidence -->|Yes| Drain[Retained parser drains final output]
+    Worker --> Drain
+    Drain --> Finalize[Record immutable outcome and finalize obligations]
+    Finalize --> Release[Release settled pins and reservations]
+```
+
+An occupied branch is refused even if its checkout is clean. Retrying never authorizes removal of another checkout. Proven pre-launch failure differs from an uncertain launch: uncertain execution and unresolved legacy pre-launch claims keep their reservations. Local supervision covers ordinary inherited POSIX process groups; deliberately daemonized descendants need separate supervision. Windows local launches fail closed. See [local host details](../src/plugins/host-local/README.md) and [Recovery](recovery.md).
+
+Plugin collection also retains artifacts needed by pending lifecycle projections. Retained external closures validate Node compatibility before importing any provider, and immutable artifacts reuse one process-scoped ESM identity while each activation keeps its own state and disposal lifetime.
+
 ## Run inspection and streamed downloads
 
 Authored Runs/history/viewer packages use selected composition slots; Runs uses the shared auxiliary viewer and a public PR panel.

@@ -225,6 +225,18 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent, execution-host and native terminal extraction have passed acceptance; workflow extraction is accepted and pushed through eb8ad1a; trigger extraction is reviewed and pushed through <code>12a62c9</code>.</p>
 </section>
+<section aria-labelledby="adversarial-hardening-heading">
+<h2 class="section-heading" id="adversarial-hardening-heading">Request, execution and recovery safeguards</h2>
+<p class="section-intro">The <a href="adversarial-fixes-2026-09-21.md">adversarial fix ledger</a> tracks the hardening after Phases A–G. These checks preserve ownership when completion is uncertain.</p>
+<div class="flow-common">
+<article class="flow-step"><h3>Local mutation → request guard → durable admission</h3><p>Before body parsing, require JSON, a loopback Host, and a matching or absent Origin; reject cross-site fetch metadata. Only signature-verified GitHub webhook intake bypasses this guard.</p></article>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<article class="flow-step"><h3>Unoccupied worktree → proven preparation → retained launch</h3><p>Refuse occupied branches without deleting developer files. Proven never-launched failures settle under the execution lease. Uncertain launches and unresolved legacy pre-launch claims retain reservations; unresolved source ownership retains independent pins.</p></article>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<article class="flow-step"><h3>Stop → owned group cleanup → evidence → final output</h3><p>Signal only a verified wrapper and its dedicated POSIX supervisor. Publish terminal evidence after ordinary descendants stop and staged coordinators acknowledge cleanup. Retained parsers survive Stop to drain output; missing proof keeps ownership reserved.</p></article>
+</div>
+<p class="limit-note">Local worker supervision supports macOS and Linux; new Windows local launches fail closed. Deliberately daemonized descendants require separate supervision. Plugin collection preserves pending projection artifacts, and retained closures validate Node compatibility before import. Immutable code shares a process-scoped ESM identity with separate activation state and disposal.</p>
+</section>
 <section aria-labelledby="workflow-provider-heading">
 <h2 class="section-heading" id="workflow-provider-heading">Workflow selection, guarded stages and continuation</h2>
 <p class="section-intro">Workflow extraction has passed installed acceptance and independent review. Workflow packages own prompts and pure next-step policy. Core retains execution and publication authority.</p>

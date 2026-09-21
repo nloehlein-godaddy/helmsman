@@ -1,0 +1,266 @@
+- combobox "Panel to add":
+  - option "Backlog" [selected]
+  - option "Running"
+  - option "Recent"
+  - option "Underway"
+  - option "New run"
+  - option "Pull requests"
+  - option "Shipped"
+  - option "Activity log"
+- button "Add panel"
+- strong: Underway
+- button "Hide"
+- button "Duplicate"
+- button "Remove"
+- combobox "Implementation for Underway":
+  - option "Underway" [selected]
+  - option "Backlog"
+  - option "Running"
+  - option "Recent"
+  - option "New run"
+  - option "Pull requests"
+  - option "Shipped"
+  - option "Activity log"
+- combobox "Scope for Underway":
+  - option "Follow header" [selected]
+  - option "All galleons"
+  - option "One galleon"
+- button "Apply scope"
+- button "Move up"
+- button "Move down"
+- button "Move left"
+- button "Move right"
+- combobox "Stack with panel":
+  - option "Choose a panel" [selected]
+  - option "New run · newrun"
+  - option "Backlog · backlog"
+  - option "Running · running"
+  - option "Pull requests · repoprs"
+  - option "Recent · recent"
+  - option "Activity log · activity"
+  - option "Shipped · shipped"
+- button "Stack"
+- strong: New run
+- button "Hide"
+- button "Duplicate"
+- button "Remove"
+- combobox "Implementation for New run":
+  - option "New run" [selected]
+  - option "Backlog"
+  - option "Running"
+  - option "Recent"
+  - option "Underway"
+  - option "Pull requests"
+  - option "Shipped"
+  - option "Activity log"
+- combobox "Scope for New run":
+  - option "Follow header" [selected]
+  - option "All galleons"
+  - option "One galleon"
+- button "Apply scope"
+- button "Move up"
+- button "Move down"
+- button "Move left"
+- button "Move right"
+- combobox "Stack with panel":
+  - option "Choose a panel" [selected]
+  - option "Underway · underway"
+  - option "Backlog · backlog"
+  - option "Running · running"
+  - option "Pull requests · repoprs"
+  - option "Recent · recent"
+  - option "Activity log · activity"
+  - option "Shipped · shipped"
+- button "Stack"
+- strong: Backlog
+- button "Hide"
+- button "Duplicate"
+- button "Remove"
+- combobox "Implementation for Backlog":
+  - option "Backlog" [selected]
+  - option "Running"
+  - option "Recent"
+  - option "Underway"
+  - option "New run"
+  - option "Pull requests"
+  - option "Shipped"
+  - option "Activity log"
+- combobox "Scope for Backlog":
+  - option "Follow header" [selected]
+  - option "All galleons"
+  - option "One galleon"
+- button "Apply scope"
+- button "Move up"
+- button "Move down"
+- button "Move left"
+- button "Move right"
+- combobox "Stack with panel":
+  - option "Choose a panel" [selected]
+  - option "Underway · underway"
+  - option "New run · newrun"
+  - option "Running · running"
+  - option "Pull requests · repoprs"
+  - option "Recent · recent"
+  - option "Activity log · activity"
+  - option "Shipped · shipped"
+- button "Stack"
+- strong: Running
+- button "Hide"
+- button "Duplicate"
+- button "Remove"
+- combobox "Implementation for Running":
+  - option "Running" [selected]
+  - option "Backlog"
+  - option "Recent"
+  - option "Underway"
+  - option "New run"
+  - option "Pull requests"
+  - option "Shipped"
+  - option "Activity log"
+- combobox "Scope for Running":
+  - option "Follow header" [selected]
+  - option "All galleons"
+  - option "One galleon"
+- button "Apply scope"
+- button "Move up"
+- button "Move down"
+- button "Move left"
+- button "Move right"
+- combobox "Stack with panel":
+  - option "Choose a panel" [selected]
+  - option "Underway · underway"
+  - option "New run · newrun"
+  - option "Backlog · backlog"
+  - option "Pull requests · repoprs"
+  - option "Recent · recent"
+  - option "Activity log · activity"
+  - option "Shipped · shipped"
+- button "Stack"
+- strong: Pull requests
+- button "Hide"
+- button "Duplicate"
+- button "Remove"
+- combobox "Implementation for Pull requests":
+  - option "Pull requests" [selected]
+  - option "Backlog"
+  - option "Running"
+  - option "Recent"
+  - option "Underway"
+  - option "New run"
+  - option "Shipped"
+  - option "Activity log"
+- combobox "Scope for Pull requests":
+  - option "Follow header" [selected]
+  - option "All galleons"
+  - option "One galleon"
+- button "Apply scope"
+- button "Move up"
+- button "Move down"
+- button "Move left"
+- button "Move right"
+- combobox "Stack with panel":
+  - option "Choose a panel" [selected]
+  - option "Underway · underway"
+  - option "New run · newrun"
+  - option "Backlog · backlog"
+  - option "Running · running"
+  - option "Recent · recent"
+  - option "Activity log · activity"
+  - option "Shipped · shipped"
+- button "Stack"
+- strong: Recent
+- button "Hide"
+- button "Duplicate"
+- button "Remove"
+- combobox "Implementation for Recent":
+  - option "Recent" [selected]
+  - option "Backlog"
+  - option "Running"
+  - option "Underway"
+  - option "New run"
+  - option "Pull requests"
+  - option "Shipped"
+  - option "Activity log"
+- combobox "Scope for Recent":
+  - option "Follow header" [selected]
+  - option "All galleons"
+  - option "One galleon"
+- button "Apply scope"
+- button "Move up"
+- button "Move down"
+- button "Move left"
+- button "Move right"
+- combobox "Stack with panel":
+  - option "Choose a panel" [selected]
+  - option "Underway · underway"
+  - option "New run · newrun"
+  - option "Backlog · backlog"
+  - option "Running · running"
+  - option "Pull requests · repoprs"
+  - option "Activity log · activity"
+  - option "Shipped · shipped"
+- button "Stack"
+- strong: Activity log
+- button "Hide"
+- button "Duplicate"
+- button "Remove"
+- combobox "Implementation for Activity log":
+  - option "Activity log" [selected]
+  - option "Backlog"
+  - option "Running"
+  - option "Recent"
+  - option "Underway"
+  - option "New run"
+  - option "Pull requests"
+  - option "Shipped"
+- combobox "Scope for Activity log":
+  - option "Follow header" [selected]
+  - option "All galleons"
+  - option "One galleon"
+- button "Apply scope"
+- button "Move up"
+- button "Move down"
+- button "Move left"
+- button "Move right"
+- combobox "Stack with panel":
+  - option "Choose a panel" [selected]
+  - option "Underway · underway"
+  - option "New run · newrun"
+  - option "Backlog · backlog"
+  - option "Running · running"
+  - option "Pull requests · repoprs"
+  - option "Recent · recent"
+  - option "Shipped · shipped"
+- button "Stack"
+- strong: Shipped
+- button "Hide"
+- button "Duplicate"
+- button "Remove"
+- combobox "Implementation for Shipped":
+  - option "Shipped" [selected]
+  - option "Backlog"
+  - option "Running"
+  - option "Recent"
+  - option "Underway"
+  - option "New run"
+  - option "Pull requests"
+  - option "Activity log"
+- combobox "Scope for Shipped":
+  - option "Follow header" [selected]
+  - option "All galleons"
+  - option "One galleon"
+- button "Apply scope"
+- button "Move up"
+- button "Move down"
+- button "Move left"
+- button "Move right"
+- combobox "Stack with panel":
+  - option "Choose a panel" [selected]
+  - option "Underway · underway"
+  - option "New run · newrun"
+  - option "Backlog · backlog"
+  - option "Running · running"
+  - option "Pull requests · repoprs"
+  - option "Recent · recent"
+  - option "Activity log · activity"
+- button "Stack"

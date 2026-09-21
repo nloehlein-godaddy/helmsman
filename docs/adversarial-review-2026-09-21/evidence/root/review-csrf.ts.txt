@@ -1,0 +1,22 @@
+import { fixture } from './tests/distribution/isolated-fixture';
+import { chromium } from '@playwright/test';
+import { createServer } from 'node:http';
+const f = await fixture();
+const browser = await chromium.launch();
+const attacker = createServer((_req, res) => { res.writeHead(200, {'Content-Type':'text/html'}); res.end('<html><body>Adversarial request fixture</body></html>'); });
+try {
+  const base = await f.start();
+  await new Promise<void>(resolve => attacker.listen(0, '127.0.0.1', resolve));
+  const address = attacker.address(); if (!address || typeof address === 'string') throw new Error('No address');
+  const page = await browser.newPage();
+  await page.goto(`http://127.0.0.1:${address.port}`);
+  const before = await (await fetch(`${base}/api/agents`)).json();
+  const crossOrigin = await page.evaluate(async base => {
+    const response = await fetch(`${base}/api/repos/fixture%2Fproject/auto-claim`, {method:'POST', mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify({enabled:true})});
+    return {type:response.type,status:response.status};
+  }, base);
+  const after = await (await fetch(`${base}/api/agents`)).json();
+  const protectedResponse = await fetch(`${base}/api/run-commands`, {method:'POST', headers:{Origin:`http://127.0.0.1:${address.port}`,'Content-Type':'text/plain'},body:'{}'});
+  console.log(JSON.stringify({before:before.autoClaim, after:after.autoClaim,crossOrigin, protectedStatus:protectedResponse.status},null,2));
+  if (!after.autoClaim.includes('fixture/project') || before.autoClaim.includes('fixture/project')) throw new Error('Mutation not demonstrated');
+} finally { await browser.close(); await new Promise<void>(resolve => attacker.close(() => resolve())); await f.close(); }

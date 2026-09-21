@@ -1,0 +1,58 @@
+import { describe, expect, it } from 'vitest';
+import type { RunRow } from './db';
+import type { OutcomePullRequest } from '../../src/data/outcomes';
+import { aggregateOutcomes } from './outcomes';
+
+function run(id: string, patch: Partial<RunRow> = {}): RunRow {
+  return { id, ticketId: 'TASK-1', repo: 'org/app', adapter: 'codex', status: 'succeeded', attempt: 1,
+    prNumber: null, startedAt: '2026-09-01T00:00:00.000Z', endedAt: '2026-09-01T00:01:00.000Z', costUsd: null, worktreePath: null, ...patch };
+}
+
+describe('adversarial probe: aggregateOutcomes day-bucket alignment with a non-midnight window', () => {
+  it('still buckets a run correctly when `from` is not UTC midnight', () => {
+    const from = '2026-09-01T13:00:00.000Z';
+    const to = '2026-09-03T13:00:00.000Z';
+    const runs = [run('a', { startedAt: '2026-09-01T14:00:00.000Z' }), run('b', { startedAt: '2026-09-02T02:00:00.000Z' })];
+    const summary = aggregateOutcomes({ runs, from, to });
+    expect(summary.runs).toBe(2);
+    const totalBucketed = summary.daily.reduce((sum, day) => sum + day.runs, 0);
+    expect(totalBucketed).toBe(2);
+    expect(summary.daily.map(day => day.date)).toEqual(['2026-09-01', '2026-09-02', '2026-09-03']);
+  });
+});
+
+describe('adversarial probe: PR availability merge order independence', () => {
+  it('gives the same result whether a "known" record arrives before or after a "stale" duplicate', () => {
+    const runs = [run('a', { prNumber: 7 })];
+    const known: OutcomePullRequest = { repo: 'org/app', number: 7, published: true, reviewed: false, merged: false, availability: 'known' };
+    const stale: OutcomePullRequest = { repo: 'org/app', number: 7, published: false, reviewed: false, merged: false, availability: 'stale' };
+    const orderA = aggregateOutcomes({ runs, from: '2026-09-01T00:00:00.000Z', to: '2026-09-02T00:00:00.000Z', pullRequests: [known, stale] });
+    const orderB = aggregateOutcomes({ runs, from: '2026-09-01T00:00:00.000Z', to: '2026-09-02T00:00:00.000Z', pullRequests: [stale, known] });
+    expect(orderA.publishedPrs).toBe(1); expect(orderA.stalePrs).toBe(0); expect(orderA.unavailablePrs).toBe(0);
+    expect(orderB).toEqual(orderA);
+  });
+});
+
+describe('adversarial probe: cost-per-PR divides by distinct PRs, not by run count', () => {
+  it('averages total cost across N runs by the number of distinct merged PRs, not the number of runs', () => {
+    const runs = [
+      run('a', { prNumber: 9, costUsd: 4 }),
+      run('b', { prNumber: 9, costUsd: 6 }),
+    ];
+    const merged: OutcomePullRequest = { repo: 'org/app', number: 9, published: true, reviewed: true, merged: true, availability: 'known' };
+    const summary = aggregateOutcomes({ runs, from: '2026-09-01T00:00:00.000Z', to: '2026-09-02T00:00:00.000Z', pullRequests: [merged] });
+    expect(summary.mergedPrs).toBe(1);
+    expect(summary.costPerMergedPrUsd).toBe(10);
+  });
+});
+
+describe('adversarial probe: duplicate run ids collapse via Map (last one silently wins)', () => {
+  it('documents that aggregateOutcomes treats duplicate run ids in the input array as the same run (Map keyed by id)', () => {
+    const runs = [run('a', { costUsd: 1, status: 'succeeded' }), run('a', { costUsd: 999, status: 'failed' })];
+    const summary = aggregateOutcomes({ runs, from: '2026-09-01T00:00:00.000Z', to: '2026-09-02T00:00:00.000Z' });
+    expect(summary.runs).toBe(1);
+    expect(summary.execution.failed).toBe(1);
+    expect(summary.execution.succeeded).toBe(0);
+    expect(summary.knownCostUsd).toBe(999);
+  });
+});
