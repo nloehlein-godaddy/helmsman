@@ -117,3 +117,5 @@ export interface PluginPageInstance {
 export interface PluginPageModule {
   mount(container: HTMLElement, context: PluginPageContext): PluginPageInstance | Promise<PluginPageInstance>;
 }
+
+export * from './scheduling-provider';

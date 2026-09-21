@@ -69,6 +69,9 @@ import { openOutcomeStore, createOutcomeTelemetrySink } from './outcomes';
 import { openUsageStore } from './usage-store';
 import { createUsageQueryService } from './usage-service';
 import { builtinPricing } from './plugins/builtin-pricing';
+import { builtinScheduling } from './plugins/builtin-scheduling';
+import { initializeSchedulingInterval } from './plugins/data';
+import { resolveSelectedSchedulingProvider } from './scheduling-runtime';
 import { builtinTaskSources } from './plugins/builtin-task-sources';
 import { builtinPullRequests } from './plugins/builtin-pull-requests';
 import { readPluginArtifact } from './plugins/artifacts';
@@ -183,7 +186,8 @@ const usageStore = openUsageStore(persistence.sql);
 const outcomeStore = openOutcomeStore(persistence.sql, undefined, usageStore);
 const runTelemetry = openRunTelemetry(persistence.sql, usageStore, createOutcomeTelemetrySink(outcomeStore));
 const usageQueries = createUsageQueryService({ db, usage: usageStore });
-const builtinBackends = [builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
+initializeSchedulingInterval(pluginDirectory(), builtinScheduling.package, configStore.current().autoClaimIntervalMs);
+const builtinBackends = [builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -261,7 +265,8 @@ const sourceBootstrap = await bootstrapTaskSources({ store: sourceStore, connect
   config: { ...unmaskedConfig(), jiraEnabled: startupCfg.jiraEnabled }, repos: repositoryScope(unmaskedConfig(), todos.list()),
   jiraCredentials: () => unmaskedConfig().jira, signal: AbortSignal.timeout(30_000) });
 for (const diagnostic of sourceBootstrap.diagnostics) process.stderr.write(`${diagnostic}\n`);
-export const taskSourceRuntime = createTaskSourceRuntime({ store: sourceStore, registry: backendPlugins.taskSources, connections: sourceConnections,
+const schedulingSelection = () => resolveSelectedSchedulingProvider({ root: pluginDirectory(), registry: backendPlugins.scheduling, defaultProvider: 'helmsman.scheduling/round-robin' });
+export const taskSourceRuntime = createTaskSourceRuntime({ scheduling: schedulingSelection, store: sourceStore, registry: backendPlugins.taskSources, connections: sourceConnections,
   executions, admissions, operations, db, ...sourceBootstrap, config: () => configStore.current(), jiraCredentials: () => unmaskedConfig().jira,
   artifacts: sourceArtifactClosure, verifyArtifacts: verifyEffectArtifacts, isStopped: stopRequested,
   report: message => process.stderr.write(`${message}\n`) });
@@ -901,7 +906,8 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   let launchJson = launchIntentJson(body);
   const admissionArtifacts = [currentRuntime.artifact, ...(sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : [])];
   persistence.transaction(() => {
-    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
+    const scheduling = taskSourceRuntime.schedule.assertAdmission(body);
+    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), ...(scheduling ? { scheduling } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
       settings: sourceSelection ? sourceExecutionSettings(cfg) : legacyExecutionSettings(cfg), artifacts: admissionArtifacts }, maxConcurrency); };
     if (sourceSelection) taskSourceRuntime.reserve(runId, body.repo, sourceSelection, admit, body.retryOf);
     else admit();
@@ -1069,7 +1075,12 @@ function fetchTopBacklog(repo: string): Promise<BacklogItem | null> {
   return taskSourceRuntime.schedule.next(repo, AbortSignal.timeout(30_000));
 }
 
-setInterval(() => void scheduler.tick(), startupCfg.autoClaimIntervalMs);
+function scheduleAutomaticTick(): void {
+  let intervalMs = 60_000;
+  try { intervalMs = schedulingSelection().registration.provider.intervalMs; } catch {}
+  setTimeout(() => { void scheduler.tick().finally(scheduleAutomaticTick); }, intervalMs);
+}
+scheduleAutomaticTick();
 
 let slackWatcher: SlackWatcher | null = null;
 let slackSettingsKey = '';

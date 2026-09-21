@@ -1,3 +1,6 @@
+import type { SchedulingProviderV1 } from '../../../src/plugins/scheduling-provider';
+import { createSchedulingProviderRegistry } from '../scheduling-providers';
+import { persistenceHash } from '../persistence';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -9,7 +12,7 @@ import { parsePluginPackage, type PluginPackage } from '../../../src/plugins/pac
 import type { PricingEstimate, UsageQueryService, UsageSnapshot } from '../../../src/plugins/usage';
 import { isContributionId } from '../../../src/plugins/manifest';
 import type { PluginArchive } from './artifacts';
-import { builtinPluginEnabled, initializePricingDefault, openPluginData, pluginJson, readPricingBinding } from './data';
+import { builtinPluginEnabled, initializePricingDefault, openPluginData, readPluginSettings, pluginJson, readPricingBinding } from './data';
 import type { PluginCoordinator, PluginSnapshot } from './store';
 import { createTaskSourceRegistry, type TaskSourceRegistry } from '../task-sources/registry';
 import { createPullRequestProviderRegistry, type PullRequestProviderRegistry } from '../pull-request-providers';
@@ -31,6 +34,7 @@ export interface BackendRuntime {
   readonly taskSources: TaskSourceRegistry;
   readonly pullRequests: PullRequestProviderRegistry;
   readonly communications: CommunicationProviderRegistry;
+  readonly scheduling: ReturnType<typeof createSchedulingProviderRegistry>;
   activePluginIds(): readonly string[];
   providers(): readonly string[];
   pricing(input: UsageSnapshot, selections?: PricingSelections): Promise<{ providerId: string; estimate: PricingEstimate | null }>;
@@ -123,6 +127,12 @@ export async function activateBackendPlugins(options: {
     const state = options.coordinator.state(binding.pluginId);
     return purpose === 'obligation' && state?.artifactHash === binding.artifactHash && state.obligationsOnly;
   } });
+  const schedulingSettings = new Map<string, () => boolean>();
+  const scheduling = createSchedulingProviderRegistry({ eligible(binding) {
+    if (disposed || !activeIds.has(binding.pluginId) || draining.has(binding.pluginId)) return false;
+    if (options.coordinator && !options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) return false;
+    try { return schedulingSettings.get(binding.pluginId)?.() === true; } catch { return false; }
+  } });
   let bindingInitializationFailed = false;
   async function bounded<T>(work: () => Promise<T>, label: string): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -153,6 +163,7 @@ export async function activateBackendPlugins(options: {
     const pendingSources = new Map<string, TaskSourceProviderV1>();
     const pendingPullRequests = new Map<string, PullRequestProviderV1>();
     const pendingCommunications = new Map<string, CommunicationProviderV1>();
+    const pendingScheduling = new Map<string, SchedulingProviderV1>();
     let publishedSources = false;
     let publishedPullRequests = false;
     let publishedCommunications = false;
@@ -166,6 +177,7 @@ export async function activateBackendPlugins(options: {
       if (publishedSources) taskSources.removePlugin(id);
       if (publishedPullRequests) pullRequests.removePlugin(id);
       if (publishedCommunications) communications.removePlugin(id);
+      scheduling.removePlugin(id); schedulingSettings.delete(id);
       pluginDrains.delete(id);
       for (const provider of pending.keys()) providers.delete(provider);
       for (const dispose of cleanups.reverse()) {
@@ -216,6 +228,11 @@ export async function activateBackendPlugins(options: {
           if (pendingPullRequests.has(localId)) throw new Error('Duplicate pull request provider registration.');
           pendingPullRequests.set(localId, provider);
         },
+        registerScheduling: (localId: string, provider: SchedulingProviderV1) => {
+          if (phase !== 'activating' || !pkg.backend?.scheduling?.[localId] || !pkg.backend.provides.some(item => item.id === 'helmsman/scheduling' && item.localId === localId)) throw new Error('Undeclared scheduling provider registration.');
+          if (pendingScheduling.has(localId)) throw new Error('Duplicate scheduling provider registration.');
+          pendingScheduling.set(localId, provider);
+        },
         registerCommunication: (localId: string, provider: CommunicationProviderV1) => {
           const declaration = pkg.backend?.communications?.[localId];
           if (phase !== 'activating' || !declaration || !pkg.backend?.provides.some(item => item.id === 'helmsman/communication' && item.localId === localId)) throw new Error('Undeclared communication provider registration.');
@@ -235,7 +252,7 @@ export async function activateBackendPlugins(options: {
         await module.activate(context);
       })();
       await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Backend activation timed out.')), timeoutMs); })]);
-      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
+      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
       const ordinary = canServeOrdinary();
       if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
       const sourceRegistrations = [...pendingSources].map(([localId, provider]) => {
@@ -256,6 +273,13 @@ export async function activateBackendPlugins(options: {
       });
       communications.publish(communicationRegistrations);
       publishedCommunications = communicationRegistrations.length > 0;
+      const settingsHash = persistenceHash(data.settings);
+      const schedulingRegistrations = [...pendingScheduling].map(([localId, provider]) => {
+        if (!artifactHash) throw new Error('Scheduling registration requires an exact artifact.');
+        return scheduling.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1 }, provider, settingsHash);
+      });
+      schedulingSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
+      scheduling.publish(schedulingRegistrations);
       if (ordinary) data.commit(staged);
       staged.clear();
       for (const [providerId, provider] of pending) providers.set(providerId, provider);
@@ -303,6 +327,7 @@ export async function activateBackendPlugins(options: {
     taskSources,
     pullRequests,
     communications,
+    scheduling,
     activePluginIds: () => Object.freeze([...activeIds].sort()),
     providers: () => Object.freeze([...providers.keys()].sort()),
     async pricing(snapshot, selections = {}) {

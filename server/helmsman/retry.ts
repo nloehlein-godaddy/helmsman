@@ -10,6 +10,7 @@ export interface LaunchIntent {
   workRef?: WorkRefV1;
   sourceInstanceId?: string;
   sourceInstanceRevision?: number;
+  schedulingDecision?: string;
   ticketId?: string;
   title?: string;
   task?: string;

@@ -273,6 +273,23 @@ flowchart TD
 
 The header galleon remains unchanged by panel overrides. Reads and preview never delete; force and deletion remain explicit decisions. A crash between Git and receipt storage does not prove success or authorize replay. Disabling presentation retains command evidence and host protections. See [Local Git authoring](local-git-authoring.md).
 
+## Replaceable automatic scheduling
+
+```mermaid
+flowchart TD
+    Enabled[Process-local automatic starts enabled] --> Capacity[Core capacity gate]
+    Capacity --> Policy[Selected scheduling provider and interval]
+    Policy --> Discovery[Scoped paginated discovery<br/>Only eligible candidates; opaque cursors]
+    Discovery --> Choice[Plugin chooses candidate or no work]
+    Choice --> Fence[Core rechecks policy/settings/source revisions<br/>Enablement, claims and capacity]
+    Fence --> Admission[Atomic reservation and admission<br/>Record policy provenance]
+    Admission --> Run[Existing pinned execution and recovery]
+    Policy -->|Missing or disabled| Idle[No automatic admission]
+    Fence -->|Changed or stale| Idle
+```
+
+The shipped policy rotates sources; alternatives can choose different ordering and priorities. Restart preserves policy settings and source rotation but resets automatic starts to disabled. Scheduling ends at admission; later disablement does not alter existing execution bindings. See [scheduling authoring](scheduling-authoring.md).
+
 ## Header identity and installed-page discovery
 
 ```mermaid

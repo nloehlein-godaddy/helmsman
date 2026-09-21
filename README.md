@@ -25,7 +25,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service while the existing core bridge remains the Phase E adapter. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Interchangeable execution primitives (F), including native terminal implementations, and compatibility retirement (G) remain pending.
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service while the existing core bridge remains the Phase E adapter. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F is implementing interchangeable execution primitives; scheduling policy uses a public backend contract. Agents, hosts, workflows and native terminal implementations remain in progress or pending, followed by Phase G compatibility retirement.
 
 Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) run inspection, streamed downloads, provisional viewer/history pages and durable clarification services are reviewed and pushed through `3806090`, including exact-request retry, clarification alias selection and public PR inspection. The [run-inspection contract](docs/run-inspect-authoring.md) and [presentation guide](docs/run-presentation-authoring.md) are available. Shared viewer convergence and authored question/contact panels are delivered; `/runs` now selects an authored composition with history, the public PR panel and the shared auxiliary viewer. The `/prs` alias selects the public PR composition.
 
@@ -222,7 +222,7 @@ coalesces concurrent requests, and pauses rate-limited reads until GitHub's rese
 Review preflight, PR details, diffs, and publication checks always use fresh requests.
 Enabled Slack and GitHub requested-review watchers run every five minutes independently
 of browser visibility. These polling/cache periods are fixed in code, not `.env`
-settings. `AUTO_CLAIM_INTERVAL_MS` controls only the separate opt-in ticket scheduler.
+settings. The selected scheduling plugin owns the separate opt-in ticket scheduler interval; see [scheduling plugins](docs/scheduling-authoring.md).
 
 ## Running agents
 
@@ -443,8 +443,8 @@ An accepted answer is stored durably before the core runtime publishes it to the
 Choose automatic sources per galleon in **Config → Source settings → Automatic starts**.
 Initial conversion selects only the previously active source; enabling another
 source does not silently add it to scheduling. The saved source selection survives
-restart. Scheduling rotates among selected available sources, honors each provider's
-ready-work ordering, and uses the same claim/concurrency gates as manual launch.
+restart. The shipped scheduling plugin rotates among selected available sources and honors each provider's
+ready-work ordering. Alternate [scheduling plugins](docs/scheduling-authoring.md) can choose a different policy; all use the same claim/concurrency gates as manual launch.
 Todos without a description remain editable drafts and are excluded from ready work.
 
 The Todos tab's automatic-start control enables the galleon's scheduler. At most
@@ -608,7 +608,7 @@ Recovery. See [Communication authoring](docs/communication-authoring.md).
 | `PRE_PR_MAX_ROUNDS` | `3` | Integer `1`–`5`. Total review rounds, including the initial round. `3` permits up to two fix-and-review cycles; `1` permits none. Every reviewer must approve the final commit; unresolved findings block publication when rounds are exhausted. | Live; new voyages only |
 | `PRE_PR_STAGE_TIMEOUT_MINUTES` | `45` | Integer `5`–`180`. Timeout for each implementation, fix, or reviewer session, not the whole voyage. Timeout blocks publication and preserves the author worktree. | Live; new voyages only |
 | `AGENT_MAX_CONCURRENCY` | `3` | Maximum simultaneous runs across repositories. The separate one-run-per-repository limit still applies. | Restart |
-| `AUTO_CLAIM_INTERVAL_MS` | `60000` | Interval in milliseconds for the optional ticket auto-claim scheduler. Does not enable auto-claim or control either PR watcher. | Config-editable; restart timer |
+| `AUTO_CLAIM_INTERVAL_MS` | `60000` | One-time migration seed for the shipped scheduling plugin’s `intervalMs`. Does not enable automatic starts or control PR watchers. | Bootstrap only; then configure plugin settings |
 | `AGENTS_ROOT` | Server working directory | Parent directory of target repo checkouts, e.g. `/absolute/path/to/agent-repos`; not the path to a single checkout. | Restart |
 | `RUNS_DIR` | `<AGENTS_ROOT>/.helmsman-runs` | Directory for detached-run specifications, logs, and exit records. Created on startup; use a writable absolute path. | Restart |
 | `RUN_HOST` | Detached process | Set `cmux` to prefer new cmux workspaces for runs. Falls back to detached processes when cmux is unavailable. Slack reading can use cmux regardless of this setting. | Restart |

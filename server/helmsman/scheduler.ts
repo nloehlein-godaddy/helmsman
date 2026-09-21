@@ -5,6 +5,7 @@ import { parseTaskRepo } from '../../src/plugins/tasks';
 import { PersistenceConflictError } from './persistence';
 
 export interface BacklogItem {
+  schedulingDecision?: string;
   ticketId: string;
   title: string;
   todoId?: string;
@@ -70,12 +71,13 @@ export class AutoClaimScheduler {
           continue;
         }
 
+        const revision = this.runtimeRevisions.get(repo);
         const ticket: BacklogItem | null = await this.deps.fetchTopBacklog(repo);
         if (ticket === null) {
           continue;
         }
 
-        if (!this.enabledRepoSet.has(repo) || !this.deps.canStart(repo)) {
+        if (!this.enabledRepoSet.has(repo) || this.runtimeRevisions.get(repo) !== revision || !this.deps.canStart(repo)) {
           continue;
         }
 

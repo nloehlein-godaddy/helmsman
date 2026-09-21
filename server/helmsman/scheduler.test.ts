@@ -179,3 +179,13 @@ it('does not launch if auto-claim is disabled while fetching', async () => {
   await scheduler.tick();
   expect(launch).not.toHaveBeenCalled();
 });
+
+it('requires a fresh discovery after automatic starts are disabled and reenabled', async () => {
+  const launch = vi.fn();
+  const scheduler = new AutoClaimScheduler({ canStart: () => true, launch, fetchTopBacklog: async () => {
+    scheduler.setEnabled('org/a', false); scheduler.setEnabled('org/a', true);
+    return { ticketId: 'T-1', title: 'Previously authorized discovery' };
+  } });
+  scheduler.setEnabled('org/a', true); await scheduler.tick();
+  expect(launch).not.toHaveBeenCalled();
+});

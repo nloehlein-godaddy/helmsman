@@ -17,7 +17,6 @@ export const CONFIG_HELP: Record<string, string> = {
   PRE_PR_REVIEWER_COUNT: 'Independent reviewer sessions per round: 1 uses the writer\'s CLI; 2 also uses the other supported CLI when installed. An installed reviewer that fails blocks publication. Example: 2',
   PRE_PR_MAX_ROUNDS: 'Maximum review rounds, including the initial review. Each additional round allows fixes followed by every reviewer reviewing again. Unresolved findings block the PR. Example: 3',
   PRE_PR_STAGE_TIMEOUT_MINUTES: 'Time limit in minutes for each implementation, fix, or reviewer session. A timed-out session blocks publication and retains the worktree. Example: 45',
-  AUTO_CLAIM_INTERVAL_MS: 'How often (milliseconds) the auto-claim scheduler polls for backlog tickets. Interval changes apply on restart. Example: 60000',
   get REPO_PROJECT_MAP() { return `Comma-separated ${term('repository').toLowerCase()}=jiraProject pairs, registering configured ${term('repositories').toLowerCase()} and initial Jira project defaults. Existing Jira sources use Source settings. Example: gdcorp-partners/airo-app-builder=AIROBUILD,gdcorp-enm/conversations-web=LEKA`; },
 };
 
@@ -185,7 +184,7 @@ export interface ConfigViewOpts {
 
 function configRowsHtml(uiConfig: UiConfig): string {
   const entries: [string, unknown][] = Object.entries(uiConfig.config ?? {})
-    .filter(([key]) => !key.startsWith('JIRA_') && !key.startsWith('GITHUB_') && !key.startsWith('SLACK_') && !PRE_PR_CONFIG_KEYS.some((reviewKey) => reviewKey === key));
+    .filter(([key]) => key !== 'AUTO_CLAIM_INTERVAL_MS' && !key.startsWith('JIRA_') && !key.startsWith('GITHUB_') && !key.startsWith('SLACK_') && !PRE_PR_CONFIG_KEYS.some((reviewKey) => reviewKey === key));
   if (entries.length === 0) return '<div class="empty-note">No configuration keys.</div>';
   return entries
     .map(([key, value]) => {

@@ -136,3 +136,5 @@ The independently buildable `local-git` author package provides the selected `/l
 ## Integration settings ownership
 
 Jira and GitHub settings have independent authored page/panel packages with namespaced schemas, redacted reads and revision-checked global saves. Jira token input never enters browser persistence or response bodies; live Jira configuration stays in Source settings. Core retains configuration storage and credential binding. See [integration settings authoring](integration-settings-authoring.md) for the contracts and [delivery evidence](plugin-implementation-progress.md).
+
+Scheduling backends declare `helmsman/scheduling@1`, matching `scheduling` access metadata and an SDK-only `registerScheduling` implementation. Select independently through `select-scheduling`; provider absence blocks automatic decisions without changing existing run bindings. See [scheduling authoring](scheduling-authoring.md).

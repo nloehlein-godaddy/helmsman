@@ -59,7 +59,7 @@ describe('retry intent reconstruction', () => {
   });
 
   it('retains runtime-selected review tuning and only serializes launch fields', () => {
-    const launchJson = launchIntentJson({ repo: row.repo, mode: 'review', prNumber: 42, runId: 'old-id', headSha: 'stale', retryOf: 'other' } as never);
+    const launchJson = launchIntentJson({ repo: row.repo, mode: 'review', prNumber: 42, runId: 'old-id', headSha: 'stale', retryOf: 'other', schedulingDecision: 'expired-decision' } as never);
     expect(JSON.parse(launchJson)).toEqual({ repo: row.repo, mode: 'review', prNumber: 42 });
     expect(retryIntent({ ...withTask({ model: 'gpt-5.5', effort: 'high' }), launchJson }))
       .toMatchObject({ mode: 'review', model: 'gpt-5.5', effort: 'high' });

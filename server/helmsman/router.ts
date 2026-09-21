@@ -509,6 +509,7 @@ export async function handleApi(
     if (typeof b?.key !== 'string' || typeof b?.value !== 'string') {
       return { status: 400, json: { error: 'key and value required' } };
     }
+    if (b.key === 'AUTO_CLAIM_INTERVAL_MS') return { status: 410, json: { error: 'Configure intervalMs on the selected scheduling plugin.' } };
     if (deps.integrationSettings && /^(?:JIRA_|GITHUB_)/.test(b.key)) return { status: 410, json: { error: 'Use revision-checked integration settings; live Jira source settings belong to Source settings.' } };
     if (deps.communication && b.key.startsWith('SLACK_')) return { status: 410, json: { error: 'Use revision-checked communication settings.' } };
     const r: { ok: true } | { ok: false; error: string } = deps.setConfig(b.key, b.value);

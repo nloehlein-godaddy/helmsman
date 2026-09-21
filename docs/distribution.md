@@ -106,3 +106,5 @@ The independently buildable `local-git` author package provides the selected `/l
 Jira and GitHub settings have independent authored page/panel packages with namespaced schemas, redacted reads and revision-checked global saves. Jira token input never enters browser persistence or response bodies; live Jira configuration stays in Source settings. Core retains configuration storage and credential binding. See [integration settings authoring](integration-settings-authoring.md) for the contracts and [delivery evidence](plugin-implementation-progress.md).
 
 `plugin-sources/profile` contains the independently buildable header contribution; [profile authoring](profile-authoring.md) documents its global read and optional provider hook. Installed page packages are discoverable through the Pages menu unless their page metadata declares `navigation: false`.
+
+`plugin-sources/scheduling` is the independently buildable round-robin policy. Install alternatives through `select-scheduling`; see [scheduling authoring](scheduling-authoring.md) for bounded discovery, interval migration and admission provenance.

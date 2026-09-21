@@ -7,6 +7,14 @@ let db: Db;
 afterEach(() => db?.close());
 
 describe('ConfigStore', () => {
+  it('retains legacy scheduling overrides only as migration input', () => {
+    db = openDb(':memory:'); db.setConfigOverride('AUTO_CLAIM_INTERVAL_MS', '15000', '2026-09-21T00:00:00Z');
+    const store = new ConfigStore({ AUTO_CLAIM_INTERVAL_MS: '30000' }, db);
+    expect(store.current().autoClaimIntervalMs).toBe(15000);
+    expect(publicConfig(store.current())).not.toHaveProperty('AUTO_CLAIM_INTERVAL_MS');
+    expect(() => store.setOverride('AUTO_CLAIM_INTERVAL_MS', '1000', () => 'now')).toThrow();
+  });
+
   it('exposes effective pre-PR defaults and updates overrides immediately', () => {
     db = openDb(':memory:');
     const store = new ConfigStore({}, db);

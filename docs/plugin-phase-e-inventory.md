@@ -1,6 +1,6 @@
 # Phase E ownership inventory
 
-This is the final Phase E candidate inventory. Acceptance and exact-commit review remain recorded in the [completion ledger](plugin-implementation-progress.md); this inventory alone does not close the phase.
+This is the accepted Phase E inventory, reviewed and pushed through `85f1fe6`. Aggregate acceptance and correction-only review are recorded in the [completion ledger](plugin-implementation-progress.md).
 
 | Optional feature | Public owner and extension boundary |
 |---|---|

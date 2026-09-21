@@ -1,3 +1,4 @@
+import type { SchedulingDeclaration } from './scheduling-provider';
 import { parseTaskEditorDeclarationV1 } from './task-edit';
 import { parseSourceSettingFieldsV1 } from './source-settings';
 import { parsePluginManifest } from './manifest';
@@ -66,14 +67,15 @@ function record(value: unknown, fields: readonly string[], label: string): Recor
 function parseBackend(value: unknown): PluginBackendDefinition {
   const hasSources = value !== null && typeof value === 'object' && Object.hasOwn(value, 'taskSources');
   const hasPullRequests = value !== null && typeof value === 'object' && Object.hasOwn(value, 'pullRequests');
+  const hasScheduling = value !== null && typeof value === 'object' && Object.hasOwn(value, 'scheduling');
   const hasCommunications = value !== null && typeof value === 'object' && Object.hasOwn(value, 'communications');
-  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : []), ...(hasCommunications ? ['communications'] : [])], 'Backend');
+  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : []), ...(hasCommunications ? ['communications'] : []), ...(hasScheduling ? ['scheduling'] : [])], 'Backend');
   if (!isPluginAssetPath(input.entry) || !/\.m?js$/.test(input.entry) || input.storageVersion !== 1) throw new PluginPackageError('Invalid backend entry or storage version.');
   if (!Array.isArray(input.provides) || input.provides.length > 16) throw new PluginPackageError('Invalid backend capabilities.');
   const provides = input.provides.map(value => {
     const item = record(value, ['id', 'version', 'localId'], 'Capability');
-    if (!['helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request', 'helmsman/communication'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
-    return Object.freeze({ id: item.id as 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication', version: 1 as const, localId: item.localId });
+    if (!['helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request', 'helmsman/communication', 'helmsman/scheduling'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
+    return Object.freeze({ id: item.id as 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling', version: 1 as const, localId: item.localId });
   });
   if (new Set(provides.map(item => item.localId)).size !== provides.length) throw new PluginPackageError('Duplicate backend capability.');
   const sourceIds = provides.filter(item => item.id === 'helmsman/task-source').map(item => item.localId);
@@ -82,6 +84,17 @@ function parseBackend(value: unknown): PluginBackendDefinition {
   if (hasPullRequests !== (pullRequestIds.length > 0)) throw new PluginPackageError('Pull request providers require matching access declarations.');
   const communicationIds = provides.filter(item => item.id === 'helmsman/communication').map(item => item.localId);
   if (hasCommunications !== (communicationIds.length > 0)) throw new PluginPackageError('Communication providers require matching access declarations.');
+  const schedulingIds = provides.filter(item => item.id === 'helmsman/scheduling').map(item => item.localId);
+  if (hasScheduling !== (schedulingIds.length > 0)) throw new PluginPackageError('Scheduling providers require matching access declarations.');
+  const scheduling: Record<string, SchedulingDeclaration> = Object.create(null);
+  if (hasScheduling) {
+    const declarations = record(input.scheduling, schedulingIds, 'Scheduling providers');
+    for (const localId of schedulingIds) {
+      const declaration = record(declarations[localId], ['access'], 'Scheduling declaration');
+      if (!Array.isArray(declaration.access) || declaration.access.length !== 1 || declaration.access[0] !== 'task-discovery') throw new PluginPackageError('Scheduling providers require scoped task discovery access.');
+      scheduling[localId] = Object.freeze({ access: Object.freeze(['task-discovery']) as readonly ['task-discovery'] });
+    }
+  }
   const taskSources: Record<string, TaskSourceDeclaration> = Object.create(null) as Record<string, TaskSourceDeclaration>;
   if (hasSources) {
     const declarations = record(input.taskSources, sourceIds, 'Task sources');
@@ -155,6 +168,7 @@ function parseBackend(value: unknown): PluginBackendDefinition {
     settings[key] = parsed;
   }
   return Object.freeze({ entry: input.entry, provides: Object.freeze(provides), settings: Object.freeze(settings), storageVersion: 1,
+    ...(hasScheduling ? { scheduling: Object.freeze(scheduling) } : {}),
     ...(hasSources ? { taskSources: Object.freeze(taskSources) } : {}),
     ...(hasPullRequests ? { pullRequests: Object.freeze(pullRequests) } : {}),
     ...(hasCommunications ? { communications: Object.freeze(communications) } : {}) });

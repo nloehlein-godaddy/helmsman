@@ -1,6 +1,6 @@
 # Experimental usage and pricing plugins
 
-This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution primitives remain Phase F work; broader compatibility retirement is still pending.
+This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution primitives remain Phase F work; broader compatibility retirement is still pending.
 
 ## Build an independent package
 

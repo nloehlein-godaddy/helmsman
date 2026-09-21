@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { PluginJson } from '../../../src/plugins/backend';
 import { isContributionId, isPluginId } from '../../../src/plugins/manifest';
@@ -214,6 +215,37 @@ export function initializeCommunicationProviderDefault(root: string, provider: s
   const sql = database(root);
   try { sql.prepare('INSERT INTO capability_bindings VALUES(?,?) ON CONFLICT(capability) DO NOTHING').run('helmsman/communication', provider); }
   finally { sql.close(); }
+}
+
+export function readSchedulingProviderSelection(root: string): { providerId: string | null; revision: string } {
+  const sql = database(root);
+  try {
+    const row = sql.prepare('SELECT value FROM backend_meta WHERE key=?').get('scheduling-selection-v1') as { value: string } | undefined;
+    if (!row) return { providerId: null, revision: 'unselected' };
+    const value = JSON.parse(row.value) as { providerId?: unknown; revision?: unknown } | null;
+    if (!value || value.providerId !== null && !isContributionId(value.providerId) || typeof value.revision !== 'string'
+      || !/^[a-f\d-]{36}$/.test(value.revision)) throw new Error('Invalid scheduling provider selection');
+    return { providerId: value.providerId as string | null, revision: value.revision };
+  } finally { sql.close(); }
+}
+export function selectSchedulingProvider(root: string, providerId: string | null): void {
+  if (providerId !== null && !isContributionId(providerId)) throw new Error('Invalid scheduling provider ID');
+  const sql = database(root);
+  try { sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run('scheduling-selection-v1', JSON.stringify({ providerId, revision: randomUUID() })); }
+  finally { sql.close(); }
+}
+
+export function initializeSchedulingInterval(root: string, pkg: PluginPackage, legacyIntervalMs: number): void {
+  const field = pkg.backend?.settings.intervalMs;
+  if (!field || field.type !== 'number') throw new Error('Scheduling interval setting is unavailable');
+  const intervalMs = Number.isSafeInteger(legacyIntervalMs) ? Math.max(250, Math.min(3_600_000, legacyIntervalMs)) : 60_000;
+  validatePluginSetting(field, intervalMs);
+  const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(`scheduling-interval-migrated:${pkg.manifest.id}`, '1').changes;
+    if (first) sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO NOTHING').run(pkg.manifest.id, 'intervalMs', JSON.stringify(intervalMs));
+  }); } finally { sql.close(); }
 }
 
 export function builtinPluginEnabled(root: string, pkg: PluginPackage): boolean {

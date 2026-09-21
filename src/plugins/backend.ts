@@ -4,6 +4,7 @@ import type { PricingEstimate, UsageQueryService, UsageSnapshot } from './usage'
 import type { TaskSourceProviderV1 } from './tasks';
 import type { PullRequestProviderV1 } from './pull-request-provider';
 import type { CommunicationProviderV1 } from './communication-provider';
+import type { SchedulingDeclaration, SchedulingProviderV1 } from './scheduling-provider';
 
 export type PluginJson = null | boolean | number | string | readonly PluginJson[] | { readonly [key: string]: PluginJson };
 export type PluginSetting =
@@ -31,9 +32,10 @@ export interface CommunicationDeclaration {
 
 export interface PluginBackendDefinition {
   readonly entry: string;
-  readonly provides: readonly { readonly id: 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication'; readonly version: 1; readonly localId: string }[];
+  readonly provides: readonly { readonly id: 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling'; readonly version: 1; readonly localId: string }[];
   readonly taskSources?: Readonly<Record<string, TaskSourceDeclaration>>;
   readonly pullRequests?: Readonly<Record<string, PullRequestDeclaration>>;
+  readonly scheduling?: Readonly<Record<string, SchedulingDeclaration>>;
   readonly communications?: Readonly<Record<string, CommunicationDeclaration>>;
   readonly settings: Readonly<Record<string, PluginSetting>>;
   readonly storageVersion: 1;
@@ -59,6 +61,7 @@ export interface PluginBackendContext {
   registerPricing(localId: string, provider: PricingProvider): void;
   registerTaskSource(localId: string, provider: TaskSourceProviderV1): void;
   registerPullRequest(localId: string, provider: PullRequestProviderV1): void;
+  registerScheduling(localId: string, provider: SchedulingProviderV1): void;
   registerCommunication(localId: string, provider: CommunicationProviderV1): void;
 }
 

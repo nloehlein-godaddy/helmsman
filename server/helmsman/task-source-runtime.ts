@@ -1,3 +1,4 @@
+import type { SchedulingProviderSelection } from './scheduling-providers';
 import type { AppConfig } from '../config';
 import type { AgentTask } from './agents/adapter';
 import { isPrePrAdapter } from './agents/pre-pr';
@@ -30,6 +31,7 @@ export function createTaskSourceRuntime(options: {
   artifacts(instance: SourceInstanceV1, claim?: WorkClaimRecord): readonly ArtifactBinding[];
   verifyArtifacts(artifacts: readonly ArtifactBinding[]): Promise<void>;
   isStopped(runId: string): boolean;
+  scheduling?: () => SchedulingProviderSelection;
   fetcher?: typeof fetch;
   report(message: string): void;
 }) {
@@ -92,7 +94,7 @@ export function createTaskSourceRuntime(options: {
     pins: { retain(claim) { executions.retainPins(options.artifacts(claim.instance, claim).map(artifact => ({ kind: 'dependency', ownerId: `source-claim:${claim.id}`, pluginId: artifact.pluginId, artifactHash: artifact.artifactHash }))); },
       release: claim => executions.releaseSourceClaimPins(claim.id) } });
   const todoApi = options.todoSourceId ? createSourceTodoApi({ sourceId: options.todoSourceId, store, service }) : null;
-  const schedule = openTaskSourceSchedule(store, service);
+  const schedule = openTaskSourceSchedule(store, service, undefined, options.scheduling);
   function selection(body: LaunchIntent, retryOf?: string): SourceLaunchSelection | null {
     if (body.mode === 'source') {
       const ref = parseWorkRefV1(body.workRef);

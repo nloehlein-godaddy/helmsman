@@ -1,0 +1,19 @@
+import { parsePluginPackage } from '../../../src/plugins/package';
+import scheduling from '../../../src/plugins/scheduling/backend';
+
+export const builtinScheduling = {
+  package: parsePluginPackage({
+    packageVersion: 1,
+    manifest: { manifestVersion: 1, id: 'helmsman.scheduling', version: '0.1.0', sdkVersion: 1, pages: [] },
+    node: { minMajor: 22, maxMajorExclusive: 30 },
+    entries: {},
+    backend: {
+      entry: 'backend.js',
+      provides: [{ id: 'helmsman/scheduling', version: 1, localId: 'round-robin' }],
+      scheduling: { 'round-robin': { access: ['task-discovery'] } },
+      settings: { intervalMs: { type: 'number', default: 60000, minimum: 250, maximum: 3600000 } },
+      storageVersion: 1,
+    },
+  }, { allowBuiltin: true }),
+  module: scheduling,
+};
