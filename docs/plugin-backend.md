@@ -57,6 +57,10 @@ Core supplies bounded Slack-browser tree, focus, evaluation, click, fill, and wa
 
 The selected page preserves header scope; explicit panel `All` includes configured galleon terminals and unassociated surfaces. Controls retain the exact target revision and durable request identity. Receipt lookup is read-only and the service exposes no retry method. An unknown outcome requires inspection and explicit acknowledgment before later controls resume; the retained input is never resent. Phase F owns extracting replaceable cmux, WezTerm, and other execution implementations. See [Terminal authoring](terminal-authoring.md).
 
+## Campaign coordination boundary
+
+Campaign presentation uses `helmsman/campaigns@1`. Core commits each validated campaign mutation and its exact-request receipt atomically in the existing campaign database. Revision, preview-digest, task-attempt and configured-galleon checks preserve user intent. The existing dispatcher retains phase ordering, durable claims, stable run IDs and concurrency gates; a command receipt confirms recorded state, not worker execution. Phase F owns replacing scheduling and execution implementations. See [Campaign authoring](campaigns-authoring.md).
+
 ## Measured usage and estimates
 
 `UsageQuery` identifies version 1, a galleon (or `null` for all), and an inclusive-start/exclusive-end UTC window of at most 366 days. `UsageSnapshot` exposes measured records, public run summaries, and reported totals. Unknown costs stay `null`; estimates never update recorded spend or budget caps. Core telemetry owns recording independently of Costs and pricing activation.

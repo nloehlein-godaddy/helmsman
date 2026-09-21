@@ -41,15 +41,15 @@ function setup(module: PluginPanelModule) {
 afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); });
 
 describe('page-owned composition', () => {
-  it('mounts a terminal service consumer through the public composition boundary', async () => {
+  it.each(['terminal', 'campaigns'] as const)('mounts a %s service consumer through the public composition boundary', async service => {
     let context: PluginPanelContext | undefined;
     const { host, first, registry, unregister } = setup({ mount(_element, value) {
       context = value; return { update() {}, dispose() {} };
     } });
     unregister();
-    registry.register({ ...manifest, panels: [{ ...manifest.panels[0], requires: [{ id: 'helmsman/terminal', version: 1 }] }] });
+    registry.register({ ...manifest, panels: [{ ...manifest.panels[0], requires: [{ id: `helmsman/${service}`, version: 1 }] }] });
     await host.service.mount('first', first); await settle();
-    expect(context?.services.terminal?.version).toBe(1);
+    expect(context?.services[service]?.version).toBe(1);
     expect(context?.state.repo).toBe('org/header');
   });
 
@@ -329,7 +329,7 @@ describe('page-owned composition', () => {
     let context!: PluginPanelContext;
     const f = setup({ mount(_element, supplied) { context = supplied; return { update() {}, dispose() {} }; } });
     await f.host.service.mount('first', f.first);
-    expect(Object.keys(context.services).sort()).toEqual(['activity', 'clarificationCommands', 'clarifications', 'communication', 'communicationCommands', 'downloads', 'pullRequestCommands', 'pullRequestInspect', 'pullRequests', 'runCommands', 'runInspect', 'runs', 'sourceAdmin', 'sourceCommands', 'suggestedContacts', 'taskEdit', 'taskViews', 'tasks', 'terminal', 'todoLegacyRecovery', 'version']);
+    expect(Object.keys(context.services).sort()).toEqual(['activity', 'campaigns', 'clarificationCommands', 'clarifications', 'communication', 'communicationCommands', 'downloads', 'pullRequestCommands', 'pullRequestInspect', 'pullRequests', 'runCommands', 'runInspect', 'runs', 'sourceAdmin', 'sourceCommands', 'suggestedContacts', 'taskEdit', 'taskViews', 'tasks', 'terminal', 'todoLegacyRecovery', 'version']);
     f.host.update({ ...page, visible: false });
     await expect(context.services.tasks?.discover()).rejects.toMatchObject({ name: 'AbortError' });
     await expect(context.services.taskEdit?.discover()).rejects.toMatchObject({ name: 'AbortError' });

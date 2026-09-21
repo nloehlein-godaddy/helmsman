@@ -8,6 +8,7 @@ export class CampaignValidationError extends Error {}
 export class CampaignConflictError extends Error {}
 export type PhaseAction = 'start' | 'pause' | 'resume' | 'finish' | 'stop';
 export interface CampaignStore {
+  readonly database: Database.Database;
   create(input: unknown): Campaign;
   get(id: string): Campaign | null;
   list(repo?: string | null): Campaign[];
@@ -199,6 +200,7 @@ export function openCampaignStore(path: string | Database.Database, options: { n
     if (current.state !== 'draft' && current.state !== 'paused') throw new CampaignConflictError('Pause the phase before importing');
   };
   return {
+    database: sql,
     create(input) {
       const value = object(input);
       only(value, ['name', 'repo', 'workflowRef', 'concurrency']);

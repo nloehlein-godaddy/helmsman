@@ -14,6 +14,8 @@ The independently buildable Communication package supplies the selected notifica
 
 Terminal extraction supplies a selected `helmsman/terminal-page` composition for `/terminal` and `/cmux`, accepting `helmsman/terminal-panel@1`. Its page and panel use only the public `helmsman/terminal@1` service. Header scope remains authoritative; an explicit panel `All` selection includes configured galleon terminals and unassociated surfaces without changing the header. Reads and controls retain exact surface revisions. See [Terminal authoring](terminal-authoring.md).
 
+The Campaign package selects `helmsman/campaigns-page` for `/campaigns` and composes `helmsman/campaigns-panel@1`. It uses public scoped reads and atomic campaign command receipts while the existing dispatcher retains execution coordination. See [Campaign authoring](campaigns-authoring.md).
+
 ## Try the external sample
 
 From the Helmsman checkout:

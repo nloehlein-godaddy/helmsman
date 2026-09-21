@@ -63,17 +63,17 @@ afterEach(() => {
 });
 
 describe('persistent app shell', () => {
-  it('keeps the same header, tabs, counts, footer, and notification controls across all seven views', async () => {
+  it('keeps the same header, tabs, counts, footer, and notification controls across the primary views', async () => {
     const { root, switchTo } = await setup();
     const selectors = ['.helm-head', '.nameplate', '.repo-select', '.helm-readout', '.page-tabs', '.app-footer', '.operator-note', '[data-slack-toggle]', '.slack-popover', '#page-content'];
     const elements = selectors.map(selector => root.querySelector(selector));
     expect(root.querySelector('[data-fleet-count="queued"]')?.textContent).toBe('—');
     expect(root.querySelector('[data-fleet-count="review"]')?.textContent).toBe('—');
     const footer = root.querySelector('.app-footer')?.textContent;
-    for (const page of ['prs', 'runs', 'triage', 'bugs', 'config', 'cmux', 'dashboard']) {
+    for (const page of ['prs', 'runs', 'triage', 'bugs', 'config', 'cmux', 'campaigns', 'dashboard']) {
       await switchTo(page);
       selectors.forEach((selector, i) => expect(root.querySelector(selector), `${page}: ${selector}`).toBe(elements[i]));
-      expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe(['dashboard', 'triage', 'bugs', 'runs', 'prs', 'cmux'].includes(page) ? 'plugin' : page);
+      expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe(['dashboard', 'triage', 'bugs', 'runs', 'prs', 'cmux', 'campaigns'].includes(page) ? 'plugin' : page);
       expect(root.querySelector('#page-content')?.getAttribute('aria-labelledby')).toBe(`page-tab-${page}`);
       expect(root.querySelectorAll('.page-tab[aria-selected="true"]')).toHaveLength(1);
       expect(root.querySelector('[data-fleet-count="running"]')?.textContent).toBe('1');

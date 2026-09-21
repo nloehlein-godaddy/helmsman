@@ -359,7 +359,7 @@ The agents received different review assignments:
 
 **6. Medium — Framework neutrality needs styling and interaction boundaries.**
 
-**Observed:** Section 4 specifies `mount → update → dispose`, but no CSS or event-ownership contract. [`src/renderCampaigns.ts`](../src/renderCampaigns.ts) directly imports application terminology and CSS and renders shared classes such as `panel`.
+**Observed:** Section 4 specifies `mount → update → dispose`, but no CSS or event-ownership contract. The former `src/renderCampaigns.ts` directly imported application terminology and CSS and rendered shared classes such as `panel`. Its replacement is the [SDK-only campaign renderer](../src/plugins/campaigns/render.ts).
 
 **Impact:** A React plugin could mount successfully yet depend on undocumented styles, collide with document-level handlers, or miss theme and terminology changes.
 

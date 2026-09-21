@@ -1,3 +1,4 @@
+export * from './campaigns';
 import type { TerminalRouteV1 } from './terminal-route';
 export * from './terminal';
 export * from './terminal-route';

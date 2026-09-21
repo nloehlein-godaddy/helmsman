@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { appPages, CLARIFICATIONS_PAGE_ID, CLARIFICATIONS_PAGE_SLOT, clarificationsManifest, compatibilityClarificationsManifest, RUNS_PAGE_ID, RUNS_PAGE_SLOT, runsManifest, PR_PAGE_ID, PR_PAGE_SLOT, compatibilityPrManifest } from '../plugins/builtins';
-import { terminalManifest } from '../plugins/frontend-manifests';
-import { TERMINAL_PAGE_ID, TERMINAL_PAGE_SLOT } from '../plugins/page-slots';
+import { campaignsManifest, terminalManifest } from '../plugins/frontend-manifests';
+import { CAMPAIGNS_PAGE_SLOT, TERMINAL_PAGE_ID, TERMINAL_PAGE_SLOT } from '../plugins/page-slots';
 import { parseRoute, routeHref, type AppRoute, type PageView } from './routes';
 
 const parse = (href: string) => parseRoute(new URL(href, 'https://helmsman.example'));
@@ -35,7 +35,7 @@ describe('routes', () => {
 
   it.each([
     ['/', 'plugin'], ['/helm', 'plugin'], ['/triage', 'plugin'],
-    ['/terminal', 'plugin'], ['/terminal/', 'plugin'], ['/cmux', 'plugin'], ['/bugs', 'plugin'], ['/prs', 'plugin'], ['/pr', 'plugin'],
+    ['/campaigns', 'plugin'], ['/terminal', 'plugin'], ['/terminal/', 'plugin'], ['/cmux', 'plugin'], ['/bugs', 'plugin'], ['/prs', 'plugin'], ['/pr', 'plugin'],
     ['/config', 'config'], ['/runs', 'plugin'], ['/runs/', 'plugin'], ['/unknown', 'dashboard'],
     ['/todos', 'plugin'], ['/todos/', 'plugin'],
   ])('resolves %s to %s', (path, view) => {
@@ -335,5 +335,23 @@ describe('authored terminal routes', () => {
       expect(parse('/terminal?repo=org/header&surface=surface:15&pane=screen')).toMatchObject({ view: 'plugin', pluginPage: 'example.terminal/page', repo: 'org/header', surface: 'surface:15', pane: 'screen' });
       expect(appPages.resolvePath('/terminal')?.page).toBeNull();
     } finally { appPages.select(TERMINAL_PAGE_SLOT, null); remove(); cleanup(); }
+  });
+});
+
+
+describe('authored campaign routes', () => {
+  it('retains copied and missing selected pages without changing header or exact panel identity', () => {
+    const remove = appPages.register({ ...campaignsManifest, id: 'example.campaigns' });
+    try {
+      appPages.select(CAMPAIGNS_PAGE_SLOT, 'example.campaigns/page');
+      const route = parse('/campaigns?repo=org/header&panel=saved-campaigns');
+      expect(route).toMatchObject({ view: 'plugin', pluginPage: 'example.campaigns/page', repo: 'org/header', panelInstance: 'saved-campaigns' });
+      expect(parse(routeHref(route))).toEqual(route);
+      const direct = parse('/plugins/example.campaigns/page?repo=org/header');
+      expect(parse(routeHref(direct))).toEqual(direct);
+      remove();
+      expect(parse('/campaigns?repo=org/header')).toMatchObject({ view: 'plugin', pluginPage: 'example.campaigns/page', repo: 'org/header' });
+      expect(appPages.resolvePath('/campaigns')?.page).toBeNull();
+    } finally { appPages.select(CAMPAIGNS_PAGE_SLOT, null); remove(); }
   });
 });

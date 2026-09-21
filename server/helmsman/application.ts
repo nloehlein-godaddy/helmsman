@@ -1,3 +1,5 @@
+import { createCampaignPublicService } from './campaigns-public-service';
+import { campaignContributionEnabled } from './campaigns-runtime';
 import { createTerminalService } from './terminal-service';
 import { createNativeTerminalRuntime, terminalContributionEnabled } from './terminal-runtime';
 import { createCommunicationRuntime, communicationContributionEnabled } from './communication-runtime';
@@ -79,7 +81,6 @@ import { openWebhookIntake, parseWebhookRoutes, WebhookError } from './webhooks'
 import { openWorkflowStore } from './workflow-snapshots';
 import { openCampaignStore } from './campaigns';
 import { createCampaignDispatcher } from './campaign-dispatcher';
-import { createCampaignService } from './campaign-service';
 import { openClarificationStore } from './clarifications';
 import { createScopedGateway } from './scoped-gateway';
 import { listenScopedGateway } from './gateway-listener';
@@ -350,6 +351,12 @@ const gateway = createScopedGateway({ path: persistence.sql, openaiKey: () => pr
 });
 if (runHost === 'docker' && !process.env.HELMSMAN_DOCKER_IMAGE) throw new Error('Set HELMSMAN_DOCKER_IMAGE to a built Helmsman runtime image before selecting Docker');
 const campaignsStore = openCampaignStore(persistence.sql);
+const publicCampaigns = createCampaignPublicService({ persistence, store: campaignsStore, repos: applicationRepos,
+  workflows: () => [{ ref: 'coding@1', name: 'Coding' }],
+  authorize: caller => {
+    if (!campaignContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden');
+  },
+});
 const webhooks = openWebhookIntake(persistence.sql, {
   secret: () => process.env.HELMSMAN_WEBHOOK_SECRET,
   routes: () => parseWebhookRoutes(process.env.HELMSMAN_WEBHOOK_ROUTES),
@@ -1113,33 +1120,31 @@ void pollCreatedPrReviews();
 void pollSlack();
 void pollGithubReviews();
 
-const configuredRepos = () => { const cfg = configStore.current(); return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])]; };
 const campaignDispatcher = createCampaignDispatcher({ store: campaignsStore, canStart: repo => pm.canStart(repo).ok,
   getRun: id => db.getRun(id), stop: id => pm.stop(id),
   launch: input => launch({ repo: input.repo, mode: input.mode, runId: input.runId, workflowRef: input.workflowRef,
     ...(input.task === null ? {} : { task: input.task }), ...(input.ticketId === null ? {} : { ticketId: input.ticketId }),
     ...(input.title === null ? {} : { title: input.title }), ...(input.retryOf ? { retryOf: input.retryOf } : {}) }),
 });
-const campaigns = createCampaignService({ store: campaignsStore, configuredRepos,
-  workflows: () => [{ ref: 'coding@1', name: 'Coding' }], dispatch: () => campaignDispatcher.poll() });
+
 setInterval(() => { void campaignDispatcher.poll().catch(error => process.stderr.write(`Campaign dispatch failed: ${String(error)}\n`)); }, 5000);
 
 setInterval(() => { void webhooks.poll().catch(error => process.stderr.write(`Webhook dispatch failed: ${String(error)}\n`)); }, 5000);
 
-async function readRawBody(req: IncomingMessage): Promise<Buffer> {
+async function readRawBody(req: IncomingMessage, maximum = 2_000_000): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const c of req) {
     const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
     size += chunk.length;
-    if (size > 2_000_000) throw new WebhookError('Request payload too large', 413);
+    if (size > maximum) throw new WebhookError('Request payload too large', 413);
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
 }
 
-async function readBody(req: IncomingMessage): Promise<unknown> {
-  const raw = await readRawBody(req);
+async function readBody(req: IncomingMessage, maximum?: number): Promise<unknown> {
+  const raw = await readRawBody(req, maximum);
   if (!raw.length) return null;
   try {
     return JSON.parse(raw.toString('utf8'));
@@ -1225,7 +1230,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (await handleRunInspectExport(req, res, url, runInspect)) return;
     if (await handleRunLog(req, res, url.pathname, db, bus)) return;
     const hasBody: boolean = req.method === 'POST' || req.method === 'PUT';
-    const body: unknown = hasBody ? await readBody(req) : null;
+    const commandBodyLimit = url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/terminal/') ? 3 * 1024 * 1024 + 4096 : undefined;
+    const body: unknown = hasBody ? await readBody(req, commandBodyLimit) : null;
     if (url.pathname === '/api/recovery' || url.pathname === '/api/recovery/actions') {
       if (req.method === 'POST' && (req.headers['content-type']?.split(';')[0] !== 'application/json'
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
@@ -1235,7 +1241,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
     }
-    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/terminal/') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
+    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/terminal/') || url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
       && (req.headers['content-type']?.split(';')[0] !== 'application/json'
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
       res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
@@ -1259,7 +1265,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sourceSchedule: taskSourceRuntime.schedule,
       usage: usageQueries,
       pricing: async snapshot => (await backendPlugins.pricing(snapshot)).estimate,
-      campaigns,
+      publicCampaigns, campaignCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarifications,
       outboundUsage: () => outboundMeter.snapshot(),
       githubProfile: () => fetchGithubProfile(configStore.current().github),

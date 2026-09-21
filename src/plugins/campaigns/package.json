@@ -1,0 +1,6 @@
+{
+  "name": "helmsman-campaigns-source",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
+}

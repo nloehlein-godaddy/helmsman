@@ -174,6 +174,18 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <p class="limit-note">Hidden, replaced, scope-changed and disposed panels abort polling. Missing or unreadable browser evidence prevents controls and never creates a replacement request. Phase E retains the core terminal bridge; replaceable cmux, WezTerm and other execution implementations remain Phase F work. Tests use a mock fixture without touching a native terminal. See <a href="terminal-authoring.md">Terminal authoring</a>.</p>
 </section>
+<section aria-labelledby="campaigns-heading">
+<h2 class="section-heading" id="campaigns-heading">Campaign presentation and atomic commands</h2>
+<p class="section-intro">The selected Campaigns composition mounts a replaceable panel. It inherits header scope unless explicitly overridden; the header remains unchanged.</p>
+<div class="flow-step flow-common"><h3>Scoped list and detail → explicit intent</h3><p>Read the observed campaign revision. Create campaigns, add phases, preview CSV/JSONL, confirm queued imports, change phase state or explicitly retry a failed task. Import previews show task galleon overrides; importing alone never starts work.</p></div>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<div class="flow-step flow-common"><h3>Original UUID → scope and revision checks → atomic transaction</h3><p>Retain caller identity and complete input before transport. Validate target membership, preview digest and expected attempt. Commit the campaign mutation and immutable receipt together, then save the result before browser acknowledgment. Changed state rejects stale intent.</p></div>
+<div class="host-options">
+<article class="flow-step"><h3>Lost response</h3><p>Inspect the original receipt or explicitly retry the exact retained UUID and input. Recovery cannot reserve another campaign or task attempt.</p></article>
+<article class="flow-step"><h3>Recorded state → existing dispatcher</h3><p>A receipt confirms campaign state, not worker launch or termination. Phase ordering, concurrency, one writer per galleon, durable claims and stable run IDs remain in force. Finish and stop retain explicit confirmation.</p></article>
+</div>
+<p class="limit-note">Missing or disabled selections preserve layouts and command evidence. Scheduling and execution implementation replacement remains Phase F. See <a href="campaigns-authoring.md">Campaign authoring</a>.</p>
+</section>
 <section aria-labelledby="conditional-state-heading">
 <h2 class="section-heading" id="conditional-state-heading">Conditional panel-state saves</h2>
 <p class="section-intro">Authored question/contact panels use conditional saves. This behavior passed independent package and production acceptance and is pushed as 773cce4.</p>

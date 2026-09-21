@@ -230,6 +230,27 @@ flowchart TD
 
 Hidden, replaced, scope-changed and disposed panels abort polling. A target includes its observed bridge/session and surface revision; stale, ambiguous or foreign targets are unavailable rather than rebound. Titles never establish repository ownership. The public service has no terminal-input retry API: inspection acknowledgment never resends retained input or confirms delivery. Missing or unreadable browser evidence prevents controls and never creates a replacement request. Phase E uses the existing core terminal bridge; extracting cmux, WezTerm or another execution implementation remains Phase F work. Tests use a mock fixture and do not touch a native terminal. See [Terminal authoring](terminal-authoring.md).
 
+## Campaign presentation and atomic commands
+
+```mermaid
+flowchart TD
+    Page[Selected Campaigns composition] --> Panel[Replaceable campaign panel<br/>Inherited header or explicit panel scope]
+    Panel --> Read[Scoped list and detail<br/>Observed campaign revision]
+    Read --> Intent[Create / add phase / preview / confirm<br/>Phase action / explicit task retry]
+    Intent --> Journal[Retain caller UUID and complete input]
+    Journal --> Check[Validate scope, revision, membership<br/>Preview digest and expected attempt]
+    Check --> Tx[One SQLite transaction<br/>Campaign mutation + immutable receipt]
+    Tx --> Receipt[Save original result before browser acknowledgment]
+    Tx --> Tick[Existing dispatcher observes recorded phase state]
+    Tick --> Gates[Phase ordering and concurrency<br/>One writer per galleon, durable claims, stable run ID]
+    Journal --> Lost[Lost response: inspect original receipt<br/>Explicit retry uses only retained UUID/input]
+    Lost --> Tx
+    Read --> Preview[CSV/JSONL preview shows task galleon overrides]
+    Preview --> Confirm[Explicit confirmation imports queued tasks<br/>Import alone does not start work]
+```
+
+A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. Scheduling and execution implementation replacement remains Phase F. See [Campaign authoring](campaigns-authoring.md).
+
 ## Conditional panel-state saves
 
 Authored question/contact panels use conditional panel-state saves. This behavior passed independent package and production acceptance and is pushed as 773cce4:

@@ -15,7 +15,6 @@ import { AppCompositionFactory } from './plugins/app-composition';
 import { loadPluginCatalog } from './plugins/runtime';
 import { PluginPageHost } from './plugins/page-host';
 import type { PluginPageState } from './plugins/sdk';
-import { mountCampaigns } from './renderCampaigns';
 import { LOCAL_POLL_MS } from './data/live';
 import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderConfigView } from './render';
 import { fetchAgents, type RunSummary } from './data/agents';
@@ -72,7 +71,6 @@ export class DashboardView {
   private greetingName: string | null = null;
   private configSaves: number = 0;
   private jiraEnabled: boolean = true;
-  private campaigns: ReturnType<typeof mountCampaigns> | null = null;
   private unsubscribePages: (() => void) | null = null;
   private unsubscribePageModules: (() => void) | null = null;
   private pageHost: PluginPageHost | null = null;
@@ -252,8 +250,6 @@ export class DashboardView {
     ++this.refreshSeq;
     ++this.localGitSeq;
     window.removeEventListener('popstate', this.onPopState);
-    this.campaigns?.destroy();
-    this.campaigns = null;
   }
 
   private updateAddress(route: AppRoute, history: 'push' | 'replace' | 'none' = 'push'): void {
@@ -265,11 +261,7 @@ export class DashboardView {
   }
 
   private async navigate(route: AppRoute, history: 'push' | 'replace' | 'none' = 'push'): Promise<void> {
-    if (route.view === 'runs' || route.view === 'prs' || route.view === 'cmux') route = parseRoute(new URL(routeHref(route), window.location.origin));
-    if (this.view === 'campaigns' && route.view !== 'campaigns') {
-      this.campaigns?.destroy();
-      this.campaigns = null;
-    }
+    if (route.view === 'runs' || route.view === 'prs' || route.view === 'cmux' || route.view === 'campaigns') route = parseRoute(new URL(routeHref(route), window.location.origin));
     if (this.presentationSelection && (route.run !== this.presentationSelection.locator.runId
       || this.presentationSelection.locator.kind === 'run' && route.runRepo !== this.presentationSelection.locator.repo)) this.presentationSelection = null;
     const seq = ++this.routeSeq;
@@ -483,23 +475,6 @@ export class DashboardView {
   private paintView(): void {
     if (this.isPluginPage()) {
       this.paintPluginPage();
-      return;
-    }
-    if (this.view === 'campaigns') {
-      const existing = this.root.querySelector<HTMLElement>('#campaigns-page');
-      if (!existing || !this.campaigns) {
-        this.campaigns?.destroy();
-        this.mountPage(renderAppShell(this.shellOptions(), '<div id="campaigns-page"></div>'));
-        const container = this.root.querySelector<HTMLElement>('#campaigns-page');
-        if (container) {
-          this.campaigns = mountCampaigns(container, {
-            repo: () => this.selectedRepo,
-            onOpenRun: runId => { void this.navigate({ ...this.route, view: 'runs', pane: 'tasks', run: runId }); },
-          });
-        }
-      } else void this.campaigns.refresh();
-      this.bindHeadControls();
-      this.rehomeRunViewer();
       return;
     }
     if (this.view === 'config') {
