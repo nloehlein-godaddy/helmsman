@@ -91,6 +91,29 @@ describe('durable admission and runner integration', () => {
     expect(() => admissions.fail(run.id, 'Do not erase ambiguous launch')).toThrow();
   });
 
+  it('rejects never-launched settlement once launch ownership becomes uncertain', async () => {
+    const { coordinator, executions } = setup();
+    const attempt = await coordinator.prepare(run, task);
+    attempt.ready('/worktree'); attempt.launching();
+    expect(attempt.terminalUnlaunched('failed', 'Local preparation error')).toBe(false);
+    expect(executions.attempt({ runId: run.id, attempt: run.attempt })?.outcome).toBeNull();
+    expect(executions.reservations()).toHaveLength(1);
+    attempt.close();
+  });
+
+  it('fences stale coordinators from settling preparation after lease replacement', async () => {
+    const { persistence, coordinator, executions, db } = setup();
+    const stale = await coordinator.prepare(run, task);
+    persistence.sql.prepare('UPDATE execution_attempts SET leaseExpiresAt=? WHERE runId=?').run('2000-01-01T00:00:00.000Z', run.id);
+    const current = await coordinator.recover(db.getRun(run.id)!);
+    expect(() => stale.terminalUnlaunched('failed', 'Stale failure')).toThrow();
+    expect(executions.attempt({ runId: run.id, attempt: run.attempt })?.outcome).toBeNull();
+    expect(current.terminalUnlaunched('failed', 'Verified preparation failure')).toBe(true);
+    current.finalize({ ...db.getRun(run.id)!, status: 'failed' });
+    expect(executions.reservations()).toEqual([]);
+    expect(() => stale.close()).toThrow(); current.close();
+  });
+
   it('leaves pins and terminal projection intact when final obligations fail to commit', async () => {
     let fail = true;
     const { coordinator, executions, db } = setup(() => { if (fail) throw new Error('outbox unavailable'); });

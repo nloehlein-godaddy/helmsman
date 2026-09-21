@@ -175,7 +175,7 @@ function durableFixture() {
   const attempt: DurableRunnerAttempt = {
     launchId: 'continued-launch-2', attempt: 2, paths, preparation: 'prepared', hostRef: null,
     ready: vi.fn(), launching: vi.fn(), launched: vi.fn(ref => f.db.updateRun(f.row.id, { hostKind: ref.kind, hostRef: JSON.stringify(ref) })),
-    attachment: vi.fn(), terminal: vi.fn(), finalize: vi.fn(), renew: vi.fn(), close: vi.fn(),
+    attachment: vi.fn(), terminal: vi.fn(), terminalUnlaunched: vi.fn(() => false), finalize: vi.fn(), renew: vi.fn(), close: vi.fn(),
   };
   const retained = { ...attempt, attempt: 1, close: vi.fn() };
   const durable: DurableRunnerCoordinator = {

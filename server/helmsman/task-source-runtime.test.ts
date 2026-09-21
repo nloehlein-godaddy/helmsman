@@ -108,6 +108,49 @@ describe('application source runtime', () => {
     expect(f.executions.pins().filter(pin => pin.kind === 'dependency')).toHaveLength(0);
     expect(f.fetcher).not.toHaveBeenCalled();
   });
+  it.each(['failed', 'stopped'] as const)('settles a never-launched pre-PR %s without retaining a fictitious checkpoint or source claim', async status => {
+    const f = setup();
+    const todo = await f.runtime.todoApi!.create({ repo, title: 'Local', description: 'Unlaunched work' }, 'create-unlaunched');
+    const selection = f.reserve('unlaunched', { mode: 'todo', todoId: todo.id, repo });
+    const prepared = await f.runtime.prepare('unlaunched', repo, selection, new AbortController().signal);
+    const run = await f.start('unlaunched', prepared.task, 'pre-pr:codex');
+    expect(run.durable.terminalUnlaunched(status, 'Preparation ended before worker launch')).toBe(true);
+    const row = { ...run.row, status, endedAt: new Date().toISOString() };
+    await f.runtime.prepareFinalization(row); run.durable.finalize(row); run.durable.close();
+    expect(f.db.getRun('unlaunched')?.status).toBe(status);
+    expect(f.runtime.claimForRun('unlaunched')?.state).toBe('settled');
+    expect(f.executions.checkpoint('unlaunched:1:pre-pr')).toBeNull();
+    expect(f.executions.reservations()).toEqual([]);
+    expect(f.executions.pins()).toEqual([]);
+    expect(await f.runtime.todoApi!.get(todo.id)).toMatchObject({ state: 'blocked' });
+    expect(f.fetcher).not.toHaveBeenCalled();
+    const retry = f.reserve('fresh-retry', { mode: 'todo', todoId: todo.id, repo }, 'unlaunched');
+    await expect(f.runtime.prepare('fresh-retry', repo, retry, new AbortController().signal, 'unlaunched')).resolves.toHaveProperty('task.source');
+  });
+  it('releases never-launched capacity while retaining a failed source settlement and its pins for retry', async () => {
+    const f = setup();
+    const todo = await f.runtime.todoApi!.create({ repo, title: 'Local', description: 'Unlaunched work' }, 'create-unlaunched');
+    const selection = f.reserve('unlaunched', { mode: 'todo', todoId: todo.id, repo });
+    const prepared = await f.runtime.prepare('unlaunched', repo, selection, new AbortController().signal);
+    const run = await f.start('unlaunched', prepared.task, 'pre-pr:codex');
+    run.durable.terminalUnlaunched('failed', 'Preparation failed');
+    const row = { ...run.row, status: 'failed' as const, endedAt: new Date().toISOString() };
+    const settlement = vi.spyOn(todosProvider, 'planCompletion').mockRejectedValue(new Error('Source temporarily unavailable'));
+    try {
+      await f.runtime.prepareFinalization(row); run.durable.finalize(row); run.durable.close();
+      expect(f.db.getRun(row.id)?.status).toBe('failed');
+      expect(f.executions.reservations()).toEqual([]);
+      expect(f.runtime.claimForRun(row.id)?.state).toBe('settling');
+      expect(f.executions.pins().every(pin => pin.kind === 'dependency')).toBe(true);
+      expect(f.executions.pins().length).toBeGreaterThan(0);
+      expect(f.executions.cleanupEligibility(row.id).allowed).toBe(false);
+      expect(() => f.reserve('racing-retry', { mode: 'todo', todoId: todo.id, repo }, row.id)).toThrow();
+    } finally { settlement.mockRestore(); }
+    await f.runtime.retrySettlement(f.runtime.claimForRun(row.id)!.id);
+    expect(f.runtime.claimForRun(row.id)?.state).toBe('settled');
+    expect(f.executions.pins()).toEqual([]);
+    expect(f.executions.cleanupEligibility(row.id).allowed).toBe(true);
+  });
   it('reserves capacity before Jira alias lookup and canonical work before authoritative load/claim', async () => {
     const f = setup(); const selection = f.reserve('jira-run', { mode: 'ticket', ticketId: 'TASK-1', repo });
     expect(f.admissions.get('jira-run')?.state).toBe('pending'); expect(f.executions.reservations()).toHaveLength(1);

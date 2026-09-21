@@ -33,6 +33,7 @@ function fixture() {
       launching: vi.fn(() => { order.push('launching'); }),
       launched: vi.fn(() => { order.push('launched'); }),
       attachment: vi.fn(state => { order.push(state); }),
+      terminalUnlaunched: vi.fn(() => false),
       terminal: vi.fn(value => { order.push('terminal'); outcomes.set(row.attempt, value); }),
       finalize: vi.fn(final => { expect(outcomes.has(row.attempt)).toBe(true); order.push('finalize'); db.updateRun(row.id, final); }),
       renew: vi.fn(), close: vi.fn(),

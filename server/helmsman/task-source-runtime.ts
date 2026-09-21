@@ -5,7 +5,7 @@ import { isPrePrAdapter } from './agents/pre-pr';
 import { createSourceConversionCoordinator } from './task-sources/conversion';
 import type { Db, RunRow } from './db';
 import type { AdmissionStore } from './admission-store';
-import type { ArtifactBinding, ExecutionStore } from './execution-store';
+import { hasUnlaunchedOutcome, type ArtifactBinding, type ExecutionStore } from './execution-store';
 import type { OperationStore } from './operations';
 import { dispatchOperation } from './operation-dispatcher';
 import type { LaunchIntent } from './retry';
@@ -223,7 +223,7 @@ export function createTaskSourceRuntime(options: {
     const claim = claimForRun(row.id); if (!claim || claim.state === 'settled') return;
     const key = `${row.id}:${row.attempt}`;
     if (settlementFor(claim.id, 'completion')?.state === 'staged') { preparedFinalizations.set(key, null); return; }
-    if (row.status !== 'succeeded' && row.worktreePath && isPrePrAdapter(row.adapter)) { preparedFinalizations.set(key, null); return; }
+    if (row.status !== 'succeeded' && row.worktreePath && isPrePrAdapter(row.adapter) && !hasUnlaunchedOutcome(executions.attempt({ runId: row.id, attempt: row.attempt }))) { preparedFinalizations.set(key, null); return; }
     try {
       preparedFinalizations.set(key, await coordinator.prepareSettlement({ claimId: claim.id, repo: row.repo, signal: AbortSignal.timeout(30_000), purpose: 'completion', request: completionRequest(row, claim) }));
     } catch (error) {

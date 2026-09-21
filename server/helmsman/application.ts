@@ -1,3 +1,4 @@
+import { createRunLifetime } from './run-lifetime';
 import { readPullRequestDetail, retainPullRequestSource, prepareCommunicationReview, readOutcomePullRequest, verifyPullRequestExecution, parsePullRequestSource } from './pull-request-source';
 import { allowMutationRequest } from './request-origin';
 import type { CampaignTriggerProviderV1, CommunicationReviewTriggerProviderV1, PullRequestReviewTriggerProviderV1, WebhookTriggerProviderV1 } from '../../src/plugins/trigger';
@@ -1174,24 +1175,24 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
     else admit();
   });
   const control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null };
-  const admissionController = new AbortController();
+  const lifetime = createRunLifetime();
   pm.add(runId, body.repo, () => {
     recordStopRequest(runId);
     control.stopped = true;
-    admissionController.abort();
+    lifetime.stop();
     void control.stop?.();
   });
   void (async (): Promise<void> => {
     let loadedAgents: Awaited<ReturnType<typeof loadExecutionAgents>> | undefined;
     let loadedHost: Awaited<ReturnType<typeof loadExecutionHost>> | undefined;
     try {
-      loadedAgents = await loadExecutionAgents({ agentSelection: selectedAgents.selection, agentRuntime, workflow: selectedWorkflow.record, workflowRuntime }, admissionController.signal);
-      loadedHost = await loadExecutionHost({ executionHost: selectedExecutionHost.record, hostRuntime }, admissionController.signal);
+      loadedAgents = await loadExecutionAgents({ agentSelection: selectedAgents.selection, agentRuntime, workflow: selectedWorkflow.record, workflowRuntime }, lifetime.providerSignal);
+      loadedHost = await loadExecutionHost({ executionHost: selectedExecutionHost.record, hostRuntime }, lifetime.providerSignal);
       const hostConfiguration = priorTask?.hostConfiguration !== undefined ? priorTask.hostConfiguration : await loadedHost.provider.prepareRun({ version: 1, runId, repo: body.repo, mode: body.mode === 'review' ? 'review' : body.mode === 'rerun' ? 'branch' : 'coding' });
       const adapter = loadedAgents.writer;
       let taskObj: AgentTask;
       if (sourceSelection) {
-        const preparedSource = await taskSourceRuntime.prepare(runId, body.repo, sourceSelection, admissionController.signal, body.retryOf);
+        const preparedSource = await taskSourceRuntime.prepare(runId, body.repo, sourceSelection, lifetime.admissionSignal, body.retryOf);
         sourceSelection = preparedSource.selection;
         body = taskSourceRuntime.canonical(body, sourceSelection);
         launchJson = launchIntentJson(body);
@@ -1259,8 +1260,9 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         provider: adapter.id, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort });
       taskObj = prepared.task;
       const runAdapter = selectedWorkflow.record.metadata.execution === 'staged' ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.hostIsolation ? dockerReviewAdapter(adapter) : adapter;
-      admissionController.signal.throwIfAborted();
+      lifetime.admissionSignal.throwIfAborted();
       pullRequestSource?.assertCurrent();
+      lifetime.startExecution();
       await startRun(taskObj, {
         ...baseRunnerDeps(cfg, runId, hosting),
         launchJson,
@@ -1297,6 +1299,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       bus.publish(runId, { kind: 'error', text: message });
       bus.publish(runId, { kind: 'run-complete', text: 'failed' });
     } finally {
+      lifetime.dispose();
       await loadedAgents?.dispose();
       if (loadedHost) await releaseRunHost(runId, loadedHost);
       const finalRun = db.getRun(runId);

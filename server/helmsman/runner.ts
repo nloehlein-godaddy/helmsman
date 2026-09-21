@@ -61,6 +61,7 @@ export interface DurableRunnerAttempt {
   launched(ref: HostRef, evidence: unknown): void;
   attachment(state: 'attached' | 'blocked' | 'failed', reason?: string): void;
   terminal(outcome: { status: 'succeeded' | 'failed' | 'stopped'; exitCode: number; evidence: unknown }): void;
+  terminalUnlaunched(status: 'failed' | 'stopped', reason: string): boolean;
   finalize(row: RunRow): void;
   renew(): void;
   assertActive?(): void;
@@ -693,6 +694,22 @@ function blockDurableAttempt(row: RunRow, session: DurableRunnerAttempt, deps: R
   deps.bus.publish(row.id, { kind: 'error', text: `Execution recovery blocked: ${reason}` });
 }
 
+async function settleUnlaunchedAttempt(row: RunRow, session: DurableRunnerAttempt, deps: RunnerDeps, reason: string, check: () => void): Promise<boolean> {
+  check();
+  const status = session.terminalStatus ?? (deps.isStopped?.() ? 'stopped' : 'failed');
+  if (status === 'succeeded' || !session.terminalUnlaunched(status, reason)) return false;
+  const current = deps.db.getRun(row.id);
+  if (!current) throw new Error('Execution row disappeared during preparation settlement');
+  const final = { ...current, status, endedAt: deps.now() };
+  await deps.prepareFinalization?.(final);
+  check();
+  session.finalize(final);
+  deps.db.appendEvent(row.id, 'preparation-failed', reason, deps.now());
+  deps.bus.publish(row.id, { kind: 'error', text: reason });
+  await completeRun(row.id, row.repo, current.worktreePath, deps);
+  return true;
+}
+
 async function startDurableRun(task: AgentTask, deps: RunnerDeps): Promise<string> {
   const runId = deps.genId();
   const initial: RunRow = { id: runId, ticketId: task.ticketId, repo: task.repo, adapter: deps.adapter.id,
@@ -740,6 +757,9 @@ async function startDurableRun(task: AgentTask, deps: RunnerDeps): Promise<strin
       await finalizeDurableAttempt(row, task, session, deps, events, outcome, heartbeat.check);
       return runId;
     } catch (error) {
+      try {
+        if (await settleUnlaunchedAttempt(row, session, deps, error instanceof Error ? error.message : String(error), heartbeat.check)) return runId;
+      } catch (settlementError) { error = settlementError; }
       blockDurableAttempt(row, session, deps, error);
       return runId;
     } finally { heartbeat.close(); }
@@ -752,9 +772,18 @@ async function reattachDurableRun(row: RunRow, deps: RunnerDeps): Promise<Attach
   try { session = await deps.durable!.recover(row); }
   catch (error) { return { status: 'blocked', reason: error instanceof Error ? error.message : 'Retained execution is unavailable' }; }
   const heartbeat = durableHeartbeat(session);
+  let settlementAttempted = false;
   try {
     const task: AgentTask = JSON.parse(row.taskJson ?? '{}') as AgentTask;
     if (!task || typeof task !== 'object' || task.repo !== row.repo || task.ticketId !== row.ticketId) throw new Error('Retained task identity is invalid');
+    if ((session.preparation === 'prepared' || session.preparation === 'ready') && (!row.worktreePath || session.terminalStatus || deps.isStopped?.())) {
+      settlementAttempted = true;
+      const reason = deps.isStopped?.() ? 'Execution stopped before worker launch' : 'Preparation interrupted before worker launch';
+      if (await settleUnlaunchedAttempt(row, session, deps, reason, heartbeat.check)) {
+        heartbeat.close();
+        return { status: 'attached', completion: Promise.resolve() };
+      }
+    }
     if (!row.worktreePath) throw new Error('Prepared worktree requires reconciliation before attachment');
     const spec = durableSpec(row, task, session, deps);
     let discovered;
@@ -797,6 +826,12 @@ async function reattachDurableRun(row: RunRow, deps: RunnerDeps): Promise<Attach
     void completion.catch(() => {});
     return { status: 'attached', completion };
   } catch (error) {
+    try {
+      if (!settlementAttempted && await settleUnlaunchedAttempt(row, session, deps, error instanceof Error ? error.message : String(error), heartbeat.check)) {
+        heartbeat.close();
+        return { status: 'attached', completion: Promise.resolve() };
+      }
+    } catch (settlementError) { error = settlementError; }
     blockDurableAttempt(row, session, deps, error);
     heartbeat.close();
     return { status: 'blocked', reason: error instanceof Error ? error.message : 'Attachment ownership is unresolved' };

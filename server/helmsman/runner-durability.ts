@@ -4,7 +4,7 @@ import type { AdmissionStore } from './admission-store';
 import type { AgentTask } from './agents/adapter';
 import { isPrePrAdapter } from './agents/pre-pr';
 import type { Db, RunRow } from './db';
-import type { AttemptLease, ExecutionAttempt, ExecutionSnapshot, ExecutionSnapshotInput, ExecutionStore } from './execution-store';
+import { hasUnlaunchedOutcome, type AttemptLease, type ExecutionAttempt, type ExecutionSnapshot, type ExecutionSnapshotInput, type ExecutionStore } from './execution-store';
 import { persistedJson, persistenceHash, PersistenceConflictError, type Persistence } from './persistence';
 import type { PluginLifecycle } from './plugins/lifecycle';
 import type { OperationStore } from './operations';
@@ -76,12 +76,24 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
         executions.recordOutcome(owned(), { status: value.status, endedAt: current?.outcome?.endedAt ?? now(),
           evidence: persistedJson({ exitCode: value.exitCode, ownership: value.evidence }) });
       },
+      terminalUnlaunched(status, reason) {
+        return persistence.transaction(() => {
+          executions.assertLease(owned());
+          const current = executions.attempt(initial);
+          if (!current || !['prepared', 'ready'].includes(current.preparation) || current.hostRef) return false;
+          if (current.outcome) return hasUnlaunchedOutcome(current);
+          if (!reason.trim()) throw new PersistenceConflictError('Preparation failure evidence is required');
+          executions.recordOutcome(owned(), { status, endedAt: now(), evidence: { kind: 'never-launched', reason,
+            launchId: current.launchId, preparation: current.preparation } });
+          return true;
+        });
+      },
       finalize(row) { persistence.transaction(() => {
         executions.assertLease(owned());
         if (row.id !== initial.runId || row.attempt !== initial.attempt || row.status === 'running') throw new PersistenceConflictError('Final execution status is invalid');
         const current = executions.attempt(initial);
         if (!current?.outcome) throw new PersistenceConflictError('Execution cannot finalize without terminal evidence');
-        if (isPrePrAdapter(row.adapter) && row.status !== 'succeeded' && row.worktreePath) {
+        if (isPrePrAdapter(row.adapter) && row.status !== 'succeeded' && row.worktreePath && !hasUnlaunchedOutcome(current)) {
           executions.retainCheckpoint({ id: `${row.id}:${row.attempt}:pre-pr`, runId: row.id, attempt: row.attempt,
             snapshotId: snapshot.id, format: 'helmsman.pre-pr.pending-validation', formatVersion: 1, state: 'resumable',
             artifacts: persistedJson({ worktreePath: row.worktreePath, logPath: row.logPath ?? null,

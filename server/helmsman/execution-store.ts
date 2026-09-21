@@ -45,6 +45,11 @@ export interface ExecutionAttempt extends AttemptKey {
   outcome: { status: Exclude<RunStatus, 'running'>; endedAt: string; evidence: PluginJson } | null;
   diagnostic: RecoveryDiagnostic | null;
 }
+export function hasUnlaunchedOutcome(attempt: ExecutionAttempt | null): boolean {
+  const evidence = object(attempt?.outcome?.evidence);
+  return (attempt?.preparation === 'prepared' || attempt?.preparation === 'ready') && attempt.hostRef === null
+    && evidence?.kind === 'never-launched';
+}
 export interface ExecutionReservation { runId: string; repo: string; reason: 'prepared' | 'executing' | 'unresolved' }
 export interface ArtifactPin { kind: 'admission' | 'execution' | 'checkpoint' | 'operation' | 'dependency'; ownerId: string; pluginId: string; artifactHash: string }
 export interface ExecutionCheckpoint {

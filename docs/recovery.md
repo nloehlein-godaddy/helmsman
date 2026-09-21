@@ -4,6 +4,10 @@ Open **Recovery** in the footer or `/recovery`. The header galleon is the defaul
 
 A voyage's execution result and attachment health are separate. A blocked attachment does not prove that its worker stopped. Its reservation, files, and retained providers remain protected until reliable evidence settles ownership. Retry attachment after restoring the exact runtime, host, connection, and compatible schema. Stop requests persist per attempt before the host is signaled; a restart cannot authorize publication by forgetting an earlier stop request.
 
+Failures before the durable launch fence settle as failed (or stopped when Stop was requested), with explicit never-launched evidence. Recovery also settles preparation interrupted before a workspace path was recorded; it does not recreate or delete an uncertain partial checkout. Retry a failed voyage after repairing the checkout, and inspect any partial checkout through Local Git. Execution capacity is released after finalization; independent source claims and external effects keep their own pins until settlement. Once launch was attempted, missing ownership evidence still blocks recovery and preserves capacity.
+
+Stop cancels admission work and signals an admitted worker while retaining its original parser and host observer until final output, usage, and terminal evidence are drained. These providers are disposed after finalization or a blocked detach.
+
 Pending external effects remain visible after process completion. Reconcile checks the recorded provider, target, identity, and remote receipt. An uncertain Slack browser send or GitHub review never triggers a blind resend. Explicit resolutions require actor, reason, and evidence. Treat a definitely-not-applied resolution as a factual assertion about the remote result, not a way to dismiss an inconvenient error.
 
 Source claims are independent of worker outcomes. A successful voyage can retain a
