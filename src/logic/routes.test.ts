@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { appPages, CLARIFICATIONS_PAGE_ID, CLARIFICATIONS_PAGE_SLOT, clarificationsManifest, compatibilityClarificationsManifest } from '../plugins/builtins';
 import { parseRoute, routeHref, type AppRoute, type PageView } from './routes';
 
 const parse = (href: string) => parseRoute(new URL(href, 'https://helmsman.example'));
@@ -207,5 +208,28 @@ describe('Helm legacy panel links', () => {
     expect(route.panelState).toBe(state);
     expect(route.panelInstance).toBeUndefined();
     expect(parse(routeHref(route))).toEqual(route);
+  });
+});
+
+describe('authored clarification alias', () => {
+  it('resolves the authored page with header scope and exact panel state across serialization', () => {
+    const cleanup = appPages.register(clarificationsManifest);
+    try {
+      const panelState = JSON.stringify({ 'helmsman.clarifications/panel': { version: 1, value: { question: 'q' } } });
+      const route = parse(`/clarifications?repo=org/a&panel=missing&panelState=${encodeURIComponent(panelState)}`);
+      expect(route).toMatchObject({ view: 'plugin', pluginPage: CLARIFICATIONS_PAGE_ID, pluginSlot: CLARIFICATIONS_PAGE_SLOT, repo: 'org/a', panelInstance: 'missing', panelState });
+      expect(parse(routeHref({ ...route, repo: 'org/b' }))).toEqual({ ...route, repo: 'org/b' });
+    } finally { cleanup(); }
+  });
+  it('retains unavailable selection without falling back to the compatibility page', () => {
+    appPages.select(CLARIFICATIONS_PAGE_SLOT, 'example.missing/page');
+    const cleanup = appPages.register(compatibilityClarificationsManifest);
+    try {
+      expect(parse('/clarifications?repo=org/a')).toMatchObject({ view: 'plugin', pluginPage: 'example.missing/page', pluginSlot: CLARIFICATIONS_PAGE_SLOT, repo: 'org/a' });
+      expect(appPages.resolvePath('/clarifications')?.page).toBeNull();
+      const recovery = parse('/plugins/helmsman.compat-clarifications/page?repo=org/a');
+      expect(recovery).toMatchObject({ view: 'plugin', pluginPage: 'helmsman.compat-clarifications/page', repo: 'org/a' });
+      expect(recovery.pluginSlot).toBeUndefined(); expect(routeHref(recovery)).toBe('/plugins/helmsman.compat-clarifications/page?repo=org%2Fa');
+    } finally { appPages.select(CLARIFICATIONS_PAGE_SLOT, null); cleanup(); }
   });
 });

@@ -32,6 +32,8 @@ import { handleTaskViewsReadApi } from './task-views-read-routes';
 import type { TaskViewsReadService } from './task-views-read-service';
 import type { RunCommandServerService } from './run-command-coordinator';
 import { handlePullRequestReadApi } from './pull-request-read-routes';
+import { handlePullRequestInspectApi } from './pull-request-inspect-routes';
+import type { PullRequestInspectServerService } from './pull-request-inspect-service';
 import type { PullRequestReadServerService } from './pull-request-read-service';
 import { handleActivityReadApi } from './activity-read-routes';
 import type { ActivityReadService } from './activity-read-service';
@@ -88,6 +90,8 @@ export interface RouterDeps {
   runRead?: RunReadServerService;
   runInspect?: RunInspectServerService;
   pullRequestRead?: PullRequestReadServerService;
+  pullRequestInspect?: PullRequestInspectServerService;
+  pullRequestInspectSignal?: AbortSignal;
   activityRead?: ActivityReadService;
   runCommands?: RunCommandServerService;
   runCommandCaller?: string;
@@ -168,6 +172,8 @@ export async function handleApi(
   if (taskViewsResult) return taskViewsResult;
   const commandResult = await handleRunCommandApi({ method, path, query, body: _body, caller: deps.runCommandCaller, service: deps.runCommands });
   if (commandResult) return commandResult;
+  const pullRequestInspectResult = await handlePullRequestInspectApi({ method, path, query, service: deps.pullRequestInspect, signal: deps.pullRequestInspectSignal });
+  if (pullRequestInspectResult) return pullRequestInspectResult;
   const pullRequestReadResult = await handlePullRequestReadApi({ method, path, query, service: deps.pullRequestRead });
   if (pullRequestReadResult) return pullRequestReadResult;
   const activityReadResult = await handleActivityReadApi({ method, path, query, service: deps.activityRead });

@@ -11,12 +11,13 @@ async function fixture(empty = false, options: { state?: PluginPageState; hidden
     instances: empty ? [] : [{ instanceId: 'questions', contributionId: 'helmsman.clarifications/panel', hidden: options.hidden ?? false, scope: { kind: 'inherit' }, state: {} }],
     columns: empty ? [] : [[{ instances: ['questions'], activeInstanceId: 'questions', collapsed: options.collapsed ?? false }]] };
   const listeners = new Set<() => void>(); const active = vi.fn(); const dispose = vi.fn(); const refresh = vi.fn(async () => {});
-  const mount = vi.fn<CompositionServiceV1['mount']>(async (instanceId, node) => { expect(container.contains(node)).toBe(true); node.textContent = 'Mounted run panel'; return { instanceId, setActive: active, dispose, refresh }; });
+  const mount = vi.fn<CompositionServiceV1['mount']>(async (instanceId, node) => { expect(container.contains(node)).toBe(true); node.textContent = 'Mounted question panel'; return { instanceId, setActive: active, dispose, refresh }; });
   const updateLayout = vi.fn<CompositionServiceV1['updateLayout']>(async (next, expected) => { if (expected !== layout.revision) throw new Error('Conflict'); layout = { ...next, revision: expected + 1 }; listeners.forEach(listener => listener()); return layout; });
   const composition: CompositionServiceV1 = { version: 1, compositionId: layout.compositionId, readLayout: vi.fn(async () => layout), updateLayout, mount,
     discover: () => [{ id: 'panel', title: 'Agent questions', pluginId: 'helmsman.clarifications', contributionId: 'helmsman.clarifications/panel', contract: { id: 'helmsman/clarifications-panel', version: 1 }, requires: [] }], subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; } };
-  const instance = await page.mount(container, { state: options.state ?? state, signal: lifetime.signal, composition, onDispose: vi.fn(), navigate: vi.fn() });
-  return { container, instance, composition, mount, active, dispose, refresh, lifetime, listeners, get layout() { return layout; } };
+  const navigate = vi.fn();
+  const instance = await page.mount(container, { state: options.state ?? state, signal: lifetime.signal, composition, onDispose: vi.fn(), navigate });
+  return { container, instance, navigate, composition, mount, active, dispose, refresh, lifetime, listeners, get layout() { return layout; } };
 }
 const button = (container: HTMLElement, label: string) => [...container.querySelectorAll('button')].find(value => value.textContent === label)!;
 describe('Agent questions composition page', () => {
@@ -76,5 +77,12 @@ it('keeps the question instance mounted when a separate contact implementation f
   await f.composition.updateLayout({ ...f.layout, instances: [...f.layout.instances, { instanceId: 'contacts', contributionId: 'example.contacts/panel', hidden: false, scope: { kind: 'inherit' }, state: {} }],
     columns: [[...f.layout.columns[0]!, { instances: ['contacts'], activeInstanceId: 'contacts', collapsed: false }]] }, f.layout.revision);
   await vi.waitFor(() => expect(f.container.textContent).toContain('Panel unavailable. Its saved state is kept.'));
-  expect(f.container.querySelector('[data-panel-instance="questions"]')?.textContent).toBe('Mounted run panel'); expect(f.dispose).not.toHaveBeenCalled(); await f.instance.refresh?.(); expect(f.refresh).toHaveBeenCalledOnce();
+  expect(f.container.querySelector('[data-panel-instance="questions"]')?.textContent).toBe('Mounted question panel'); expect(f.dispose).not.toHaveBeenCalled(); await f.instance.refresh?.(); expect(f.refresh).toHaveBeenCalledOnce();
+});
+
+it('keeps compatibility recovery accessible in empty layouts and follows header scope without touching layout', async () => {
+  const f = await fixture(true); await vi.waitFor(() => expect(f.container.querySelector('a')).not.toBeNull());
+  f.container.querySelector('a')!.click(); expect(f.navigate).toHaveBeenLastCalledWith('/plugins/helmsman.compat-clarifications/page?repo=owner%2Fproject');
+  await f.instance.update({ ...state, repo: null }); f.container.querySelector('a')!.click();
+  expect(f.navigate).toHaveBeenLastCalledWith('/plugins/helmsman.compat-clarifications/page'); expect(f.composition.updateLayout).not.toHaveBeenCalled(); expect(f.mount).not.toHaveBeenCalled();
 });

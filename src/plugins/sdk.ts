@@ -22,6 +22,7 @@ export * from './clarification-read';
 export * from './clarification-command';
 export * from './suggested-contact-admin';
 export * from './pull-request-read';
+export * from './pull-request-inspect';
 export * from './activity-read';
 export * from './run-command';
 

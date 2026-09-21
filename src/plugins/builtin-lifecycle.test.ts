@@ -143,3 +143,19 @@ describe('shipped frontend plugin lifecycle', () => {
     expect(iterator).not.toHaveBeenCalled();
   });
 });
+
+it('binds the authored clarification alias while retaining separate compatibility recovery and optional contacts', async () => {
+  const app = await setup(); const ids = ['helmsman.clarifications', 'helmsman.suggested-contacts', 'helmsman.compat-clarifications'];
+  const metadata = ids.map(id => ({ id, version: '0.1.0', hash, enabled: true })); app.syncBuiltinFrontend(metadata, false);
+  expect(app.appPages.resolvePath('/clarifications')?.page).toMatchObject({ contributionId: app.CLARIFICATIONS_PAGE_ID, composition: { accepts: [{ id: app.CLARIFICATIONS_PANEL_CONTRACT, version: 1 }, { id: 'helmsman/suggested-contacts-panel', version: 1 }] } });
+  expect(app.appPages.resolvePath('/plugins/helmsman.compat-clarifications/page')?.page?.contributionId).toBe('helmsman.compat-clarifications/page');
+  app.syncBuiltinFrontend(metadata.map(entry => ({ ...entry, enabled: entry.id !== 'helmsman.suggested-contacts' })), false);
+  expect(app.appPages.resolvePath('/clarifications')?.page?.contributionId).toBe(app.CLARIFICATIONS_PAGE_ID);
+  expect(app.panels.getModule('helmsman.suggested-contacts/panel')).toBeNull();
+  app.syncBuiltinFrontend(metadata.map(entry => ({ ...entry, enabled: entry.id !== 'helmsman.clarifications' })), false);
+  expect(app.appPages.resolvePath('/clarifications')).toMatchObject({ contributionId: app.CLARIFICATIONS_PAGE_ID, page: null });
+  expect(app.appPageModules.get('helmsman.compat-clarifications/page')).not.toBeNull();
+  app.appPages.select(app.CLARIFICATIONS_PAGE_SLOT, 'example.missing/page'); app.syncBuiltinFrontend(metadata, false);
+  expect(app.appPages.resolvePath('/clarifications')).toMatchObject({ contributionId: 'example.missing/page', page: null });
+  app.appPages.select(app.CLARIFICATIONS_PAGE_SLOT, null); expect(app.appPages.resolvePath('/clarifications')?.page?.contributionId).toBe(app.CLARIFICATIONS_PAGE_ID);
+});

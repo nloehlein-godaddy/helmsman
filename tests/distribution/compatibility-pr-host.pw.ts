@@ -1,0 +1,50 @@
+import { expect, test } from '@playwright/test';
+import { fixture } from './isolated-fixture';
+
+test('private PR page shares legacy drafts and uncertain request identities while preserving header scope', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const host = await fixture({ distribution: process.env.HELMSMAN_COMPAT_PR_DISTRIBUTION }); host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  const reviews: Record<string, unknown>[] = []; const slacks: Record<string, unknown>[] = [];
+  const status = { repo: 'org/b', number: 42, headSha: 'head-42', state: 'open', title: 'Shared PR', isOwnPr: true, draft: false, merged: false, headRefName: 'topic', reviewDecision: '', comments: 0, checks: { passed: 1, failed: 0, pending: 0 }, url: 'https://github.com/org/b/pull/42' };
+  try {
+    const origin = await host.start();
+    await page.route('**/api/pr?*', route => route.fulfill({ json: status }));
+    await page.route('**/api/pr/diff?*', route => route.fulfill({ json: { files: [] } }));
+    await page.route('**/api/pr/review', async route => { reviews.push(route.request().postDataJSON()); await route.abort('failed'); });
+    await page.route('**/api/slack/review-request', async route => { slacks.push(route.request().postDataJSON()); await route.abort('failed'); });
+    await page.route('**/api/config', route => route.request().method() === 'GET' ? route.fulfill({ json: { config: { SLACK_ENABLED: 'true' }, overridden: [] } }) : route.continue());
+    await page.goto(`${origin}/prs?repo=org/a&prRepo=org/b&pr=42`);
+    const legacy = page.locator('.pr-lookup-result');
+    await legacy.locator('.pr-review-body').fill('Original review survives the private bridge');
+    await legacy.locator('.pr-rerun-feedback').fill('Preserved branch feedback');
+    await legacy.locator('.pr-comment').click(); await expect(legacy.locator('.pr-review-error')).toBeVisible();
+    await legacy.locator('[data-slack-review-request]').click(); await expect(legacy.locator('.slack-review-result')).not.toBeEmpty();
+    await page.evaluate(() => { const link = document.createElement('a'); link.className = 'app-link'; link.href = '/plugins/helmsman.compat-pr/page?repo=org/a'; document.querySelector('#app')!.append(link); link.click(); });
+    const compat = page.locator('.plugin-pr-compatibility');
+    await compat.locator('[data-pr-compat-lookup]').fill('org/b#42'); await compat.locator('[data-pr-compat-lookup]').press('Enter');
+    await expect(compat.locator('.pr-review-body')).toHaveValue('Original review survives the private bridge');
+    await expect(compat.locator('.pr-rerun-feedback')).toHaveValue('Preserved branch feedback');
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await compat.locator('.pr-comment').click(); await expect.poll(() => reviews.length).toBe(2);
+    await compat.locator('[data-slack-review-request]').click(); await expect.poll(() => slacks.length).toBe(2);
+    expect(reviews[0]?.requestId).toBe(reviews[1]?.requestId); expect(slacks[0]?.requestId).toBe(slacks[1]?.requestId);
+    await compat.getByRole('button', { name: 'Hide Pull request', exact: true }).click();
+    await expect(compat.locator('.pr-review-body')).toBeHidden();
+    await compat.getByRole('button', { name: 'Show Pull request', exact: true }).click();
+    await expect(compat.locator('.pr-review-body')).toBeVisible();
+    await expect(compat.getByRole('button', { name: 'Hide Pull request', exact: true })).toBeEnabled();
+    await expect(compat.locator('.pr-review-body')).toHaveValue('Original review survives the private bridge');
+    await page.screenshot({ path: testInfo.outputPath('shared-pr-private-bridge.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(compat.locator('.pr-review-body')).toHaveValue('Original review survives the private bridge');
+    expect(await compat.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await compat.locator('.pr-review-body').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('shared-pr-private-bridge-mobile.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.reload(); await expect(compat.locator('.pr-panel[data-pr-repo="org/b"]')).toBeVisible(); await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    expect(reviews).toHaveLength(2); expect(slacks).toHaveLength(2);
+    await host.cli('disable', 'helmsman.compat-pr'); await page.reload(); await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible();
+    expect(errors).toEqual([]);
+  } finally { await host.close(); }
+});

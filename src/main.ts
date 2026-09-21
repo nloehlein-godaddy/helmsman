@@ -11,7 +11,7 @@ import { emptyLocalGit, fetchLocalGit, updateLocalGit, type LocalGitAction, type
 import { renderLocalGit } from './renderLocalGit';
 import { fetchSlack, markSlackNotificationRead, unavailableSlack, type SlackState } from './data/slack';
 import { renderSlack } from './renderSlack';
-import { requestSlackReview, SlackReviewRequestError, type SlackReviewResult } from './data/slackReview';
+import { PrCompatibilitySession, bindPrCompatibilitySession, prTarget } from './pr-compatibility-session';
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
@@ -24,10 +24,9 @@ import type { PluginPageState } from './plugins/sdk';
 import { renderRunsView, renderRunHistory, type RunHistoryState } from './renderRuns';
 import { fetchRunHistory, RUN_HISTORY_PAGE_SIZE } from './data/runHistory';
 import { mountCampaigns } from './renderCampaigns';
-import { mountClarifications } from './renderClarifications';
 import { loadDashboard, POLL_MS, LOCAL_POLL_MS, type DashboardResponse } from './data/live';
 import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderPrPanel, renderCmuxView, renderRunsDrawer, renderVoyageRetry, runTabStatus, renderConfigView, renderPrView, renderPrLists, renderRecentPrRuns } from './render';
-import type { RunTabView, PrViewState } from './render';
+import type { RunTabView } from './render';
 import type { DashboardSnapshot } from './data/mock';
 import { fetchReviewRequests, type PrListState, type PrInboxState } from './data/prLists';
 import {
@@ -44,7 +43,7 @@ import {
   type RunSummary,
 } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
-import { getPrStatus, getPrDiff, submitReview as submitPrReview, parsePrUrl, type PrStatusView } from './data/pr';
+import { parsePrUrl } from './data/pr';
 import { selectSurface, isPolling, providerOf, parseCmuxTabs, type CmuxTabView, type PanelState } from './logic/cmuxPanel';
 import { mapKeyEvent, type CmuxKeyIntent } from './logic/cmuxKeys';
 import { applyTheme, loadThemeId, saveThemeId } from './data/themes';
@@ -78,10 +77,6 @@ interface RunTab {
   unsub: (() => void) | null;
   complete: boolean;
   status?: string;
-  prStatus?: PrStatusView | null;
-  prLoadedAt?: number;
-  prVersion?: number;
-  prPending?: Promise<void>;
 }
 
 function deriveTicketStatus(summary: RunStatusSummary): string {
@@ -95,6 +90,10 @@ function deriveTicketStatus(summary: RunStatusSummary): string {
 export class DashboardView {
   private readonly root: HTMLElement;
   private readonly rootEvents = new window.AbortController();
+  private readonly prSession = new PrCompatibilitySession({ repos: () => this.repos, headerRepo: () => this.selectedRepo, slackEnabled: () => String(this.uiConfig.config?.SLACK_ENABLED) !== 'false' });
+  private drawerPrIdentity: string | null = null;
+  private readonly drawerPrOwner = {};
+  private readonly unbindPrSession: () => void;
   private readonly runDrawerEl: HTMLElement;
   private readonly auxiliary: AuxiliaryPageHost;
   private presentationSelection: { locator: Exclude<PresentationLocatorV1, { kind: 'pull-request' }>; scopeRepo: string | null } | null = null;
@@ -139,8 +138,9 @@ export class DashboardView {
   private reviewRequestsRepo: string | null | undefined = undefined;
   private readonly onVisibilityChange = (): void => {
     this.syncCmuxPolling();
-    this.clarifications?.setVisible(!document.hidden);
-    if (!document.hidden) void this.clarifications?.refresh();
+    this.prSession.setActive(this, !document.hidden);
+    this.prSession.setActive(this.drawerPrOwner, this.canRenderRunLog());
+    if (!document.hidden && (this.view === 'prs' || this.view === 'runs') && this.prSession.view.repo && this.prSession.view.number) void this.loadPrView(this.prSession.view.repo, this.prSession.view.number, false);
     if (this.isPluginPage()) this.paintPluginPage();
     if (document.hidden) this.cancelRunLogFlush();
     else this.scheduleRunLogFlush();
@@ -151,7 +151,6 @@ export class DashboardView {
   };
   private reviewRequestsSeq: number = 0;
   private reviewRequestsPending: { repo: string | null; seq: number; promise: Promise<void> } | null = null;
-  private prViewSeq: number = 0;
   private dashboardUnavailable: boolean = false;
   private reviewRequests: PrListState = { prs: [], loading: true, degraded: false, truncated: false };
   private view: PageView = parseRoute(new URL('/helm', window.location.origin)).view;
@@ -163,7 +162,6 @@ export class DashboardView {
   private localGitOperations = new Map<string, Promise<void>>();
   private readonly onResize = (): void => { this.revealActiveTab(); };
   private readonly onPopState = (): void => { void this.navigate(parseRoute(new URL(window.location.href)), 'none'); };
-  private prView: PrViewState = { repo: null, number: null, pr: null, diff: null, loading: false };
   private cmuxConnected: boolean = false;
   private cmuxTabsError: string | null = null;
   private cmuxTabsSeq = 0;
@@ -185,10 +183,7 @@ export class DashboardView {
   private slackError: string | null = null;
   private slackSeq: number = 0;
   private slackReads = new Set<string>();
-  private manualReviewRequests = new Map<string, { requestId: string; pending: boolean }>();
-  private slackReviewRequests = new Map<string, { requestId: string; pending: boolean; error?: string; result?: SlackReviewResult }>();
   private campaigns: ReturnType<typeof mountCampaigns> | null = null;
-  private clarifications: ReturnType<typeof mountClarifications> | null = null;
   private unsubscribePages: (() => void) | null = null;
   private unsubscribePageModules: (() => void) | null = null;
   private pageHost: PluginPageHost | null = null;
@@ -196,6 +191,11 @@ export class DashboardView {
 
   constructor(root: HTMLElement) {
     this.root = root;
+    this.unbindPrSession = bindPrCompatibilitySession(root, this.prSession);
+    this.prSession.setActive(this, !document.hidden);
+    this.prSession.subscribe(() => { if (!this.destroyed) this.paintSlackReviewRequests(); });
+    this.root.addEventListener('input', () => this.prSession.capture(this.root), { signal: this.rootEvents.signal });
+    this.root.addEventListener('change', () => this.prSession.capture(this.root), { signal: this.rootEvents.signal });
     applyTheme(this.themeId);
     this.root.addEventListener('click', (event: MouseEvent): void => this.handleClick(event), { signal: this.rootEvents.signal });
     this.root.addEventListener('keydown', (event: KeyboardEvent): void => {
@@ -411,7 +411,7 @@ export class DashboardView {
     ++this.routeSeq;
     ++this.runHistorySeq;
     ++this.refreshSeq;
-    ++this.prViewSeq;
+    this.prSession.setActive(this, false);
     ++this.reviewRequestsSeq;
     ++this.localGitSeq;
     ++this.slackSeq;
@@ -420,8 +420,8 @@ export class DashboardView {
     this.stopCapture();
     this.campaigns?.destroy();
     this.campaigns = null;
-    this.clarifications?.destroy();
-    this.clarifications = null;
+    this.unbindPrSession();
+    this.prSession.dispose();
     this.cmuxEventSource?.close();
     this.runTabs.forEach(tab => tab.unsub?.());
   }
@@ -439,10 +439,6 @@ export class DashboardView {
       this.campaigns?.destroy();
       this.campaigns = null;
     }
-    if (this.view === 'clarifications' && route.view !== 'clarifications') {
-      this.clarifications?.destroy();
-      this.clarifications = null;
-    }
     if (this.presentationSelection && (route.run !== this.presentationSelection.locator.runId
       || this.presentationSelection.locator.kind === 'run' && route.runRepo !== this.presentationSelection.locator.repo)) this.presentationSelection = null;
     const seq = ++this.routeSeq;
@@ -451,7 +447,10 @@ export class DashboardView {
       this.runHistoryPending = null;
       this.runHistory.loading = false;
     }
-    ++this.prViewSeq;
+    this.prSession.capture(this.root);
+    this.prSession.setActive(this, false);
+    this.prSession.setActive(this.drawerPrOwner, false);
+    this.prSession.setActive(this, !document.hidden);
     this.stopCmuxScreenPoll();
     this.stopCapture();
     this.cmuxCapturing = false;
@@ -494,7 +493,7 @@ export class DashboardView {
     if (route.pane) this.collapsed.delete(`${route.view}:${route.pane === 'tabs' ? 'list' : route.pane === 'screen' ? 'detail' : route.pane}`);
     if (route.run || route.pane === 'tasks') this.collapsed.delete('runs:drawer');
     if (route.view === 'prs' || route.view === 'runs') {
-      this.prView = { repo: route.pr ? route.prRepo ?? route.repo : null, number: route.pr, pr: null, diff: null, loading: Boolean(route.pr) };
+      this.prSession.select(route.pr ? route.prRepo ?? route.repo : null, route.pr);
     }
     if (!route.run) { this.activeTabId = null; this.presentationSelection = null; }
     this.paint();
@@ -886,7 +885,7 @@ export class DashboardView {
       return;
     }
     if (this.view === 'runs') {
-      this.mountPage(renderRunsView(this.prView, { repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId, runs: this.historyRuns, history: this.runHistory }));
+      this.mountPage(renderRunsView(this.prSession.view, { repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId, runs: this.historyRuns, history: this.runHistory }));
       this.bindHeadControls();
       this.rehomeRunDrawer();
       return;
@@ -904,18 +903,6 @@ export class DashboardView {
           });
         }
       } else void this.campaigns.refresh();
-      this.bindHeadControls();
-      this.rehomeRunDrawer();
-      return;
-    }
-    if (this.view === 'clarifications') {
-      const existing = this.root.querySelector<HTMLElement>('#clarifications-page');
-      if (!existing || !this.clarifications) {
-        this.clarifications?.destroy();
-        this.mountPage(renderAppShell(this.shellOptions(), '<div id="clarifications-page"></div>'));
-        const container = this.root.querySelector<HTMLElement>('#clarifications-page');
-        if (container) this.clarifications = mountClarifications(container, { repo: () => this.selectedRepo, visible: !document.hidden });
-      } else void this.clarifications.refresh();
       this.bindHeadControls();
       this.rehomeRunDrawer();
       return;
@@ -962,6 +949,7 @@ export class DashboardView {
   }
 
   private mountPage(markup: string): void {
+    const prFocus = this.prSession.capture(this.root);
     this.pageHost?.dispose();
     this.pageHost = null;
     if (this.contentView === 'config') this.captureConfigDrafts();
@@ -980,6 +968,7 @@ export class DashboardView {
     this.contentView = this.view;
     this.syncShell();
     this.paintSlackReviewRequests();
+    this.prSession.restore(this.root, prFocus);
   }
 
   private syncShell(): void {
@@ -1081,57 +1070,13 @@ export class DashboardView {
   }
 
   private paintSlackReviewRequests(): void {
-    for (const control of this.root.querySelectorAll<HTMLElement>('[data-slack-review-control]')) {
-      const repo = control.dataset.repo;
-      const number = Number(control.dataset.number);
-      if (!repo || !Number.isSafeInteger(number)) continue;
-      const state = this.slackReviewRequests.get(`${repo}#${number}`);
-      const button = control.querySelector<HTMLButtonElement>('[data-slack-review-request]');
-      const status = control.querySelector<HTMLElement>('.slack-review-result');
-      if (!button || !status) continue;
-      const disabled = String(this.uiConfig.config?.SLACK_ENABLED) === 'false';
-      button.disabled = disabled || Boolean(state?.pending || state?.result);
-      button.title = disabled ? 'Enable Slack integration in Config to request a review.' : '';
-      button.textContent = state?.pending ? 'Sending…' : state?.result ? term('reviewRequested') : term('requestSlackReview');
-      status.classList.toggle('is-error', Boolean(state?.error));
-      status.setAttribute('role', state?.error ? 'alert' : 'status');
-      status.replaceChildren();
-      if (state?.error) status.textContent = state.error;
-      else if (state?.result) {
-        status.textContent = `Sent to #${state.result.channel.replace(/^#/, '')}. `;
-        if (state.result.permalink) {
-          const link = document.createElement('a');
-          link.href = state.result.permalink;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          link.textContent = 'View message ↗';
-          status.append(link);
-        }
-      }
-    }
+    this.prSession.paintSlack(this.root, String(this.uiConfig.config?.SLACK_ENABLED) !== 'false');
   }
 
   private async sendSlackReviewRequest(button: HTMLButtonElement): Promise<void> {
-    const repo = button.dataset.repo;
-    const number = Number(button.dataset.number);
+    const repo = button.dataset.repo; const number = Number(button.dataset.number);
     if (!repo || !Number.isSafeInteger(number) || number < 1) return;
-    const key = `${repo}#${number}`;
-    const previous = this.slackReviewRequests.get(key);
-    if (previous?.pending || previous?.result) return;
-    const state = { requestId: previous?.requestId || crypto.randomUUID(), pending: true } as {
-      requestId: string; pending: boolean; error?: string; result?: SlackReviewResult;
-    };
-    this.slackReviewRequests.set(key, state);
-    this.paintSlackReviewRequests();
-    try {
-      state.result = await requestSlackReview(repo, number, state.requestId);
-    } catch (error: unknown) {
-      state.error = error instanceof Error ? error.message : 'Slack request failed. Check the channel before retrying.';
-      if (error instanceof SlackReviewRequestError && !error.uncertain) state.requestId = '';
-    } finally {
-      state.pending = false;
-      if (!this.destroyed) this.paintSlackReviewRequests();
-    }
+    await this.prSession.requestSlack(this, { repo, number });
   }
 
   private async readSlackNotification(id: string): Promise<void> {
@@ -1307,7 +1252,7 @@ export class DashboardView {
   }
 
   private paintPrView(): void {
-    this.mountPage(renderPrView(this.prView, {
+    this.mountPage(renderPrView(this.prSession.view, {
       repos: this.repos,
       selectedRepo: this.selectedRepo,
       themeId: this.themeId,
@@ -1952,89 +1897,31 @@ export class DashboardView {
     if (runRow) this.handleRunRowClick(runRow);
   }
 
-  private prTarget(btn: HTMLElement): { panel: HTMLElement; repo: string; number: number } | null {
-    const panel: HTMLElement | null = btn.closest<HTMLElement>('.pr-panel');
-    const repo: string | undefined = panel?.dataset.prRepo;
-    const numberRaw: string | undefined = panel?.dataset.prNumber;
-    const number: number = Number(numberRaw);
-    if (!panel || !repo || !numberRaw || !Number.isFinite(number)) return null;
-    return { panel, repo, number };
+  private async handleReview(button: HTMLElement, event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'): Promise<void> {
+    const target = prTarget(button); if (!target) return;
+    const showOpenInTab = Boolean(target.panel.querySelector('.pr-open-in-tab'));
+    const reviewed = await this.prSession.review(this, target, event);
+    if (this.destroyed) return;
+    if (reviewed && target.panel.isConnected) {
+      const focus = this.prSession.capture(this.root);
+      target.panel.outerHTML = renderPrPanel(this.prSession.status(target), this.repos.includes(target.repo), showOpenInTab, this.selectedRepo);
+      this.prSession.restore(this.root, focus); this.paintSlackReviewRequests();
+    } else this.prSession.restore(this.root);
+    if (reviewed) void this.loadReviewRequests();
   }
 
-  private async handleReview(btn: HTMLElement, event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'): Promise<void> {
-    const t: { panel: HTMLElement; repo: string; number: number } | null = this.prTarget(btn);
-    if (!t) return;
-    const prViewSeq = this.prViewSeq;
-    const showOpenInTab = Boolean(t.panel.querySelector('.pr-open-in-tab'));
-    const bodyEl: HTMLTextAreaElement | null = t.panel.querySelector<HTMLTextAreaElement>('.pr-review-body');
-    const body: string = bodyEl?.value ?? '';
-    if ((event === 'REQUEST_CHANGES' || event === 'COMMENT') && body.trim() === '') return;
-    const expectedHeadSha = t.panel.dataset.prHeadSha;
-    const key = JSON.stringify([t.repo, t.number, event, body, expectedHeadSha]);
-    const previous = this.manualReviewRequests.get(key);
-    if (previous?.pending) return;
-    const request = previous ?? { requestId: crypto.randomUUID(), pending: false };
-    request.pending = true;
-    this.manualReviewRequests.set(key, request);
-    const result: { ok: boolean; error?: string } = await submitPrReview(t.repo, t.number, event, body, request.requestId, expectedHeadSha);
-    request.pending = false;
-    if (!result.ok) {
-      const reviewEl: HTMLElement | null = t.panel.querySelector<HTMLElement>('.pr-review');
-      const errEl: HTMLDivElement = document.createElement('div');
-      errEl.className = 'pr-review-error';
-      errEl.textContent = result.error ?? term('reviewFailed');
-      reviewEl?.appendChild(errEl);
-      return;
-    }
-    this.manualReviewRequests.delete(key);
-    const refreshed: PrStatusView | null = await getPrStatus(t.repo, t.number);
-    for (const tab of this.runTabs) {
-      if (tab.pr?.repo !== t.repo || tab.pr.number !== t.number) continue;
-      tab.prVersion = (tab.prVersion ?? 0) + 1;
-      tab.prStatus = refreshed;
-      tab.prLoadedAt = refreshed ? Date.now() : undefined;
-    }
-    if (refreshed && prViewSeq === this.prViewSeq && this.prView.repo === t.repo && this.prView.number === t.number) {
-      this.prView = { ...this.prView, pr: refreshed };
-    }
-    if (t.panel.isConnected) {
-      t.panel.outerHTML = renderPrPanel(refreshed, this.repos.includes(t.repo), showOpenInTab, this.selectedRepo);
-      this.paintSlackReviewRequests();
-    }
-    void this.loadReviewRequests();
-  }
-
-  private async handleRerun(btn: HTMLElement): Promise<void> {
-    const t: { panel: HTMLElement; repo: string; number: number } | null = this.prTarget(btn);
-    if (!t) return;
-    const feedbackEl: HTMLTextAreaElement | null = t.panel.querySelector<HTMLTextAreaElement>('.pr-rerun-feedback');
-    const feedback: string = feedbackEl?.value ?? '';
-    if (feedback.trim() === '') return;
-    const seq: number = ++this.launchSeq;
-    try {
-      const result: LaunchResult = await launchRun({ mode: 'rerun', repo: t.repo, prNumber: t.number, feedback, ...this.readTuning(t.panel, 'pr') });
-      if (seq !== this.launchSeq) return;
-      this.openRunTab(result.runId, `feedback #${t.number}`);
-    } catch (err: unknown) {
-      if (seq !== this.launchSeq) return;
-      const message: string = err instanceof Error ? err.message : term('relaunchFailed');
-      this.openErrorTab(`feedback #${t.number}`, message);
-    }
-  }
-
-  private async handleReviewAgent(btn: HTMLElement): Promise<void> {
-    const t: { panel: HTMLElement; repo: string; number: number } | null = this.prTarget(btn);
-    if (!t) return;
-    const seq: number = ++this.launchSeq;
-    try {
-      const result: LaunchResult = await launchRun({ mode: 'review', repo: t.repo, prNumber: t.number, ...this.readTuning(t.panel, 'pr') });
-      if (seq !== this.launchSeq) return;
-      this.openRunTab(result.runId, `${term('review')} #${t.number}`);
-    } catch (err: unknown) {
-      if (seq !== this.launchSeq) return;
-      const message: string = err instanceof Error ? err.message : term('reviewFailed');
-      this.openErrorTab(`${term('review')} #${t.number}`, message);
-    }
+  private async handleRerun(button: HTMLElement): Promise<void> { await this.launchPr(button, 'rerun'); }
+  private async handleReviewAgent(button: HTMLElement): Promise<void> { await this.launchPr(button, 'review'); }
+  private async launchPr(button: HTMLElement, mode: 'rerun' | 'review'): Promise<void> {
+    const target = prTarget(button); if (!target || button instanceof HTMLButtonElement && button.disabled) return;
+    const seq = ++this.launchSeq;
+    if (button instanceof HTMLButtonElement) button.disabled = true;
+    const outcome = await this.prSession.launch(this, target, mode);
+    if (button instanceof HTMLButtonElement) button.disabled = false;
+    if (!outcome || this.destroyed || seq !== this.launchSeq) return;
+    const label = mode === 'rerun' ? `feedback #${target.number}` : `${term('review')} #${target.number}`;
+    if (outcome.result) this.openRunTab(outcome.result.runId, label);
+    else if (outcome.error) this.openErrorTab(label, outcome.error);
   }
 
   private async handlePrLookup(): Promise<void> {
@@ -2050,14 +1937,12 @@ export class DashboardView {
   }
 
   private async loadPrView(repo: string, number: number, updateRoute: boolean = true): Promise<void> {
+    this.prSession.capture(this.root);
     if (updateRoute) this.updateAddress({ ...this.route, view: this.view, repo: this.selectedRepo, prRepo: repo, pr: number, pane: this.view === 'runs' ? 'newrun' : 'lookup' });
-    const seq: number = ++this.prViewSeq;
-    this.prView = { repo, number, pr: null, diff: null, loading: true };
+    const pending = this.prSession.loadView(this, { repo, number });
     if (this.view === 'prs' || this.view === 'runs') this.paint();
-    const [pr, diff] = await Promise.all([getPrStatus(repo, number), getPrDiff(repo, number)]);
-    if (seq !== this.prViewSeq) return;
-    this.prView = { repo, number, pr, diff, loading: false };
-    if (this.view === 'prs' || this.view === 'runs') this.paint();
+    await pending;
+    if (!this.destroyed && (this.view === 'prs' || this.view === 'runs') && this.prSession.view.repo === repo && this.prSession.view.number === number) this.paint();
   }
 
   private async enterPrView(repo?: string, number?: number): Promise<void> {
@@ -2069,7 +1954,7 @@ export class DashboardView {
     const number: number = Number(row.dataset.number);
     if (!repo || !Number.isSafeInteger(number) || number <= 0) return;
     void this.enterPrView(repo, number).then(() => {
-      if (this.view !== 'prs' || this.prView.repo !== repo || this.prView.number !== number) return;
+      if (this.view !== 'prs' || this.prSession.view.repo !== repo || this.prSession.view.number !== number) return;
       this.root.querySelector<HTMLElement>('.pr-lookup-panel')?.scrollIntoView?.({ block: 'start' });
       this.root.querySelector<HTMLInputElement>('.pr-lookup-input')?.focus({ preventScroll: true });
     });
@@ -2217,26 +2102,17 @@ export class DashboardView {
     }
   }
 
-  private async loadTabPr(runId: string, repo: string, prNumber: number, refresh = false): Promise<void> {
+  private async loadTabPr(runId: string, repo: string, number: number, refresh = false): Promise<void> {
     const tab = this.runTabs.find(item => item.runId === runId);
-    if (!tab || this.destroyed) return;
-    if (refresh && tab.prPending) await tab.prPending;
-    if (this.destroyed || !this.runTabs.includes(tab)) return;
-    if (refresh) tab.prLoadedAt = undefined;
-    if ((tab.prLoadedAt === undefined || Date.now() - tab.prLoadedAt >= POLL_MS) && !tab.prPending) {
-      const version = tab.prVersion ?? 0;
-      tab.prPending = getPrStatus(repo, prNumber).then(pr => {
-        if (version !== (tab.prVersion ?? 0)) return;
-        tab.prStatus = pr;
-        tab.prLoadedAt = pr ? Date.now() : undefined;
-      }).finally(() => { tab.prPending = undefined; });
-    }
-    await tab.prPending;
-    if (this.destroyed || !this.runTabs.includes(tab) || runId !== this.activeTabId) return;
-    const prEl = this.runDrawerEl.querySelector<HTMLElement>('.run-drawer-pr');
-    if (prEl) {
-      prEl.innerHTML = renderPrPanel(tab.prStatus ?? null, this.repos.includes(repo), true, this.selectedRepo);
-      this.paintSlackReviewRequests();
+    if (!tab || this.destroyed || runId !== this.activeTabId || !this.canRenderRunLog()) return;
+    this.prSession.setActive(this.drawerPrOwner, true);
+    const status = await this.prSession.readStatus(this.drawerPrOwner, { repo, number }, refresh);
+    if (this.destroyed || !this.runTabs.includes(tab) || runId !== this.activeTabId || !this.prSession.active(this.drawerPrOwner)) return;
+    const slot = this.runDrawerEl.querySelector<HTMLElement>('.run-drawer-pr');
+    if (slot) {
+      const focus = this.prSession.capture(this.runDrawerEl);
+      slot.innerHTML = renderPrPanel(status, this.repos.includes(repo), true, this.selectedRepo);
+      this.prSession.restore(this.runDrawerEl, focus); this.paintSlackReviewRequests();
     }
   }
 
@@ -2257,11 +2133,18 @@ export class DashboardView {
     this.auxiliary.rehome(standalone ? this.root.querySelector<HTMLElement>('[data-plugin-standalone]') : showAuxiliary ? auxiliarySlot : null);
     const slot = this.root.querySelector<HTMLElement>('.runs-drawer-slot');
     if (slot && this.runDrawerEl.parentElement !== slot) slot.appendChild(this.runDrawerEl);
+    const wasActive = this.prSession.active(this.drawerPrOwner);
+    this.prSession.setActive(this.drawerPrOwner, this.canRenderRunLog());
+    if (!wasActive && this.canRenderRunLog()) {
+      const active = this.runTabs.find(tab => tab.runId === this.activeTabId);
+      if (active?.pr) void this.loadTabPr(active.runId, active.pr.repo, active.pr.number);
+    }
     if (this.canRenderRunLog()) this.scheduleRunLogFlush();
     else this.cancelRunLogFlush();
   }
 
   private renderRunDrawer(refreshPr: boolean = true): void {
+    const prFocus = this.prSession.capture(this.runDrawerEl);
     this.cancelRunLogFlush();
     this.renderedRunLines = [];
     const tabsView: RunTabView[] = this.runTabs.map((t: RunTab): RunTabView => ({
@@ -2275,6 +2158,9 @@ export class DashboardView {
     this.runDrawerEl.classList.toggle('is-collapsed', drawerCollapsed);
     this.paintRunRetries();
     const active: RunTab | undefined = this.runTabs.find((t: RunTab): boolean => t.runId === this.activeTabId);
+    const identity = active?.pr ? JSON.stringify([active.pr.repo, active.pr.number]) : null;
+    if (identity !== this.drawerPrIdentity || drawerCollapsed || !active) this.prSession.setActive(this.drawerPrOwner, false);
+    this.drawerPrIdentity = identity;
     if (!active) return;
     const body: HTMLElement | null = this.runDrawerEl.querySelector<HTMLElement>('.run-drawer-body');
     if (body) {
@@ -2284,12 +2170,11 @@ export class DashboardView {
     }
     this.renderFooterDom(active);
     if (active.pr) {
+      const panel = this.runDrawerEl.querySelector('.run-drawer-pr');
+      if (panel) panel.innerHTML = renderPrPanel(this.prSession.status(active.pr), this.repos.includes(active.pr.repo), true, this.selectedRepo);
+      this.prSession.restore(this.runDrawerEl, prFocus);
+      this.paintSlackReviewRequests();
       if (refreshPr) void this.loadTabPr(active.runId, active.pr.repo, active.pr.number);
-      else {
-        const panel = this.runDrawerEl.querySelector('.run-drawer-pr');
-        if (panel) panel.innerHTML = renderPrPanel(active.prStatus ?? null, this.repos.includes(active.pr.repo), true, this.selectedRepo);
-        this.paintSlackReviewRequests();
-      }
     }
   }
 
@@ -2397,15 +2282,6 @@ export class DashboardView {
     } finally {
       btn.disabled = false;
     }
-  }
-
-  private readTuning(scope: ParentNode, prefix: string): { model?: string; effort?: string } {
-    const model: string = scope.querySelector<HTMLSelectElement>(`.${prefix}-model`)?.value ?? '';
-    const effort: string = scope.querySelector<HTMLSelectElement>(`.${prefix}-effort`)?.value ?? '';
-    const tuning: { model?: string; effort?: string } = {};
-    if (model) tuning.model = model;
-    if (effort) tuning.effort = effort;
-    return tuning;
   }
 
   private async handleConfigSave(btn: HTMLButtonElement): Promise<void> {

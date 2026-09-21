@@ -10,6 +10,7 @@ import type { RunReadServiceV1 } from './run-read';
 import type { RunInspectServiceV1 } from './run-inspect';
 import type { DownloadServiceV1 } from './download';
 import type { PullRequestReadServiceV1 } from './pull-request-read';
+import type { PullRequestInspectServiceV1 } from './pull-request-inspect';
 import type { ActivityReadServiceV1 } from './activity-read';
 import type { RunCommandServiceV1 } from './run-command';
 import type { TaskEditServiceV1 } from './task-edit';
@@ -31,6 +32,7 @@ export interface PluginPageServices {
   readonly clarificationCommands?: ClarificationCommandServiceV1;
   readonly suggestedContacts?: SuggestedContactAdminServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
+  readonly pullRequestInspect?: PullRequestInspectServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;
   readonly usage: {

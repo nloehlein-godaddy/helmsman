@@ -6,7 +6,7 @@ The flow now includes Moon Units-inspired intake, frozen execution settings, iso
 
 ## Plugin task presentation and command authority
 
-Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads, provisional viewer/history pages and public clarification services are reviewed and pushed through 773cce4, including shared-viewer convergence and authored question/contact panels; sibling run/source retry corrections are in progress; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
+Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads, provisional viewer/history pages and public clarification services are reviewed and pushed through 9142966, including shared-viewer convergence, authored question/contact panels and exact-request retry; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
 
 ```mermaid
 flowchart TD
@@ -88,7 +88,10 @@ flowchart TD
     Move --> Transfer[Synchronous transfer retains active reads and requests]
     Auxiliary --> Hidden[Hidden or detached<br/>Abort scoped work; retain session]
     Hidden --> Visible[Visible again<br/>Resume from retained package state]
-    PR[Typed PR selection] --> LegacyPR[Existing private PR page<br/>Separate compatibility panel awaits cutover]
+    PR[Typed PR selection] --> LegacyPR[Legacy PR route]
+    LegacyPR --> PRSession[Shared private compatibility session<br/>Memory-only drafts and request IDs]
+    CanonicalPR[Canonical compatibility panel] --> PRSession
+    PRSession --> Interests[Independent read interests<br/>Last reader cancels provider work]
 ```
 
 ```mermaid
@@ -129,6 +132,28 @@ flowchart TD
 Saved browser drafts and results remain until explicit cleanup. Fresh successful journal reads protect records associated with unresolved submissions; a read failure prevents deletion. Cleanup checks the displayed and saved draft again after the journal read and rejects changed content. Discarding an already-unsaved local edit retains and reloads persisted text for review; deleting that text requires a separate action. Scoped answer drafts, saved results and the explicitly global contact draft have separate removal actions, and none deletes journal entries. Compatibility local storage does not provide an atomic transaction across tabs for the final comparison and deletion.
 
 Answer acceptance does not prove worker consumption. Contacts are global metadata; saving them sends no messages. Disabled contributions retain browser journals and reconcile after reenablement. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 when the public services are active. Trusted worker ingestion still requires its retained attempt channel. See [backend contracts](clarification-backend.md) and [author lifecycle](panel-authoring.md).
+
+## Clarification alias and PR inspection
+
+The clarification alias selects an authored composition; retained compatibility evidence stays under its original identity. PR inspection is a public read facet while private review and Slack actions remain in the compatibility session.
+
+```mermaid
+flowchart TD
+    Alias[Agent Questions alias] --> Selected[Selected authored composition]
+    Selected --> Panels[Independent question and global contact panels]
+    Selected --> Recovery[Page-level compatibility recovery link<br/>Visible for empty and missing-panel layouts]
+    Recovery --> Original[Original caller, drafts, results and journals<br/>No import, rekey or automatic replay]
+    Scope[Active PR inspector and permitted galleon] --> Target[Read canonical base and head]
+    Target --> Signals[Bounded check runs, classic statuses and reviews]
+    Signals --> Recheck[Recheck target and provider binding]
+    Recheck -->|Stable| Detail[Independent observation quality<br/>Incomplete counts stay null]
+    Recheck -->|Changed| Unavailable[Unavailable]
+    Detail --> Diff[Explicit immutable base/head comparison]
+    Diff --> Preview[Bounded files and patch previews<br/>File quality and patch truncation are separate]
+    Last[Last reader leaves or deadline expires] --> Cancel[Abort provider work and release capacity]
+```
+
+A complete file enumeration never claims complete patches. The private PR session preserves drafts and pending request IDs only within the current browser session. Disabling its canonical contribution does not disable the still-legacy PR/Runs routes. See [PR inspection](pull-request-inspect-authoring.md) and [authored clarification recovery](authored-clarifications.md).
 
 ## Conditional panel-state saves
 
@@ -220,7 +245,7 @@ flowchart LR
     Usage --> Outcomes[Costs & Outcomes<br/>Reported spend + separate Codex API estimates<br/>Usage coverage, tokens, duration, PR outcomes<br/>Separate task assessment with evidence]
 ```
 
-- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Public answer commands now retain durable receipts; the compatibility renderer uses those services. Authored clarification panels are available through their canonical page; clarification alias migration and Runs/PR cutover remain pending.
+- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Public answer commands now retain durable receipts; the compatibility renderer uses those services. Authored clarification panels now own the selected Agent Questions alias and canonical page. A page-level recovery link retains access to original compatibility drafts and requests without import or replay. Runs/PR cutover remains pending.
 - **Evidence and recovery:** validated reports are recorded with immutable identities and hashes. A checkpoint continuation revalidates saved evidence before reusing it; legacy checkpoints without manifests follow an explicit compatibility path. A fresh retry preserves the original task/provider, workflow snapshot and Docker image pin; changed prompts or skills fail preflight. Restart reattachment and checkpoint continuation are different from restarting an entire failed voyage.
 - **Costs and outcomes:** provider token/cost events and stage timing feed a persistent ledger. Reported spend can be partial; unreported billed costs stay unknown. Eligible unpriced Codex usage receives a separate Standard short-context API baseline estimate, using published rates checked September 19, 2026. The UI exposes estimated/unpriced record coverage and runs without usage records. Missing model/token data remains unknown; service tier, per-request context and cache-write usage are unavailable, and subscription charges may differ. Estimates do not affect budget caps or cost-per-PR metrics, which use fully priced runs. Process success does not itself establish task completion: assessment state (complete/partial/failed/not-assessed) is separate from task outcome (achieved/partial/not-achieved/unknown), with supporting evidence. PR visibility is best-effort with explicit stale/unavailable status.
 

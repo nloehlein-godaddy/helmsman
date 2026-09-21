@@ -5,6 +5,7 @@ import { createHostSourceAdminService } from './source-admin-service';
 import { createHostTodoLegacyRecoveryService } from './todo-legacy-recovery-service';
 import { fetchOutcomes, saveOutcomeAssessment } from '../data/outcomeClient';
 import { createHostPullRequestReadService } from './pull-request-read-service';
+import { createHostPullRequestInspectService } from './pull-request-inspect-service';
 import { createHostActivityReadService } from './activity-read-service';
 import { createHostRunReadService } from './run-read-service';
 import { createHostRunInspectService } from './run-inspect-service';
@@ -99,6 +100,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
       todoLegacyRecovery: createHostTodoLegacyRecoveryService(lifetime, { scope }),
       taskEdit: createHostTaskEditService(lifetime, { scope }), taskViews: createHostTaskViewsReadService(lifetime, { scope }),
       pullRequests: createHostPullRequestReadService(lifetime, { scope }),
+      pullRequestInspect: createHostPullRequestInspectService(lifetime, { scope }),
       activity: createHostActivityReadService(lifetime, { scope }),
       ...(caller ? { runCommands: createHostRunCommandService(lifetime, { scope, caller }),
         clarifications: createHostClarificationReadService(lifetime, { scope, caller }),

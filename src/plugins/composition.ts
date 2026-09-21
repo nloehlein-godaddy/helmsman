@@ -10,6 +10,7 @@ import type { RunReadServiceV1 } from './run-read';
 import type { RunInspectServiceV1 } from './run-inspect';
 import type { DownloadServiceV1 } from './download';
 import type { PullRequestReadServiceV1 } from './pull-request-read';
+import type { PullRequestInspectServiceV1 } from './pull-request-inspect';
 import type { ActivityReadServiceV1 } from './activity-read';
 import type { RunCommandServiceV1 } from './run-command';
 import type { TaskEditServiceV1 } from './task-edit';
@@ -17,7 +18,7 @@ import type { SourceCommandServiceV1 } from './source-command';
 import type { TaskViewsReadServiceV1 } from './task-views';
 
 export interface PluginServiceRequirementV1 {
-  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
+  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/pull-request-inspect' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
   readonly version: 1;
 }
 
@@ -122,6 +123,7 @@ export interface PluginPanelServicesV1 {
   readonly clarificationCommands?: ClarificationCommandServiceV1;
   readonly suggestedContacts?: SuggestedContactAdminServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
+  readonly pullRequestInspect?: PullRequestInspectServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;
 }

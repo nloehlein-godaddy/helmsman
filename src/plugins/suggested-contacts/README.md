@@ -1,6 +1,6 @@
 # Authored suggested contacts
 
-`helmsman.suggested-contacts/panel` implements `helmsman/suggested-contacts-panel@1`. It is an independently installable panel, composed by the opt-in authored question page; it has no standalone page or legacy alias binding. Its only required service is `helmsman/suggested-contact-admin@1`.
+`helmsman.suggested-contacts/panel` implements `helmsman/suggested-contacts-panel@1`. It is an independently installable panel, composed by the default authored `/clarifications` page; it has no standalone page or alias binding of its own. Its only required service is `helmsman/suggested-contact-admin@1`.
 
 Contact administration is explicitly global. Bounded pages contain 25 contacts. Create and update preserve arbitrary address text, explicit enabled state and current contact revisions. Editing captures an expected revision; refresh never silently rebases an edit. After a stale rejection, save its result, discard the old edit, refresh and explicitly open a new edit. Saving contact metadata sends no messages.
 

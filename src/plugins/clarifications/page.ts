@@ -55,6 +55,11 @@ const page: PluginPageModule = { mount(container, context) {
     let routedFocus: HTMLElement | null = null;
     const root = node('div'); root.className = 'plugin-clarifications'; root.append(node('style', styles), node('h1', 'Agent questions'));
     const toolbar = node('div'); toolbar.className = 'question-tools'; toolbar.append(button('Refresh', () => { if (failedRoute === located) { located = null; failedRoute = null; } void refresh(); }));
+    const recovery = node('a', 'Previous drafts and requests');
+    const recoveryHref = `/plugins/helmsman.compat-clarifications/page${state.repo ? `?${new URLSearchParams({ repo: state.repo })}` : ''}`; recovery.href = recoveryHref;
+    recovery.addEventListener('click', event => {
+      if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); context.navigate(recoveryHref); }
+    }); toolbar.append(recovery);
     const options = node('select'); options.setAttribute('aria-label', 'Agent questions panel implementation');
     for (const candidate of composition!.discover()) { const option = node('option', candidate.title); option.value = candidate.contributionId; options.append(option); }
     toolbar.append(options, button('Add panel', () => {

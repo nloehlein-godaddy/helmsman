@@ -30,9 +30,9 @@ export interface PrStatusView {
   url: string;
 }
 
-export async function getPrStatus(repo: string, prNumber: number): Promise<PrStatusView | null> {
+export async function getPrStatus(repo: string, prNumber: number, signal?: AbortSignal): Promise<PrStatusView | null> {
   try {
-    const res: Response = await fetch(`/api/pr?repo=${encodeURIComponent(repo)}&number=${prNumber}`);
+    const res: Response = await fetch(`/api/pr?repo=${encodeURIComponent(repo)}&number=${prNumber}`, { signal });
     if (!res.ok) return null;
     const data: unknown = await res.json();
     if (!data || typeof (data as PrStatusView).number !== 'number' || !(data as PrStatusView).checks) return null;
@@ -66,9 +66,9 @@ export async function submitReview(
   }
 }
 
-export async function getPrDiff(repo: string, prNumber: number): Promise<PrFileDiff[] | null> {
+export async function getPrDiff(repo: string, prNumber: number, signal?: AbortSignal): Promise<PrFileDiff[] | null> {
   try {
-    const res: Response = await fetch(`/api/pr/diff?repo=${encodeURIComponent(repo)}&number=${prNumber}`);
+    const res: Response = await fetch(`/api/pr/diff?repo=${encodeURIComponent(repo)}&number=${prNumber}`, { signal });
     if (!res.ok) return null;
     const data: { files?: PrFileDiff[] } = await res.json();
     return Array.isArray(data.files) ? data.files : null;

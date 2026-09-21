@@ -2,6 +2,8 @@
 
 The active objective is to complete every phase in [the architecture plan](plugin-architecture-plan.md), including independent review, fixes, and behavioral verification. A completed increment is not completion of the full objective.
 
+Implementation has resumed at the user's request. The [revised remaining delivery plan](plugin-remaining-delivery-plan.md) replaces repeated intermediate review/build cycles with feature checkpoints, affected checks and phase-level aggregate validation. Existing uncommitted work is preserved and is the first checkpoint to finish.
+
 | Phase | State | Required evidence |
 |---|---|---|
 | A — Host foundation | Complete (`2e8d8ff`, `7c8c27e`) | Standalone SDK/distribution, isolated source-denied installation and route reload, archive/registry rejection, full safe start, existing browser flows. Build, unit, browser/visual, distribution gates passed. |
@@ -262,5 +264,29 @@ All 11 identified retry entry paths across New run, Run viewer, Running, Recent,
 Independent cross-reviews are clean. Validation passed 4,480 tests across 307 files, TypeScript and the production/distribution build, 23 existing browser/visual tests and all nine Node distribution checks. Ten source-denied production scenarios passed: New Run/Underway, six Todo and three source-settings scenarios, including existing visual baselines. Real stale-peer retries after acknowledgment send zero POSTs and recreate no journal in all three service families; the Todo remains a single record. The New Run peer explicitly disables cross-tab notifications so automatic refresh cannot hide the stale-row race. Focused tests also cover freeform launch identity, newer reservations, acknowledgment during lookup, cancellation, corrupted storage, original authority, missing optional methods and ID-less draft preservation.
 
 Root/package READMEs, SDK/source/recovery guides and matching Markdown/offline HTML flows describe the corrected APIs and remaining work. All 83 documentation files pass local-target checks. Desktop/mobile HTML flows render without overflow and were visually inspected. Exact-commit review and push remain pending. The next work is PR compatibility extraction and Runs cutover, followed by clarification alias/recovery migration and the remaining E/F/G scope.
+
+_Helmsman · not reported - not reported_
+
+## Phase E4 sibling retry corrections pushed; page cutovers continue
+
+`91429669d5727776f84a84d8d90438e9c9d39a1c` is pushed to `godaddy/master`; the remote SHA was verified. All three exact-commit Senior Software Architect reviews were clean after correcting a documentation distinction between preserving command input and validating receipt identity. The preceding 4,480-test, 23-browser-test, ten-production-scenario and nine-distribution-check evidence applies to the pushed code. The final distribution copy includes the reviewed documentation.
+
+The next increment is underway with separate ownership: extract existing PR state into an explicit private compatibility controller/panel before Runs cutover; bind the clarification alias to the independently authored composition while retaining original compatibility recovery; and define a separately declared public PR inspection facet for revision-bound detail and bounded diff reads. Public manual-review and optional Slack publication contracts remain subsequent work. No new cutover or PR inspection acceptance is claimed here; remaining E integrations, F and G stay open.
+
+_Helmsman · not reported - not reported_
+
+## Delivery cadence revised at user request
+
+Stopped implementation and all three agents before further builds or commits. The remaining A–G objective is unchanged. The new delivery plan finishes one feature at a time, uses one independent exact-commit review with correction-only follow-up, reuses validation evidence and runs aggregate suites at phase exits. Targeted checks still cover durable effects, identity, scope, migration and recovery changes. Current uncommitted E work and its outstanding catalog/PR/clarification acceptance are recorded in that plan. The user subsequently resumed implementation under this revised plan.
+
+## E4 clarification alias and PR inspection checkpoint
+
+The clarification alias now selects the authored composition and always exposes compatibility recovery for empty or missing-panel layouts. Original caller identities, raw drafts and pending requests remain untouched. Catalog reads reconcile committed CLI selections and serialize fresh snapshot application before serving, preventing a stale default page from persisting the wrong initial layout.
+
+A private PR session shares status/diff reads, drafts and unresolved manual-review/Slack identities across legacy surfaces and a canonical compatibility panel. It cancels reads after the last interested surface leaves and preserves explicit galleon scope. This is memory-only compatibility, not restart durability; legacy Runs/PR cutovers and public action extraction remain open. The new public PR inspection facet supplies scoped detail and immutable comparison previews with independent completeness, bounded transport and nullable incomplete counts, including classic GitHub statuses.
+
+Final validation under the revised delivery plan: TypeScript/app/distribution build passed; 88 focused PR tests across eight files passed; all six affected source-denied production scenarios passed (four clarification, one private PR preservation, one independent public-SDK PR inspection). Desktop/mobile changed-layout screenshots were inspected. Earlier unchanged evidence remains applicable: 55 inspection tests, 135 alias/page tests, 23 browser tests and nine distribution checks. The earlier aggregate unit run had 4,545 passing tests and one descriptor-parity failure; that failure was corrected and its 14-test file passed. The full suite was not repeated for this feature checkpoint. Latest catalog/PR behavior is covered by the final focused and production checks.
+
+Affected READMEs, author/operator guides and matching Markdown/HTML flows are updated. Local documentation links pass, and the offline flow renders without horizontal overflow. Exact-commit architectural review and push are next. The next feature milestone is Runs presentation and public-contract clarification recovery; the full E/F/G scope stays open.
 
 _Helmsman · not reported - not reported_

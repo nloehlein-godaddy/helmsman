@@ -11,7 +11,7 @@ const marker = '.helmsman-distribution.json';
 const ignoredSource = /(?:\.test\.[cm]?[jt]s|\.d\.ts)$/;
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 const authorPackages = ['clarifications', 'suggested-contacts', 'run-viewer', 'run-history', 'costs', 'pricing', 'todos', 'todos-ui', 'source-settings', 'triage', 'bugs', 'jira', 'local-tasks-alternative', 'helm', 'backlog', 'helm-alternative', 'backlog-alternative', 'running', 'recent', 'underway', 'newrun', 'repoprs', 'shipped', 'activity'];
-const authorGuides = ['panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'download-authoring.md', 'run-presentation-authoring.md', 'clarification-authoring.md', 'authored-clarifications.md', 'clarification-backend.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md', 'helmsman-process.md'];
+const authorGuides = ['panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'pull-request-inspect-authoring.md', 'download-authoring.md', 'run-presentation-authoring.md', 'clarification-authoring.md', 'authored-clarifications.md', 'clarification-backend.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md', 'helmsman-process.md'];
 
 async function exists(path) {
   try { await lstat(path); return true; }
@@ -233,7 +233,7 @@ async function copyDependencies(staging, dependencies) {
 
 async function buildSdk(destination, version) {
   const sourceRoot = join(root, 'src', 'plugins');
-  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'task-views.ts', 'task-edit.ts', 'todo-legacy-recovery.ts', 'task-editor-contract.ts', 'source-command.ts', 'source-settings.ts', 'source-admin.ts', 'source-contract-validation.ts', 'run-read.ts', 'run-inspect.ts', 'download.ts', 'presentation.ts', 'clarification-read.ts', 'clarification-command.ts', 'suggested-contact-admin.ts', 'clarification-validation.ts', 'run-command.ts', 'pull-request-read.ts', 'activity-read.ts']);
+  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'task-views.ts', 'task-edit.ts', 'todo-legacy-recovery.ts', 'task-editor-contract.ts', 'source-command.ts', 'source-settings.ts', 'source-admin.ts', 'source-contract-validation.ts', 'run-read.ts', 'run-inspect.ts', 'download.ts', 'presentation.ts', 'clarification-read.ts', 'clarification-command.ts', 'suggested-contact-admin.ts', 'clarification-validation.ts', 'run-command.ts', 'pull-request-read.ts', 'pull-request-inspect.ts', 'activity-read.ts']);
   const queued = new Set([join(sourceRoot, 'sdk.ts')]);
   await mkdir(destination);
   for (const source of queued) {

@@ -1,5 +1,7 @@
 # Helmsman plugin architecture plan
 
+Delivery update: implementation has resumed under the revised delivery cadence. The [remaining delivery plan](plugin-remaining-delivery-plan.md) supersedes earlier work sequencing and test/review frequency; the original A–G scope and final acceptance gates remain in force.
+
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
 Status: Phases A–D are complete and pushed. Phase E Helm and feature extraction is in implementation and acceptance review; phases F–G remain pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.

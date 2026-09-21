@@ -97,4 +97,13 @@ export const compatibilityClarificationsManifest: PluginManifest = {
   ] }],
 };
 
-export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);
+export const compatibilityPrManifest: PluginManifest = {
+  manifestVersion: 2, id: 'helmsman.compat-pr', version: '0.1.0', sdkVersion: 1,
+  panels: [{ id: 'panel', title: 'Pull request', contract: { id: 'helmsman/pull-request-panel', version: 1 }, requires: [] }],
+  pages: [{ id: 'page', title: 'Pull request compatibility', slots: [], panes: [], requires: [{ id: 'helmsman/composition', version: 1 }],
+    composition: { id: 'helmsman/pr-compatibility-page', version: 1, accepts: [{ id: 'helmsman/pull-request-panel', version: 1 }],
+      initialLayout: { instances: [{ instanceId: 'pull-request', contributionId: 'helmsman.compat-pr/panel' }],
+        columns: [[{ instances: ['pull-request'], activeInstanceId: 'pull-request', collapsed: false }]] } } }],
+};
+
+export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);

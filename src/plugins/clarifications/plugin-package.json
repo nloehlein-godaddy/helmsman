@@ -9,7 +9,7 @@
       {
         "id": "page",
         "title": "Agent questions",
-        "slots": [],
+        "slots": ["helmsman/clarifications-page"],
         "panes": [],
         "composition": {
           "id": "helmsman/clarifications-page",

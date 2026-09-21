@@ -6,6 +6,8 @@ import { appPages } from '../../src/plugins/builtins';
 import { createPluginCoordinator, loadPluginSnapshot, pluginDirectory } from './plugins/store';
 import { builtinFrontendArtifacts } from './plugins/builtin-frontend';
 import { createPullRequestReadService, projectLegacyOpenPullRequests, projectLegacyAuthoredPullRequests } from './pull-request-read-service';
+import { createPullRequestInspectService } from './pull-request-inspect-service';
+import { createGithubPullRequestInspectProvider } from './pull-request-inspect-github';
 import { createActivityReadService } from './activity-read-service';
 import { createRunReadService } from './run-read-service';
 import { createRunInspectService } from './run-inspect-service';
@@ -178,16 +180,22 @@ for (const error of backendPlugins.errors) process.stderr.write(`${error}\n`);
 pluginSnapshot = retainActivatedPluginPages(await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator), backendPlugins.activePluginIds());
 const serverPages = createServerPageCatalog(appPages);
 serverPages.apply(pluginSnapshot.catalog);
-pluginCoordinator.subscribe(async () => {
-  const next = retainActivatedPluginPages(await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator), backendPlugins.activePluginIds());
-  for (const previous of pluginSnapshot.catalog.plugins) if (!next.catalog.plugins.some(plugin => plugin.package.manifest.id === previous.package.manifest.id)) {
-    const id = previous.package.manifest.id;
-    const state = pluginCoordinator.state(id);
-    if (!previous.package.backend && state?.desiredEnabled === false) lifecycle.recordHealth(id, state.artifactHash, 'inactive', null);
-  }
-  serverPages.apply(next.catalog);
-  pluginSnapshot = next;
-});
+let pluginSnapshotRefresh = Promise.resolve();
+function refreshPluginSnapshot(): Promise<void> {
+  const refresh = pluginSnapshotRefresh.then(async () => {
+    const next = retainActivatedPluginPages(await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator), backendPlugins.activePluginIds());
+    for (const previous of pluginSnapshot.catalog.plugins) if (!next.catalog.plugins.some(plugin => plugin.package.manifest.id === previous.package.manifest.id)) {
+      const id = previous.package.manifest.id;
+      const state = pluginCoordinator.state(id);
+      if (!previous.package.backend && state?.desiredEnabled === false) lifecycle.recordHealth(id, state.artifactHash, 'inactive', null);
+    }
+    serverPages.apply(next.catalog);
+    pluginSnapshot = next;
+  });
+  pluginSnapshotRefresh = refresh.catch(() => {});
+  return refresh;
+}
+pluginCoordinator.subscribe(refreshPluginSnapshot);
 for (const error of pluginSnapshot.errors) process.stderr.write(`${error}\n`);
 const workflows = openWorkflowStore(persistence.sql);
 const clarifications = openClarificationStore(persistence.sql, { getRun: id => db.getRun(id) });
@@ -266,6 +274,9 @@ const scheduler: AutoClaimScheduler = new AutoClaimScheduler({
 
 const sourceAdmin = createApplicationSourceAdmin({ ...taskSourceRuntime, scheduler, repos: applicationRepos, catalog: () => pluginSnapshot.catalog });
 
+const pullRequestInspect = createPullRequestInspectService({ repos: applicationRepos,
+  provider: createGithubPullRequestInspectProvider({ github: () => configStore.current().github }),
+});
 const pullRequestRead = createPullRequestReadService({ repos: applicationRepos, async read(query, repos, signal) {
   signal.throwIfAborted();
   const github = configStore.current().github;
@@ -1017,6 +1028,13 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   void (async () => {
     const url: URL = new URL(req.url ?? '/', `http://localhost:${PORT}`);
+    if (url.pathname === '/api/plugins/catalog' && (req.method === 'GET' || req.method === 'HEAD')) {
+      try { await pluginCoordinator.reconcile(); await refreshPluginSnapshot(); }
+      catch {
+        res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ error: 'Plugin catalog unavailable.' })); return;
+      }
+    }
     if (handlePluginRequest(req, res, url, pluginSnapshot)) return;
     if (url.pathname === '/recovery' && (req.method === 'GET' || req.method === 'HEAD')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
@@ -1064,10 +1082,16 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
       res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
     }
+    const inspectController = url.pathname.startsWith('/api/pull-request-inspect/') ? new AbortController() : null;
+    const cancelInspect = () => inspectController?.abort();
+    if (inspectController) {
+      req.once('aborted', cancelInspect); res.once('close', cancelInspect);
+      if (req.aborted || res.destroyed) cancelInspect();
+    }
     const api = await handleApi(req.method ?? 'GET', url.pathname, url.searchParams, body, {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      runRead, runInspect, pullRequestRead, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      runRead, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,
@@ -1182,7 +1206,10 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         return { ok: true as const, keys };
       },
       cmuxKey: (surface: string, key: string) => cmux.sendKey(surface, key),
+    }).finally(() => {
+      if (inspectController) { req.off('aborted', cancelInspect); res.off('close', cancelInspect); }
     });
+    if (inspectController?.signal.aborted) return;
     if (api) {
       res.writeHead(api.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify(api.json));

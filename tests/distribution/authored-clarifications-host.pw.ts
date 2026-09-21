@@ -94,9 +94,15 @@ test('authored question panels preserve compatibility recovery, reject stale-tab
     const originalContacts = await journal(page, contactDatabase, compatibilityCaller);
     expect(originalAnswers).toHaveLength(1); expect(originalContacts).toHaveLength(1);
     const originalDrafts = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([key]) => key.startsWith('helmsman.compat-clarifications.drafts.v2:'))));
-    await installQuestions(host);
-    const url = `${origin}/plugins/${questionPackage}/page?repo=org/a`;
+    await installQuestions(host); await host.cli('select', 'helmsman/clarifications-page', `${questionPackage}/page`);
+    const url = `${origin}/clarifications?repo=org/a`;
+    const catalog = await page.request.get(`${origin}/api/plugins/catalog`);
+    expect(catalog.ok()).toBe(true);
+    expect((await catalog.json()).bindings?.['helmsman/clarifications-page']).toBe(`${questionPackage}/page`);
     await page.goto(url);
+    await expect(page.locator(`[data-plugin-page="${questionPackage}/page"]`)).toBeVisible();
+    expect((await questionLayout(page) as { instances?: { contributionId: string }[] } | undefined)?.instances?.map(instance => instance.contributionId))
+      .toEqual([questionCaller, contactCaller]);
     const questions = page.locator('.plugin-clarifications-panel');
     const selected = questions.locator('[data-question-id="authored-proof"]');
     await expect(selected.getByRole('textbox', { name: 'Answer', exact: true })).toBeVisible();
@@ -266,5 +272,121 @@ test('authored global contact panel reconciles create after restart and updates 
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await contacts.getByRole('heading', { name: 'Suggested contacts — global', exact: true }).scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath('authored-contacts-mobile.png') });
     expect(errors).toEqual([]); expect(host.output()).not.toContain('Source checkout is unavailable');
+  } finally { await host.close(); }
+});
+
+async function questionLayout(page: Page) {
+  return (await browserRows(page, 'helmsman.composition-layouts', 'layouts')).find(value => value && typeof value === 'object' && 'compositionId' in value && value.compositionId === compositionId);
+}
+async function replaceQuestionLayout(page: Page, empty: boolean) {
+  return page.evaluate(({ compositionId, empty }) => new Promise<unknown>((resolve, reject) => {
+    const opening = indexedDB.open('helmsman.composition-layouts', 1); opening.onerror = () => reject(opening.error);
+    opening.onsuccess = () => {
+      const db = opening.result; const tx = db.transaction('layouts', 'readwrite'); const table = tx.objectStore('layouts'); const read = table.get(compositionId); let saved: unknown;
+      read.onsuccess = () => {
+        if (!read.result) { tx.abort(); return; }
+        saved = { ...read.result, revision: read.result.revision + 1,
+          instances: empty ? [] : [{ instanceId: 'retained-missing', contributionId: 'example.unavailable/panel', hidden: false, scope: { kind: 'galleon', repo: 'org/b' }, state: { 'example.unavailable/panel': { version: 7, value: { future: 'Preserve opaque panel evidence' } } } }],
+          columns: empty ? [] : [[{ instances: ['retained-missing'], activeInstanceId: 'retained-missing', collapsed: false }]] };
+        table.put(saved);
+      };
+      tx.oncomplete = () => { db.close(); resolve(saved); }; tx.onabort = () => { db.close(); reject(tx.error ?? new Error('Missing original layout')); };
+    };
+  }), { compositionId, empty });
+}
+async function compatibilityEvidence(page: Page) {
+  return page.evaluate(async () => {
+    const entries = Object.entries(localStorage).filter(([key]) => key.startsWith('helmsman.compat-clarifications.drafts.v2:')).sort(([a], [b]) => a.localeCompare(b));
+    const encoded = new TextEncoder().encode(JSON.stringify(entries));
+    return { count: entries.length, bytes: encoded.byteLength, hash: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', encoded))).map(value => value.toString(16).padStart(2, '0')).join('') };
+  });
+}
+
+test('clarifications alias preserves canonical layouts through installed page replacement, unavailable selection and restart', async ({ page }, testInfo) => {
+  test.setTimeout(150_000);
+  const host = await fixture({ distribution: process.env.HELMSMAN_AUTHORED_CLARIFICATION_DISTRIBUTION }); host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    await installQuestions(host); await host.start(); await host.stop(); await seedClarificationProof(host);
+    let origin = await host.start();
+    await page.goto(`${origin}/plugins/helmsman.clarifications/page?repo=org/a`);
+    const answer = page.locator('.plugin-clarifications-panel [data-question-id="question-proof"]').getByRole('textbox', { name: 'Answer', exact: true });
+    await answer.fill('Retained canonical draft before alias visit');
+    await expect.poll(async () => JSON.stringify(await browserRows(page, 'helmsman.composition-layouts', 'layouts'))).toContain('Retained canonical draft before alias visit');
+    const canonicalLayout = await questionLayout(page);
+    await page.goto(`${origin}/clarifications?repo=org/a`);
+    await expect(page.locator('[data-plugin-page="helmsman.clarifications/page"]')).toBeVisible();
+    await expect(answer).toHaveValue('Retained canonical draft before alias visit');
+    expect(await questionLayout(page)).toEqual(canonicalLayout);
+    await host.cli('select', 'helmsman/clarifications-page', `${questionPackage}/page`); await page.reload();
+    await expect(page.locator(`[data-plugin-page="${questionPackage}/page"]`)).toBeVisible(); await expect(answer).toHaveValue('Retained canonical draft before alias visit');
+    expect(await questionLayout(page)).toEqual(canonicalLayout);
+    await host.cli('disable', questionPackage); await page.reload();
+    await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible();
+    await expect(page.locator('.clarification-page, .plugin-clarifications-panel')).toHaveCount(0);
+    expect(await questionLayout(page)).toEqual(canonicalLayout);
+    await page.goto(`${origin}/plugins/helmsman.compat-clarifications/page?repo=org/a`); await expect(page.locator('.clarification-page')).toBeVisible();
+    await host.cli('enable', questionPackage); await host.cli('select', 'helmsman/clarifications-page', 'example.missing/page');
+    await page.goto(`${origin}/clarifications?repo=org/a`); await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible();
+    await expect(page.locator('.clarification-page, .plugin-clarifications-panel')).toHaveCount(0);
+    await host.cli('select', 'helmsman/clarifications-page', `${questionPackage}/page`);
+    await page.goto(`${origin}/plugins/helmsman.compat-clarifications/page?repo=org/a`);
+    const missingLayout = await replaceQuestionLayout(page, false);
+    await page.goto(`${origin}/clarifications?repo=org/a&panel=missing-route-target`);
+    await expect(page.getByText(/requested panel \(missing-route-target\)/)).toBeVisible();
+    await expect(page.locator('[data-panel-instance="retained-missing"]').first()).toContainText(/unavailable/i);
+    expect(await questionLayout(page)).toEqual(missingLayout);
+    await page.goto(`${origin}/plugins/helmsman.compat-clarifications/page?repo=org/a`);
+    const emptyLayout = await replaceQuestionLayout(page, true);
+    await page.goto(`${origin}/clarifications?repo=org/a`); await expect(page.getByText('Add a panel to view agent questions.', { exact: true })).toBeVisible();
+    await expect(page.locator('.plugin-clarifications-panel, .plugin-suggested-contacts')).toHaveCount(0);
+    host.env.HELMSMAN_PORT = new URL(origin).port; origin = await host.start(); await page.goto(`${origin}/clarifications?repo=org/b`);
+    await expect(page.locator(`[data-plugin-page="${questionPackage}/page"]`)).toBeVisible();
+    await expect(page.getByText('Add a panel to view agent questions.', { exact: true })).toBeVisible();
+    expect(await questionLayout(page)).toEqual(emptyLayout);
+    await page.locator('.plugin-clarifications > .question-tools').getByRole('link', { name: 'Previous drafts and requests', exact: true }).click();
+    await expect(page.locator('.clarification-page')).toBeVisible(); await expect(page.locator('.repo-select')).toHaveValue('org/b');
+    await host.cli('select', 'helmsman/clarifications-page', 'default'); await page.goto(`${origin}/clarifications?repo=org/b`);
+    await expect(page.locator('[data-plugin-page="helmsman.clarifications/page"]')).toBeVisible();
+    expect(await questionLayout(page)).toEqual(emptyLayout);
+    await expect(page.locator('#boot')).toBeHidden({ timeout: 15_000 }); await page.screenshot({ path: testInfo.outputPath('clarifications-empty-alias-desktop.png') });
+    await page.setViewportSize({ width: 390, height: 844 }); await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('clarifications-empty-alias-mobile.png') });
+    expect(errors).toEqual([]); expect(host.output()).not.toContain('Source checkout is unavailable');
+  } finally { await host.close(); }
+});
+
+test('clarifications alias preserves oversized and unknown compatibility evidence without importing or dispatching it', async ({ page }) => {
+  test.setTimeout(90_000);
+  const host = await fixture({ distribution: process.env.HELMSMAN_AUTHORED_CLARIFICATION_DISTRIBUTION }); host.env.REPO_PROJECT_MAP = 'org/a=TASK';
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    let origin = await host.start(); await page.goto(`${origin}/clarifications?repo=org/a`);
+    await expect(page.locator('[data-plugin-page="helmsman.clarifications/page"]')).toBeVisible();
+    await page.evaluate(() => {
+      const prefix = 'helmsman.compat-clarifications.drafts.v2:';
+      for (let index = 0; index < 320; index++) localStorage.setItem(`${prefix}answer:${JSON.stringify(['org/a', 'old-run', `old-question-${index}`])}`, JSON.stringify('Retained original draft '.padEnd(4000, 'x')));
+      const requestId = '00000000-0000-4000-8000-000000000099';
+      localStorage.setItem(`${prefix}result:${requestId}`, JSON.stringify({ requestId, repo: 'org/a', message: 'Retained original compatibility result' }));
+    });
+    const oversized = await compatibilityEvidence(page); expect(oversized.bytes).toBeGreaterThan(1024 * 1024);
+    let mutations = 0; page.on('request', request => { if (request.method() === 'POST' && ['/api/clarification-command', '/api/suggested-contact-admin/commands'].includes(new URL(request.url()).pathname)) mutations++; });
+    await page.reload(); await expect(page.locator('.plugin-clarifications-panel')).toBeVisible();
+    expect(await compatibilityEvidence(page)).toEqual(oversized);
+    expect(JSON.stringify(await browserRows(page, 'helmsman.composition-layouts', 'layouts'))).not.toContain('Retained original draft');
+    await page.locator('.plugin-clarifications > .question-tools').getByRole('link', { name: 'Previous drafts and requests', exact: true }).click();
+    await expect(page.locator('.clarification-page').getByText('Saved drafts and results', { exact: true })).toBeVisible();
+    expect(await compatibilityEvidence(page)).toEqual(oversized);
+    await page.evaluate(() => { localStorage.setItem('helmsman.compat-clarifications.drafts.v2:future-format', '{"version":99,"opaque":"Preserve unknown original evidence"}'); });
+    const unknown = await compatibilityEvidence(page); host.env.HELMSMAN_PORT = new URL(origin).port; origin = await host.start();
+    await page.goto(`${origin}/clarifications?repo=org/a`); await expect(page.locator('.plugin-clarifications-panel')).toBeVisible();
+    expect(await compatibilityEvidence(page)).toEqual(unknown);
+    await host.cli('disable', 'helmsman.clarifications'); await page.reload();
+    await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible();
+    expect(await compatibilityEvidence(page)).toEqual(unknown);
+    await page.goto(`${origin}/plugins/helmsman.compat-clarifications/page?repo=org/a`);
+    await expect(page.locator('.clarification-page .clarification-error[role="alert"]')).toContainText('Draft or result storage unavailable');
+    expect(await compatibilityEvidence(page)).toEqual(unknown); expect(await journal(page, answerDatabase, 'helmsman.clarifications/panel')).toEqual([]);
+    expect(await journal(page, contactDatabase, 'helmsman.suggested-contacts/panel')).toEqual([]); expect(mutations).toBe(0); expect(errors).toEqual([]);
   } finally { await host.close(); }
 });

@@ -82,6 +82,10 @@ Declare `helmsman/source-admin` version 1 for `context.services.sourceAdmin`. It
 
 Replacement validation returns a pinned receipt naming the mode, original authority, candidate artifact, operator evidence and validation identity. Submit that exact receipt to commit; do not reconstruct it from a validation ID. All mutations use host-reserved durable browser identities, with explicit receipt checking and acknowledgment. Optional `retry({repo,requestId}, signal?)` replays only the exact retained administration command; `repo` may be null for a global request. A missing reservation or missing retry capability never falls back to a new submission. Persistent mutations and their server receipts share a transaction. A runtime toggle is bound to the scheduler's process epoch: an old request must never enable a new process after restart. An expired result means the old process outcome is unknown; it does not prove the old toggle was never applied. Display current runtime state separately from historical command results.
 
+## Pull request inspection
+
+Declare `helmsman/pull-request-inspect` version 1 for optional `context.services.pullRequestInspect`. Detail binds the observed base/head; diff reads an immutable comparison for that target. File completeness, patch previews and independent checks/review quality remain explicit. Configured-author metadata does not authorize review submission. See [the inspection guide](pull-request-inspect-authoring.md) for limits, cancellation and the separate private PR compatibility boundary.
+
 ## Run reads and commands
 
 Declare `helmsman/run-read` version 1 for `context.services.runs`. Its bounded `list`, `load`, and `log` reads enforce effective scope. `watchList`, `watchLoad`, and `watchLog` emit an initial result and use nonoverlapping, cancellable host polling; unsubscribe on suspension or disposal. Cursors belong to their query and expire on server restart. An unavailable response is not an empty list. Worker status and source settlement are separate: a successful worker can still have pending or operator-required source settlement. Logs never establish worker success.

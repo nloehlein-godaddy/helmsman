@@ -15,6 +15,7 @@ import { createHostTaskEditService } from './task-edit-service';
 import { createHostSourceCommandService } from './source-command-service';
 import { createHostTaskViewsReadService } from './task-views-read-service';
 import { createHostPullRequestReadService } from './pull-request-read-service';
+import { createHostPullRequestInspectService } from './pull-request-inspect-service';
 import { createHostActivityReadService } from './activity-read-service';
 import { createHostRunReadService } from './run-read-service';
 import { createHostRunInspectService } from './run-inspect-service';
@@ -188,7 +189,7 @@ export class PluginCompositionHost {
     const contribution = this.options.registry.get(instance.contributionId);
     const compatible = contribution && this.options.definition.accepts.some(contract =>
       contract.id === contribution.contract.id && contract.version === contribution.contract.version)
-      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
+      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
     const module = compatible ? this.options.registry.getModule(instance.contributionId) : null;
     if (panel.module !== module || panel.contributionId !== instance.contributionId) {
       panel.host?.dispose(); panel.host = null;
@@ -228,6 +229,7 @@ export class PluginCompositionHost {
         clarificationCommands: createHostClarificationCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope: activity, caller: instance.contributionId }),
         pullRequests: createHostPullRequestReadService(lifetime, { scope: activity }),
+        pullRequestInspect: createHostPullRequestInspectService(lifetime, { scope: activity }),
         activity: createHostActivityReadService(lifetime, { scope: activity }),
         runCommands: createHostRunCommandService(lifetime, { scope: activity, caller: instance.contributionId }) }),
       selectPresentation: this.options.selectPresentation,

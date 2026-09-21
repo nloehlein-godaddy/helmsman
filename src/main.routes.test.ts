@@ -1,3 +1,5 @@
+import 'fake-indexeddb/auto';
+import { syncBuiltinFrontend } from './plugins/builtin-modules';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { loadDashboard as loadMockSnapshot } from './data/mock';
@@ -80,6 +82,23 @@ afterEach(() => {
 });
 
 describe('URL navigation', () => {
+  it('shares drafts and status with the registered private PR page without changing header scope', async () => {
+    syncBuiltinFrontend([{ id: 'helmsman.compat-pr', version: '0.1.0', hash: 'a'.repeat(64), enabled: true }], false);
+    const { root, requests } = await setup('/prs?repo=org/a&prRepo=org/b&pr=42');
+    await vi.waitFor(() => expect(root.querySelector('.pr-lookup-result .pr-review-body')).not.toBeNull());
+    const draft = root.querySelector<HTMLTextAreaElement>('.pr-lookup-result .pr-review-body')!;
+    draft.value = 'Retained compatibility draft'; draft.dispatchEvent(new Event('input', { bubbles: true }));
+    const link = document.createElement('a'); link.className = 'app-link'; link.href = '/plugins/helmsman.compat-pr/page?repo=org/a'; root.append(link); link.click();
+    await vi.waitFor(() => expect(root.querySelector('[data-pr-compat-lookup]'), root.textContent ?? '').not.toBeNull());
+    const lookup = root.querySelector<HTMLInputElement>('[data-pr-compat-lookup]')!; lookup.value = 'org/b#42'; lookup.dispatchEvent(new Event('input', { bubbles: true }));
+    lookup.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await vi.waitFor(() => expect(root.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Retained compatibility draft'));
+    expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/a');
+    expect(requests.filter(request => request.url.pathname === '/api/pr')).toHaveLength(1);
+    expect(requests.every(request => request.method === 'GET')).toBe(true);
+    syncBuiltinFrontend([], false);
+  });
+
   it.each([
     ['/prs', 'org/a'], ['/runs', 'org/a'], ['/prs', null], ['/runs', null],
   ] as const)('retains header scope %s %j after a panel override and reload', async (path, selectedRepo) => {
@@ -228,6 +247,17 @@ describe('URL navigation', () => {
     expect(verdict?.querySelector('nullable')).toBeNull();
   });
 
+  it('releases an unfinished drawer PR read when collapsed without accepting its late result', async () => {
+    const pending = deferred<Response>();
+    const run: RunSummary = { id: 'collapse-run', ticketId: 'review', repo: 'org/a', status: 'running', attempt: 1, prNumber: 11, startedAt: '2026-09-17T16:00:00Z', costUsd: null };
+    const { root } = await setup('/runs?run=collapse-run', url => url.pathname === '/api/pr' ? pending.promise : null, [run]);
+    const read = vi.mocked(fetch).mock.calls.find(([input]) => new URL(String(input), window.location.origin).pathname === '/api/pr');
+    const signal = read?.[1]?.signal; expect(signal?.aborted).toBe(false);
+    root.querySelector<HTMLButtonElement>('[data-collapse-id="runs:drawer"]')!.click();
+    expect(signal?.aborted).toBe(true); pending.resolve(json(status('org/a', 11)));
+    await Promise.resolve(); expect(root.querySelector('.run-drawer-pr .pr-review-body')).toBeNull();
+  });
+
   it('coalesces drawer PR lookups and refreshes after completion even if the first lookup is pending', async () => {
     const run: RunSummary = { id: 'review-run', ticketId: 'review', repo: 'org/a', status: 'running', attempt: 1, prNumber: 11, startedAt: '2026-09-17T16:00:00Z', costUsd: null };
     const pending = deferred<Response>();
@@ -300,4 +330,11 @@ describe('URL navigation', () => {
     expect(new URL(window.location.href).searchParams.get('pr')).toBe('12');
     expect(root.querySelector<HTMLInputElement>('.pr-lookup-input')?.value).toBe('org/b#12');
   });
+});
+
+it('keeps the clarification alias unavailable when its plugin catalog is absent instead of rendering compatibility', async () => {
+  const { root, requests } = await setup('/clarifications?repo=org/a');
+  expect(root.querySelector('.clarification-page')).toBeNull(); expect(root.querySelector('.plugin-clarifications-panel')).toBeNull();
+  expect(requests.some(request => request.url.pathname.startsWith('/api/clarification'))).toBe(false);
+  expect(window.location.pathname).toBe('/clarifications');
 });

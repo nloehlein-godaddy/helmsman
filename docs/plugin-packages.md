@@ -29,6 +29,8 @@ The CLI and server use `HELMSMAN_PLUGINS_DIR`, defaulting to `~/.helmsman/plugin
 
 Commands operate on the installation catalog. The server reconciles catalog changes and browsers poll the catalog. Frontend page selection, enablement and disablement apply to open tabs; disabling or replacing a contribution disposes its managed instances and aborts their requests. Already evaluated trusted JavaScript is not a security sandbox. Backend disablement stops new admissions while retained executions and operations drain under their pinned bindings. Follow the CLI restart/reload instruction for backend activation or configuration changes, including re-enabling a provider; catalog reconciliation alone does not guarantee backend reactivation.
 
+After a completed CLI selection, the next catalog read reconciles committed changes and loads the current binding before the browser can initialize an alias composition. It cannot initialize the previous default from a stale server snapshot. A failed reconciliation returns unavailable instead of a fallback catalog; existing saved layouts remain authoritative.
+
 ```sh
 npm run plugins -- disable example.scope-summary
 npm run plugins -- select helmsman/costs-page default
@@ -95,7 +97,7 @@ Static and literal dynamic JavaScript imports must resolve to `.js`/`.mjs` files
 
 ## Authored question and contact packages
 
-The canonical-only [authored question/contact packages](authored-clarifications.md) use separate public panel contracts and conditional instance-state saves. Independently installed copies must rewrite both the question page's own panel reference and its cross-package contact reference to the chosen nonreserved IDs. Keep the shared contracts unchanged. Installing them preserves the legacy Agent Questions alias, compatibility drafts and original caller-owned requests; migration and alias cutover are separate acceptance steps.
+The [authored question/contact packages](authored-clarifications.md) use separate public panel contracts and conditional instance-state saves. Independently installed copies must rewrite both the question page's own panel reference and its cross-package contact reference to the chosen nonreserved IDs. Keep the shared contracts unchanged. Select an installed page for `/clarifications` with `select helmsman/clarifications-page example.questions/page`. Existing composition layouts, compatibility drafts and original caller-owned requests remain intact; recovery stays available through the original compatibility contribution, whose retirement requires separate acceptance.
 
 ## Storage and startup
 
