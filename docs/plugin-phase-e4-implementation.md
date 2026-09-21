@@ -1,6 +1,6 @@
 # Phase E4: run presentation and clarifications
 
-Status: implementation underway after the reviewed and pushed E3 task-page cutover (`d21d9cb`). The run-inspect, streaming-download and clarification attempt-channel foundations are implemented and validated locally; exact-commit review and push remain checkpoint steps. Viewer/history packages, bounded clarification reads and durable answer/contact contracts remain unfinished. E4 is another slice of Phase E; it does not complete the [architecture plan](plugin-architecture-plan.md), Phase F policy replacement, or Phase G compatibility retirement. The [E3 implementation plan](plugin-phase-e3-implementation.md) remains authoritative for the preceding extraction and its acceptance gates. Record delivered work in the [completion ledger](plugin-implementation-progress.md).
+Status: implementation underway after the reviewed and pushed E3 task-page cutover (`d21d9cb`). The run-inspect, streaming-download and clarification attempt-channel foundations are reviewed and pushed as `e788774`, including terminal-drain corrections. Viewer/history packages, bounded clarification reads and durable answer/contact contracts are implemented locally and undergoing integration acceptance. The legacy Runs/PR drawer and fully authored clarification presentation remain unfinished. E4 is another slice of Phase E; it does not complete the [architecture plan](plugin-architecture-plan.md), Phase F policy replacement, or Phase G compatibility retirement. The [E3 implementation plan](plugin-phase-e3-implementation.md) remains authoritative for the preceding extraction and its acceptance gates. Record delivered work in the [completion ledger](plugin-implementation-progress.md).
 
 ## Scope and sequence
 
@@ -30,7 +30,7 @@ flowchart LR
     Core --> Reads
 ```
 
-## Existing run seams and gaps
+## Design baseline: existing run seams and gaps
 
 [`RunReadServiceV1`](../src/plugins/run-read.ts) already exposes scoped summaries, current attempts, worker outcomes, measured cost, review results and separate source settlement. Its server implementation uses signed cursors and bounded event text. The legacy viewer and history remain owned by [`src/main.ts`](../src/main.ts).
 
@@ -67,7 +67,7 @@ History, task and PR entry points open the same canonical viewer target. Preserv
 
 ## Clarification reads and provenance
 
-[`clarifications.ts`](../server/helmsman/clarifications.ts) already validates question ingestion, limits each run to 32 questions, checks deadlines and running state on answer, and manages timeout/cancellation. Current browser reads cast an unbounded array; answer requests contain only question ID and answer text. Current question rows have neither attempt provenance nor a revision used for public CAS.
+[`clarifications.ts`](../server/helmsman/clarifications.ts) already validates question ingestion, limits each run to 32 questions, checks deadlines and running state on answer, and manages timeout/cancellation. At the E4 design baseline, browser reads cast an unbounded array, answer requests contained only question ID and answer text, and question rows lacked proven attempt metadata and public CAS revisions. The delivered foundation added companion provenance/revision records; the current service slice adds bounded reads and revision-checked commands.
 
 Propose `helmsman/clarification-read@1` with bounded `list` and `load` operations. Queries explicitly identify galleon scope and optional canonical run; filtering precedes pagination. DTOs contain question/run identity, recorded attempt provenance, an opaque question revision, prompt, required/owner information, state, bounded answer, timestamps/deadline and explicit answerability/reason. Preserve pending, answered, timed-out and cancelled states. Empty results and unavailable reads remain distinct.
 
@@ -166,7 +166,7 @@ The legacy exporter pages whole event rows. A bounded row count alone does not b
 
 Clarification provenance requires a durable per-attempt channel before writable plugin contracts. The compatibility runtime used run-wide question files across retries; stamping the current attempt on ingestion would misattribute old unread lines. The foundation creates a channel before prompt/adapter preparation, pins its identity and paths in the immutable execution snapshot, and binds ingestion and answer delivery to that retained channel. It covers fresh launches, automatic retries, recovery and pre-PR continuation. Existing shared-channel records remain unknown; the forthcoming public answer contract must keep them read-only. Attempt number or wall-clock timing alone is insufficient evidence for backfill.
 
-The foundation preserves the `compat.clarifications@1` checksum and adds `core.clarification-protocol@1` with companion question/contact revision metadata and immutable attempt-channel records. Legacy rows initialize with unknown provenance and revision 1, without changing their state. Named, versioned SQLite triggers update revisions atomically with compatibility and new mutations; startup verifies their exact definitions. `openClarificationStore` initializes the companion schema after the compatibility tables, before the application writer lease. Answer/contact receipt tables belong to the later durable-command slice and are not implemented by this foundation.
+The foundation preserves the `compat.clarifications@1` checksum and adds `core.clarification-protocol@1` with companion question/contact revision metadata and immutable attempt-channel records. Legacy rows initialize with unknown provenance and revision 1, without changing their state. Named, versioned SQLite triggers update revisions atomically with compatibility and new mutations; startup verifies their exact definitions. `openClarificationStore` initializes the companion schema after the compatibility tables, before the application writer lease. The following service slice adds `core.public-clarification-receipts@1` for answer/contact receipts and bounded-listing indexes without changing either published checksum; the application initializes it before the writer lease too.
 
 Expose bounded `clarification-read@1`, durable `clarification-command@1` and explicitly global `suggested-contact-admin@1` services. Answer admission rechecks canonical question/channel/attempt identity, revision, worker state, persisted stop intent and deadline inside the answer-plus-receipt transaction. Replay exact receipts before current eligibility checks; changed input under an existing request ID conflicts. Answer success means durable acceptance, not successful downstream delivery. Unknown ownership remains unknown. Browser journals preserve unresolved answer identity while allowing a separate unsent draft; contact creation reserves its identity once. Contact availability is independent from question/answer availability, and saving contacts never sends a message.
 
@@ -178,7 +178,7 @@ The host generates a channel with run ID, attempt number, random channel ID and 
 
 The runtime ingests channel records only while their exact attempt is current. Replaying an unknown or differently bound question ID cannot promote it to the new channel. Complete legacy shared-file records are ingested separately with unknown attempt provenance, so an unread required question cannot disappear during upgrade. Active polling waits for partial lines to complete. After verified worker exit, a final attempt-fenced poll ingests the last complete records before terminal processing or retry. Any non-whitespace unterminated suffix in either question file blocks that processing, including valid JSON without its required newline; the current attempt and channel remain retained for investigation. Whitespace-only suffixes are allowed. Terminal effect authorization applies the same final-file validation. Exact existing records can replay after success without changing their answer or revision; new or conflicting terminal records are rejected. Delivery includes only the selected channel's terminal questions; legacy answers never enter a new attempt's file. Completion cancels only its channel's pending questions.
 
-Required-answer obligations remain run-wide: prior and unknown required questions continue to block publication when unanswered. Channel isolation does not resolve those obligations or prove answer consumption. Disabling presentation changes none of these core responsibilities. The old answer/contact routes remain compatibility paths until the durable-command extraction retires or constrains them.
+Required-answer obligations remain run-wide: prior and unknown required questions continue to block publication when unanswered. Channel isolation does not resolve those obligations or prove answer consumption. Disabling presentation changes none of these core responsibilities. The foundation retained old answer/contact routes temporarily. The current service slice rejects their writes (and raw HTTP ingestion) with 410 while public services are active; compatibility GETs remain. The compatibility renderer now uses the public durable adapters.
 
 ```mermaid
 flowchart TD
@@ -193,14 +193,14 @@ flowchart TD
     Delivery --> Worker
     Questions --> Obligations[Run-wide required unanswered obligations]
     Obligations --> Gate[Attempt-fenced publication gate]
-    Questions --> Reads[Future bounded public reads and durable answers]
+    Questions --> Reads[Public bounded reads and durable answers<br/>Current service slice]
 ```
 
-Focused tests exercise populated legacy-schema adoption, unchanged compatibility checksums, revision and admission rollback, trigger corruption, partial/repeated lines, unknown and cross-channel question identities, scoped answer delivery, real-worker automatic retries and lost-launch recovery, and checkpoint continuation without snapshot rewriting. Public read DTOs, durable answer receipts and global contact administration remain the next slice.
+Focused tests exercise populated legacy-schema adoption, unchanged compatibility checksums, revision and admission rollback, trigger corruption, partial/repeated lines, unknown and cross-channel question identities, scoped answer delivery, real-worker automatic retries and lost-launch recovery, and checkpoint continuation without snapshot rewriting. Public reads, durable answer receipts and global contact administration are now implemented locally as the following service slice; presentation cutover and acceptance remain separate gates. The [backend guide](clarification-backend.md) records the implemented routes, transaction boundaries and tests.
 
-## Planned next slice: public clarification and contact contracts
+## Public clarification and contact service slice
 
-The contracts and transaction rules below are the agreed implementation baseline for the next slice. They are not implemented or accepted by the run-inspect/channel foundation checkpoint. Root owns final contract registration and central wiring; costs/review owns browser contracts, codecs, adapters and journals; backend owns server coordinators, bounded queries and receipt stores; host owns the independently authored presentation packages and their installation/browser tests. These assignments supersede the broader ownership table for this slice.
+The contracts and transaction rules below are the agreed implementation baseline for the current service slice. They are not implemented or accepted by the run-inspect/channel foundation checkpoint. Root owns final contract registration and central wiring; costs/review owns browser contracts, codecs, adapters and journals; backend owns server coordinators, bounded queries and receipt stores; host owns the independently authored presentation packages and their installation/browser tests. These assignments supersede the broader ownership table for this slice.
 
 ### Bounded clarification reads
 

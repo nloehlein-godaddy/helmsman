@@ -2,9 +2,13 @@
 
 Helmsman installs separately authored frontend pages and panels without rebuilding the application. [Composable pages and panels](panel-authoring.md), [backend pricing](plugin-backend.md), and [task sources](task-source-authoring.md) use versioned public contracts. Packages run as explicitly trusted JavaScript in the application's browser context. Installation and enablement validate bytes and metadata without executing plugin code; frontend code runs when an enabled contribution mounts; the backend coordinator controls activation and retained obligations.
 
-## E4 contracts in development
+## E4 foundations and work in progress
 
-The distributed SDK includes separate [run inspection](run-inspect-authoring.md) and [streamed download](download-authoring.md) facets. Run inspection preserves run-wide log provenance and fences reads/exports by the expected attempt. Download results distinguish a closed writable file from delivery to the browser. The existing run viewer and history remain active while authored replacements are built and validated; this foundation does not complete the E4 cutover.
+The reviewed foundation (`e788774`) includes separate [run inspection](run-inspect-authoring.md) and [streamed download](download-authoring.md) facets. Run inspection preserves run-wide log provenance and fences reads/exports by the expected attempt. Download results distinguish a closed writable file from delivery to the browser. The existing run viewer and history remain active while authored replacements are built and validated; this foundation does not complete the E4 cutover.
+
+The current working slice adds authored `run-viewer` and `run-history` projects, exposed at `/run-viewer` and `/run-history` after builtin catalog activation. Their public panel contracts and compositions use `helmsman/run-viewer-panel@1` / `helmsman/run-viewer-page` and `helmsman/run-history-panel@1` / `helmsman/run-history-page`. The generic auxiliary host honors the selected viewer page on plugin-page selections. These are provisional entry points; `/runs` and its drawer are not cut over by registering them.
+
+The bundled `helmsman.compat-clarifications/page` bridge adapts the existing renderer to durable public services. It remains compatibility code and is not a standalone author project. See [the backend clarification boundary](clarification-backend.md), [panel lifecycle and typed selection](panel-authoring.md), and [current acceptance status](plugin-implementation-progress.md).
 
 ## Try the external sample
 

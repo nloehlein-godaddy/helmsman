@@ -1,0 +1,80 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.run-history",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Run history",
+        "slots": [
+          "helmsman/run-history-page"
+        ],
+        "panes": [],
+        "composition": {
+          "id": "helmsman/run-history-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/run-history-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "run-history",
+                "contributionId": "helmsman.run-history/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "run-history"
+                  ],
+                  "activeInstanceId": "run-history",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        },
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ]
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Run history",
+        "contract": {
+          "id": "helmsman/run-history-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/run-inspect",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

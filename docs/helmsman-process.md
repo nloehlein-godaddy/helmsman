@@ -6,7 +6,7 @@ The flow now includes Moon Units-inspired intake, frozen execution settings, iso
 
 ## Plugin task presentation and command authority
 
-Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads and clarification channels are in development; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
+Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads and clarification channels are reviewed and pushed as e788774; replacement presentation and public clarification services are in progress; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
 
 ```mermaid
 flowchart TD
@@ -36,9 +36,9 @@ flowchart TD
 
 Triage applies provider filters before pagination and preserves independent cursors under a fixed observation window. Its related voyages are enriched from canonical task claims and checked against actual runs in the selected galleon. Editor associations instead come from the provider; core verifies run existence and galleon scope without asserting claim ownership. Bugs labels approximate counts, unknown metrics and capped resolution samples separately. A source or presentation disablement denies new work while retained execution and effect obligations stay pinned. A historical automatic-start receipt never establishes the current process's enabled state. Package code is trusted; DTO and import validation do not provide a security sandbox.
 
-## E4 development: run inspection and streamed downloads
+## E4 foundation: run inspection and streamed downloads
 
-This flow describes the E4 implementation in progress. The existing run viewer and history remain active; the replacement packages and cutover have not passed their acceptance gates.
+This flow describes the reviewed and pushed E4 foundation. The existing run viewer and history remain active; the replacement packages and cutover have not passed their acceptance gates.
 
 ```mermaid
 flowchart TD
@@ -63,6 +63,57 @@ flowchart TD
 ```
 
 Log events remain run-wide because stored events have no reliable attempt provenance. An expected attempt prevents stale reads and exports; it does not attribute old events to that attempt. History totals describe the current observation within an insertion ceiling, not an immutable status snapshot. The browser fallback avoids a full-log Blob; Firefox stream cancellation does not guarantee an immediate native download failure indication. See the [E4 implementation plan](plugin-phase-e4-implementation.md) for clarification channel, durable-answer and replacement-package acceptance gates.
+
+## E4 working slice: presentation and durable answers
+
+These flows describe the current integration work. The existing `/runs` drawer and PR renderer remain pending cutover; clarification presentation retains an explicitly tracked compatibility bridge.
+
+```mermaid
+flowchart TD
+    Selection[Active plugin page or panel selects typed run identity] --> Scope[Capture effective galleon scope<br/>Header stays unchanged]
+    Scope --> Slot[Resolve selected run-viewer page slot]
+    Slot -->|Missing or disabled| Unavailable[Show unavailable<br/>Keep saved layout and state]
+    Slot -->|Available| Auxiliary[Reuse auxiliary page and composition session]
+    Auxiliary --> Viewer[Authored viewer owns tabs, log window,<br/>command journals and download controls]
+    Auxiliary --> Move[Rehome same DOM session<br/>Restore focus and text selection]
+    Auxiliary --> Hidden[Hidden or detached<br/>Abort scoped work; retain session]
+    Hidden --> Visible[Visible again<br/>Resume from retained package state]
+    PR[Typed PR selection] --> LegacyPR[Existing private PR page<br/>Separate compatibility panel awaits cutover]
+```
+
+```mermaid
+flowchart TD
+    Draft[Question answer or global contact draft] --> Reserve[Reserve request identity durably<br/>Keep changed unsent draft separate]
+    Reserve --> Submit[Enabled declared contribution<br/>Exact input and effective scope]
+    Submit --> Prior{Stored receipt for same caller and request?}
+    Prior -->|Same input| Replay[Return retained result]
+    Prior -->|Different input| Conflict[Reject identity reuse]
+    Prior -->|No receipt| Transaction[One SQLite transaction]
+    Transaction --> Question[Answer: current run, stop intent, deadline,<br/>attempt/channel and question revision]
+    Transaction --> Contact[Global contact: reserved identity or revision CAS]
+    Question --> Result[Mutation or rejection + terminal receipt<br/>Receipt failure rolls back mutation]
+    Contact --> Result
+    Result --> Save[Consumer durably saves result and draft state]
+    Replay --> Save
+    Save --> Ack[Acknowledge browser journal<br/>Server retains receipt]
+    Ack --> Cleanup[User chooses individual saved draft or result cleanup]
+    Save -->|Storage full or unavailable| RetainResult[Keep terminal receipt and drafts]
+    RetainResult --> Cleanup
+    Cleanup --> ReadJournal[Read both current journals successfully]
+    ReadJournal --> Protected{Associated unresolved submission?}
+    Protected -->|Yes| Keep[Keep saved evidence]
+    Protected -->|No| Remove[Delete only selected draft or saved result<br/>Global contact draft is labeled separately]
+    ReadJournal -->|Read failed| Keep
+    Remove --> Journals[Command journals remain unchanged]
+    Remove -->|Retry retained result save| Save
+    Submit -->|Response lost| Pending[Keep original reserved command<br/>User checks receipt or retries exact input]
+    Pending --> Submit
+    Legacy[Unknown question provenance] --> ReadOnly[Visible and read-only<br/>Required unanswered obligation still blocks publication]
+```
+
+Saved browser drafts and results remain until explicit cleanup. Fresh successful journal reads protect records associated with unresolved submissions; a read failure prevents deletion. Scoped answer drafts, saved results and the explicitly global contact draft have separate removal actions, and none deletes journal entries.
+
+Answer acceptance does not prove worker consumption. Contacts are global metadata; saving them sends no messages. Disabled contributions retain browser journals and reconcile after reenablement. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 when the public services are active. Trusted worker ingestion still requires its retained attempt channel. See [backend contracts](clarification-backend.md) and [author lifecycle](panel-authoring.md).
 
 ## Intake and execution preparation
 
@@ -137,7 +188,7 @@ flowchart LR
     Usage --> Outcomes[Costs & Outcomes<br/>Reported spend + separate Codex API estimates<br/>Usage coverage, tokens, duration, PR outcomes<br/>Separate task assessment with evidence]
 ```
 
-- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Durable answer receipts and replacement presentation remain pending.
+- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Public answer commands now retain durable receipts; the compatibility renderer uses those services. Fully authored clarification presentation and Runs/PR cutover remain pending.
 - **Evidence and recovery:** validated reports are recorded with immutable identities and hashes. A checkpoint continuation revalidates saved evidence before reusing it; legacy checkpoints without manifests follow an explicit compatibility path. A fresh retry preserves the original task/provider, workflow snapshot and Docker image pin; changed prompts or skills fail preflight. Restart reattachment and checkpoint continuation are different from restarting an entire failed voyage.
 - **Costs and outcomes:** provider token/cost events and stage timing feed a persistent ledger. Reported spend can be partial; unreported billed costs stay unknown. Eligible unpriced Codex usage receives a separate Standard short-context API baseline estimate, using published rates checked September 19, 2026. The UI exposes estimated/unpriced record coverage and runs without usage records. Missing model/token data remains unknown; service tier, per-request context and cache-write usage are unavailable, and subscription charges may differ. Estimates do not affect budget caps or cost-per-PR metrics, which use fully priced runs. Process success does not itself establish task completion: assessment state (complete/partial/failed/not-assessed) is separate from task outcome (achieved/partial/not-achieved/unknown), with supporting evidence. PR visibility is best-effort with explicit stale/unavailable status.
 

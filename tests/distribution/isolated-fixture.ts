@@ -25,13 +25,13 @@ export async function run(cmd: string, args: string[], cwd: string, env: NodeJS.
   });
 }
 
-export async function fixture() {
+export async function fixture(options: { distribution?: string } = {}) {
   const root = await mkdtemp(join(await realpath(tmpdir()), 'helmsman-isolated-'));
   const app = join(root, 'application');
   const cwd = join(root, 'operator-data');
   const store = join(root, 'plugins');
   const fakeBin = join(root, 'commands');
-  await Promise.all([mkdir(cwd), mkdir(fakeBin), cp(join(sourceRoot, 'release'), app, { recursive: true }),
+  await Promise.all([mkdir(cwd), mkdir(fakeBin), cp(options.distribution ?? join(sourceRoot, 'release'), app, { recursive: true }),
     cp(fileURLToPath(new URL('./deny-source.mjs', import.meta.url)), join(root, 'deny-source.mjs'))]);
   const commandLog = join(root, 'provider-commands.log');
   for (const name of ['git', 'gh', 'cmux', 'wezterm', 'docker', 'osascript']) {

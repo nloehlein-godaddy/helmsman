@@ -2,12 +2,12 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { cp, mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { buildDistribution } from './build-distribution.mjs';
+import { buildDistribution, copyDistributionDocumentation } from './build-distribution.mjs';
 
 const run = promisify(execFile);
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -136,6 +136,77 @@ test('packaged SDK type-checks a separately authored TypeScript plugin without a
   const { stdout } = await isolated([join(installation, 'server', 'helmsman', 'plugins', 'cli.js'),
     'pack', author, join(temporary, 'typescript-plugin.json')]);
   assert.match(stdout, /Packed independent.typescript/);
+});
+
+test('copied release guides and author READMEs have complete local documentation links', async () => {
+  const output = join(temporary, 'documentation-release');
+  const sourceReadme = await readFile(join(root, 'src/plugins/run-viewer/README.md'));
+  const sourceGuide = await readFile(join(root, 'docs/task-source-authoring.md'));
+  await buildDistribution({ outDir: output });
+  assert.deepEqual(await readFile(join(root, 'src/plugins/run-viewer/README.md')), sourceReadme);
+  assert.deepEqual(await readFile(join(root, 'docs/task-source-authoring.md')), sourceGuide);
+  const viewer = await readFile(join(output, 'plugin-sources/run-viewer/README.md'), 'utf8');
+  assert.match(viewer, /\]\(\.\.\/\.\.\/docs\/run-presentation-authoring\.md\)/);
+  const source = await readFile(join(output, 'docs/task-source-authoring.md'), 'utf8');
+  assert.match(source, /\]\(\.\.\/plugin-sources\/source-settings\/README\.md\)/);
+  assert.match(await readFile(join(output, 'plugin-sources/jira/README.md'), 'utf8'), /https:\/\/github\.com\/nloehlein-godaddy\/helmsman\/blob\/master\/src\/plugins\/jira\/views\.test\.ts/);
+  for (const name of ['plugin-architecture-plan.md', 'plugin-implementation-progress.md', 'plugin-phase-e4-implementation.md', 'recovery.md', 'helmsman-process.html']) assert.ok((await lstat(join(output, 'docs', name))).isFile());
+  for (const name of ['browser.pw.ts', 'playwright.config.ts', 'panel.test.ts']) await assert.rejects(readFile(join(output, 'plugin-sources/run-viewer', name)), { code: 'ENOENT' });
+  let checked = 0;
+  async function audit(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await audit(path);
+      else if (/\.(?:md|html)$/i.test(entry.name)) {
+        const contents = (await readFile(path, 'utf8')).replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
+        const links = [...contents.matchAll(/\]\(<?([^\s)>]+)>?(?:\s+[^)]*)?\)/g)].map(match => match[1]);
+        links.push(...[...contents.matchAll(/(?:href|src)=["']([^"']+)["']/g)].map(match => match[1]));
+        for (const link of links) {
+          if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(link)) continue;
+          const target = resolve(dirname(path), decodeURIComponent(link.split(/[?#]/)[0]));
+          assert.ok(!relative(output, target).startsWith('..'), `${relative(output, path)} escapes the release: ${link}`);
+          assert.ok((await lstat(target)).isFile() || (await lstat(target)).isDirectory(), `${relative(output, path)} missing ${link}`);
+          checked++;
+        }
+      }
+    }
+  }
+  for (const directory of ['docs', 'plugin-sources', 'examples', 'docker']) await audit(join(output, directory));
+  assert.ok(checked > 50, `Expected a connected documentation graph; checked ${checked} links`);
+});
+
+test('documentation closure follows safe markdown, reference and HTML links without copying repository code', async () => {
+  const source = join(temporary, 'documentation-source'); const output = join(temporary, 'documentation-fixture');
+  await mkdir(join(source, 'docs'), { recursive: true }); await mkdir(join(source, 'src/logic'), { recursive: true });
+  await mkdir(join(source, 'src/plugins/example'), { recursive: true }); await mkdir(join(output, 'plugin-sources/example'), { recursive: true });
+  await writeFile(join(source, 'src/logic/private.ts'), 'export const privateRuntime = true;');
+  await writeFile(join(source, 'README.md'), '[Start](docs/start.md#start)');
+  await writeFile(join(source, 'docs/image.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  await writeFile(join(source, 'docs/child guide.md'), '# Child\n[Readme](../README.md)');
+  const contents = '# Start\n[Child](<child guide.md#child>)\n[Reference][child]\n[child]: <child guide.md> "Title"\n<img src="image.svg">\n[Source](../src/logic/private.ts#L1)\n[External](https://example.org/remote)\n```ts\n[Literal](../../outside-secret)\n```\n';
+  await writeFile(join(source, 'docs/start.md'), contents);
+  await writeFile(join(source, 'src/plugins/example/README.md'), '[Guide](../../../docs/start.md#start)');
+  await cp(join(source, 'src/plugins/example/README.md'), join(output, 'plugin-sources/example/README.md'));
+  const options = { sourceRoot: source, packages: ['example'], guides: ['start.md'] };
+  await copyDistributionDocumentation(output, options);
+  const rewritten = await readFile(join(output, 'docs/start.md'), 'utf8');
+  assert.match(rewritten, /<child%20guide\.md#child>/); assert.match(rewritten, /\[child\]: <child%20guide\.md> "Title"/);
+  assert.match(rewritten, /https:\/\/github\.com\/nloehlein-godaddy\/helmsman\/blob\/master\/src\/logic\/private\.ts#L1/);
+  assert.match(rewritten, /\[Literal\]\(\.\.\/\.\.\/outside-secret\)/); assert.match(rewritten, /https:\/\/example\.org\/remote/);
+  assert.equal(await readFile(join(output, 'plugin-sources/example/README.md'), 'utf8'), '[Guide](../../docs/start.md#start)');
+  assert.equal(await readFile(join(source, 'docs/start.md'), 'utf8'), contents);
+  assert.ok((await lstat(join(output, 'docs/child guide.md'))).isFile()); assert.ok((await lstat(join(output, 'docs/image.svg'))).isFile());
+  await assert.rejects(readFile(join(output, 'src/logic/private.ts')), { code: 'ENOENT' });
+  await writeFile(join(source, 'docs/start.md'), '[Escape](../../outside-secret)');
+  await assert.rejects(copyDistributionDocumentation(output, options), /escapes the source repository/);
+  await writeFile(join(source, 'docs/start.md'), '[Missing](missing.md)');
+  await assert.rejects(copyDistributionDocumentation(output, options), { code: 'ENOENT' });
+  await writeFile(join(temporary, 'outside-secret'), 'never copy');
+  await symlink(join(temporary, 'outside-secret'), join(source, 'docs/linked.md'));
+  await writeFile(join(source, 'docs/start.md'), '[Symlink](linked.md)');
+  await assert.rejects(copyDistributionDocumentation(output, options), /cannot contain symlinks/);
+  await writeFile(join(source, 'docs/start.md'), 'x'.repeat(2 * 1024 * 1024 + 1));
+  await assert.rejects(copyDistributionDocumentation(output, options), /bounded file budget/);
 });
 
 test('independent source adopts existing local work and runs a durable claim after restart without application source', async () => {

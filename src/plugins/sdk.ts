@@ -1,4 +1,6 @@
 import type { PluginPageServices } from './services';
+import type { PresentationLocatorV1 } from './presentation';
+export * from './presentation';
 import type { CompositionServiceV1, PageCompositionDefinitionV1, PanelOpaqueStateV1, PluginPanelDefinition, PluginServiceRequirementV1 } from './composition';
 export * from './composition';
 export type { PluginPageServices } from './services';
@@ -16,6 +18,9 @@ export * from './source-command';
 export * from './run-read';
 export * from './run-inspect';
 export * from './download';
+export * from './clarification-read';
+export * from './clarification-command';
+export * from './suggested-contact-admin';
 export * from './pull-request-read';
 export * from './activity-read';
 export * from './run-command';
@@ -64,6 +69,7 @@ export interface PageResolution {
 }
 
 export interface PluginPageState {
+  readonly presentation?: PresentationLocatorV1 | null;
   readonly repo: string | null;
   readonly themeId: string;
   readonly pirateMode: boolean;
@@ -75,6 +81,7 @@ export interface PluginPageState {
 }
 
 export interface PluginPageContext {
+  readonly selectPresentation?: (locator: PresentationLocatorV1 | null) => void;
   readonly state: PluginPageState;
   readonly signal: AbortSignal;
   readonly navigate: (href: string) => void;

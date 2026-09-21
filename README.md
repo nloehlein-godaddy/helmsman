@@ -27,7 +27,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 Costs, Helm, Todos, Triage, Bugs and Source settings use replaceable packages and public services. Task-source providers support Jira and local Todos together. The task packages now own `/todos`, `/triage`, `/bugs` and `/source-settings`; core `/config` links to Source settings and retains runtime configuration, customization and local Git. The default task-page cutover is reviewed and pushed as `d21d9cb`. Remaining feature extractions, interchangeable execution/policy (F), and compatibility retirement (G) remain pending.
 
-Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) is implementing run inspection, streamed downloads and clarification attempt channels. The [run-inspection contract](docs/run-inspect-authoring.md) is in development; the existing viewer and history remain active until replacement acceptance passes.
+Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) foundations—run inspection, streamed downloads and clarification attempt channels—are reviewed and pushed as `e788774`. The [run-inspection contract](docs/run-inspect-authoring.md) is available; the existing viewer and history remain active until replacement acceptance passes.
 
 ## Stack
 
@@ -429,7 +429,7 @@ against persisted voyages. Todos are stored in the same SQLite database as voyag
 
 New voyages and attempts retain dedicated question/answer channels with their execution snapshots. A retry or pre-PR continuation receives a new channel; recovery reuses the recorded one. Required unanswered questions remain publication blockers across attempts, including legacy questions whose producing attempt cannot be proven. Those legacy questions stay visible but reject new answers, including through the compatibility API. See [clarification recovery](docs/recovery.md#clarification-channels-and-unresolved-questions).
 
-An accepted answer is stored durably before the core runtime publishes it to the worker's channel. Acceptance does not prove that the worker consumed it. The current compatibility answer API does not yet provide the planned durable request receipt or revision-checked command contract; that extraction remains part of [E4](docs/plugin-phase-e4-implementation.md).
+An accepted answer is stored durably before the core runtime publishes it to the worker's channel. Acceptance does not prove that the worker consumed it. The current E4 service slice adds durable request receipts and revision-checked answer commands; the compatibility UI uses these public adapters. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 while the services are active; compatibility GETs remain. See [the contracts](docs/clarification-authoring.md) and [remaining E4 presentation work](docs/plugin-phase-e4-implementation.md).
 
 ### Auto-claim
 

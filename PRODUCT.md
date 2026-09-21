@@ -8,6 +8,8 @@ The **Helm** page presents the fleet as a navigation bridge: graphite control pa
 
 Costs, Helm, Todos, Triage, Bugs and Source settings are replaceable packages, with explicit unavailable/partial states and durable command recovery. Task aliases now resolve through selected plugins; core Config links to Source settings. Default task-page cutover is reviewed and pushed; broader feature extraction remains in progress; see the [implementation ledger](docs/plugin-implementation-progress.md) and [task flow](docs/helmsman-process.md). Packages inherit header scope unless a panel explicitly overrides it; replacing presentation never cancels retained work.
 
+E4's reviewed foundation adds bounded run inspection, streamed downloads and attempt-bound worker question channels. Authored viewer/history packages and durable answer/contact services are now being integrated. The existing Runs drawer remains until its replacement and PR compatibility boundary pass acceptance. An accepted answer is stored durably; worker consumption is a separate event. Suggested contacts remain global metadata and do not send messages.
+
 ## Who it's for
 
 The engineer/operator running the agents. It must be **glanceable** — "what's running, what's queued, what shipped, what's waiting on me?" readable at a glance — *and* **operable**: the operator launches runs, stops them, and acts on PRs here, without dropping to a terminal or cross-checking Jira and GitHub by hand. It is the one screen an operator keeps open to supervise a fleet of unattended agents.

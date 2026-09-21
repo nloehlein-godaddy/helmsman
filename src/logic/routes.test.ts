@@ -4,6 +4,16 @@ import { parseRoute, routeHref, type AppRoute, type PageView } from './routes';
 const parse = (href: string) => parseRoute(new URL(href, 'https://helmsman.example'));
 
 describe('routes', () => {
+  it('retains canonical run identity independently of header scope without downgrading malformed explicit targets', () => {
+    const route = parse('/run-viewer?repo=org/a&run=run-1&runRepo=org/b');
+    expect(route).toMatchObject({ view: 'plugin', repo: 'org/a', run: 'run-1', runRepo: 'org/b' });
+    expect(parse(routeHref(route))).toEqual(route);
+    expect(parse('/run-history?repo=org/a&run=run-1&runRepo=../invalid')).toMatchObject({ repo: 'org/a', run: null });
+    expect(parse('/run-history?repo=org/a&run=run-1')).toMatchObject({ repo: 'org/a', run: 'run-1' });
+    expect(parse('/run-history?repo=org/a&run=run-1').runRepo).toBeUndefined();
+    expect(routeHref({ ...route, run: null })).not.toContain('runRepo');
+  });
+
   it('retains a missing panel locator and namespaced route state across scope changes', () => {
     const state = JSON.stringify({ 'example.missing/panel': { version: 2, value: { filter: 'mine' } } });
     const route = parse(`/plugins/example.missing/page?repo=org/a&panel=instance-one&panelState=${encodeURIComponent(state)}`);

@@ -25,11 +25,18 @@ export const SOURCE_SETTINGS_PAGE_ID = 'helmsman.source-settings/page';
 export const SOURCE_SETTINGS_PAGE_ALIAS = '/source-settings';
 export const SOURCE_SETTINGS_PANEL_CONTRACT = 'helmsman/source-settings-panel';
 
+export const RUN_VIEWER_PAGE_SLOT = 'helmsman/run-viewer-page';
+export const RUN_VIEWER_PAGE_ID = 'helmsman.run-viewer/page';
+export const RUN_HISTORY_PAGE_SLOT = 'helmsman/run-history-page';
+export const RUN_HISTORY_PAGE_ID = 'helmsman.run-history/page';
+
 interface BuiltinPageSlot extends PageSlot {
   readonly panelContract?: string;
 }
 
 export const builtinPageSlots: readonly BuiltinPageSlot[] = Object.freeze([
+  Object.freeze({ id: RUN_VIEWER_PAGE_SLOT, alias: '/run-viewer', defaultContributionId: RUN_VIEWER_PAGE_ID, panelContract: 'helmsman/run-viewer-panel' }),
+  Object.freeze({ id: RUN_HISTORY_PAGE_SLOT, alias: '/run-history', defaultContributionId: RUN_HISTORY_PAGE_ID, panelContract: 'helmsman/run-history-panel' }),
   Object.freeze({ id: TODOS_PAGE_SLOT, alias: TODOS_PAGE_ALIAS, defaultContributionId: TODOS_PAGE_ID, panelContract: TODOS_PANEL_CONTRACT }),
   Object.freeze({ id: TRIAGE_PAGE_SLOT, alias: TRIAGE_PAGE_ALIAS, defaultContributionId: TRIAGE_PAGE_ID, panelContract: TRIAGE_PANEL_CONTRACT }),
   Object.freeze({ id: BUGS_PAGE_SLOT, alias: BUGS_PAGE_ALIAS, defaultContributionId: BUGS_PAGE_ID, panelContract: BUGS_PANEL_CONTRACT }),

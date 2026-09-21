@@ -10,6 +10,8 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const marker = '.helmsman-distribution.json';
 const ignoredSource = /(?:\.test\.[cm]?[jt]s|\.d\.ts)$/;
 const nodeMajor = Number(process.versions.node.split('.')[0]);
+const authorPackages = ['run-viewer', 'run-history', 'costs', 'pricing', 'todos', 'todos-ui', 'source-settings', 'triage', 'bugs', 'jira', 'local-tasks-alternative', 'helm', 'backlog', 'helm-alternative', 'backlog-alternative', 'running', 'recent', 'underway', 'newrun', 'repoprs', 'shipped', 'activity'];
+const authorGuides = ['panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'download-authoring.md', 'run-presentation-authoring.md', 'clarification-authoring.md', 'clarification-backend.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md', 'helmsman-process.md'];
 
 async function exists(path) {
   try { await lstat(path); return true; }
@@ -80,6 +82,90 @@ async function walk(directory, visit) {
   }
 }
 
+function documentLinks(contents, html = false) {
+  const blank = value => value.replace(/[^\n]/g, ' ');
+  let searchable = contents.replace(/<!--[\s\S]*?-->/g, blank);
+  if (!html) {
+    searchable = searchable.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[ \t]*(?:\n|$)/gm, blank)
+      .replace(/(`+)[^`]*?\1/g, blank);
+  }
+  const links = new Map();
+  const patterns = html ? [] : [/!?\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^\s)]+))/g, /^ {0,3}\[[^\]\n]+\]:\s*(?:<([^>\n]+)>|(\S+))/gm];
+  for (const pattern of patterns) for (const match of searchable.matchAll(pattern)) {
+    const value = match[1] ?? match[2]; const start = match.index + match[0].lastIndexOf(value);
+    links.set(start, { start, end: start + value.length, value });
+  }
+  for (const match of searchable.matchAll(/\b(?:href|src)\s*=\s*(["'])(.*?)\1/gi)) {
+    const value = match[2]; const start = match.index + match[0].lastIndexOf(value);
+    links.set(start, { start, end: start + value.length, value });
+  }
+  return [...links.values()].sort((a, b) => a.start - b.start);
+}
+
+export async function copyDistributionDocumentation(staging, options = {}) {
+  const sourceRoot = resolve(options.sourceRoot ?? root);
+  const packages = options.packages ?? authorPackages;
+  const mappings = [['examples', 'examples'], ['docker', 'docker'], ...packages.map(name => [`src/plugins/${name}`, `plugin-sources/${name}`])];
+  const queued = new Map(); let copiedBytes = 0;
+  const localPath = path => relative(sourceRoot, path).split(sep).join('/');
+  async function sourceInfo(path) {
+    const local = relative(sourceRoot, path);
+    if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Documentation link escapes the source repository.');
+    for (let current = path; current !== sourceRoot; current = dirname(current)) {
+      if ((await lstat(current)).isSymbolicLink()) throw new Error(`Documentation source cannot contain symlinks: ${localPath(path)}`);
+    }
+    const info = await lstat(path);
+    if (!info.isFile() && !info.isDirectory()) throw new Error(`Invalid documentation source: ${localPath(path)}`);
+    return info;
+  }
+  function add(source, destination) {
+    if (queued.has(source)) return;
+    queued.set(source, destination);
+  }
+  for (const name of options.guides ?? authorGuides) add(join(sourceRoot, 'docs', name), join(staging, 'docs', name));
+  for (const [sourceDirectory, outputDirectory] of mappings) {
+    const output = join(staging, outputDirectory);
+    if (await exists(output)) await walk(output, async path => {
+      if (/\.(?:md|html)$/i.test(path)) add(join(sourceRoot, sourceDirectory, relative(output, path)), path);
+    });
+  }
+  async function linkTarget(source, destination, link) {
+    if (!link || /^(?:[a-z][a-z\d+.-]*:|\/\/|#|\?)/i.test(link)) return link;
+    const match = /^([^?#]*)([?#].*)?$/.exec(link);
+    const rawPath = match?.[1]; if (!rawPath) return link;
+    const path = decodeURIComponent(rawPath); const suffix = match[2] ?? '';
+    const target = resolve(path.startsWith('/') ? sourceRoot : dirname(source), path.replace(/^\//, ''));
+    const info = await sourceInfo(target); const local = localPath(target);
+    let output = null;
+    if (info.isFile() && (local.startsWith('docs/') && /\.(?:md|html|svg|png|jpe?g|gif|webp|pdf)$/i.test(local) || local === 'README.md')) {
+      output = join(staging, local); add(target, output);
+    } else for (const [sourceDirectory, outputDirectory] of mappings) {
+      if (local === sourceDirectory || local.startsWith(`${sourceDirectory}/`)) {
+        const candidate = join(staging, outputDirectory, relative(join(sourceRoot, sourceDirectory), target));
+        if (await exists(candidate)) output = candidate;
+        break;
+      }
+    }
+    if (output) {
+      const path = relative(dirname(destination), output).split(sep).map(encodeURIComponent).join('/');
+      return `${path || '.'}${suffix}`;
+    }
+    return `https://github.com/nloehlein-godaddy/helmsman/${info.isDirectory() ? 'tree' : 'blob'}/master/${local.split('/').map(encodeURIComponent).join('/')}${suffix}`;
+  }
+  for (const [source, destination] of queued) {
+    const info = await sourceInfo(source);
+    if (!info.isFile() || info.size > 2 * 1024 * 1024 || (copiedBytes += info.size) > 16 * 1024 * 1024) throw new Error('Distribution documentation exceeds its bounded file budget.');
+    const original = await readFile(source);
+    await mkdir(dirname(destination), { recursive: true });
+    if (!/\.(?:md|html)$/i.test(source)) { await writeFile(destination, original); continue; }
+    const contents = original.toString('utf8'); let rendered = ''; let offset = 0;
+    for (const link of documentLinks(contents, source.endsWith('.html'))) {
+      rendered += contents.slice(offset, link.start) + await linkTarget(source, destination, link.value); offset = link.end;
+    }
+    await writeFile(destination, rendered + contents.slice(offset));
+  }
+}
+
 function transformImports(filename, dependencies) {
   function specifier(node) {
     if (!node || !ts.isStringLiteralLike(node) || !node.text.startsWith('.')) return node;
@@ -147,7 +233,7 @@ async function copyDependencies(staging, dependencies) {
 
 async function buildSdk(destination, version) {
   const sourceRoot = join(root, 'src', 'plugins');
-  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'task-views.ts', 'task-edit.ts', 'todo-legacy-recovery.ts', 'task-editor-contract.ts', 'source-command.ts', 'source-settings.ts', 'source-admin.ts', 'source-contract-validation.ts', 'run-read.ts', 'run-inspect.ts', 'download.ts', 'run-command.ts', 'pull-request-read.ts', 'activity-read.ts']);
+  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'task-views.ts', 'task-edit.ts', 'todo-legacy-recovery.ts', 'task-editor-contract.ts', 'source-command.ts', 'source-settings.ts', 'source-admin.ts', 'source-contract-validation.ts', 'run-read.ts', 'run-inspect.ts', 'download.ts', 'presentation.ts', 'clarification-read.ts', 'clarification-command.ts', 'suggested-contact-admin.ts', 'clarification-validation.ts', 'run-command.ts', 'pull-request-read.ts', 'activity-read.ts']);
   const queued = new Set([join(sourceRoot, 'sdk.ts')]);
   await mkdir(destination);
   for (const source of queued) {
@@ -176,12 +262,14 @@ async function buildSdk(destination, version) {
 
 export async function buildDistribution(options = {}) {
   const destination = resolve(options.outDir ?? join(root, 'release'));
+  const frontend = resolve(options.frontendDir ?? join(root, 'dist'));
   const pathFromDestination = relative(destination, root);
   if (destination === root || !pathFromDestination.startsWith('..') && !isAbsolute(pathFromDestination)) {
     throw new Error('Distribution output cannot replace the application source or its parent.');
   }
   const originalMarker = await exists(destination) ? await verifyOutput(destination) : null;
-  await readFile(join(root, 'dist', 'index.html'));
+  await readFile(join(frontend, 'index.html'));
+  await walk(frontend, async () => {});
   await mkdir(dirname(destination), { recursive: true });
   const staging = await mkdtemp(join(dirname(destination), '.helmsman-build-'));
   try {
@@ -216,16 +304,13 @@ export async function buildDistribution(options = {}) {
         await writeFile(target, output.outputText);
       } else await cp(source, target);
     }
-    await cp(join(root, 'dist'), join(staging, 'dist'), { recursive: true });
-    await mkdir(join(staging, 'docs'), { recursive: true });
-    for (const name of ['panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'download-authoring.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md']) {
-      if (await exists(join(root, 'docs', name))) await cp(join(root, 'docs', name), join(staging, 'docs', name));
-    }
+    await cp(frontend, join(staging, 'dist'), { recursive: true });
     await cp(join(root, 'examples'), join(staging, 'examples'), { recursive: true });
-    for (const name of ['costs', 'pricing', 'todos', 'todos-ui', 'source-settings', 'triage', 'bugs', 'jira', 'local-tasks-alternative', 'helm', 'backlog', 'helm-alternative', 'backlog-alternative', 'running', 'recent', 'underway', 'newrun', 'repoprs', 'shipped', 'activity']) await cp(join(root, 'src', 'plugins', name), join(staging, 'plugin-sources', name), {
-      recursive: true, filter: path => !/\.test\.ts$/.test(path) && !relative(join(root, 'src', 'plugins', name), path).split(sep).some(part => ['node_modules', 'dist'].includes(part)),
+    for (const name of authorPackages) await cp(join(root, 'src', 'plugins', name), join(staging, 'plugin-sources', name), {
+      recursive: true, filter: path => !/(?:\.(?:test|pw)\.ts|(?:^|[\\/])playwright\.config\.ts)$/.test(path) && !relative(join(root, 'src', 'plugins', name), path).split(sep).some(part => ['node_modules', 'dist'].includes(part)),
     });
     await cp(join(root, 'docker'), join(staging, 'docker'), { recursive: true });
+    await copyDistributionDocumentation(staging);
     await copyDependencies(staging, packageJson.dependencies ?? {});
     const runtimePackage = { name: packageJson.name, version: packageJson.version, private: true, type: 'module',
       engines: { node: `>=${nodeMajor}.0.0 <${nodeMajor + 1}.0.0` }, os: [process.platform], cpu: [process.arch],

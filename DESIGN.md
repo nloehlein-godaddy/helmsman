@@ -313,3 +313,12 @@ The header fleet readout renders run / queue / review counts in DSEG7 amber digi
 - **Don't** override a selected theme's surfaces with a fixed palette.
 - **Don't** add a second corner radius or a condensed/system display face; one radius (3px) and two self-hosted voices only.
 - **Don't** blank a slice on missing data — degrade to sample data behind the banner, keeping the panel rendered.
+
+
+## E4 presentation work in progress
+
+The authored run viewer owns a bounded tab set and log window; history owns bounded pages and labels totals with their observation time. Older log pages and live-follow cursors remain separate. Run-wide logs must not be labeled as belonging to the currently fenced attempt. Download copy distinguishes a saved writable file from delivery to the browser.
+
+Typed presentation selection carries only run or PR identity. A selected auxiliary page keeps a stable mounted DOM session across consumers, restores keyboard focus and text selection when rehomed, and suspends work while hidden or detached. Header scope remains unchanged; an explicit invoking-panel scope applies to the auxiliary session until the header changes. The provisional `/run-viewer` and `/run-history` pages do not retire the existing `/runs` drawer or its PR controls.
+
+Clarification forms expose server-provided answerability and run-wide publication obligations separately. Unknown attempt provenance is read-only. Draft text stays separate from unresolved commands; lost responses offer receipt checking and retry of the original intent. Contact errors do not disable question reads or answers. Accepted answers never claim downstream delivery, and contact saves never claim notifications. The bundled compatibility page remains tracked until the fully authored clarification panel passes acceptance.

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
-import { appPages, COSTS_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT } from './plugins/builtins';
 import { appPageModules } from './plugins/builtin-modules';
 import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from './plugins/sdk';
 
@@ -64,6 +64,7 @@ afterEach(() => {
   view?.destroy();
   view = undefined;
   appPages.select(COSTS_PAGE_SLOT, null);
+  appPages.select(RUN_VIEWER_PAGE_SLOT, null);
   disposers.splice(0).reverse().forEach(dispose => dispose());
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -72,6 +73,29 @@ afterEach(() => {
 });
 
 describe('registered plugin page integration', () => {
+  it('opens a selected auxiliary viewer through typed selection while preserving header scope and page session', async () => {
+    const plugin = sample(); register(plugin);
+    const viewer = sample();
+    disposers.push(appPages.register({ manifestVersion: 2, sdkVersion: 1, id: 'example.viewer', version: '1.0.0', panels: [],
+      pages: [{ id: 'page', title: 'Viewer', slots: [RUN_VIEWER_PAGE_SLOT], panes: [],
+        composition: { id: RUN_VIEWER_PAGE_SLOT, version: 1, accepts: [{ id: 'helmsman/run-viewer-panel', version: 1 }] } }] }),
+      appPageModules.register('example.viewer/page', viewer));
+    appPages.select(RUN_VIEWER_PAGE_SLOT, 'example.viewer/page');
+    await start();
+    plugin.contexts[0]?.selectPresentation?.({ version: 1, kind: 'run', repo: 'org/a', runId: 'run-1' });
+    await vi.waitFor(() => expect(viewer.states.at(-1)).toMatchObject({ visible: true, repo: 'org/a', presentation: { kind: 'run', runId: 'run-1' } }));
+    expect(document.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/a');
+    expect(window.location.pathname).toBe('/plugins/example.summary/page');
+    expect(new URL(window.location.href).searchParams.get('run')).toBe('run-1');
+    expect(plugin.mount).toHaveBeenCalledOnce();
+    expect(viewer.mount).toHaveBeenCalledOnce();
+    expect(document.querySelector('.plugin-auxiliary-slot [data-plugin-page]')).not.toBeNull();
+    plugin.contexts[0]?.selectPresentation?.(null);
+    await vi.waitFor(() => expect(viewer.states.at(-1)?.visible).toBe(false));
+    expect(new URL(window.location.href).searchParams.has('run')).toBe(false);
+    expect(viewer.dispose).not.toHaveBeenCalled();
+  });
+
   it('mounts an independent module and updates header scope, terminology, and visibility without remounting', async () => {
     const plugin = sample();
     register(plugin);

@@ -1,4 +1,8 @@
+import type { ClarificationReadServiceV1 } from './clarification-read';
+import type { ClarificationCommandServiceV1 } from './clarification-command';
+import type { SuggestedContactAdminServiceV1 } from './suggested-contact-admin';
 import type { SourceAdminServiceV1 } from './source-admin';
+import type { PresentationLocatorV1 } from './presentation';
 import type { TodoLegacyRecoveryServiceV1 } from './todo-legacy-recovery';
 import type { PluginPageInstance, PluginPageState } from './sdk';
 import type { TaskReadServiceV1 } from './task-read';
@@ -13,7 +17,7 @@ import type { SourceCommandServiceV1 } from './source-command';
 import type { TaskViewsReadServiceV1 } from './task-views';
 
 export interface PluginServiceRequirementV1 {
-  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/pull-request-read' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
+  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
   readonly version: 1;
 }
 
@@ -91,6 +95,7 @@ export interface PluginPanelState extends PluginPageState {
 }
 
 export interface PluginPanelContext {
+  readonly selectPresentation?: (locator: PresentationLocatorV1 | null) => void;
   readonly state: PluginPanelState;
   readonly signal: AbortSignal;
   readonly activity: PanelActivityV1;
@@ -112,6 +117,9 @@ export interface PluginPanelServicesV1 {
   readonly runs?: RunReadServiceV1;
   readonly runInspect?: RunInspectServiceV1;
   readonly downloads?: DownloadServiceV1;
+  readonly clarifications?: ClarificationReadServiceV1;
+  readonly clarificationCommands?: ClarificationCommandServiceV1;
+  readonly suggestedContacts?: SuggestedContactAdminServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;

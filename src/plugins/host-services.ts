@@ -1,3 +1,6 @@
+import { createHostClarificationReadService } from './clarification-read-service';
+import { createHostClarificationCommandService } from './clarification-command-service';
+import { createHostSuggestedContactAdminService } from './suggested-contact-admin-service';
 import { createHostSourceAdminService } from './source-admin-service';
 import { createHostTodoLegacyRecoveryService } from './todo-legacy-recovery-service';
 import { fetchOutcomes, saveOutcomeAssessment } from '../data/outcomeClient';
@@ -98,6 +101,9 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
       pullRequests: createHostPullRequestReadService(lifetime, { scope }),
       activity: createHostActivityReadService(lifetime, { scope }),
       ...(caller ? { runCommands: createHostRunCommandService(lifetime, { scope, caller }),
+        clarifications: createHostClarificationReadService(lifetime, { scope, caller }),
+        clarificationCommands: createHostClarificationCommandService(lifetime, { scope, caller }),
+        suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope, caller }),
         sourceAdmin: createHostSourceAdminService(lifetime, { scope, caller }),
         sourceCommands: createHostSourceCommandService(lifetime, { scope, caller }) } : {}) } : {}),
     usage: Object.freeze({ async query(input: UsageQuery, signal?: AbortSignal) {

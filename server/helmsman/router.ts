@@ -1,3 +1,5 @@
+import { handleClarificationServiceApi } from './clarification-service-routes';
+import type { createApplicationClarifications } from './clarification-application';
 import { handleSourceAdminApi } from './source-admin-routes';
 import type { SourceAdminServerService } from './source-admin-service';
 import { handleTodoLegacyRecoveryApi } from './todo-legacy-recovery-routes';
@@ -81,6 +83,8 @@ function toRunSummary(row: RunRow, db: Db): RunSummary {
 }
 
 export interface RouterDeps {
+  publicClarifications?: ReturnType<typeof createApplicationClarifications>;
+  clarificationCaller?: string;
   runRead?: RunReadServerService;
   runInspect?: RunInspectServerService;
   pullRequestRead?: PullRequestReadServerService;
@@ -150,6 +154,8 @@ export async function handleApi(
   _body: unknown,
   deps: RouterDeps,
 ): Promise<ApiResult | null> {
+  const clarificationResult = handleClarificationServiceApi({ method, path, query, body: _body, caller: deps.clarificationCaller, ...deps.publicClarifications });
+  if (clarificationResult) return clarificationResult;
   const sourceAdminResult = await handleSourceAdminApi({ method, path, query, body: _body, caller: deps.sourceAdminCaller, service: deps.sourceAdmin });
   if (sourceAdminResult) return sourceAdminResult;
   const sourceCommandResult = await handleSourceCommandApi({ method, path, query, body: _body, caller: deps.sourceCommandCaller, service: deps.sourceCommands });
@@ -193,6 +199,7 @@ export async function handleApi(
   }
   if (path.startsWith('/api/campaigns') && deps.campaigns) return deps.campaigns.handle(path, method, query, _body);
   if (path.startsWith('/api/clarifications') || path === '/api/trusted-contacts') {
+    if (deps.publicClarifications && method !== 'GET') return { status: 410, json: { error: 'Use the versioned clarification command or suggested-contact service. Worker ingestion requires its retained attempt channel.' } };
     const store = deps.clarifications;
     if (!store) return { status: 503, json: { error: 'Clarifications unavailable' } };
     try {

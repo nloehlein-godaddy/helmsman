@@ -1,3 +1,4 @@
+import { parseTaskRepo } from '../plugins/tasks';
 import { LEGACY_PAGE_ALIASES, LEGACY_PAGE_PATHS } from './pagePaths';
 import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_ID } from '../plugins/builtins';
 import { isContributionId } from '../plugins/manifest';
@@ -11,6 +12,7 @@ export interface AppRoute {
   pane: string | null;
   pr: number | null;
   run: string | null;
+  runRepo?: string | null;
   mode: 'review' | 'rerun' | null;
   ticket: string | null;
   surface: string | null;
@@ -93,6 +95,11 @@ export function parseRoute(url: URL): AppRoute {
   const pane = helm && rawPane === 'myprs' ? 'repoprs' : rawPane;
   const legacyPane = helm && pane && panes.dashboard.includes(pane) ? pane : null;
   const run = params.get('run');
+  let runRepo: string | null = null;
+  if (plugin && params.has('runRepo')) {
+    try { runRepo = parseTaskRepo(params.get('runRepo')); } catch { runRepo = null; }
+  }
+  const validRun = run && /^[a-z\d_-]{1,128}$/i.test(run) && !(plugin && params.has('runRepo') && !runRepo) ? run : null;
   const mode = params.get('mode');
   const ticket = params.get('ticket');
   const surface = params.get('surface');
@@ -117,7 +124,8 @@ export function parseRoute(url: URL): AppRoute {
     prRepo,
     pane: explicitInstance && !validExplicitInstance ? null : locatorPane ?? taskPane?.pane ?? (pane && (plugin?.page?.panes ?? (view === 'outcomes' || view === 'plugin' ? [] : panes[view])).includes(pane) ? pane : null),
     pr: prTarget ? positiveInteger(params.get('pr')) : null,
-    run: run && /^[a-z\d_-]{1,128}$/i.test(run) ? run : null,
+    run: validRun,
+    ...(validRun && runRepo ? { runRepo } : {}),
     mode: (view === 'runs' || view === 'prs') && (mode === 'review' || mode === 'rerun') ? mode : null,
     ticket: view !== 'plugin' || helm ? validTicket : null,
     surface: view === 'cmux' && isSurfaceRef(surface) ? surface : null,
@@ -156,7 +164,7 @@ export function isAppPagePath(pathname: string): boolean {
 
 export function routeHref(route: Partial<AppRoute> & { view: PageView }): string {
   const url = new URL(routePath(route), 'http://helmsman.local');
-  const keys = ['repo', 'prRepo', 'pane', 'pr', 'run', 'mode', 'ticket', 'surface'] as const;
+  const keys = ['repo', 'prRepo', 'pane', 'pr', 'run', 'runRepo', 'mode', 'ticket', 'surface'] as const;
   for (const key of keys) {
     const value = route[key];
     if (value !== null && value !== undefined) url.searchParams.set(key, String(value));
@@ -167,7 +175,7 @@ export function routeHref(route: Partial<AppRoute> & { view: PageView }): string
   const params = new URLSearchParams();
   for (const key of keys) {
     const value = normalized[key];
-    if (value !== null) params.set(key, String(value));
+    if (value !== null && value !== undefined) params.set(key, String(value));
   }
   if (normalized.panelInstance && !(normalized.panelContribution && normalized.panelInstance === normalized.pane)) params.set('panel', normalized.panelInstance);
   if (normalized.panelState) params.set('panelState', normalized.panelState);

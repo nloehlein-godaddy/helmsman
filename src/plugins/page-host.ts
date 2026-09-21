@@ -1,3 +1,4 @@
+import { parsePresentationLocatorV1, samePresentationLocatorV1, scopedPresentationLocatorV1, type PresentationLocatorV1 } from './presentation';
 import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from './sdk';
 import { createHostPageServices } from './host-services';
 import type { PluginCompositionHost } from './composition-host';
@@ -21,6 +22,7 @@ interface PageSession {
 }
 
 export interface PluginPageHostOptions {
+  selectPresentation?(locator: PresentationLocatorV1 | null, scopeRepo: string | null): void;
   navigate(href: string): void;
   loadingMessage(): string;
   errorMessage(): string;
@@ -29,7 +31,7 @@ export interface PluginPageHostOptions {
 
 const sameState = (a: PluginPageState, b: PluginPageState) => a.repo === b.repo && a.themeId === b.themeId
   && a.pirateMode === b.pirateMode && a.visible === b.visible && a.pane === b.pane && a.panelInstance === b.panelInstance
-  && a.panelContribution === b.panelContribution
+  && a.panelContribution === b.panelContribution && samePresentationLocatorV1(a.presentation, b.presentation)
   && JSON.stringify(a.panelRouteState ?? {}) === JSON.stringify(b.panelRouteState ?? {});
 
 function validInstance(value: unknown): value is PluginPageInstance {
@@ -62,7 +64,7 @@ export class PluginPageHost {
           if (!state.visible) current.activityController.abort();
         }
         if (current.state.repo !== state.repo) this.loading();
-        current.state = Object.freeze({ ...state });
+        current.state = Object.freeze({ ...state, ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }) });
         current.composition?.update(current.state);
         ++current.revision;
         void this.update(current);
@@ -72,7 +74,7 @@ export class PluginPageHost {
     this.clear();
     const session: PageSession = {
       id, module, element: document.createElement('div'), controller: new AbortController(), cleanups: new Set(),
-      instance: null, state: Object.freeze({ ...state }), revision: 0, applied: 0,
+      instance: null, state: Object.freeze({ ...state, ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }) }), revision: 0, applied: 0,
       mounting: Promise.resolve(), updating: null, refreshing: null,
       composition: null,
       activityController: new AbortController(), activityEpoch: 0,
@@ -85,6 +87,11 @@ export class PluginPageHost {
     catch { this.fail(session); return; }
     const context: PluginPageContext = Object.freeze({
       state: session.state,
+      ...(this.options.selectPresentation ? { selectPresentation: (input: PresentationLocatorV1 | null) => {
+        if (!this.active(session) || !session.state.visible || session.activityController.signal.aborted) throw new DOMException('Page is inactive.', 'AbortError');
+        const locator = scopedPresentationLocatorV1(input, session.state.repo);
+        this.options.selectPresentation?.(locator, session.state.repo);
+      } } : {}),
       signal: session.controller.signal,
       services: createHostPageServices(session.controller.signal, () => ({ repo: session.state.repo, active: session.state.visible,
         epoch: session.activityEpoch, signal: session.activityController.signal }), id),
@@ -180,7 +187,7 @@ export class PluginPageHost {
     try { await session.instance?.refresh?.(); } catch { this.fail(session); }
   }
 
-  private clear(): void {
+  clear(): void {
     const previous = this.session;
     this.session = null;
     if (!previous) return;

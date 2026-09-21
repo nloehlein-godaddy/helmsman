@@ -26,8 +26,8 @@ function options() {
     builtins: [...builtinFrontendArtifacts(runtimeArtifact.artifactHash), { package: builtinPricing.package, artifactHash: runtimeArtifact.artifactHash }] };
 }
 describe('trusted shipped frontend lifecycle', () => {
-  it('keeps shipped metadata aligned with independently buildable package descriptors', () => {
-    for (const pkg of builtinFrontendPackages) {
+  it('keeps authored shipped metadata aligned with independently buildable package descriptors', () => {
+    for (const pkg of builtinFrontendPackages.filter(pkg => pkg.manifest.id !== 'helmsman.compat-clarifications')) {
       const name = pkg.manifest.id.replace(/^helmsman\./, '');
       const descriptor = parsePluginPackage(JSON.parse(readFileSync(new URL(`../../../src/plugins/${name}/plugin-package.json`, import.meta.url), 'utf8')), { allowBuiltin: true });
       expect({ ...descriptor.manifest, id: pkg.manifest.id }).toEqual(pkg.manifest);

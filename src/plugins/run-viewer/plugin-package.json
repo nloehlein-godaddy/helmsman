@@ -1,0 +1,92 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.run-viewer",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Run viewer",
+        "slots": [
+          "helmsman/run-viewer-page"
+        ],
+        "panes": [],
+        "composition": {
+          "id": "helmsman/run-viewer-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/run-viewer-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "run-viewer",
+                "contributionId": "helmsman.run-viewer/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "run-viewer"
+                  ],
+                  "activeInstanceId": "run-viewer",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        },
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ]
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Run viewer",
+        "contract": {
+          "id": "helmsman/run-viewer-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/run-inspect",
+            "version": 1
+          },
+          {
+            "id": "helmsman/run-read",
+            "version": 1
+          },
+          {
+            "id": "helmsman/run-command",
+            "version": 1
+          },
+          {
+            "id": "helmsman/download",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

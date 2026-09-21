@@ -26,7 +26,9 @@ Rebuilds only replace a release whose generated inventory is intact. Added runti
 
 ## Public page SDK
 
-`release/sdk` is a standalone local npm package named `@helmsman/plugin-sdk`, containing declarations for page/panel lifecycle and composition, usage/pricing, task reads/views/editors, run inspection, streamed downloads, durable run/source commands, source administration, legacy Todo receipt recovery, and backend provider context, plus dependency-free runtime modules. The E4 [run-inspection](run-inspect-authoring.md) and [download](download-authoring.md) author guides ship beside the SDK; the browser assets include the narrowly scoped download worker. These foundations do not establish viewer/history cutover. Install the SDK as a development dependency in an author project:
+Author READMEs and their linked guides, offline flowcharts and assets ship with the distribution. Local links are rewritten for the copied layout; references to implementation and test files that remain in the source checkout point to the canonical GitHub repository.
+
+`release/sdk` is a standalone local npm package named `@helmsman/plugin-sdk`, containing declarations for page/panel lifecycle and composition, usage/pricing, task reads/views/editors, run inspection, streamed downloads, typed presentation locators, clarification reads, durable answers/global contact administration, durable run/source commands, source administration, legacy Todo receipt recovery, and backend provider context, plus dependency-free runtime modules. The E4 [run-inspection](run-inspect-authoring.md) and [download](download-authoring.md) author guides ship beside the SDK; the browser assets include the narrowly scoped download worker. These foundations do not establish viewer/history cutover. Install the SDK as a development dependency in an author project:
 
 ```sh
 npm install --save-dev /absolute/path/to/release/sdk typescript
@@ -81,3 +83,6 @@ The E3 gates independently compile the shipped Jira provider and task presentati
 The [Phase B author guide](plugin-backend.md) covers external Costs and pricing packages, persisted settings/storage, and independently usable sources in `release/plugin-sources`.
 
 The E4 foundation gate independently builds a page using the run-inspection and download SDK facets, then installs it against a copied production server with checkout access denied. It checks canonical resolution, scoped history and preview, foreign-scope and stale-attempt rejection, the exact static worker route and a real Unicode log download with byte equality. Run `npx playwright test --config playwright.distribution.config.ts tests/distribution/run-inspect-foundation.pw.ts` after building the distribution. This verifies the foundations; viewer/history replacement remains a separate acceptance gate.
+
+
+The E4 working slice also ships `plugin-sources/run-viewer` and `plugin-sources/run-history`, built only against the distributed SDK. The bundled clarification compatibility bridge is intentionally absent from author sources because it retains private renderer imports. Do not mistake its catalog entry for an independently buildable plugin. New source-denied presentation and clarification gates must pass before this slice is accepted; see the [implementation ledger](plugin-implementation-progress.md).

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PluginPageHost } from './page-host';
+import { PluginPageHost, type PluginPageHostOptions } from './page-host';
 import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from './sdk';
 
 function deferred<T>() {
@@ -16,7 +16,7 @@ const lifecycle = (): PluginPageInstance => ({ update: vi.fn(), refresh: vi.fn()
 const settle = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 const hosts: PluginPageHost[] = [];
 
-function setup() {
+function setup(options: Partial<PluginPageHostOptions> = {}) {
   const root = document.createElement('div');
   const sibling = document.createElement('p');
   sibling.textContent = 'Shell navigation';
@@ -25,7 +25,7 @@ function setup() {
   document.body.append(root);
   const navigate = vi.fn();
   const host = new PluginPageHost(container, {
-    navigate, loadingMessage: () => 'Loading scope', errorMessage: () => 'Page failed',
+    navigate, loadingMessage: () => 'Loading scope', errorMessage: () => 'Page failed', ...options,
   });
   hosts.push(host);
   return { host, root, sibling, container, navigate };
@@ -37,6 +37,25 @@ afterEach(() => {
 });
 
 describe('plugin page host', () => {
+  it('delivers presentation changes without remounting and captures current scope for selection', async () => {
+    const selectPresentation = vi.fn(); const { host } = setup({ selectPresentation });
+    let context!: PluginPageContext; const instance = lifecycle();
+    const mount = vi.fn((_container: HTMLElement, value: PluginPageContext) => { context = value; return instance; });
+    const module = { mount }; const locator = { version: 1 as const, kind: 'run' as const, repo: 'org/first', runId: 'run-1' };
+    host.show('example.viewer/page', module, state()); await settle();
+    host.show('example.viewer/page', module, state({ presentation: locator })); await settle();
+    expect(instance.update).toHaveBeenCalledTimes(1);
+    host.show('example.viewer/page', module, state({ presentation: { runId: 'run-1', repo: 'org/first', kind: 'run', version: 1 } })); await settle();
+    expect(instance.update).toHaveBeenCalledTimes(1); expect(mount).toHaveBeenCalledOnce();
+    context.selectPresentation?.(locator); expect(selectPresentation).toHaveBeenLastCalledWith(locator, 'org/first');
+    expect(() => context.selectPresentation?.({ ...locator, repo: 'org/other' })).toThrow('outside');
+    host.show('example.viewer/page', module, state({ repo: null }));
+    context.selectPresentation?.({ ...locator, repo: 'org/other' }); expect(selectPresentation).toHaveBeenLastCalledWith({ ...locator, repo: 'org/other' }, null);
+    host.show('example.viewer/page', module, state({ visible: false }));
+    expect(() => context.selectPresentation?.(null)).toThrow('inactive');
+    host.dispose(); expect(() => context.selectPresentation?.(locator)).toThrow('inactive');
+  });
+
   it('provides required task reads and revokes old scope calls immediately on scope change, suspension and disposal', async () => {
     const stalled = deferred<Response>();
     const fetcher = vi.fn<typeof fetch>().mockImplementationOnce(() => stalled.promise).mockImplementation(async path => {

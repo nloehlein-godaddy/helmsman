@@ -4,6 +4,7 @@ import { openCompositionLayoutStore, type CompositionLayoutStore } from './compo
 import { PluginCompositionHost, type CompositionLayoutPort } from './composition-host';
 import type { CompositionLayoutV1, PageCompositionDefinitionV1 } from './composition';
 import type { PluginPageState } from './sdk';
+import type { PresentationLocatorV1 } from './presentation';
 import { loadRackLayoutRaw } from '../logic/prefs';
 import { initializeTaskPageLayout } from './task-page-migration';
 
@@ -18,7 +19,8 @@ export class AppCompositionFactory {
   private readonly legacyRack = loadRackLayoutRaw();
   private disposed = false;
 
-  create(id: string, container: HTMLElement, state: PluginPageState, navigate: (href: string) => void): PluginCompositionHost | null {
+  create(id: string, container: HTMLElement, state: PluginPageState, navigate: (href: string) => void,
+    selectPresentation?: (locator: PresentationLocatorV1 | null, scopeRepo: string | null) => void): PluginCompositionHost | null {
     if (this.disposed) throw new DOMException('Composition factory disposed.', 'AbortError');
     const page = appPages.getPage(id);
     const definition = page?.composition;
@@ -48,7 +50,7 @@ export class AppCompositionFactory {
         return () => { removed = true; unsubscribe?.(); };
       },
     };
-    return new PluginCompositionHost(state, { definition, registry: appPanels, layout: port, container, navigate });
+    return new PluginCompositionHost(state, { definition, registry: appPanels, layout: port, container, navigate, selectPresentation });
   }
 
   dispose(): void {

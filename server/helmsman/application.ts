@@ -1,3 +1,4 @@
+import { createApplicationClarifications } from './clarification-application';
 import { createApplicationSourceAdmin } from './source-admin-application';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isAppPagePath } from '../../src/logic/routes';
@@ -282,6 +283,8 @@ const runSettlement = (runId: string): { state: 'settled' | 'operator-required' 
 };
 const runRead = createRunReadService({ db, repos: applicationRepos, settlement: runSettlement });
 const runInspect = createRunInspectService({ db, repos: applicationRepos, settlement: runSettlement });
+const publicClarifications = createApplicationClarifications({ persistence, clarifications, executions, controls: executionControls,
+  repos: applicationRepos, catalog: () => pluginSnapshot.catalog });
 const runCommands = createApplicationRunCommands({ store: openRunCommandStore(persistence), db, admissions, executions, controls: executionControls,
   catalog: () => pluginSnapshot.catalog, repos: applicationRepos, todos: sourceTodos, jiraEnabled: () => taskSourceRuntime.jiraEnabled(),
   canStart: repo => pm.canStart(repo), launch: input => launch(input), stop: runId => pm.stop(runId) });
@@ -1065,7 +1068,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, runInspect, pullRequestRead, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      clarificationGate,
+      clarificationGate, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,
       sourceSchedule: taskSourceRuntime.schedule,

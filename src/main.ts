@@ -1,3 +1,5 @@
+import { AuxiliaryPageHost } from './plugins/auxiliary-page-host';
+import { scopedPresentationLocatorV1, type PresentationLocatorV1 } from './plugins/presentation';
 import { applyBootTerminology } from './logic/bootTerminology';
 import { term, setPirateMode, isPirateMode } from './logic/terminology';
 import { loadProfile } from './data/profile';
@@ -13,7 +15,7 @@ import { requestSlackReview, SlackReviewRequestError, type SlackReviewResult } f
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
-import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT } from './plugins/builtins';
 import { appPageModules, disableBuiltinPageModules, syncBuiltinFrontend } from './plugins/builtin-modules';
 import { AppCompositionFactory } from './plugins/app-composition';
 import { loadPluginCatalog } from './plugins/runtime';
@@ -94,6 +96,8 @@ export class DashboardView {
   private readonly root: HTMLElement;
   private readonly rootEvents = new window.AbortController();
   private readonly runDrawerEl: HTMLElement;
+  private readonly auxiliary: AuxiliaryPageHost;
+  private presentationSelection: { locator: Exclude<PresentationLocatorV1, { kind: 'pull-request' }>; scopeRepo: string | null } | null = null;
   private runTabs: RunTab[] = [];
   private activeTabId: string | null = null;
   private tabSeq: number = 0;
@@ -135,6 +139,8 @@ export class DashboardView {
   private reviewRequestsRepo: string | null | undefined = undefined;
   private readonly onVisibilityChange = (): void => {
     this.syncCmuxPolling();
+    this.clarifications?.setVisible(!document.hidden);
+    if (!document.hidden) void this.clarifications?.refresh();
     if (this.isPluginPage()) this.paintPluginPage();
     if (document.hidden) this.cancelRunLogFlush();
     else this.scheduleRunLogFlush();
@@ -262,6 +268,15 @@ export class DashboardView {
     drawer.className = 'run-drawer';
     this.runDrawerEl = drawer;
     this.renderRunDrawer();
+    this.auxiliary = new AuxiliaryPageHost(this.pluginPresentationState(), {
+      slotId: RUN_VIEWER_PAGE_SLOT, registry: appPages, modules: appPageModules,
+      createComposition: (id, owner, state) => this.compositions.create(id, owner, state,
+        href => this.navigatePluginHref(href), (locator, scopeRepo) => this.selectPluginPresentation(locator, scopeRepo)),
+      navigate: href => this.navigatePluginHref(href),
+      selectPresentation: (locator, scopeRepo) => this.selectPluginPresentation(locator, scopeRepo),
+      loadingMessage: () => term('loadingPluginPage'), errorMessage: () => term('failedPluginPage'),
+      unavailableMessage: () => term('unavailablePluginMessage'),
+    });
   }
 
   async start(): Promise<void> {
@@ -387,6 +402,7 @@ export class DashboardView {
     this.unsubscribePageModules = null;
     this.pageHost?.dispose();
     this.pageHost = null;
+    this.auxiliary.dispose();
     this.compositions.dispose();
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -427,6 +443,8 @@ export class DashboardView {
       this.clarifications?.destroy();
       this.clarifications = null;
     }
+    if (this.presentationSelection && (route.run !== this.presentationSelection.locator.runId
+      || this.presentationSelection.locator.kind === 'run' && route.runRepo !== this.presentationSelection.locator.repo)) this.presentationSelection = null;
     const seq = ++this.routeSeq;
     if (this.view === 'runs' && route.view !== 'runs') {
       ++this.runHistorySeq;
@@ -444,6 +462,7 @@ export class DashboardView {
       this.pageHost = null;
     }
     if (scopeChanged) {
+      this.presentationSelection = null;
       ++this.runHistorySeq;
       this.runHistoryPending = null;
       this.historyRuns = [];
@@ -477,7 +496,7 @@ export class DashboardView {
     if (route.view === 'prs' || route.view === 'runs') {
       this.prView = { repo: route.pr ? route.prRepo ?? route.repo : null, number: route.pr, pr: null, diff: null, loading: Boolean(route.pr) };
     }
-    if (!route.run) this.activeTabId = null;
+    if (!route.run) { this.activeTabId = null; this.presentationSelection = null; }
     this.paint();
     if (scopeChanged) this.paintSlack();
     if (scopeChanged || route.view === 'prs') await this.refresh(false);
@@ -503,7 +522,7 @@ export class DashboardView {
     if ((route.view === 'prs' || route.view === 'runs') && prRepo && route.pr) await this.loadPrView(prRepo, route.pr, false);
     if (seq !== this.routeSeq) return;
     if (route.view !== 'prs' && route.view !== 'runs' && route.view !== 'config') this.paint();
-    if (route.run) {
+    if (route.run && !this.isPluginPage()) {
       const summary = this.runs.find(run => run?.id === route.run) ?? await getRun(route.run);
       if (seq !== this.routeSeq) return;
       if (summary) {
@@ -777,6 +796,48 @@ export class DashboardView {
     return { ...value, 'helmsman.newrun/panel': { version: 1, value: { legacyTicket: this.route.ticket } } };
   }
 
+  private navigatePluginHref(href: string): void {
+    try {
+      const url = new URL(href, window.location.href);
+      if (url.origin === window.location.origin && isAppPagePath(url.pathname)) void this.navigate(parseRoute(url));
+    } catch { return; }
+  }
+
+  private isRunViewerPage(): boolean {
+    return this.route.pluginSlot === RUN_VIEWER_PAGE_SLOT
+      || appPages.getPage(this.route.pluginPage ?? '')?.composition?.id === RUN_VIEWER_PAGE_SLOT;
+  }
+
+  private pluginPresentationState(): PluginPageState {
+    const selected = this.presentationSelection;
+    const sameRun = selected?.locator.runId === this.route.run;
+    return { repo: this.selectedRepo, themeId: this.themeId, pirateMode: isPirateMode(), visible: !document.hidden, pane: null,
+      presentation: sameRun && selected ? selected.locator : this.route.run
+        ? this.route.runRepo ? { version: 1, kind: 'run', repo: this.route.runRepo, runId: this.route.run } : { version: 1, kind: 'legacy-run', runId: this.route.run } : null };
+  }
+
+  private presentationScopeRepo(): string | null {
+    return this.presentationSelection ? this.presentationSelection.scopeRepo
+      : this.selectedRepo === null ? null : this.route.runRepo ?? this.selectedRepo;
+  }
+
+  private selectPluginPresentation(input: PresentationLocatorV1 | null, scopeRepo: string | null): void {
+    if (this.destroyed) return;
+    const locator = scopedPresentationLocatorV1(input, scopeRepo);
+    if (locator?.kind === 'pull-request') { void this.enterPrView(locator.repo, locator.number); return; }
+    const reveal = locator !== null && !this.auxiliary.element.contains(document.activeElement);
+    this.presentationSelection = locator ? { locator, scopeRepo } : null;
+    this.updateAddress({ ...this.route, run: locator?.runId ?? null, runRepo: locator?.kind === 'run' ? locator.repo : null });
+    this.auxiliary.select(locator, scopeRepo);
+    this.paintPluginPage();
+    if (reveal && !this.isRunViewerPage()) queueMicrotask(() => {
+      if (this.destroyed || !this.auxiliary.element.isConnected || this.route.run !== locator?.runId) return;
+      this.auxiliary.element.tabIndex = -1;
+      this.auxiliary.element.focus({ preventScroll: true });
+      this.auxiliary.element.scrollIntoView?.({ block: 'start' });
+    });
+  }
+
   private paintPluginPage(): void {
     if (this.destroyed || !this.isPluginPage()) return;
     const page = this.route.pluginSlot
@@ -787,29 +848,22 @@ export class DashboardView {
       this.mountPage(renderAppShell(this.shellOptions(), `<section class="panel"><h1>${escapeHtml(term('unavailablePluginPage'))}</h1><p class="empty-note" role="status">${escapeHtml(term('unavailablePluginMessage'))}</p></section>`));
     } else {
       if (!this.pageHost) {
-        this.mountPage(renderAppShell(this.shellOptions(), '<div data-plugin-page-host></div>'));
+        this.mountPage(renderAppShell(this.shellOptions(), '<div data-plugin-page-host></div><aside class="plugin-auxiliary-slot" hidden></aside>'));
         const container = this.root.querySelector<HTMLElement>('[data-plugin-page-host]');
         if (!container) return;
         this.pageHost = new PluginPageHost(container, {
-          createComposition: (id, owner, state) => this.compositions.create(id, owner, state, href => {
-            try {
-              const url = new URL(href, window.location.href);
-              if (url.origin === window.location.origin && isAppPagePath(url.pathname)) void this.navigate(parseRoute(url));
-            } catch { return; }
-          }),
-          navigate: href => {
-            try {
-              const url = new URL(href, window.location.href);
-              if (url.origin === window.location.origin && isAppPagePath(url.pathname)) void this.navigate(parseRoute(url));
-            } catch { return; }
-          },
+          createComposition: (id, owner, state) => this.compositions.create(id, owner, state,
+            href => this.navigatePluginHref(href), (locator, scopeRepo) => this.selectPluginPresentation(locator, scopeRepo)),
+          navigate: href => this.navigatePluginHref(href),
+          selectPresentation: (locator, scopeRepo) => this.selectPluginPresentation(locator, scopeRepo),
           loadingMessage: () => term('loadingPluginPage'),
           errorMessage: () => term('failedPluginPage'),
         });
       }
       const state: PluginPageState = {
-        repo: this.selectedRepo, themeId: this.themeId, pirateMode: isPirateMode(),
-        visible: !document.hidden, pane: this.route.pane,
+        ...this.pluginPresentationState(),
+        repo: this.isRunViewerPage() ? this.presentationScopeRepo() : this.selectedRepo,
+        pane: this.route.pane,
         panelInstance: this.route.panelInstance ?? null,
         panelContribution: this.route.panelContribution ?? null,
         panelRouteState: this.panelRouteState(),
@@ -855,7 +909,7 @@ export class DashboardView {
         this.clarifications?.destroy();
         this.mountPage(renderAppShell(this.shellOptions(), '<div id="clarifications-page"></div>'));
         const container = this.root.querySelector<HTMLElement>('#clarifications-page');
-        if (container) this.clarifications = mountClarifications(container, { repo: () => this.selectedRepo });
+        if (container) this.clarifications = mountClarifications(container, { repo: () => this.selectedRepo, visible: !document.hidden });
       } else void this.clarifications.refresh();
       this.bindHeadControls();
       this.rehomeRunDrawer();
@@ -2181,6 +2235,15 @@ export class DashboardView {
   }
 
   private rehomeRunDrawer(): void {
+    const presentation = this.pluginPresentationState();
+    this.auxiliary.update(presentation);
+    const auxiliarySlot = this.root.querySelector<HTMLElement>('.plugin-auxiliary-slot');
+    const showAuxiliary = presentation.presentation !== null && this.isPluginPage() && !this.isRunViewerPage();
+    if (auxiliarySlot) auxiliarySlot.hidden = !showAuxiliary;
+    if (presentation.presentation && showAuxiliary) {
+      this.auxiliary.select(presentation.presentation, this.presentationScopeRepo());
+      this.auxiliary.rehome(auxiliarySlot);
+    } else this.auxiliary.rehome(null);
     const slot = this.root.querySelector<HTMLElement>('.runs-drawer-slot');
     if (slot && this.runDrawerEl.parentElement !== slot) slot.appendChild(this.runDrawerEl);
     if (this.canRenderRunLog()) this.scheduleRunLogFlush();

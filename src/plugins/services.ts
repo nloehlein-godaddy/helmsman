@@ -1,3 +1,6 @@
+import type { ClarificationReadServiceV1 } from './clarification-read';
+import type { ClarificationCommandServiceV1 } from './clarification-command';
+import type { SuggestedContactAdminServiceV1 } from './suggested-contact-admin';
 import type { SourceAdminServiceV1 } from './source-admin';
 import type { TodoLegacyRecoveryServiceV1 } from './todo-legacy-recovery';
 import type { AssessmentInput, OutcomeAssessment, OutcomeSummary, OutcomeWindow } from './outcomes';
@@ -24,6 +27,9 @@ export interface PluginPageServices {
   readonly runs?: RunReadServiceV1;
   readonly runInspect?: RunInspectServiceV1;
   readonly downloads?: DownloadServiceV1;
+  readonly clarifications?: ClarificationReadServiceV1;
+  readonly clarificationCommands?: ClarificationCommandServiceV1;
+  readonly suggestedContacts?: SuggestedContactAdminServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;

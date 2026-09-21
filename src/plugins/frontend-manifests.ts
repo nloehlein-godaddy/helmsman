@@ -5,6 +5,8 @@ import todosPackage from './todos-ui/plugin-package.json' with { type: 'json' };
 import triagePackage from './triage/plugin-package.json' with { type: 'json' };
 import bugsPackage from './bugs/plugin-package.json' with { type: 'json' };
 import sourceSettingsPackage from './source-settings/plugin-package.json' with { type: 'json' };
+import runViewerPackage from './run-viewer/plugin-package.json' with { type: 'json' };
+import runHistoryPackage from './run-history/plugin-package.json' with { type: 'json' };
 
 export function supportsPageSlot(page: PluginPageDefinition, slot: string): boolean {
   const definition = builtinPageSlots.find(value => value.id === slot);
@@ -81,4 +83,14 @@ export const triageManifest = triagePackage.manifest as PluginManifest;
 export const bugsManifest = bugsPackage.manifest as PluginManifest;
 export const sourceSettingsManifest = sourceSettingsPackage.manifest as PluginManifest;
 
-export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);
+export const runViewerManifest = runViewerPackage.manifest as PluginManifest;
+export const runHistoryManifest = runHistoryPackage.manifest as PluginManifest;
+export const compatibilityClarificationsManifest: PluginManifest = {
+  manifestVersion: 2, id: 'helmsman.compat-clarifications', version: '0.1.0', sdkVersion: 1, panels: [],
+  pages: [{ id: 'page', title: 'Clarifications', slots: [], panes: [], requires: [
+    { id: 'helmsman/clarification-read', version: 1 }, { id: 'helmsman/clarification-command', version: 1 },
+    { id: 'helmsman/suggested-contact-admin', version: 1 },
+  ] }],
+};
+
+export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([runViewerManifest, runHistoryManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);

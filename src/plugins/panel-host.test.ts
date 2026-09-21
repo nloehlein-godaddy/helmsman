@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PluginPanelHost } from './panel-host';
+import { PluginPanelHost, type PanelHostOptions } from './panel-host';
 import type { PluginPanelContext, PluginPanelInstance, PluginPanelState } from './composition';
 import type { PluginPageServices, PluginPageState } from './sdk';
 
@@ -9,7 +9,7 @@ const state = (overrides: Partial<PluginPageState> = {}): PluginPageState => ({
 const hosts: PluginPanelHost[] = [];
 const settle = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 const services = {} as PluginPageServices;
-function setup(instance: PluginPanelInstance = { update() {}, dispose() {} }) {
+function setup(instance: PluginPanelInstance = { update() {}, dispose() {} }, options: Partial<PanelHostOptions> = {}) {
   const container = document.createElement('div');
   document.body.append(container);
   let context!: PluginPanelContext;
@@ -17,13 +17,31 @@ function setup(instance: PluginPanelInstance = { update() {}, dispose() {} }) {
   const host = new PluginPanelHost(container, { mount(_container, supplied) {
     context = supplied; context.onDispose(cleanup); return instance;
   } }, state(), null, { instanceId: 'first', services: () => services,
-    navigate: vi.fn(), saveState: async () => {}, errorMessage: () => 'Panel failed' });
+    navigate: vi.fn(), saveState: async () => {}, errorMessage: () => 'Panel failed', ...options });
   hosts.push(host);
   return { host, container, context, cleanup };
 }
 afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); });
 
 describe('panel lifecycle', () => {
+  it('selects presentation with effective scope and suspends stale callbacks without remounting', async () => {
+    const selectPresentation = vi.fn(); const update = vi.fn();
+    const { host, context } = setup({ update, dispose() {} }, { selectPresentation }); await settle();
+    const locator = { version: 1 as const, kind: 'run' as const, repo: 'org/first', runId: 'run-1' };
+    const activity = context.activity;
+    host.update(state({ presentation: locator })); await settle();
+    host.update(state({ presentation: { ...locator } })); await settle();
+    expect(update).toHaveBeenCalledTimes(1); expect(context.activity).toBe(activity);
+    context.selectPresentation?.(locator); expect(selectPresentation).toHaveBeenLastCalledWith(locator, 'org/first');
+    host.update(state({ repo: 'org/override' }));
+    expect(() => context.selectPresentation?.(locator)).toThrow('outside');
+    const overridden = { ...locator, repo: 'org/override' };
+    context.selectPresentation?.(overridden); expect(selectPresentation).toHaveBeenLastCalledWith(overridden, 'org/override');
+    host.update(state({ repo: 'org/override', visible: false }));
+    expect(() => context.selectPresentation?.(overridden)).toThrow('inactive');
+    host.dispose(); expect(() => context.selectPresentation?.(null)).toThrow('inactive');
+  });
+
   it('invalidates scope immediately and delivers a new scope while an old update is hung', async () => {
     const states: PluginPanelState[] = [];
     const { host, context } = setup({ update(value) {

@@ -61,6 +61,16 @@ const deps: RouterDeps = {
 };
 
 describe('handleApi', () => {
+  it('retires legacy clarification writes when durable services are active without touching compatibility state', async () => {
+    const timeoutDue = vi.fn(); const cleanupOrphans = vi.fn(); const answer = vi.fn(); const saveContact = vi.fn(); const ingestQuestion = vi.fn();
+    const local = { ...deps, publicClarifications: {} as NonNullable<RouterDeps['publicClarifications']>,
+      clarifications: { timeoutDue, cleanupOrphans, answer, saveContact, ingestQuestion } as unknown as RouterDeps['clarifications'] };
+    for (const path of ['/api/clarifications', '/api/clarifications/question-1/answer', '/api/trusted-contacts']) {
+      expect((await handleApi('POST', path, new URLSearchParams(), { runId: 'r1', answer: 'yes' }, local))?.status).toBe(410);
+    }
+    for (const mutation of [timeoutDue, cleanupOrphans, answer, saveContact, ingestQuestion]) expect(mutation).not.toHaveBeenCalled();
+  });
+
   it('serves core usage independently of pricing activation and validates query windows', async () => {
     const usage = createUsageQueryService({ db: { runsInWindow: () => [] }, usage: { listUsage: () => [] } });
     const pricing = vi.fn(async () => { throw new CapabilityResolutionError('invalid-selection', 'Selected provider is disabled'); });
