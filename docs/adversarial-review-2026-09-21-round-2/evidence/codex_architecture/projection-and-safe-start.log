@@ -1,0 +1,9 @@
+{
+  "result": "PASS",
+  "projectionGcRejectedAcrossFreshCliCoordinators": 3,
+  "recoveryWithoutArtifactRestoration": true,
+  "settledGcAllowed": true,
+  "safeStartSupportedSlots": 19,
+  "unknownSlotRejected": true,
+  "metadataReadOnly": true
+}

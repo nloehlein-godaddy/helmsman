@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "node": "v24.17.0",
+  "settingsIsolationSessions": 116,
+  "concurrentWidth": 8,
+  "moduleEvaluations": 1,
+  "cleanupCalls": 117,
+  "arrayBufferDelta": 729088,
+  "cachedErrorEvaluations": 1,
+  "acquisitionDisposalRaces": 32,
+  "blockedClosureCases": 4,
+  "fixture": "/private/tmp/helmsman-adversarial2-20260921-e3ccca4/probes/codex_architecture/sessions-ljA5nB"
+}

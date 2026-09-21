@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import { cp, mkdtemp, mkdir, symlink, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { pluginCommand } from '../../integration/release/server/helmsman/plugins/cli.js';
+import { loadPluginSnapshot } from '../../integration/release/server/helmsman/plugins/store.js';
+import { activateBackendPlugins } from '../../integration/release/server/helmsman/plugins/backend.js';
+import { openPluginData } from '../../integration/release/server/helmsman/plugins/data.js';
+const directory=await mkdtemp(new URL('./author-',import.meta.url).pathname),release=fileURLToPath(new URL('../../integration/release',import.meta.url));
+const root=join(directory,'plugins'),db=join(directory,'main.sqlite');
+const compiler=fileURLToPath(new URL('../../codex_architecture/node_modules/typescript/bin/tsc',import.meta.url));
+const cli=(...args)=>pluginCommand(['--dir',root,'--db',db,...args]);
+let runtime;
+try{
+ for(const [name,out] of [['scope-panel','dist'],['flat-pricing','output']]){
+  const project=join(directory,name);await cp(join(release,'examples/plugins',name),project,{recursive:true});await mkdir(join(project,'node_modules/@helmsman'),{recursive:true});await symlink(join(release,'sdk'),join(project,'node_modules/@helmsman/plugin-sdk'));
+  const build=spawnSync(process.execPath,[compiler,'-p',project,'--listFiles'],{cwd:project,encoding:'utf8',timeout:30_000,maxBuffer:4*1024*1024});
+  await writeFile(new URL('./compiler-'+name+'.log',import.meta.url),build.stdout+build.stderr);assert.equal(build.status,0,build.stdout+build.stderr);assert.ok(!build.stdout.includes('/codex_architecture/src/'));assert.ok(!build.stdout.includes('/integration/release/src/'));
+  await cp(join(project,'plugin-package.json'),join(project,out,'plugin-package.json'));const artifact=join(directory,name+'.hmp');await cli('pack',join(project,out),artifact);await cli('install',artifact);await cli('enable','example.'+name);
+ }
+ await cli('configure','example.flat-pricing',JSON.stringify({usdPerMillionTokens:7}));await cli('select-pricing','example.flat-pricing/flat');
+ const snapshot=await loadPluginSnapshot(root);assert.deepEqual(snapshot.errors,[]);assert.equal(snapshot.catalog.plugins.length,2);
+ const frontend=snapshot.catalog.plugins.find(x=>x.package.manifest.id==='example.scope-panel').package;assert.equal(frontend.manifest.pages.length,1);assert.equal(frontend.manifest.panels.length,1);
+ const usage={version:1,currency:'USD',repo:'fixture/project',window:{from:'2026-09-20',to:'2026-09-21'},runs:[],records:[{runId:'fixture-run',attempt:1,eventId:'event',provider:'fixture',model:null,inputTokens:1_000_000,cachedInputTokens:0,outputTokens:0,totalTokens:1_000_000,costUsd:null}],reported:{observedCostUsd:null,knownCostUsd:null,runsWithKnownCost:0,runsWithoutUsage:0,inputTokens:1_000_000,cachedInputTokens:0,outputTokens:0,totalTokens:1_000_000}};
+ const before=JSON.stringify(usage);
+ for(let i=0;i<2;i++){
+  runtime=await activateBackendPlugins({root,snapshot:await loadPluginSnapshot(root),usage:{query:async()=>usage}});assert.deepEqual(runtime.errors,[]);
+  const result=await runtime.pricing(usage);assert.equal(result.providerId,'example.flat-pricing/flat');assert.equal(result.estimate.estimatedUnreportedCostUsd,7);assert.equal(JSON.stringify(usage),before);await runtime.dispose();runtime=undefined;
+ }
+ const backend=snapshot.catalog.plugins.find(x=>x.package.manifest.id==='example.flat-pricing').package;const data=openPluginData(root,backend);try{assert.equal(data.read('last-rate'),7);}finally{data.close();}
+ console.log(JSON.stringify({result:'PASS',independentTypeScriptProjects:2,hostSourceImports:0,frontend:{pages:1,panels:1},backendEstimatedUsd:7,reactivations:2,settingsAndStoragePersisted:true,measuredUsageUnchanged:true},null,2));
+}finally{await runtime?.dispose();await rm(directory,{recursive:true,force:true});}

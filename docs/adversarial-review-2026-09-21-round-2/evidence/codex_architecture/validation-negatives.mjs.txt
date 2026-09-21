@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import { parsePluginArchive } from '../../integration/release/server/helmsman/plugins/artifacts.js';
+import { validatePluginImports } from '../../integration/release/server/helmsman/plugins/imports.js';
+const major = Number(process.versions.node.split('.')[0]);
+const descriptor = { packageVersion: 1, manifest: { manifestVersion: 1, id: 'example.validation', version: '1.0.0', sdkVersion: 1,
+  pages: [{ id: 'page', title: 'Page', slots: ['helmsman/costs-page'], panes: [] }] },
+  node: { minMajor: major, maxMajorExclusive: major + 1 }, entries: { page: 'page.js' } };
+const file = (path, source) => ({ path, base64: Buffer.from(source).toString('base64') });
+const archive = (files = [file('page.js', 'export default { mount() {} };')], pkg = descriptor) => JSON.stringify({ format: 'helmsman-plugin', version: 1, package: pkg, files });
+let passed = 0;
+function reject(name, value) { assert.throws(() => parsePluginArchive(value)); console.log('PASS:', name); passed++; }
+reject('traversal', archive([file('../page.js', '')]));
+reject('duplicate asset', archive([file('page.js', ''), file('page.js', '')]));
+reject('encoded traversal', archive([file('%2e%2e/page.js', '')]));
+reject('missing entry', archive([]));
+reject('reserved namespace', archive(undefined, { ...descriptor, manifest: { ...descriptor.manifest, id: 'helmsman.injected' } }));
+reject('unsupported SDK', archive(undefined, { ...descriptor, manifest: { ...descriptor.manifest, sdkVersion: 2 } }));
+reject('unsupported dependencies fail closed', archive(undefined, { ...descriptor, dependencies: { 'example.missing': '1.0.0' } }));
+for (const [name, source] of [
+  ['bare dependency', 'import value from "unbundled";'],
+  ['escaping import', 'import "../other.js";'],
+  ['computed import', 'const path = "./other.js"; import(path);'],
+  ['browser Node builtin', 'import { readFile } from "node:fs/promises";'],
+  ['missing relative module', 'import "./missing.js";'],
+]) {
+  await assert.rejects(validatePluginImports(parsePluginArchive(archive([file('page.js', source)]))));
+  console.log('PASS:', name); passed++;
+}
+await validatePluginImports(parsePluginArchive(archive([file('page.js', 'import { helper } from "./helper.js"; export default { mount() { helper(); } };'), file('helper.js', 'export const helper = () => {};')])));
+console.log('PASS: bundled literal local helper accepted'); passed++;
+console.log('Validation controls passed:', passed);

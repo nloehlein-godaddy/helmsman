@@ -1,0 +1,108 @@
+// @vitest-environment node
+// Temporary adversarial probe (round 2, claude-sources reviewer). Not part of the tracked suite.
+import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openPersistence } from './persistence';
+import { openDb, type RunRow } from './db';
+import { openExecutionStore, type ExecutionSnapshotInput } from './execution-store';
+import { openAdmissionStore } from './admission-store';
+import { createRunnerDurability } from './runner-durability';
+import { reattachRun, type RunnerDeps } from './runner';
+
+const cleanups: (() => void)[] = [];
+afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
+function temporary() { const path = realpathSync(mkdtempSync(join(tmpdir(), 'probe-')));
+  cleanups.push(() => rmSync(path, { recursive: true, force: true })); return path; }
+
+const artifact = { pluginId: 'audit.runtime', artifactHash: 'a'.repeat(64), packageVersion: '1', requires: [] };
+const task = { repo: 'owner/repo', ticketId: 'task-1', title: 'Audit', jiraBaseUrl: '', task: 'local test' };
+function snapshot(run: RunRow): ExecutionSnapshotInput {
+  return { version: 1, runId: run.id, attempt: run.attempt, repo: run.repo, logicalWork: { source: 'audit', instance: 'local', taskId: task.ticketId }, task, workflowSnapshotId: null,
+    artifacts: [artifact], settings: {}, schemas: [], provenance: { kind: 'admission', evidence: null },
+    bindings: [{ role: 'host', capability: 'host', contractVersion: 1, contributionId: 'detached', pluginId: artifact.pluginId, artifactHash: artifact.artifactHash, connectionId: null, credentialHandle: null }] };
+}
+
+function fixture() {
+  const root = temporary();
+  const path = join(root, 'state.sqlite');
+  const open = () => {
+    const persistence = openPersistence(path);
+    cleanups.push(() => persistence.close());
+    const db = openDb(persistence.sql);
+    const executions = openExecutionStore(persistence);
+    const admissions = openAdmissionStore(persistence, executions);
+    const durable = createRunnerDurability({ persistence, db, executions, admissions, runsDir: root, maxConcurrency: 1, snapshot, verify: async () => {} });
+    const launch = vi.fn(async () => { throw new Error('Must not launch a worker'); });
+    const deps: RunnerDeps = { db, durable, bus: { publish: () => {} } as never, runsDir: root, genId: () => 'probe-run', now: () => new Date().toISOString(),
+      adapter: { id: 'audit', buildCommand: () => ({ cmd: 'worker', args: [] }), parseLine: () => null },
+      host: { kind: 'detached', launch, stop: vi.fn(async () => {}), isAlive: async () => false },
+      createWorktree: vi.fn(async () => { throw new Error('Do not recreate an interrupted worktree'); }), removeWorktree: vi.fn(async () => {}) };
+    return { persistence, db, executions, admissions, durable, deps, launch };
+  };
+  const row: RunRow = { id: 'probe-run', repo: task.repo, ticketId: task.ticketId, adapter: 'audit', status: 'running', attempt: 1,
+    startedAt: new Date().toISOString(), endedAt: null, prNumber: null, costUsd: null, worktreePath: null, taskJson: JSON.stringify(task) };
+  return { root, open, row };
+}
+
+// PROBE 1: a slow-but-eventually-successful prepareFinalization holds the lease for the entire
+// window (heartbeat renews every 10s inside runner.ts, but this deps stub bypasses that timing by
+// simply completing quickly); the goal is to verify a SECOND coordinator cannot settle the same
+// attempt concurrently while the first coordinator's session/lease is still open, and that the
+// second only succeeds after the first cleanly releases (closes) its session.
+it('rejects a second concurrent coordinator attempting to settle the same never-launched attempt while the first still holds its lease', async () => {
+  const f = fixture();
+  const first = f.open();
+  first.admissions.admit({ runId: f.row.id, repo: task.repo, request: {}, settings: {}, artifacts: [artifact] }, 1);
+  const session = await first.durable.prepare(f.row, task);
+  session.ready(f.root);
+  // Do NOT close the first session: simulate a coordinator that is still "in flight" (e.g. awaiting
+  // a slow prepareFinalization) while a second process/coordinator also attempts recovery.
+  const second = f.open();
+  const liveRow = first.db.getRun(f.row.id)!;
+  await expect(second.durable.recover(liveRow)).rejects.toThrow('Another coordinator owns this execution attempt');
+  // First coordinator settles and releases cleanly.
+  expect(session.terminalUnlaunched('failed', 'first coordinator wins')).toBe(true);
+  session.finalize({ ...f.row, status: 'failed', endedAt: new Date().toISOString() });
+  session.close();
+  // Now that the lease is released, a second coordinator opened against the SAME on-disk state
+  // (reusing the second connection which shares the sqlite file) must observe the already-settled
+  // outcome and must not be able to re-settle it as a different status (idempotency across processes).
+  const reattachResult = await reattachRun(second.db.getRun(f.row.id) ?? f.row, { ...second.deps, isStopped: () => true });
+  // Because the attempt already has a terminal outcome and finalize() already ran, `recover()` should
+  // still succeed (attempt has a lease-free, terminal record) but must not invoke launch or worktree calls.
+  expect(second.launch).not.toHaveBeenCalled();
+  expect(second.deps.createWorktree).not.toHaveBeenCalled();
+  void reattachResult;
+});
+
+// PROBE 2: directly corrupt the on-disk outcome evidence for a never-launched attempt (simulating
+// disk corruption / a hand-edited row) and confirm the store's own validation on write rejects malformed
+// evidence, and that a read of an attempt whose evidence was corrupted through a raw write never
+// crashes hasUnlaunchedOutcome / terminalUnlaunched, and never causes settlement to be granted twice.
+it('does not crash or double-settle when the stored outcome evidence is malformed', async () => {
+  const f = fixture();
+  const first = f.open();
+  first.admissions.admit({ runId: f.row.id, repo: task.repo, request: {}, settings: {}, artifacts: [artifact] }, 1);
+  const session = await first.durable.prepare(f.row, task);
+  session.ready(f.root);
+  expect(session.terminalUnlaunched('failed', 'genuine pre-launch failure')).toBe(true);
+
+  // Directly corrupt the JSON blob for this attempt's outcome.evidence field on disk, simulating
+  // a torn write or hand-edited row. This bypasses all in-process validation.
+  const raw = first.persistence.sql.prepare('SELECT json FROM execution_attempts WHERE runId=? AND attempt=?').get(f.row.id, 1) as { json: string };
+  const parsed = JSON.parse(raw.json) as { outcome: { evidence: unknown } };
+  parsed.outcome.evidence = 'not-an-object'; // malformed: evidence must be an object with kind === 'never-launched'
+  first.persistence.sql.prepare('UPDATE execution_attempts SET json=? WHERE runId=? AND attempt=?').run(JSON.stringify(parsed), f.row.id, 1);
+
+  session.close();
+  first.persistence.close();
+
+  const second = f.open();
+  // Re-attaching after this corruption must not throw and must not treat the attempt as never-launched
+  // anymore (since hasUnlaunchedOutcome requires evidence to be a real object with kind === 'never-launched').
+  expect(() => second.executions.attempt({ runId: f.row.id, attempt: 1 })).not.toThrow();
+  const attempt = second.executions.attempt({ runId: f.row.id, attempt: 1 });
+  expect(attempt?.outcome?.evidence).toBe('not-an-object');
+});

@@ -1,0 +1,64 @@
+import { allowMutationRequest } from '../../claude_security/server/helmsman/request-origin';
+
+type H = Record<string, string | string[] | undefined>;
+function req(method: string, headers: H) { return { method, headers }; }
+
+let pass = 0, fail = 0;
+function check(label: string, got: boolean, want: boolean) {
+  const ok = got === want;
+  if (ok) pass++; else fail++;
+  console.log(`${ok ? 'OK ' : 'XX '} ${label} => ${got} (want ${want})`);
+}
+
+const HOST = 'localhost:8787';
+
+// --- Baseline / negative controls ---
+check('legit same-origin POST json', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'application/json', origin: 'http://localhost:8787' }), '/api/agents/launch'), true);
+check('legit POST no origin (non-browser CLI)', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'application/json' }), '/api/agents/launch'), true);
+check('GET always allowed', allowMutationRequest(req('GET', { host: 'evil.com', origin: 'http://evil.com' }), '/api/agents'), true);
+check('HEAD always allowed', allowMutationRequest(req('HEAD', {}), '/api/agents'), true);
+check('OPTIONS always allowed (preflight)', allowMutationRequest(req('OPTIONS', {}), '/api/agents/launch'), true);
+check('webhook POST exact exempt', allowMutationRequest(req('POST', { host: 'evil.com', 'content-type': 'text/plain', origin: 'http://evil.com' }), '/api/webhooks/github'), true);
+
+// --- Original R02 exploit attempt (must now be blocked) ---
+check('R02 no-cors text/plain cross-origin POST auto-claim', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'text/plain', origin: 'http://evil.com' }), '/api/repos/fixture%2Fproject/auto-claim'), false);
+check('R02 no content-type cross-origin POST', allowMutationRequest(req('POST', { host: HOST, origin: 'http://evil.com' }), '/api/repos/x/auto-claim'), false);
+check('form urlencoded cross-origin POST', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'application/x-www-form-urlencoded', origin: 'http://evil.com' }), '/api/agents/launch'), false);
+check('multipart cross-origin POST', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'multipart/form-data; boundary=x', origin: 'http://evil.com' }), '/api/agents/launch'), false);
+
+// --- Cross-origin with json content-type but foreign origin (would need preflight; blocked here too) ---
+check('json cross-origin foreign origin', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'application/json', origin: 'http://evil.com' }), '/api/agents/launch'), false);
+
+// --- sec-fetch-site cross-site rejection ---
+check('sec-fetch-site cross-site', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }), '/api/agents/launch'), false);
+
+// --- Content-type parameter / case tricks (should still be json) ---
+check('json with charset param', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'application/json; charset=utf-8', origin: 'http://localhost:8787' }), '/api/agents/launch'), true);
+check('JSON uppercase', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'APPLICATION/JSON', origin: 'http://localhost:8787' }), '/api/agents/launch'), true);
+check('json leading space', allowMutationRequest(req('POST', { host: HOST, 'content-type': ' application/json', origin: 'http://localhost:8787' }), '/api/agents/launch'), true);
+// content-type that merely starts with application/json but is different type
+check('application/json+evil (not exact)', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'application/json-patch+json', origin: 'http://localhost:8787' }), '/api/agents/launch'), false);
+
+// --- Host header attacks / DNS rebinding ---
+check('DNS rebind: Host=evil.com', allowMutationRequest(req('POST', { host: 'evil.com:8787', 'content-type': 'application/json' }), '/api/agents/launch'), false);
+check('Host with path smuggle', allowMutationRequest(req('POST', { host: 'localhost:8787/evil', 'content-type': 'application/json' }), '/api/agents/launch'), false);
+check('Host with creds', allowMutationRequest(req('POST', { host: 'localhost:8787@evil.com', 'content-type': 'application/json' }), '/api/agents/launch'), false);
+check('Host 127.0.0.1 ok, origin matches', allowMutationRequest(req('POST', { host: '127.0.0.1:8787', 'content-type': 'application/json', origin: 'http://127.0.0.1:8787' }), '/api/agents/launch'), true);
+check('Host [::1] ok', allowMutationRequest(req('POST', { host: '[::1]:8787', 'content-type': 'application/json', origin: 'http://[::1]:8787' }), '/api/agents/launch'), true);
+check('Host missing', allowMutationRequest(req('POST', { 'content-type': 'application/json' }), '/api/agents/launch'), false);
+check('Host = 0.0.0.0 (not allowlisted)', allowMutationRequest(req('POST', { host: '0.0.0.0:8787', 'content-type': 'application/json' }), '/api/agents/launch'), false);
+// Origin/Host mismatch where host is loopback but origin points to loopback on a different port -> should reject
+check('origin different port than host', allowMutationRequest(req('POST', { host: 'localhost:8787', 'content-type': 'application/json', origin: 'http://localhost:9999' }), '/api/agents/launch'), false);
+check('origin https vs http host', allowMutationRequest(req('POST', { host: 'localhost:8787', 'content-type': 'application/json', origin: 'https://localhost:8787' }), '/api/agents/launch'), false);
+
+// --- Webhook credential PUT must be guarded (not exempt) ---
+check('webhook credential PUT cross-origin blocked', allowMutationRequest(req('PUT', { host: HOST, 'content-type': 'text/plain', origin: 'http://evil.com' }), '/api/webhooks/github/credential'), false);
+// Path-prefix confusion: /api/webhooks/github/credential is NOT the exact exempt path
+check('webhook subpath not exempt for text/plain POST', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'text/plain', origin: 'http://evil.com' }), '/api/webhooks/github/credential'), false);
+check('webhook trailing-slash not exempt', allowMutationRequest(req('POST', { host: HOST, 'content-type': 'text/plain', origin: 'http://evil.com' }), '/api/webhooks/github/'), false);
+
+// --- Dev proxy same-origin (vite 5173 -> backend, Host preserved) ---
+check('dev proxy vite host preserved', allowMutationRequest(req('POST', { host: 'localhost:5173', 'content-type': 'application/json', origin: 'http://localhost:5173' }), '/api/agents/launch'), true);
+
+console.log(`\n${pass} pass, ${fail} fail`);
+if (fail > 0) process.exit(1);

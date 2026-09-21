@@ -1,0 +1,75 @@
+{
+  "root": "/private/tmp/helmsman-adversarial2-20260921-e3ccca4",
+  "repository": "/Users/nloehlein/workspace/ai/projects/helmsman",
+  "head": "e3ccca4d6b31db70974f4c8e70784e491768d9c8",
+  "previous_review_head": "ec3dd6b544cba1f796c353134dc4af0437cf40a8",
+  "baseline": "e471d86630d78f2285611e81256ff912e5f57d0e",
+  "reviewers": [
+    "codex_architecture",
+    "codex_execution",
+    "codex_ui",
+    "claude_security",
+    "claude_sources",
+    "claude_integrations"
+  ],
+  "environment": {
+    "node": "v24.17.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "abi": "137"
+  },
+  "commit_count": 85,
+  "changed_files": 1401,
+  "insertions": 103230,
+  "deletions": 18645,
+  "models": {
+    "codex_architecture": {
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    "codex_execution": {
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    "codex_ui": {
+      "model": "gpt-5.6-sol",
+      "effort": "high"
+    },
+    "claude_security": {
+      "model": "claude-opus-4-8",
+      "effort": "high"
+    },
+    "claude_sources": {
+      "model": "claude-sonnet-5",
+      "effort": "high"
+    },
+    "claude_integrations": {
+      "model": "claude-opus-4-8",
+      "effort": "high"
+    }
+  },
+  "claude_completions": {
+    "claude_security": {
+      "exit_code": 0,
+      "completed_at": 1790025348.35635
+    },
+    "claude_integrations": {
+      "exit_code": 0,
+      "completed_at": 1790025425.886784
+    },
+    "claude_sources": {
+      "exit_code": 0,
+      "completed_at": 1790025850.7107189
+    }
+  },
+  "all_six_primary_reviewers_completed": true,
+  "root_model": "not reported",
+  "root_effort": "not reported",
+  "claude_effort_source": "owned CLI argv --effort high; individual self-reported bylines are preserved verbatim",
+  "domain_followup": {
+    "model": "gpt-6-astra",
+    "effort": "high",
+    "status": "completed",
+    "new_confirmed_findings": 0
+  }
+}

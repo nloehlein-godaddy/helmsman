@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { installPluginArtifact } from '../../integration/release/server/helmsman/plugins/artifacts.js';
+import { loadRetainedAgentProvider } from '../../integration/release/server/helmsman/agent-retained-loader.js';
+import { loadRetainedExecutionHostProvider } from '../../integration/release/server/helmsman/execution-host-retained-loader.js';
+import { loadRetainedNativeTerminalProvider } from '../../integration/release/server/helmsman/native-terminal-retained-loader.js';
+import { loadRetainedWorkflowProvider } from '../../integration/release/server/helmsman/workflow-retained-loader.js';
+const root=await mkdtemp(new URL('./closure-',import.meta.url).pathname),major=Number(process.versions.node.split('.')[0]);
+const models={model:null,effort:null};
+const cases=[
+ {kind:'agent',field:'agents',access:'process-description',loader:loadRetainedAgentProvider,metadata:{version:1,label:'Agent',defaults:models,review:{low:models,medium:models,high:models},reviewSkills:[],reviewDelegation:'none',supportsPrePr:true,docker:null,costReporting:'delta'}},
+ {kind:'execution-host',field:'executionHosts',access:'execution',loader:loadRetainedExecutionHostProvider,metadata:{version:1,label:'Host',workspace:'worktree',stageExecution:'local'}},
+ {kind:'native-terminal',field:'nativeTerminals',access:'native-session',loader:loadRetainedNativeTerminalProvider,metadata:{version:1,label:'Terminal',browser:true}},
+ {kind:'workflow',field:'workflows',access:'workflow-policy',loader:loadRetainedWorkflowProvider,metadata:{version:1,label:'Workflow',modes:['coding'],execution:'staged',requiredSkills:[],maxRounds:3,stageTimeoutMinutes:45}}
+];
+async function make(c,id,node){const archive=await installPluginArtifact(root,Buffer.from(JSON.stringify({format:'helmsman-plugin',version:1,package:{packageVersion:1,manifest:{manifestVersion:1,id,version:'1.0.0',sdkVersion:1,pages:[]},node,entries:{},backend:{entry:'backend.js',provides:[{id:'helmsman/'+c.kind,version:1,localId:'provider'}],[c.field]:{provider:{access:[c.access]}},settings:{},storageVersion:1}},files:[{path:'backend.js',base64:Buffer.from("globalThis.__closureEvaluations=(globalThis.__closureEvaluations??0)+1;throw Error('compatible code evaluated');export default {};").toString('base64')}]})));
+ return {archive,binding:{pluginId:id,artifactHash:archive.hash,packageVersion:'1.0.0',requires:[]},record:{version:1,binding:{pluginId:id,artifactHash:archive.hash,providerId:id+'/provider',contractVersion:1},origin:'external',settings:{},metadata:c.metadata}};}
+try{for(const c of cases){
+ const selected=await make(c,'example.'+c.kind,{minMajor:major,maxMajorExclusive:major+1});
+ const tooNew=await make(c,'example.future-'+c.kind,{minMajor:major+1,maxMajorExclusive:major+2});
+ const tooOld=await make(c,'example.old-'+c.kind,{minMajor:major-1,maxMajorExclusive:major});
+ const load=(record,artifacts)=>c.loader({pluginsRoot:root,runtimeArtifactsRoot:root,record,artifacts});
+ const before=globalThis.__closureEvaluations??0;
+ for(const bad of [tooNew,tooOld]){
+  await assert.rejects(load(bad.record,[bad.binding]),/does not support Node/);
+  for(const artifacts of [[{...selected.binding,requires:[bad.binding.pluginId]},bad.binding],[bad.binding,{...selected.binding,requires:[bad.binding.pluginId]}]])await assert.rejects(load(selected.record,artifacts),/does not support Node/);
+ }
+ assert.equal(globalThis.__closureEvaluations??0,before);
+ await assert.rejects(load(selected.record,[selected.binding]),/compatible code evaluated/);
+ assert.equal(globalThis.__closureEvaluations,before+1);
+ console.log(c.kind+': PASS (both bounds, direct and dependency cases in both archive orders; compatible evaluation control)');
+}console.log('PASS: 24 incompatible retained closure cases and 4 evaluation controls');}finally{await rm(root,{recursive:true,force:true});}

@@ -1,0 +1,24 @@
+{
+  "status": "found",
+  "ref": {
+    "version": 1,
+    "identity": {
+      "runId": "direct_run",
+      "launchId": "direct_launch",
+      "attempt": 1,
+      "receiptPath": "/private/tmp/helmsman-adversarial2-20260921-e3ccca4/probes/codex_execution/direct-control-I0tjwf/run.receipt"
+    },
+    "state": {
+      "kind": "detached",
+      "pid": 11527,
+      "processStart": "darwin:Mon Sep 21 14:15:07 2026"
+    }
+  },
+  "evidence": {
+    "launchId": "direct_launch",
+    "runId": "direct_run",
+    "attempt": 1,
+    "state": "exited",
+    "exitCode": 0
+  }
+}

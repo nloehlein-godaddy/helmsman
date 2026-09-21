@@ -1,0 +1,68 @@
+import { createServer } from 'node:http';
+import { allowMutationRequest } from '../../claude_security/server/helmsman/request-origin';
+
+// Disposable server replicating application.ts dispatch order: guard FIRST, then a fake mutation route.
+let mutated = 0;
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  if (!allowMutationRequest(req, url.pathname)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' }); res.end('{"error":"blocked"}'); return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/repos/x/auto-claim') { mutated++; res.writeHead(200); res.end('{"ok":true}'); return; }
+  res.writeHead(404); res.end('nf');
+});
+
+function raw(headers: string, port: number): Promise<{ status: number; body: string; headers: string }> {
+  return new Promise((resolve, reject) => {
+    const net = require('node:net');
+    const sock = net.connect(port, '127.0.0.1', () => sock.write(headers));
+    let buf = '';
+    sock.on('data', (d: Buffer) => { buf += d.toString(); });
+    sock.on('end', () => {
+      const [head, ...rest] = buf.split('\r\n\r\n');
+      const status = Number(head.split('\r\n')[0]?.split(' ')[1]);
+      resolve({ status, body: rest.join('\r\n\r\n'), headers: head });
+    });
+    sock.on('error', reject);
+    setTimeout(() => { sock.destroy(); reject(new Error('timeout')); }, 3000);
+  });
+}
+
+(async () => {
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  const port = (server.address() as any).port;
+  let pass = 0, fail = 0;
+  const t = (label: string, cond: boolean) => { if (cond) pass++; else fail++; console.log(`${cond ? 'OK ' : 'XX '} ${label}`); };
+
+  // 1. Original R02 exploit at socket level: text/plain cross-origin no-cors POST
+  const r1 = await raw(
+    `POST /api/repos/x/auto-claim HTTP/1.1\r\nHost: localhost:${port}\r\nContent-Type: text/plain\r\nOrigin: http://evil.com\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`, port);
+  t(`R02 text/plain cross-origin -> 403 (got ${r1.status})`, r1.status === 403);
+  t('R02 mutation NOT executed', mutated === 0);
+
+  // 2. Duplicate Content-Type headers (smuggling attempt): text/plain + application/json
+  const r2 = await raw(
+    `POST /api/repos/x/auto-claim HTTP/1.1\r\nHost: localhost:${port}\r\nContent-Type: text/plain\r\nContent-Type: application/json\r\nOrigin: http://evil.com\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`, port);
+  t(`dup content-type smuggling -> 403 (got ${r2.status})`, r2.status === 403);
+  t('dup content-type mutation NOT executed', mutated === 0);
+
+  // 3. OPTIONS preflight: allowed through guard but yields NO CORS headers (browser will block real req)
+  const r3 = await raw(
+    `OPTIONS /api/repos/x/auto-claim HTTP/1.1\r\nHost: localhost:${port}\r\nOrigin: http://evil.com\r\nAccess-Control-Request-Method: POST\r\nAccess-Control-Request-Headers: content-type\r\nConnection: close\r\n\r\n`, port);
+  t(`OPTIONS -> non-2xx-with-no-ACAO (status ${r3.status})`, !/access-control-allow-origin/i.test(r3.headers));
+
+  // 4. Legit same-origin JSON POST works
+  const r4 = await raw(
+    `POST /api/repos/x/auto-claim HTTP/1.1\r\nHost: localhost:${port}\r\nContent-Type: application/json\r\nOrigin: http://localhost:${port}\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`, port);
+  t(`legit same-origin json -> 200 (got ${r4.status})`, r4.status === 200);
+  t('legit mutation executed exactly once', mutated === 1);
+
+  // 5. Absolute-form request target with foreign authority (proxy-style) - Host still governs
+  const r5 = await raw(
+    `POST http://evil.com/api/repos/x/auto-claim HTTP/1.1\r\nHost: evil.com\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`, port);
+  t(`absolute-form foreign host -> 403 (got ${r5.status})`, r5.status === 403);
+
+  console.log(`\n${pass} pass, ${fail} fail; total mutations=${mutated}`);
+  await new Promise<void>(r => server.close(() => r()));
+  process.exit(fail > 0 ? 1 : 0);
+})();

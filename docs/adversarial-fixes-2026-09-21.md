@@ -2,6 +2,8 @@
 
 This ledger resolves the 12 confirmed findings in the [six-agent adversarial review](adversarial-review-2026-09-21.md). It covers implementation and verification after baseline `ec3dd6b544cba1f796c353134dc4af0437cf40a8`; the original report and evidence remain historical. Secondary improvement ideas remain in that report.
 
+A subsequent [second adversarial review](adversarial-review-2026-09-21-round-2.md) found additional defects, including separate startup cleanup and historical-host compatibility paths. The status below records this fix series and does not supersede that later review.
+
 Work was split across independent execution, workspace/process, plugin-lifecycle and browser-regression worktrees. Commits were cherry-picked onto `fix/adversarial-review-2026-09-21`. No branch was merged into master, and the user's demo was not restarted.
 
 **Status: all 12 confirmed findings implemented and verified.** Each implementation commit received architectural review; execution/process and lifecycle changes also received independent cross-review. The final review found no remaining material blocker.

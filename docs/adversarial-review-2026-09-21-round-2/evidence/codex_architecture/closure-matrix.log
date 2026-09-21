@@ -1,0 +1,5 @@
+agent: PASS (both bounds, direct and dependency cases in both archive orders; compatible evaluation control)
+execution-host: PASS (both bounds, direct and dependency cases in both archive orders; compatible evaluation control)
+native-terminal: PASS (both bounds, direct and dependency cases in both archive orders; compatible evaluation control)
+workflow: PASS (both bounds, direct and dependency cases in both archive orders; compatible evaluation control)
+PASS: 24 incompatible retained closure cases and 4 evaluation controls

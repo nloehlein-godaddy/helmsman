@@ -1,0 +1,14 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /private/tmp/helmsman-adversarial2-20260921-e3ccca4/claude_sources
+
+ ✓ server/helmsman/adversarial-probe.test.ts > rejects a second concurrent coordinator attempting to settle the same never-launched attempt while the first still holds its lease 15ms
+ ✓ server/helmsman/adversarial-probe.test.ts > does not crash or double-settle when the stored outcome evidence is malformed 6ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  14:22:52
+   Duration  321ms (transform 163ms, setup 0ms, import 205ms, tests 22ms, environment 0ms)
+

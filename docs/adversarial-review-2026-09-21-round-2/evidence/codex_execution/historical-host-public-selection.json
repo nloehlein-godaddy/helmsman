@@ -1,0 +1,30 @@
+{
+  "outputs": [
+    "Packed audit.historical-local-host: 072aa79846b3c0f39dd1522922dcc6ba6efd7be2454d933f4a62797b1a31d7ce",
+    "Installed audit.historical-local-host (072aa79846b3c0f39dd1522922dcc6ba6efd7be2454d933f4a62797b1a31d7ce). Disabled; enable only packages you trust.",
+    "Enabled audit.historical-local-host. Restart Helmsman and reload browser tabs to apply.",
+    "Execution host selection saved for future voyages."
+  ],
+  "selected": {
+    "version": 1,
+    "binding": {
+      "providerId": "audit.historical-local-host/detached",
+      "pluginId": "audit.historical-local-host",
+      "artifactHash": "072aa79846b3c0f39dd1522922dcc6ba6efd7be2454d933f4a62797b1a31d7ce",
+      "contractVersion": 1
+    },
+    "origin": "external",
+    "settings": {
+      "cmuxSocketPath": "",
+      "weztermBin": "wezterm",
+      "weztermRunWorkspace": "helmsman-runs"
+    },
+    "metadata": {
+      "version": 1,
+      "label": "Detached",
+      "workspace": "worktree",
+      "stageExecution": "local"
+    }
+  },
+  "errors": []
+}

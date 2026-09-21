@@ -1,0 +1,37 @@
+{
+  "results": [
+    {
+      "path": "/api/repos/org%2Fa/auto-claim",
+      "status": 200,
+      "body": "{\"repo\":\"org/a\",\"enabled\":true}"
+    },
+    {
+      "path": "/api/agents/missing/stop",
+      "status": 200,
+      "body": "{\"stopped\":false}"
+    },
+    {
+      "path": "/api/config",
+      "status": 400,
+      "body": "{\"error\":\"not an editable config key: PIRATE_MODE\"}"
+    }
+  ],
+  "textPlain": 403,
+  "crossOrigin": 403,
+  "malformed": {
+    "status": 200,
+    "body": "{\"repo\":\"org/a\",\"enabled\":false}"
+  },
+  "stateAfterMalformed": {
+    "runs": [],
+    "autoClaim": [],
+    "caps": {
+      "maxAttempts": 1,
+      "maxCostUsd": null
+    }
+  },
+  "malformedControl": {
+    "status": 400,
+    "body": "{\"error\":\"key and value required\"}"
+  }
+}

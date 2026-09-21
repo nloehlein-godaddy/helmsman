@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import { pluginCommand } from '../../integration/release/server/helmsman/plugins/cli.js';
+import { parsePluginArchive } from '../../integration/release/server/helmsman/plugins/artifacts.js';
+import { openPersistence, pendingPersistenceIntents } from '../../integration/release/server/helmsman/persistence.js';
+import { readPluginState, selectPluginPage } from '../../integration/release/server/helmsman/plugins/store.js';
+import { createSafeStartServer } from '../../integration/release/server/helmsman/safe-start.js';
+import { builtinPageSlots } from '../../integration/release/src/plugins/page-slots.js';
+const Database=createRequire(new URL('../../integration/release/package.json',import.meta.url))('better-sqlite3');
+const directory=await mkdtemp(new URL('./projection-',import.meta.url).pathname);
+const root=join(directory,'plugins'),dbPath=join(directory,'state.sqlite'),id='example.projection';
+const major=Number(process.versions.node.split('.')[0]);
+function bytes(version){return Buffer.from(JSON.stringify({format:'helmsman-plugin',version:1,package:{packageVersion:1,manifest:{manifestVersion:1,id,version,sdkVersion:1,pages:[]},node:{minMajor:major,maxMajorExclusive:major+1},entries:{}},files:[]}));}
+const cli=(...args)=>pluginCommand(['--dir',root,'--db',dbPath,...args]);
+function sql(command){const db=new Database(join(root,'plugin-data.sqlite'));try{db.exec(command);}finally{db.close();}}
+let server;
+try{
+ const old=bytes('1.0.0'),oldHash=parsePluginArchive(old).hash;
+ const first=join(directory,'v1.hmp'),second=join(directory,'v2.hmp');await writeFile(first,old);await writeFile(second,bytes('2.0.0'));
+ await cli('install',first);await cli('enable',id);
+ sql("CREATE TRIGGER fail_projection BEFORE INSERT ON plugin_projection_revisions BEGIN SELECT RAISE(ABORT, 'injected unavailable projection'); END");
+ await assert.rejects(cli('disable',id),/unavailable projection/);
+ await assert.rejects(cli('install',second),/unavailable projection/);
+ for(let i=0;i<3;i++)await assert.rejects(cli('collect',oldHash),/Referenced/);
+ assert.deepEqual(await readFile(join(root,'artifacts',oldHash+'.json')),parsePluginArchive(old).bytes);
+ sql('DROP TRIGGER fail_projection');await cli('enable',id);await cli('collect',oldHash);
+ await assert.rejects(readFile(join(root,'artifacts',oldHash+'.json')),{code:'ENOENT'});
+ const p=openPersistence(dbPath);try{assert.deepEqual(pendingPersistenceIntents(p),[]);}finally{p.close();}
+ for(const slot of builtinPageSlots)await selectPluginPage(root,slot.id,slot.defaultContributionId);
+ const path=join(root,'catalog.sqlite');const hash=async()=>createHash('sha256').update(await readFile(path)).digest('hex');const before=await hash();
+ server=createSafeStartServer({dbPath,pluginsDir:root,dist:join(directory,'missing-dist'),env:{}});
+ await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+ const base=`http://127.0.0.1:${server.address().port}`;
+ const recovery=await(await fetch(base+'/api/recovery')).json();const catalog=await(await fetch(base+'/api/plugins/catalog')).json();
+ assert.equal(recovery.plugins[0].id,id);assert.deepEqual(catalog.bindings,readPluginState(root).bindings);assert.equal(Object.keys(catalog.bindings).length,builtinPageSlots.length);assert.equal(await hash(),before);
+ assert.equal((await fetch(base+'/api/plugins/catalog',{method:'POST',headers:{'Content-Type':'application/json'}})).status,503);
+ const db=new Database(path);try{db.prepare('INSERT INTO plugin_bindings VALUES (?,?)').run('helmsman/unknown-slot','example.projection/page');}finally{db.close();}
+ const malformedBefore=await hash();const malformed=await(await fetch(base+'/api/recovery')).json();assert.deepEqual(malformed.plugins,[]);assert.ok(malformed.errors.some(v=>v.includes('metadata')));assert.equal(await hash(),malformedBefore);
+ console.log(JSON.stringify({result:'PASS',projectionGcRejectedAcrossFreshCliCoordinators:3,recoveryWithoutArtifactRestoration:true,settledGcAllowed:true,safeStartSupportedSlots:builtinPageSlots.length,unknownSlotRejected:true,metadataReadOnly:true},null,2));
+}finally{if(server)await new Promise((resolve,reject)=>server.close(e=>e?reject(e):resolve()));await rm(directory,{recursive:true,force:true});}

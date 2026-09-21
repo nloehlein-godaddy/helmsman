@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { watch } from 'node:fs';
+import { join } from 'node:path';
+import { installPlugin,readPluginState,createPluginCoordinator } from '../../integration/release/server/helmsman/plugins/store.js';
+import { openPersistence } from '../../integration/release/server/helmsman/persistence.js';
+import { openExecutionStore } from '../../integration/release/server/helmsman/execution-store.js';
+import { openPluginLifecycle } from '../../integration/release/server/helmsman/plugins/lifecycle.js';
+const root=await mkdtemp(new URL('./install-enable-',import.meta.url).pathname),plugins=join(root,'plugins'),db=join(root,'main.sqlite');
+const major=Number(process.versions.node.split('.')[0]),id='example.install-race';
+const archive=version=>Buffer.from(JSON.stringify({format:'helmsman-plugin',version:1,package:{packageVersion:1,manifest:{manifestVersion:1,id,version,sdkVersion:1,pages:[]},node:{minMajor:major,maxMajorExclusive:major+1},entries:{}},files:[{path:'padding.txt',base64:Buffer.alloc(1024*1024,42).toString('base64')}]}));
+const p1=openPersistence(db),p2=openPersistence(db);const e1=openExecutionStore(p1),e2=openExecutionStore(p2);const l1=openPluginLifecycle(p1,e1),l2=openPluginLifecycle(p2,e2);
+const c1=await createPluginCoordinator({root:plugins,persistence:p1,executions:e1,lifecycle:l1}),c2=await createPluginCoordinator({root:plugins,persistence:p2,executions:e2,lifecycle:l2});
+let watcher;
+try{
+ const old=await installPlugin(plugins,archive('1.0.0'),c1);
+ let enabled;let triggered=false;const events=[];
+ watcher=watch(join(plugins,'artifacts'),(_event,file)=>{if(triggered||!String(file).startsWith('.stage-'))return;triggered=true;events.push('replacement publication started after disabled precheck');enabled=c2.change(id,true).then(()=>events.push('enable v1 reported success'));});
+ const replacement=await installPlugin(plugins,archive('2.0.0'),c1);events.push('install v2 reported success');await enabled;watcher.close();watcher=undefined;
+ assert.equal(triggered,true);assert.notEqual(old.hash,replacement.hash);
+ assert.equal(c1.state(id).artifactHash,replacement.hash);assert.equal(c1.state(id).desiredEnabled,false);assert.equal(readPluginState(plugins).plugins[0].enabled,false);
+ await c2.change(id,true);await assert.rejects(installPlugin(plugins,archive('3.0.0'),c1),/Disable the plugin/);
+ console.log(JSON.stringify({reproduced:true,events,afterRace:replacement,negativeControl:'already-enabled precheck correctly rejects replacement',severityCandidate:'P2: concurrent enable is lost instead of rejecting replacement'},null,2));
+}finally{watcher?.close();c1.dispose();c2.dispose();p1.close();p2.close();await rm(root,{recursive:true,force:true});}

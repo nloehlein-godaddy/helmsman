@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import { mkdir, readFile, writeFile, rm, access } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { fixture } from '../../codex_architecture/tests/distribution/isolated-fixture.ts';
+const probes=dirname(fileURLToPath(import.meta.url));
+process.env.TMPDIR=probes;
+const host=await fixture({distribution:fileURLToPath(new URL('../../integration/release',import.meta.url))});
+const started=join(host.root,'cleanup-started'),finished=join(host.root,'cleanup-finished');
+const id='example.cleanup-race',source=join(host.root,'author'),archive=join(host.root,'cleanup.hmp');
+const exists=async(path:string)=>access(path).then(()=>true,()=>false);
+const waitFor=async(path:string)=>{const until=Date.now()+5000;while(!await exists(path)){if(Date.now()>until)throw Error('Marker never appeared: '+path);await new Promise(r=>setTimeout(r,20));}};
+try{
+ await mkdir(source);
+ await writeFile(join(source,'backend.js'),`import {writeFile} from 'node:fs/promises';export default{activate(ctx){ctx.registerPricing('price',{estimate(){return null;}});ctx.onDispose(async()=>{await writeFile(ctx.settings.started,'started');await new Promise(r=>setTimeout(r,1200));await writeFile(ctx.settings.finished,'finished');});}};`);
+ const major=Number(process.versions.node.split('.')[0]);
+ await writeFile(join(source,'plugin-package.json'),JSON.stringify({packageVersion:1,manifest:{manifestVersion:1,id,version:'1.0.0',sdkVersion:1,pages:[]},node:{minMajor:major,maxMajorExclusive:major+1},entries:{},backend:{entry:'backend.js',provides:[{id:'helmsman/pricing',version:1,localId:'price'}],settings:{started:{type:'string',default:started,maxLength:4096},finished:{type:'string',default:finished,maxLength:4096}},storageVersion:1}}));
+ await host.cli('pack',source,archive);await host.cli('install',archive);await host.cli('enable',id);
+ await host.start();const controlAt=Date.now();await host.stop();const controlDuration=Date.now()-controlAt;assert.equal(await exists(finished),true,'Ordinary shutdown must await cleanup');
+ await rm(started);await rm(finished);
+ await host.start();await host.cli('disable',id);await waitFor(started);
+ const overlapAt=Date.now();await host.stop();const overlapDuration=Date.now()-overlapAt;
+ await new Promise(r=>setTimeout(r,1300));assert.equal(await exists(finished),false,'Overlapping shutdown unexpectedly waited for cleanup');
+ console.log(JSON.stringify({reproduced:true,controlShutdownMs:controlDuration,overlappingShutdownMs:overlapDuration,cleanupDelayMs:1200,normalShutdownCleanupFinished:true,disableThenShutdownCleanupFinished:false,externalCommandLog:await readFile(host.commandLog,'utf8').catch(()=>''),serverOutput:host.output()},null,2));
+}finally{await host.close();}

@@ -1,0 +1,81 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { installPluginArtifact } from '../../integration/release/server/helmsman/plugins/artifacts.js';
+import { activateBackendPlugins } from '../../integration/release/server/helmsman/plugins/backend.js';
+import { loadRetainedNativeTerminalProvider } from '../../integration/release/server/helmsman/native-terminal-retained-loader.js';
+import { materializePluginBackend } from '../../integration/release/server/helmsman/plugins/materialize.js';
+const root = await mkdtemp(new URL('./sessions-', import.meta.url).pathname);
+const major = Number(process.versions.node.split('.')[0]);
+const metadata = { version: 1, label: 'Architecture sessions', browser: true };
+const source = `
+const lookup = new Uint8Array(1024*1024).fill(42);
+globalThis.__architectureEvaluations = (globalThis.__architectureEvaluations ?? 0)+1;
+export default { activate(context) {
+ let alive = true;
+ context.onDispose(async () => { await new Promise(r => setTimeout(r, 20)); alive = false; globalThis.__architectureDisposals = (globalThis.__architectureDisposals ?? 0)+1; });
+ context.registerNativeTerminal('native', {
+ metadata: ${JSON.stringify(metadata)}, sessionIdentity() { if (!alive) throw Error('disposed local instance'); return context.settings.socket+':'+lookup[0]; },
+ async listTabs() { return { connected: true, tabs: [] }; },
+ async readScreen() { return { ok: true, text: context.settings.socket+':'+(await import('./helper.js')).value }; },
+ async send() { return { ok: true }; }, async sendKey() { return { ok: true }; },
+ browser: { async tree() { return { windows: [] }; }, async focus() {}, async evaluate() { return null; }, async click() {}, async fill() {}, async wait() {} }
+ });
+} };`;
+async function fixture(id, node = { minMajor: major, maxMajorExclusive: major + 1 }, body=source) {
+ const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format:'helmsman-plugin',version:1,
+ package:{packageVersion:1,manifest:{manifestVersion:1,id,version:'1.0.0',sdkVersion:1,pages:[]},entries:{},node,
+ backend:{entry:'backend.js',provides:[{id:'helmsman/native-terminal',version:1,localId:'native'}],nativeTerminals:{native:{access:['native-session']}},settings:{socket:{type:'string',default:'ordinary',maxLength:100}},storageVersion:1}},
+ files:[{path:'backend.js',base64:Buffer.from(body).toString('base64')},{path:'helper.js',base64:Buffer.from("export const value='lazy';").toString('base64')}] })));
+ const record={version:1,binding:{providerId:`${id}/native`,pluginId:id,artifactHash:archive.hash,contractVersion:1},origin:'external',settings:{socket:'retained'},metadata};
+ return {archive,input:{pluginsRoot:root,runtimeArtifactsRoot:join(root,'unused'),record,artifacts:[{pluginId:id,artifactHash:archive.hash,packageVersion:'1.0.0',requires:[]}]}};
+}
+const leases=[];let runtime;
+try {
+ const f=await fixture('example.sessions');
+ const bad=await fixture('example.incompatible',{minMajor:major+1,maxMajorExclusive:major+2});
+ await assert.rejects(loadRetainedNativeTerminalProvider(bad.input),/does not support Node/);
+ const badClosure=[{...f.input.artifacts[0],requires:['example.incompatible']},bad.input.artifacts[0]];
+ await assert.rejects(loadRetainedNativeTerminalProvider({...f.input,artifacts:badClosure}),/does not support Node/);
+ await assert.rejects(loadRetainedNativeTerminalProvider({...f.input,artifacts:[{...f.input.artifacts[0],requires:['example.absent']}]}),/dependency is missing/);
+ await assert.rejects(loadRetainedNativeTerminalProvider({...f.input,artifacts:[{...f.input.artifacts[0],requires:['example.sessions']}]}),/cycle/);
+ assert.equal(globalThis.__architectureEvaluations,undefined);
+ runtime=await activateBackendPlugins({root,snapshot:{catalog:{version:1,safeMode:false,plugins:[],bindings:{}},artifacts:new Map([['f',f.archive]]),errors:[]},usage:{query(){throw Error('No external effects');}}});
+ assert.deepEqual(runtime.errors,[]);assert.equal(globalThis.__architectureEvaluations,1);
+ const ordinary=runtime.nativeTerminals.resolve(f.input.record.binding).provider;
+ assert.equal(ordinary.sessionIdentity(),'ordinary:42');
+ globalThis.gc();const before=process.memoryUsage().arrayBuffers;
+ for(let round=0;round<12;round++){
+   const sessions=await Promise.all(Array.from({length:8},(_,i)=>loadRetainedNativeTerminalProvider({...f.input,record:{...f.input.record,settings:{socket:`r${round}s${i}`}}})));
+   leases.push(...sessions);
+   for(let i=0;i<sessions.length;i++)assert.equal(sessions[i].provider.sessionIdentity(),`r${round}s${i}:42`);
+   const pending=sessions.slice(0,4).map(s=>s.dispose());
+   const next=await loadRetainedNativeTerminalProvider(f.input);leases.push(next);
+   assert.equal(next.provider.sessionIdentity(),'retained:42');
+   await Promise.all(pending);
+   for(let i=4;i<sessions.length;i++)assert.equal(sessions[i].provider.sessionIdentity(),`r${round}s${i}:42`);
+   await Promise.all(sessions.map(s=>s.dispose()));await next.dispose();
+   assert.equal(ordinary.sessionIdentity(),'ordinary:42');
+ }
+ assert.equal(globalThis.__architectureEvaluations,1);
+ await runtime.dispose();runtime=undefined;
+ assert.deepEqual(await readdir(join(root,'runtime')),[]);
+ for(let i=0;i<8;i++){const s=await loadRetainedNativeTerminalProvider(f.input);leases.push(s);assert.equal(s.provider.sessionIdentity(),'retained:42');await s.dispose();}
+ assert.equal(globalThis.__architectureEvaluations,1);
+ globalThis.gc();globalThis.gc();const after=process.memoryUsage().arrayBuffers;
+ assert.ok(after-before<2*1024*1024);
+ const cancelled=new AbortController();cancelled.abort();await assert.rejects(loadRetainedNativeTerminalProvider({...f.input,signal:cancelled.signal}));
+ const poison=await fixture('example.poison',undefined,"globalThis.__architecturePoison=(globalThis.__architecturePoison??0)+1;throw Error('deliberate top-level error');export default {};");
+ for(let i=0;i<3;i++)await assert.rejects(loadRetainedNativeTerminalProvider(poison.input),/deliberate top-level error/);
+ assert.equal(globalThis.__architecturePoison,1);
+ const a=await materializePluginBackend(root,f.archive);const href=a.href;await a.dispose();
+ for(let i=0;i<32;i++){
+  const current=await materializePluginBackend(root,f.archive);
+  const removal=current.dispose();
+  const other=await materializePluginBackend(root,f.archive);
+  await removal;assert.equal(other.href,href);assert.equal((await import(other.href)).default instanceof Object,true);
+  await other.dispose();
+ }
+ assert.deepEqual(await readdir(join(root,'runtime')),[]);
+ console.log(JSON.stringify({result:'PASS',node:process.version,settingsIsolationSessions:116,concurrentWidth:8,moduleEvaluations:globalThis.__architectureEvaluations,cleanupCalls:globalThis.__architectureDisposals,arrayBufferDelta:after-before,cachedErrorEvaluations:globalThis.__architecturePoison,acquisitionDisposalRaces:32,blockedClosureCases:4,fixture:root},null,2));
+}finally{await Promise.all(leases.map(s=>s.dispose()));await runtime?.dispose();await rm(root,{recursive:true,force:true});}

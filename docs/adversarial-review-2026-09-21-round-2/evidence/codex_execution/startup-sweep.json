@@ -1,0 +1,9 @@
+{
+  "removed": [
+    "/private/tmp/helmsman-adversarial2-20260921-e3ccca4/probes/codex_execution/sweep-IOkfoD/developer/.worktrees/personal-feature"
+  ],
+  "developerExists": false,
+  "untrackedExists": false,
+  "protectedExists": true,
+  "knownRun": null
+}

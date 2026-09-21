@@ -1,0 +1,172 @@
+[
+  {
+    "route": "/helm",
+    "headings": [
+      "Helm",
+      "Underway",
+      "Todos · org/a",
+      "New voyage",
+      "Backlog",
+      "Todos · org/a",
+      "Deckhand tasks",
+      "Galleon pull requests",
+      "Recent voyages",
+      "Ship's log",
+      "Todos · org/a",
+      "Out to sea"
+    ],
+    "text": "Helm\nREFRESH\nManage panels\nUNDERWAY\nCOLLAPSE\nUnderway\nAll task sources\nTodos · org/a\nREFRESH\nTodos · org/a\n\nNo unfinished tasks.\n\nNEW RUN\nCOLLAPSE\nNew voyage\nREFRESH\n\nGalleon: org/a\n\nLaunch mode\nFreeform task\nSource task\nReview PR\nUpdate PR\nTask instructions\nModel (optional)\nEffort\nDefault effort\nlo",
+    "overflow": false
+  },
+  {
+    "route": "/prs",
+    "headings": [
+      "Bounties",
+      "Review requests",
+      "My recent bounties",
+      "Recent bounty voyages",
+      "Inspect a bounty"
+    ],
+    "text": "Bounties\nREFRESH\nPull requests\nADD PANEL\nHIDE PULL REQUESTS\nOPEN PULL REQUESTS\nREFRESH\nUSE HEADER SCOPE\nPanel: org/a\n\nReview requests\n\nPull request list unavailable. Showing retained results.\n\nMy recent bounties\n\nPull request list unavailable. Showing retained results.\n\nRecent bounty voyages\n\nNo rec",
+    "overflow": false
+  },
+  {
+    "route": "/triage",
+    "headings": [
+      "Triage",
+      "Triage"
+    ],
+    "text": "Triage\nREFRESH\nTriage\nADD PANEL\nHIDE TRIAGE\nOPEN TRIAGE\nTriage\nAll task sources\nREFRESH\nFilter all triage columns\nP0\nP1\nP2\nP3\nP4\nLast updated\nAny time\nLast 30 days\nLast 7 days\nLast 1 day\nTickets per column\n5\n10\n25\n50\n100\n\nNo task sources in this scope.",
+    "overflow": false
+  },
+  {
+    "route": "/todos",
+    "headings": [
+      "Todos",
+      "Automatic starts"
+    ],
+    "text": "Todos\nREFRESH\nTodo editor\nAutomatic starts\nADD PANEL\nHIDE TODO EDITOR\nOPEN TODO EDITOR\nAll task sources\nTodos · org/a\nNEW TODO\nREFRESH TODOS\nSAVE DRAFTS\nAll states\nTo do\nIn progress\nIn review\nDone\nBlocked\n\n0 of 0 matching Todos loaded.\n\nChoose a draft\n\nChoose a Todo or create a new one.\n\nHIDE AUTOMA",
+    "overflow": false
+  },
+  {
+    "route": "/terminal",
+    "headings": [
+      "Terminal",
+      "Terminal",
+      "Terminal tabs",
+      "Terminal screen"
+    ],
+    "text": "Terminal\nREFRESH\nTerminal\nADD PANEL\nHIDE TERMINAL\nOPEN TERMINAL\nTerminal\n\nView and control an existing terminal session. Text and keys are sent directly to the selected tab.\n\nREFRESH TERMINALS\nUSE HEADER SCOPE\nSHOW ALL TERMINALS\nScope: org/a\nSAVE DRAFT\n\nTerminal not connected. Open your configured t",
+    "overflow": false
+  },
+  {
+    "route": "/bugs",
+    "headings": [
+      "Bugs",
+      "Bugs"
+    ],
+    "text": "Bugs\nREFRESH\nBugs\nADD PANEL\nHIDE BUGS\nOPEN BUGS\nBugs\nAll bug sources\nREFRESH\n\nNo source provides bug metrics in this scope.",
+    "overflow": false
+  },
+  {
+    "route": "/runs",
+    "headings": [
+      "Voyages",
+      "Review requests",
+      "My recent bounties",
+      "Recent bounty voyages",
+      "Inspect a bounty",
+      "Voyage history"
+    ],
+    "text": "Voyages\nREFRESH\nPull requests\nRun history\nADD PANEL\nHIDE PULL REQUESTS\nOPEN PULL REQUESTS\nREFRESH\nUSE HEADER SCOPE\nPanel: org/a\n\nReview requests\n\nPull request list unavailable. Showing retained results.\n\nMy recent bounties\n\nPull request list unavailable. Showing retained results.\n\nRecent bounty voya",
+    "overflow": false
+  },
+  {
+    "route": "/outcomes",
+    "headings": [
+      "Costs & Outcomes"
+    ],
+    "text": "Costs & Outcomes\n\nCompare reported agent usage with delivered work. Review a voyage below to record whether its task achieved the intended result.\n\nTime period \nLast 7 days\nLast 30 days\nLast 90 days\nLast 365 days\nAug 22, 2026 to Sep 21, 2026 (UTC)\nRuns\n0\n0 succeeded · 0 failed\nReported spend\nUnknown",
+    "overflow": false
+  },
+  {
+    "route": "/campaigns",
+    "headings": [
+      "Campaigns",
+      "Campaigns",
+      "New campaign",
+      "Saved campaigns"
+    ],
+    "text": "Campaigns\nREFRESH\nCampaigns\nADD PANEL\nHIDE CAMPAIGNS\nOPEN CAMPAIGNS\nUSE HEADER SCOPE\nSHOW ALL CAMPAIGNS\nScope: org/a\nSAVE DRAFTS\n\nCampaigns\n\nRun a batch of tasks in stages: create a campaign, add a phase, then import and preview its tasks. Each galleon runs one coding task at a time.\n\nNew campaign\n\n",
+    "overflow": false
+  },
+  {
+    "route": "/clarifications",
+    "headings": [
+      "Agent questions",
+      "Agent questions",
+      "Suggested contacts — global",
+      "Create global contact"
+    ],
+    "text": "Agent questions\nREFRESH\nPrevious drafts and requests\nAgent questions\nSuggested contacts (global)\nADD PANEL\nHIDE AGENT QUESTIONS\nOPEN AGENT QUESTIONS\nAgent questions\nREFRESH QUESTIONS\nFIRST PAGE\norg/a · 0 matching questions observed · 2026-09-21T21:20:00.700Z\nPrevious drafts and requests\n\nNo question",
+    "overflow": false
+  },
+  {
+    "route": "/config",
+    "headings": [
+      "Config",
+      "Task sources",
+      "Integrations and workspace",
+      "Selected theme preview",
+      "Workflows and reviewers"
+    ],
+    "text": "Config\n\nConfigure work sources, integrations, and deckhand defaults. Save each setting separately.\n\nTask sources\n\nSource settings\n\nIntegrations and workspace\nJira connection\nGitHub settings\nNotifications and Slack settings\nLocal branches and worktrees\nUI CUSTOMIZATION\n\nToggle Pirate mode with the fl",
+    "overflow": false
+  },
+  {
+    "route": "/communication",
+    "headings": [
+      "Communication",
+      "Notifications",
+      "Request a Slack inspection",
+      "Communication settings"
+    ],
+    "text": "Communication\nREFRESH\nNotifications\nSlack review requests\nCommunication settings\nADD PANEL\nHIDE NOTIFICATIONS\nOPEN NOTIFICATIONS\nNOTIFICATIONS\nREFRESH\nSlack\nAutomatic checks off\nGitHub requested inspections\nAutomatic checks off\n\nNo notifications yet for this galleon.\n\nCommunication settings and revi",
+    "overflow": false
+  },
+  {
+    "route": "/local-git",
+    "headings": [
+      "Local Git"
+    ],
+    "text": "Local Git\nREFRESH\nLocal Git\nADD PANEL\nHIDE LOCAL GIT\nOPEN LOCAL GIT\nLOCAL BRANCHES & WORKTREES\nREFRESH LOCAL DATA\nFETCH REMOTE STATUS\n↗\n\nFetch remote status updates tracking information to detect deleted remote branches. Refresh local data only reads this checkout. Preview cleanup before deleting an",
+    "overflow": false
+  },
+  {
+    "route": "/jira-settings",
+    "headings": [
+      "Jira settings",
+      "Global Jira settings"
+    ],
+    "text": "Jira settings\nREFRESH\nJira settings\nADD PANEL\nHIDE JIRA SETTINGS\nOPEN JIRA SETTINGS\nGlobal Jira settings\n\nThese settings apply to the shared Jira connection across all galleons. The header galleon stays unchanged.\n\nAPI token: not set.\n\nNo Jira source is configured. Initial Jira setup is disabled. Co",
+    "overflow": false
+  },
+  {
+    "route": "/github-settings",
+    "headings": [
+      "GitHub settings",
+      "Global GitHub settings"
+    ],
+    "text": "GitHub settings\nREFRESH\nGitHub settings\nADD PANEL\nHIDE GITHUB SETTINGS\nOPEN GITHUB SETTINGS\nGlobal GitHub settings\n\nThese settings apply across all galleons. Saving the default galleon does not change the header galleon.\n\nGitHub credential: not configured. Credentials are managed by the host.\n\nAutom",
+    "overflow": false
+  },
+  {
+    "route": "/source-settings",
+    "headings": [
+      "Source settings",
+      "Automatic starts"
+    ],
+    "text": "Source settings\nREFRESH\nSource administration\nADD PANEL\nHIDE SOURCE ADMINISTRATION\nOPEN SOURCE ADMINISTRATION\nREFRESH SOURCE SETTINGS\nSAVE SETTINGS DRAFTS\nAll galleons\norg/a\nChoose a source instance\nTodos · 0ab01b76-c63f-414a-9779-b2099897fd4b\nAutomatic starts\n\nSelected sources are saved for org/a. ",
+    "overflow": false
+  }
+]

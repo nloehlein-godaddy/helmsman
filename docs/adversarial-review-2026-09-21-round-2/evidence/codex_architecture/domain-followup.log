@@ -1,0 +1,7 @@
+Campaign: duplicate import/replay, explicit configured overrides, header-scope rejection, invalid numeric bounds, concurrent dispatcher/poll launch uniqueness and same-galleon exclusion PASS
+Scheduling: concurrent discovery yields one decision, decision consumption is single-use, foreign candidate/selection and duplicate instance rejection, null policy input PASS
+Task views: foreign page/source/related-run scope, duplicate/null payload, and source revision changed during read all reject; valid scope control PASS
+Contacts: explicit global scope, exact receipt replay, changed-payload conflict, stale revision rejection, strict nullable/boolean checks and caller-scoped receipt isolation PASS
+Pricing/accounting: cached-token math, unknown/invalid/known-cost exclusion, safe-number parsing, duplicate-event dedupe/conflict, foreign galleon filtering and aggregate overflow rejection PASS
+Never-launched adjudication: null hostRef alone never suffices; launching/launched remain false even with the evidence tag PASS
+PASS: bounded current-code domain follow-up; no new defect established

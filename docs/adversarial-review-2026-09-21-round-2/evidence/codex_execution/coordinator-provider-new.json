@@ -1,0 +1,12 @@
+{
+  "oldProvider": false,
+  "installedAndLoaded": false,
+  "inputCoordinator": true,
+  "serializedCoordinator": true,
+  "exitReceiptExists": false,
+  "stageStillWriting": true,
+  "discovery": {
+    "status": "unknown",
+    "reason": "Wrapper process ownership cannot be verified and no exit receipt exists"
+  }
+}

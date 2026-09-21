@@ -1,0 +1,58 @@
+{
+  "maxCostUsd": null,
+  "launches": [
+    {
+      "attempt": 1,
+      "priorCost": null
+    },
+    {
+      "attempt": 2,
+      "priorCost": 0.75
+    },
+    {
+      "attempt": 3,
+      "priorCost": 1.5
+    }
+  ],
+  "finalStatus": "failed",
+  "finalAttempt": 3,
+  "finalCost": 2.25,
+  "usage": [
+    {
+      "runId": "terminal-cost",
+      "attempt": 1,
+      "eventId": "log:0",
+      "provider": "audit.agent/worker",
+      "model": null,
+      "inputTokens": null,
+      "cachedInputTokens": null,
+      "outputTokens": null,
+      "totalTokens": null,
+      "costUsd": 0.75
+    },
+    {
+      "runId": "terminal-cost",
+      "attempt": 2,
+      "eventId": "log:0",
+      "provider": "audit.agent/worker",
+      "model": null,
+      "inputTokens": null,
+      "cachedInputTokens": null,
+      "outputTokens": null,
+      "totalTokens": null,
+      "costUsd": 0.75
+    },
+    {
+      "runId": "terminal-cost",
+      "attempt": 3,
+      "eventId": "log:0",
+      "provider": "audit.agent/worker",
+      "model": null,
+      "inputTokens": null,
+      "cachedInputTokens": null,
+      "outputTokens": null,
+      "totalTokens": null,
+      "costUsd": 0.75
+    }
+  ]
+}

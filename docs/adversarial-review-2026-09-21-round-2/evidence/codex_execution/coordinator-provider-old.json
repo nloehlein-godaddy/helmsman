@@ -1,0 +1,32 @@
+{
+  "oldProvider": true,
+  "installedAndLoaded": true,
+  "inputCoordinator": true,
+  "serializedCoordinator": null,
+  "exitReceiptExists": true,
+  "stageStillWriting": true,
+  "discovery": {
+    "status": "found",
+    "ref": {
+      "version": 1,
+      "identity": {
+        "runId": "compat_run",
+        "launchId": "compat_launch",
+        "attempt": 1,
+        "receiptPath": "/private/tmp/helmsman-adversarial2-20260921-e3ccca4/probes/codex_execution/provider-compatibility-43mNWU/run.receipt"
+      },
+      "state": {
+        "kind": "detached",
+        "pid": 11512,
+        "processStart": "darwin:Mon Sep 21 14:15:04 2026"
+      }
+    },
+    "evidence": {
+      "launchId": "compat_launch",
+      "runId": "compat_run",
+      "attempt": 1,
+      "state": "exited",
+      "exitCode": 1
+    }
+  }
+}

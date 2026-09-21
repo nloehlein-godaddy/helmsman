@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "independentTypeScriptProjects": 2,
+  "hostSourceImports": 0,
+  "frontend": {
+    "pages": 1,
+    "panels": 1
+  },
+  "backendEstimatedUsd": 7,
+  "reactivations": 2,
+  "settingsAndStoragePersisted": true,
+  "measuredUsageUnchanged": true
+}

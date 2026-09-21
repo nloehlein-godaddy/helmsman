@@ -1,0 +1,315 @@
+import { expect, test } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { fixture } from '../../codex_ui/tests/distribution/isolated-fixture';
+
+const distribution = '/private/tmp/helmsman-adversarial2-20260921-e3ccca4/integration/release';
+const artifacts = '/private/tmp/helmsman-adversarial2-20260921-e3ccca4/probes/codex_ui';
+
+async function ready(page: import('@playwright/test').Page) {
+  await expect(page.locator('#boot')).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator('#page-content')).toBeVisible();
+  await expect(page.locator('#page-content')).not.toBeEmpty();
+}
+
+test('installed shell routes, keyboard navigation, malformed data, and responsive presentation', async ({ page }) => {
+  test.setTimeout(180_000);
+  const host = await fixture({ distribution });
+  host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
+  const pageErrors: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+  try {
+    const origin = await host.start();
+    await page.goto(`${origin}/helm?repo=org/a`);
+    await ready(page);
+    const notifications = page.getByRole('button', { name: /^Notifications,/ });
+    await notifications.focus();
+    await notifications.click();
+    await expect(notifications).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Escape');
+    await expect(notifications).toHaveAttribute('aria-expanded', 'false');
+    await expect(notifications).toBeFocused();
+    const tabs = page.locator('.page-tab');
+    await tabs.filter({ hasText: 'Helm' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(tabs.nth(1)).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/prs\?repo=org%2Fa/);
+
+    const routes = ['/helm', '/prs', '/triage', '/todos', '/terminal', '/bugs', '/runs', '/outcomes', '/campaigns', '/clarifications', '/config', '/communication', '/local-git', '/jira-settings', '/github-settings', '/source-settings'];
+    const inventory: unknown[] = [];
+    for (const route of routes) {
+      await page.goto(`${origin}${route}?repo=org/a`);
+      await ready(page);
+      inventory.push({ route, headings: await page.getByRole('heading').allTextContents(), text: (await page.locator('#page-content').innerText()).slice(0, 300), overflow: await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1) });
+    }
+    await writeFile(join(artifacts, 'route-inventory.json'), JSON.stringify(inventory, null, 2));
+    expect(inventory.some((value: any) => value.overflow)).toBe(false);
+
+    await page.route('**/api/run-inspect/history?**', route => route.fulfill({ status: 200, contentType: 'application/json', body: 'null' }));
+    await page.goto(`${origin}/run-history?repo=org/a`);
+    await ready(page);
+    await expect(page.locator('section.plugin-run-history')).toContainText('Run history is unavailable. Refresh to retry.');
+    await page.unroute('**/api/run-inspect/history?**');
+
+    await page.route('**/api/run-inspect/history?**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'available', value: { repo: 'org/a', items: [null] } }) }));
+    await page.reload();
+    await ready(page);
+    await expect(page.locator('section.plugin-run-history')).toContainText('Run history is unavailable. Refresh to retry.');
+    await page.unroute('**/api/run-inspect/history?**');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const route of ['/helm', '/todos', '/runs', '/outcomes', '/communication', '/local-git', '/config']) {
+      await page.goto(`${origin}${route}?repo=org/a`);
+      await ready(page);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), route).toBe(true);
+    }
+    await page.goto(`${origin}/recovery?repo=org/a`);
+    await expect(page.getByRole('heading', { name: 'Recovery', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({ path: join(artifacts, 'recovery-mobile.png'), fullPage: true });
+
+    expect(pageErrors).toEqual([]);
+    expect(consoleErrors.filter(value => !value.includes('Failed to load resource'))).toEqual([]);
+  } finally { await host.close(); }
+});
+
+test('R11 and R12 preserve canonical action targets but duplicate Helm identities are not visible', async ({ page }) => {
+  test.setTimeout(150_000);
+  const host = await fixture({ distribution });
+  host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=TASK';
+  const dbUrl = pathToFileURL(join(host.app, 'server/helmsman/db.js')).href;
+  const firstId = 'shared-prefix-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-first';
+  const secondId = 'shared-prefix-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-second';
+  const crossId = 'shared-prefix-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-cross';
+  try {
+    await host.script('seed-ui-identities.mjs', `import { openDb } from ${JSON.stringify(dbUrl)};
+const db=openDb(process.env.HELMSMAN_DB);try{for(const [id,repo,attempt,text] of ${JSON.stringify([[firstId, 'org/a', 2, `first owned log ${'x'.repeat(6000)}`], [secondId, 'org/a', 3, 'second owned log'], [crossId, 'org/b', 4, 'cross owned log']])}){db.insertRun({id,repo,ticketId:'TASK-1',adapter:'codex',status:'succeeded',attempt,prNumber:null,startedAt:'2026-09-21T10:00:00.000Z',endedAt:'2026-09-21T10:01:00.000Z',costUsd:null,worktreePath:null});db.appendEvent(id,'log',text,'2026-09-21T10:00:00.000Z');}}finally{db.close();}`);
+    const origin = await host.start();
+    await page.goto(`${origin}/helm?repo=org/a`);
+    await ready(page);
+    await page.getByText('Manage panels', { exact: true }).click();
+    const rows = page.locator('.helm-config-row[role=group]');
+    const firstRow = rows.first();
+    const originalIdentity = await firstRow.getAttribute('aria-label');
+    expect(originalIdentity).toBeTruthy();
+    await page.getByRole('button', { name: `Duplicate · ${originalIdentity}`, exact: true }).click();
+    await expect(rows).toHaveCount(9);
+    const sameTitleRows = rows.filter({ has: page.locator(`strong:text-is("${String(originalIdentity).split(' · ')[0]}")`) });
+    await expect(sameTitleRows).toHaveCount(2);
+    const identities = await sameTitleRows.evaluateAll(elements => elements.map(element => element.getAttribute('aria-label')!));
+    expect(new Set(identities).size).toBe(2);
+    const visualRows = await sameTitleRows.evaluateAll(elements => elements.map(element => ({ identity: element.getAttribute('aria-label'), innerText: (element as HTMLElement).innerText })));
+    const identityVisibility = visualRows.map(row => ({ ...row, fullInstanceVisible: row.innerText.includes(row.identity!.slice(row.identity!.indexOf(' · ') + 3)) }));
+    await writeFile(join(artifacts, 'helm-duplicate-visible-identity.json'), JSON.stringify(identityVisibility, null, 2));
+    expect(identityVisibility.every(row => !row.fullInstanceVisible)).toBe(true);
+    await writeFile(join(artifacts, 'helm-duplicate-accessibility.txt'), await page.locator('.helm-config').ariaSnapshot());
+    await page.screenshot({ path: join(artifacts, 'helm-duplicate-visible-identity.png'), fullPage: true });
+
+    const duplicateIdentity = identities.find(value => value !== originalIdentity)!;
+    const duplicateRow = page.getByRole('group', { name: duplicateIdentity, exact: true });
+    await duplicateRow.getByRole('combobox', { name: `Scope for Underway · ${duplicateIdentity}`, exact: true }).selectOption('galleon');
+    await duplicateRow.getByRole('textbox', { name: `Panel galleon · ${duplicateIdentity}`, exact: true }).fill('org/b');
+    await duplicateRow.getByRole('button', { name: `Apply scope · ${duplicateIdentity}`, exact: true }).click();
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await expect(duplicateRow.getByRole('combobox', { name: `Scope for Underway · ${duplicateIdentity}`, exact: true })).toHaveValue('galleon');
+    await expect(duplicateRow.getByRole('textbox', { name: `Panel galleon · ${duplicateIdentity}`, exact: true })).toHaveValue('org/b');
+    await page.getByRole('button', { name: `Remove · ${duplicateIdentity}`, exact: true }).click();
+    await expect(page.getByRole('group', { name: duplicateIdentity, exact: true })).toHaveCount(0);
+    await expect(page.getByRole('group', { name: originalIdentity!, exact: true })).toBeVisible();
+    await page.reload();
+    await ready(page);
+    await page.getByText('Manage panels', { exact: true }).click();
+    await expect(page.getByRole('group', { name: originalIdentity!, exact: true })).toBeVisible();
+
+    await page.goto(`${origin}/run-history`);
+    await ready(page);
+    const history = page.locator('section.plugin-run-history');
+    const labels = [
+      `TASK-1 · org/a · ${firstId} · Attempt 2`,
+      `TASK-1 · org/a · ${secondId} · Attempt 3`,
+      `TASK-1 · org/b · ${crossId} · Attempt 4`,
+    ];
+    for (const label of labels) await expect(history.getByRole('button', { name: label, exact: true })).toBeVisible();
+    await history.getByRole('button', { name: labels[0], exact: true }).click();
+    const viewer = page.locator('section.plugin-run-viewer');
+    await expect(viewer.locator('.run-log')).toContainText('first owned log');
+    await expect(viewer.locator('.run-log')).toContainText('[preview clipped]');
+    await history.getByRole('button', { name: labels[1], exact: true }).click();
+    await expect(viewer.locator('.run-log')).toContainText('second owned log');
+    await history.getByRole('button', { name: labels[2], exact: true }).click();
+    await expect(viewer.locator('.run-log')).toContainText('cross owned log');
+    for (const label of labels) await expect(viewer.getByRole('tab', { name: label, exact: true })).toBeVisible();
+    await viewer.getByRole('tab', { name: labels[2], exact: true }).press('Home');
+    await expect(viewer.getByRole('tab', { name: labels[0], exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(viewer.locator('.run-log')).toContainText('first owned log');
+    await viewer.getByRole('tab', { name: labels[0], exact: true }).press('ArrowRight');
+    await expect(viewer.getByRole('tab', { name: labels[1], exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(viewer.locator('.run-log')).toContainText('second owned log');
+    await viewer.getByRole('button', { name: `Close run ${secondId}`, exact: true }).click();
+    await expect(viewer.getByRole('tab', { name: labels[1], exact: true })).toHaveCount(0);
+    await expect(viewer.getByRole('tab', { name: labels[0], exact: true })).toBeVisible();
+    await expect(viewer.getByRole('tab', { name: labels[2], exact: true })).toBeVisible();
+    await page.screenshot({ path: join(artifacts, 'same-key-long-prefix-runs-desktop.png'), fullPage: true });
+    await writeFile(join(artifacts, 'same-key-long-prefix-accessibility.txt'), `${await history.ariaSnapshot()}\n${await viewer.ariaSnapshot()}`);
+
+    const viewerHost = page.locator('[data-plugin-page="helmsman.run-viewer/page"]');
+    const retainedViewer = await viewerHost.elementHandle();
+    const navigate = async (path: string) => {
+      await page.evaluate(value => { history.pushState(null, '', value); dispatchEvent(new PopStateEvent('popstate')); }, path);
+      await expect(page).toHaveURL(`${origin}${path}`);
+    };
+    for (const path of [`/helm?run=${firstId}&runRepo=org%2Fa`, `/run-history?run=${firstId}&runRepo=org%2Fa`]) {
+      await navigate(path);
+      const retained = page.locator('[data-plugin-page="helmsman.run-viewer/page"]');
+      await expect(retained).toBeVisible();
+      expect(await retained.evaluate((element, expected) => element === expected, retainedViewer)).toBe(true);
+      await expect(retained.getByRole('tab', { name: labels[0], exact: true })).toBeVisible();
+      await expect(retained.getByRole('tab', { name: labels[2], exact: true })).toBeVisible();
+    }
+    await page.reload();
+    await ready(page);
+    await expect(page.locator('section.plugin-run-viewer').getByRole('tab', { name: labels[0], exact: true })).toBeVisible();
+    const unresolvedRestoredCross = `${crossId} · org/b · ${crossId}`;
+    await expect(page.locator('section.plugin-run-viewer').getByRole('tab', { name: unresolvedRestoredCross, exact: true })).toBeVisible();
+    await page.locator('section.plugin-run-viewer').getByRole('tab', { name: unresolvedRestoredCross, exact: true }).click();
+    await expect(page.locator('section.plugin-run-viewer').getByRole('tab', { name: labels[2], exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('section.plugin-run-viewer .run-log')).toContainText('cross owned log');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const openTabs = viewer.getByRole('tab');
+    for (let index = 0; index < await openTabs.count(); index++) {
+      const tab = openTabs.nth(index);
+      expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight)).toBe(true);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({ path: join(artifacts, 'same-key-long-prefix-runs-mobile.png'), fullPage: true });
+  } finally { await host.close(); }
+});
+
+test('two tabs converge stale layout writes and replacement disable and re-enable remains explicit', async ({ page }) => {
+  test.setTimeout(120_000);
+  const host = await fixture({ distribution });
+  host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
+  try {
+    await host.installSample();
+    const origin = await host.start();
+    const peer = await page.context().newPage();
+    await Promise.all([page.goto(`${origin}/helm?repo=org/a`), peer.goto(`${origin}/helm?repo=org/a`)]);
+    await Promise.all([ready(page), ready(peer)]);
+    await page.getByText('Manage panels', { exact: true }).click();
+    await peer.getByText('Manage panels', { exact: true }).click();
+    const backlogPage = page.getByRole('group', { name: /^Backlog · / });
+    const backlogIdentity = await backlogPage.getAttribute('aria-label');
+    await page.getByRole('button', { name: `Remove · ${backlogIdentity}`, exact: true }).click();
+    await expect(peer.getByRole('group', { name: backlogIdentity!, exact: true })).toHaveCount(0);
+    const underwayPeer = peer.getByRole('group', { name: /^Underway · / }).first();
+    const underwayIdentity = await underwayPeer.getAttribute('aria-label');
+    await peer.getByRole('button', { name: `Duplicate · ${underwayIdentity}`, exact: true }).click();
+    await expect(page.getByRole('group', { name: /^Underway · / })).toHaveCount(2);
+    await Promise.all([page.reload(), peer.reload()]);
+    await Promise.all([ready(page), ready(peer)]);
+    await page.getByText('Manage panels', { exact: true }).click();
+    await expect(page.getByRole('group', { name: backlogIdentity!, exact: true })).toHaveCount(0);
+    await expect(page.getByRole('group', { name: /^Underway · / })).toHaveCount(2);
+    await page.screenshot({ path: join(artifacts, 'two-tab-layout-converged.png'), fullPage: true });
+
+    await page.goto(`${origin}/outcomes?repo=org/a`);
+    await ready(page);
+    await expect(page.getByRole('heading', { name: 'Isolated TypeScript page', exact: true })).toBeVisible();
+    await expect(page.locator('[data-isolated-scope]')).toHaveText('org/a');
+    await page.locator('.repo-select').selectOption('org/b');
+    await expect(page.locator('[data-isolated-scope]')).toHaveText('org/b');
+    await host.cli('disable', 'example.isolated');
+    await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible({ timeout: 15_000 });
+    await host.cli('enable', 'example.isolated');
+    await expect(page.getByRole('heading', { name: 'Isolated TypeScript page', exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-isolated-scope]')).toHaveText('org/b');
+    await host.cli('select', 'helmsman/costs-page', 'default');
+    await expect(page.getByRole('heading', { name: 'Costs & Outcomes', exact: true })).toBeVisible({ timeout: 15_000 });
+    await peer.close();
+  } finally { await host.close(); }
+});
+
+test('request guard accepts installed clients and rejects cross-origin or non-JSON mutations before parsing', async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const host = await fixture({ distribution });
+  host.env.REPO_PROJECT_MAP = 'org/a=TASK';
+  try {
+    const origin = await host.start();
+    await page.goto(`${origin}/helm?repo=org/a`);
+    await ready(page);
+    const results = await page.evaluate(async () => {
+      const calls = [
+        ['/api/repos/org%2Fa/auto-claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) }],
+        ['/api/agents/missing/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' } }],
+        ['/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'PIRATE_MODE', value: 'false' }) }],
+      ] as const;
+      return Promise.all(calls.map(async ([path, init]) => { const response = await fetch(path, init); return { path, status: response.status, body: await response.text() }; }));
+    });
+    expect(results.slice(0, 2).map(value => value.status)).toEqual([200, 200]);
+    expect(results[2]?.status).not.toBe(403);
+    const textPlain = await request.post(`${origin}/api/repos/org%2Fa/auto-claim`, { headers: { 'Content-Type': 'text/plain' }, data: JSON.stringify({ enabled: false }) });
+    expect(textPlain.status()).toBe(403);
+    const crossOrigin = await request.post(`${origin}/api/repos/org%2Fa/auto-claim`, { headers: { Origin: 'http://127.0.0.1:1', 'Content-Type': 'application/json' }, data: { enabled: false } });
+    expect(crossOrigin.status()).toBe(403);
+    const malformed = await page.evaluate(async path => { const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' }); return { status: response.status, body: await response.text() }; }, '/api/repos/org%2Fa/auto-claim');
+    const stateAfterMalformed = await (await request.get(`${origin}/api/agents`)).json();
+    expect(malformed.status).toBe(200);
+    expect(malformed.body).toContain('"enabled":false');
+    expect(stateAfterMalformed.autoClaim).toEqual([]);
+    const malformedControl = await page.evaluate(async path => { const response = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{' }); return { status: response.status, body: await response.text() }; }, '/api/config');
+    expect(malformedControl.status).toBe(400);
+    await writeFile(join(artifacts, 'request-guard-browser-clients.json'), JSON.stringify({ results, textPlain: textPlain.status(), crossOrigin: crossOrigin.status(), malformed, stateAfterMalformed, malformedControl }, null, 2));
+  } finally { await host.close(); }
+});
+
+test('lost Todo response retains exact request identity and newer unsent draft across scope and plugin lifecycle', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const host = await fixture({ distribution });
+  host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
+  const pageErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  try {
+    const origin = await host.start();
+    await page.goto(`${origin}/todos?repo=org/a`);
+    await ready(page);
+    await page.getByRole('button', { name: 'New Todo', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Second-review Todo');
+    await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Original submitted value');
+    let submitted: { requestId?: string; selection?: { repo?: string } } | null = null;
+    await page.route('**/api/source-commands', async route => {
+      submitted = route.request().postDataJSON();
+      const response = await route.fetch();
+      expect(response.ok()).toBe(true);
+      await route.abort('failed');
+    }, { times: 1 });
+    await page.getByRole('button', { name: 'Create Todo', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Check request', exact: true })).toBeVisible();
+    await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Newer unsent value');
+    await page.getByRole('button', { name: 'Save drafts', exact: true }).click();
+    await page.locator('.repo-select').selectOption('org/b');
+    await expect(page.locator('.todo-editor')).toContainText('This draft belongs to org/a. Select its scope to save it.');
+    await expect(page.getByRole('button', { name: 'Create Todo', exact: true })).toBeDisabled();
+    await host.cli('disable', 'helmsman.todos-ui');
+    await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible({ timeout: 15_000 });
+    await host.cli('enable', 'helmsman.todos-ui');
+    await expect(page.locator('.plugin-todos').first()).toBeVisible({ timeout: 15_000 });
+    await page.locator('.repo-select').selectOption('org/a');
+    await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Newer unsent value');
+    expect(submitted?.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(submitted?.selection?.repo).toBe('org/a');
+    await page.getByRole('button', { name: 'Check request', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Apply saved result', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Apply saved result', exact: true }).click();
+    await expect.poll(async () => (await (await request.get(`${origin}/api/todos?repo=org/a`)).json()).todos.length).toBe(1);
+    const created = (await (await request.get(`${origin}/api/todos?repo=org/a`)).json()).todos[0];
+    expect(created).toMatchObject({ title: 'Second-review Todo', description: 'Original submitted value' });
+    await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Newer unsent value');
+    await page.screenshot({ path: join(artifacts, 'todo-lost-response-reconciled.png'), fullPage: true });
+    expect(pageErrors).toEqual([]);
+  } finally { await host.close(); }
+});

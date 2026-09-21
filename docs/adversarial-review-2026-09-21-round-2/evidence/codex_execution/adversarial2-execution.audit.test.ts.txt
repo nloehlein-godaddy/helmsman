@@ -1,0 +1,216 @@
+// @vitest-environment node
+import { expect, it } from 'vitest';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { existsSync } from 'node:fs';
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { openPersistence } from './persistence';
+import { openDb } from './db';
+import { openExecutionStore } from './execution-store';
+import { listAgentWorktrees, removeWorktreeAt, sweepOrphanedWorktrees } from './worktree';
+import { createDetachedExecutionHost } from '../../src/plugins/host-local/provider';
+import { createDetachedExecutionHost as oldDetachedHost } from '../../../probes/codex_execution/old-host-local-provider';
+import type { ExecutionHostLaunchSpecV1 } from '../../src/plugins/execution-host';
+import ts from 'typescript';
+import { installPluginArtifact } from './plugins/artifacts';
+import { loadRetainedExecutionHostProvider } from './execution-host-retained-loader';
+import { parseExecutionHostRetainedProviderV1 } from './execution-host-providers';
+import { executionHostAdapter } from './execution-host-execution';
+import { activateBackendPlugins } from './plugins/backend';
+import { loadPluginSnapshot } from './plugins/store';
+import { resolveExecutionHostSelection, assertExecutionHostSelectionCurrent } from './execution-host-selection';
+import { createRunnerDurability } from './runner-durability';
+import { startRun, type RunnerDeps } from './runner';
+import { RunBus } from './event-bus';
+import { openUsageStore } from './usage-store';
+import { openRunTelemetry } from './run-telemetry';
+
+const probes = '/private/tmp/helmsman-adversarial2-20260921-e3ccca4/probes/codex_execution';
+const run = promisify(execFile);
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+async function until(test: () => boolean | Promise<boolean>, limit = 4000) {
+  const deadline = Date.now() + limit;
+  while (!await test()) {
+    if (Date.now() >= deadline) throw new Error('Bounded wait expired');
+    await pause(20);
+  }
+}
+
+it('demonstrates startup sweep deleting an unrelated dirty developer checkout', async () => {
+  const root = await mkdtemp(join(probes, 'sweep-'));
+  const persistence = openPersistence(join(root, 'state.sqlite'));
+  try {
+    const db = openDb(persistence.sql);
+    const executions = openExecutionStore(persistence);
+    const repo = join(root, 'repo');
+    await mkdir(repo);
+    const git = (...args: string[]) => run('git', ['-C', repo, ...args]);
+    await git('init', '-q', '-b', 'main');
+    await git('config', 'user.email', 'fixture@example.invalid');
+    await git('config', 'user.name', 'Fixture');
+    await writeFile(join(repo, 'tracked.txt'), 'original');
+    await git('add', '.');
+    await git('commit', '-qm', 'fixture');
+    const developer = join(root, 'developer', '.worktrees', 'personal-feature');
+    const protectedWorktree = join(repo, '.worktrees', 'protected-run');
+    await git('worktree', 'add', '-b', 'personal-feature', developer);
+    await git('worktree', 'add', '-b', 'protected-run', protectedWorktree);
+    await writeFile(join(developer, 'tracked.txt'), 'uncommitted edit');
+    await writeFile(join(developer, 'untracked.txt'), 'untracked developer work');
+    await writeFile(join(protectedWorktree, 'untracked.txt'), 'active run');
+    expect(db.getRun('personal-feature')).toBeNull();
+    expect(executions.cleanupEligibility('personal-feature')).toEqual({ allowed: true });
+    const removed = await sweepOrphanedWorktrees({ repoDirs: [repo], listAgentWorktrees, remove: removeWorktreeAt,
+      isActiveRunId: id => {
+        if (id === 'protected-run' || !executions.cleanupEligibility(id).allowed) return true;
+        const row = db.getRun(id);
+        return Boolean(row && row.adapter.startsWith('pre-pr:') && row.status !== 'succeeded');
+      } });
+    const evidence = { removed, developerExists: existsSync(developer), untrackedExists: existsSync(join(developer, 'untracked.txt')),
+      protectedExists: existsSync(join(protectedWorktree, 'untracked.txt')), knownRun: db.getRun('personal-feature') };
+    await writeFile(join(probes, 'startup-sweep.json'), JSON.stringify(evidence, null, 2));
+    expect(evidence).toMatchObject({ developerExists: false, untrackedExists: false, protectedExists: true, knownRun: null });
+    expect(removed).toEqual([developer]);
+  } finally { persistence.close(); await rm(root, { recursive: true, force: true }); }
+}, 15000);
+
+it.each([false, true])('checks coordinator crash receipt with retained old provider %s', async old => {
+  const root = await mkdtemp(join(probes, 'provider-compatibility-'));
+  let loaded: Awaited<ReturnType<typeof loadRetainedExecutionHostProvider>> | undefined;
+  if (old) {
+    const providerSource = await readFile(join(probes, 'old-host-local-provider.ts'), 'utf8');
+    const compile = (source: string) => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+    const js = compile(providerSource).replaceAll('@helmsman/plugin-sdk/node', './sdk-node.js');
+    const sdk = compile(await readFile(join(process.cwd(), 'src/plugins/execution-host-node.ts'), 'utf8'));
+    const descriptor = { packageVersion: 1, manifest: { manifestVersion: 1, id: 'audit.old-local-host', version: '1.0.0', sdkVersion: 1, pages: [] },
+      entries: {}, node: { minMajor: 22, maxMajorExclusive: 30 }, backend: { entry: 'backend.js',
+        provides: [{ id: 'helmsman/execution-host', version: 1, localId: 'detached' }], executionHosts: { detached: { access: ['execution'] } }, settings: {}, storageVersion: 1 } };
+    const backend = "import { createDetachedExecutionHost } from './provider.js'; export default { activate(context) { context.registerExecutionHost('detached', createDetachedExecutionHost()); } };";
+    const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: descriptor,
+      files: [{ path: 'backend.js', base64: Buffer.from(backend).toString('base64') }, { path: 'provider.js', base64: Buffer.from(js).toString('base64') },
+        { path: 'sdk-node.js', base64: Buffer.from(sdk).toString('base64') }] })));
+    const record = parseExecutionHostRetainedProviderV1({ version: 1, binding: { pluginId: descriptor.manifest.id, providerId: `${descriptor.manifest.id}/detached`,
+      contractVersion: 1, artifactHash: archive.hash }, origin: 'external', settings: {}, metadata: oldDetachedHost().metadata });
+    loaded = await loadRetainedExecutionHostProvider({ pluginsRoot: root, runtimeArtifactsRoot: root, record,
+      artifacts: [{ pluginId: descriptor.manifest.id, artifactHash: archive.hash, packageVersion: '1.0.0', requires: [] }] });
+  }
+  const provider = loaded?.provider ?? createDetachedExecutionHost();
+  const stage = `const fs=require('node:fs');setInterval(()=>fs.writeFileSync('stage-ticks',String(Date.now())),20);setTimeout(()=>process.exit(0),1800);`;
+  const coordinator = `const fs=require('node:fs');const child=require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(stage)}],{detached:true,stdio:'ignore'});fs.writeFileSync('stage-pid',String(child.pid));const timer=setInterval(()=>{if(fs.existsSync('stage-ticks'))throw new Error('fixture coordinator crash');},20);`;
+  const entry = join(root, 'pre-pr-cli.js');
+  await writeFile(entry, coordinator);
+  const spec: ExecutionHostLaunchSpecV1 = { version: 1, runId: 'compat_run', launchId: 'compat_launch', attempt: 1,
+    cmd: process.execPath, args: [entry], cwd: root, logPath: join(root, 'run.log'), exitPath: join(root, 'run.exit'),
+    specPath: join(root, 'run.json'), receiptPath: join(root, 'run.receipt'), wrapperPath: join(process.cwd(), 'server/helmsman/run-wrapper.mjs'),
+    coordinator: true, configuration: null };
+  const host = executionHostAdapter({ runId: spec.runId, providerId: 'audit.old-local-host/detached', provider, configuration: null,
+    wrapperPath: spec.wrapperPath, runtimeRoot: process.cwd() });
+  const bound = await host.launch(spec);
+  if (bound.kind !== 'plugin') throw new Error('Expected provider reference');
+  const ref = bound.reference;
+  try {
+    await until(() => existsSync(join(root, 'stage-ticks')));
+    await until(async () => !await provider.isAlive(ref).catch(() => false));
+    const tickAtWrapperExit = await readFile(join(root, 'stage-ticks'), 'utf8');
+    await pause(150);
+    const stageStillWriting = tickAtWrapperExit !== await readFile(join(root, 'stage-ticks'), 'utf8');
+    const serialized = JSON.parse(await readFile(spec.specPath, 'utf8'));
+    const evidence = { oldProvider: old, installedAndLoaded: Boolean(loaded), inputCoordinator: spec.coordinator, serializedCoordinator: serialized.coordinator ?? null,
+      exitReceiptExists: existsSync(spec.exitPath), stageStillWriting,
+      discovery: await provider.discover(spec, ref) };
+    await writeFile(join(probes, `coordinator-provider-${old ? 'old' : 'new'}.json`), JSON.stringify(evidence, null, 2));
+    expect(stageStillWriting).toBe(true);
+    expect(evidence.exitReceiptExists).toBe(old);
+    expect(evidence.discovery.status).toBe(old ? 'found' : 'unknown');
+  } finally {
+    await provider.stop(ref).catch(() => {});
+    await pause(2000);
+    await loaded?.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 12000);
+
+it.each([null, 0.5])('observes final-output cost against retry cap %s', async maxCostUsd => {
+  const root = await mkdtemp(join(probes, 'cost-retry-'));
+  const persistence = openPersistence(join(root, 'state.sqlite'));
+  try {
+    const db = openDb(persistence.sql); const executions = openExecutionStore(persistence);
+    const usage = openUsageStore(persistence.sql); const telemetry = openRunTelemetry(persistence.sql, usage);
+    const task = { repo: 'owner/repo', ticketId: 'rerun', title: 'Update branch', jiraBaseUrl: '', task: 'local fixture', prBranch: 'fix/fixture' };
+    const artifact = { pluginId: 'audit.runtime', artifactHash: 'a'.repeat(64), packageVersion: '1', requires: [] };
+    const durable = createRunnerDurability({ persistence, db, executions, runsDir: root, maxConcurrency: 1, verify: async () => {},
+      snapshot: run => ({ version: 1, runId: run.id, attempt: run.attempt, repo: run.repo, logicalWork: { source: 'audit', instance: 'local', taskId: task.ticketId },
+        task, workflowSnapshotId: null, artifacts: [artifact], settings: {}, schemas: [], provenance: { kind: 'admission', evidence: null },
+        bindings: [{ role: 'host', capability: 'host', contractVersion: 1, contributionId: 'detached', pluginId: artifact.pluginId,
+          artifactHash: artifact.artifactHash, connectionId: null, credentialHandle: null }] }) });
+    const launches: { attempt: number; priorCost: number | null }[] = [];
+    const ref = { kind: 'detached' as const, pid: 123 };
+    const deps: RunnerDeps = { db, durable, bus: new RunBus(), runsDir: root, genId: () => 'terminal-cost', now: () => new Date().toISOString(),
+      pollIntervalMs: 5, maxAttempts: 3, maxCostUsd, recordAgentEvent: telemetry.record,
+      adapter: { id: 'audit.agent/worker', buildCommand: () => ({ cmd: 'fixture-only', args: [] }), parseLine: JSON.parse },
+      createWorktree: async () => ({ path: root, branch: task.prBranch }), createWorktreeFromBranch: async () => ({ path: root, branch: task.prBranch }), removeWorktree: async () => {},
+      host: { kind: 'detached', launch: async spec => {
+        launches.push({ attempt: spec.attempt!, priorCost: db.getRun(spec.runId)?.costUsd ?? null });
+        const receipt = { version: 1, runId: spec.runId, launchId: spec.launchId, attempt: spec.attempt, pid: 123, processStart: 'bounded-fake-worker' };
+        await writeFile(spec.logPath, JSON.stringify({ kind: 'usage', text: 'Final provider cost', costUsd: 0.75 }) + '\n');
+        await writeFile(spec.receiptPath!, JSON.stringify(receipt));
+        await writeFile(spec.exitPath, JSON.stringify({ ...receipt, exitCode: 1 }));
+        return ref;
+      }, stop: async () => {}, isAlive: async () => false, discover: async spec => ({ status: 'found', ref,
+        evidence: { runId: spec.runId, launchId: spec.launchId!, attempt: spec.attempt!, state: 'exited', exitCode: 1 } }) } };
+    await startRun(task, deps);
+    const row = db.getRun('terminal-cost')!;
+    const evidence = { maxCostUsd, launches, finalStatus: row.status, finalAttempt: row.attempt, finalCost: row.costUsd,
+      usage: usage.listUsage(['terminal-cost']) };
+    await writeFile(join(probes, `terminal-cost-${maxCostUsd === null ? 'uncapped' : 'capped'}.json`), JSON.stringify(evidence, null, 2));
+    expect(row).toMatchObject({ attempt: 3, costUsd: 2.25, status: 'failed' });
+    expect(launches).toEqual([{ attempt: 1, priorCost: null }, { attempt: 2, priorCost: 0.75 }, { attempt: 3, priorCost: 1.5 }]);
+  } finally { persistence.close(); await rm(root, { recursive: true, force: true }); }
+}, 12000);
+
+it('accepts the exact renamed historical author host through compiled CLI installation and admission selection', async () => {
+  const root = await mkdtemp(join(probes, 'public-cli-'));
+  let runtime: Awaited<ReturnType<typeof activateBackendPlugins>> | undefined;
+  try {
+    const author = join(root, 'author'); const store = join(root, 'plugins'); const archive = join(root, 'old-host.hmp');
+    await mkdir(author);
+    const descriptor = JSON.parse(await readFile(join(probes, 'old-host-local-package.json'), 'utf8'));
+    descriptor.manifest.id = 'audit.historical-local-host';
+    const compile = (source: string) => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+    await writeFile(join(author, 'plugin-package.json'), JSON.stringify(descriptor));
+    await writeFile(join(author, 'backend.js'), compile(await readFile(join(probes, 'old-host-local-backend.ts'), 'utf8')));
+    await writeFile(join(author, 'provider.js'), compile(await readFile(join(probes, 'old-host-local-provider.ts'), 'utf8')).replaceAll('@helmsman/plugin-sdk/node', './sdk-node.js'));
+    await writeFile(join(author, 'sdk-node.js'), compile(await readFile(join(process.cwd(), 'src/plugins/execution-host-node.ts'), 'utf8')));
+    const cli = '/private/tmp/helmsman-adversarial2-20260921-e3ccca4/integration/release/server/helmsman/plugins/cli.js';
+    const outputs: string[] = [];
+    for (const args of [['pack', author, archive], ['install', archive], ['enable', descriptor.manifest.id], ['select-execution-host', `${descriptor.manifest.id}/detached`]]) {
+      const result = await run(process.execPath, [cli, '--dir', store, '--db', join(root, 'state.sqlite'), ...args],
+        { cwd: root, env: { PATH: process.env.PATH, TMPDIR: root }, timeout: 15000 });
+      outputs.push(result.stdout.trim());
+    }
+    const snapshot = await loadPluginSnapshot(store);
+    runtime = await activateBackendPlugins({ root: store, snapshot, usage: { query: async () => { throw new Error('Host package must not query usage'); } } });
+    const selected = resolveExecutionHostSelection({ root: store, registry: runtime.executionHosts, defaultProviderId: 'helmsman.host-local/detached' });
+    assertExecutionHostSelectionCurrent({ root: store, registry: runtime.executionHosts }, selected);
+    expect(selected.record.binding.providerId).toBe(`${descriptor.manifest.id}/detached`);
+    expect(selected.record.binding.contractVersion).toBe(1);
+    await writeFile(join(probes, 'historical-host-public-selection.json'), JSON.stringify({ outputs, selected: selected.record, errors: runtime.errors }, null, 2));
+  } finally { await runtime?.dispose(); await rm(root, { recursive: true, force: true }); }
+}, 30000);
+
+it('allows an ordinary current direct worker to publish its successful terminal receipt', async () => {
+  const root = await mkdtemp(join(probes, 'direct-control-'));
+  const provider = createDetachedExecutionHost();
+  const spec: ExecutionHostLaunchSpecV1 = { version: 1, runId: 'direct_run', launchId: 'direct_launch', attempt: 1,
+    cmd: process.execPath, args: ['-e', 'process.exit(0)'], cwd: root, logPath: join(root, 'run.log'), exitPath: join(root, 'run.exit'),
+    specPath: join(root, 'run.json'), receiptPath: join(root, 'run.receipt'), wrapperPath: join(process.cwd(), 'server/helmsman/run-wrapper.mjs'),
+    coordinator: false, configuration: null };
+  const ref = await provider.launch(spec);
+  try {
+    await until(() => existsSync(spec.exitPath));
+    const evidence = await provider.discover(spec, ref);
+    expect(evidence).toMatchObject({ status: 'found', evidence: { state: 'exited', exitCode: 0 } });
+    await writeFile(join(probes, 'direct-current-control.json'), JSON.stringify(evidence, null, 2));
+  } finally { await provider.stop(ref).catch(() => {}); await rm(root, { recursive: true, force: true }); }
+}, 12000);

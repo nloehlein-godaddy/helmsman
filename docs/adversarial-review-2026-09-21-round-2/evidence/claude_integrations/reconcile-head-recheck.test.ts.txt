@@ -1,0 +1,55 @@
+import { describe, expect, it, vi } from 'vitest';
+import { githubPullRequestProvider } from '/private/tmp/helmsman-adversarial2-20260921-e3ccca4/claude_integrations/src/plugins/github/provider.ts';
+import { formatPullRequestReviewBody } from '@helmsman/plugin-sdk';
+
+const repo = 'fixture/project';
+const headX = 'a'.repeat(40);
+const headY = 'b'.repeat(40);
+const number = 7;
+const path = `/repos/${repo}/pulls/${number}/reviews`;
+
+const input = { id: 'operation-1', contentHash: 'c'.repeat(64), repo, number, headSha: headX, actor: 'reviewer', event: 'COMMENT' as const, body: 'Reviewed' };
+
+const metadata = (head: string) => ({ number, base: { sha: 'd'.repeat(40), repo: { full_name: repo } }, head: { sha: head, ref: 'work' }, state: 'open', draft: false, merged: false,
+  user: { login: 'author' }, html_url: `https://github.com/${repo}/pull/${number}`, title: 'PR', updated_at: '2025-01-02T03:04:05.000Z', comments: 0, requested_reviewers: [], requested_teams: [] });
+
+// The review that our earlier POST actually landed on head X (proven, discoverable delivery).
+const postedReview = { id: 4242, state: 'COMMENTED', user: { login: 'reviewer' }, submitted_at: '2025-01-02T03:04:05.000Z', commit_id: headX, body: formatPullRequestReviewBody(input) };
+
+function context(currentHead: () => string) {
+  const request = vi.fn(async (req: { method: 'GET' | 'POST'; path: string; query: Readonly<Record<string, string>>; body: unknown }) => {
+    if (req.method === 'POST') throw new Error('reconcile must never POST');
+    if (req.path === '/user') return { status: 200, body: { login: 'reviewer' } };
+    if (req.path === path) return { status: 200, body: [postedReview] };
+    return { status: 200, body: metadata(currentHead()) }; // PR detail
+  });
+  return { signal: new AbortController().signal, configuredAuthor: 'reviewer', http: { request } };
+}
+
+describe('reconcile head recheck vs proven delivery', () => {
+  it('acknowledges the proven receipt while the PR head is unchanged', async () => {
+    const ctx = context(() => headX);
+    expect(await githubPullRequestProvider.reconcileReview!(input, ctx)).toMatchObject({ status: 'acknowledged', receipt: { reviewId: 4242, headSha: headX } });
+  });
+
+  it('REFUSES to acknowledge the same proven receipt once the PR head advances past headSha', async () => {
+    const ctx = context(() => headY); // author pushed a new commit after the review landed
+    const result = await githubPullRequestProvider.reconcileReview!(input, ctx);
+    // The review with the exact operation marker at commit_id === headSha is present on page 1,
+    // yet reconcile returns unknown purely because the *current* PR head moved.
+    expect(result).toMatchObject({ status: 'unknown' });
+
+    // And it stays stuck: repeated reconciliation can never self-heal.
+    expect(await githubPullRequestProvider.reconcileReview!(input, context(() => headY))).toMatchObject({ status: 'unknown' });
+  });
+
+  it('REFUSES to acknowledge once the PR is merged/closed after the review landed', async () => {
+    const request = vi.fn(async (req: { method: string; path: string }) => {
+      if (req.path === '/user') return { status: 200, body: { login: 'reviewer' } };
+      if (req.path === path) return { status: 200, body: [postedReview] };
+      return { status: 200, body: { ...metadata(headX), state: 'closed', merged: true } };
+    });
+    const ctx = { signal: new AbortController().signal, configuredAuthor: 'reviewer', http: { request } };
+    expect(await githubPullRequestProvider.reconcileReview!(input, ctx)).toMatchObject({ status: 'unknown' });
+  });
+});

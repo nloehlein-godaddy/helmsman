@@ -1,0 +1,16 @@
+{
+  "origin": "http://127.0.0.1:62061",
+  "before": {
+    "foreignTracked": "unsaved tracked content\n",
+    "foreignUntracked": "unique untracked content\n"
+  },
+  "after": {
+    "foreignCheckout": false,
+    "foreignTracked": false,
+    "foreignUntracked": false,
+    "controlTracked": "unsaved tracked content\n",
+    "controlUntracked": "unique untracked content\n"
+  },
+  "serverReportedSweep": true,
+  "outsideAgentsRoot": true
+}

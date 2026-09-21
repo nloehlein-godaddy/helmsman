@@ -1,0 +1,85 @@
+8259c2c docs: plan plugin architecture with independent reviews
+4f51ede docs: resolve plugin plan architecture and migration reviews
+b74cfbc docs: clarify durable launch identity before host attachment
+f690330 docs: require deployable host for plugin installation proof
+a33744a feat: introduce validated page registry for plugin foundation
+518a1bb fix: honor plugin selection changes during startup
+5c1ffb9 feat: mount Costs through a generic plugin page lifecycle
+56a7b7c fix: validate assessment responses before clearing drafts
+768c21b feat: install and load external plugin page packages
+2e8d8ff feat: complete Phase A distribution and safe-start recovery
+7c8c27e fix: recognize Windows paths in distributed Docker workflows
+8f3d11b feat: complete external Costs and backend pricing plugin slice
+8652f9e fix: preserve independently counted Claude cache usage
+200c57b feat: add durable plugin lifecycle and execution recovery
+2e9bd57 fix: isolate publication transport and serialize plugin capacity
+85e1564 feat: add coexisting task-source plugins and recovery
+abae201 fix: recover rejected task commands and source retries
+a1fb976 feat: make Helm and its panels independently replaceable
+57b77f2 fix: reconcile uncertain run commands through audited recovery
+edfe0eb feat: let composition plugins declare layouts and retain larger drafts
+77c856d feat: add task editing and source administration plugin packages
+bc51ae6 fix: preserve task editor scope and reconcile source revisions
+d21d9cb feat: switch task pages to replaceable plugin compositions
+039f516 feat: add run inspection, downloads, and clarification channels
+e788774 fix: drain final clarification records before attempt completion
+47bd469 feat: add plugin run presentation and durable clarification services
+b49c6ca fix: preserve plugin browsing and newer clarification drafts
+612057b feat: add authored clarification panels and shared viewer sessions
+773cce4 fix: preserve exact clarification request identities on retry
+9142966 fix: retain original identities across plugin command retries
+3806090 feat: cut over clarifications and expose scoped PR inspection
+ab0757d refactor: package clarification recovery behind public services
+d61552f feat: route Runs through an authored composition
+56e6d60 fix: validate opaque PR targets with canonical route rules
+6ef2218 Extract public PR presentation and GitHub provider plugins
+a230369 fix: bind provider review writes to retained operation
+e6c3be3 docs: record PR plugin acceptance and review
+c5eee08 Extract communication presentation and Slack provider plugins
+47fb008 Fix communication delivery recovery and notification parity
+56e5d15 Require explicit retry for unapplied communication requests
+c16d3ff Connect browser retries to explicit communication retry admission
+5821810 Extract terminal presentation into a scoped plugin package
+9a36302 Recover undelivered terminal controls through explicit inspection
+26359ae Extract campaign presentation and atomic public commands
+6c828bf Extract Local Git presentation and guarded public controls
+631ad13 Correct Local Git README ownership and control labels
+71c31fb Extract Jira and GitHub settings into replaceable plugins
+f83ef45 Align GitHub settings validation across SDK and panel
+daf18e3 Extract profile header and discover installed plugin pages
+85f1fe6 Preserve neutral greetings when profile providers fail
+706aee6 Extract automatic scheduling policy and cadence into plugins
+dd98bf9 Honor task-source revision bounds in scheduling policy
+a8baf84 Extract agent providers with retained execution and review bindings
+c5576ed Preserve verified corrected checkpoints and reject unknown agent aliases
+615a077 Extract execution hosts into retained public plugin providers
+5849a30 Constrain Docker relay forwarding and restore local readiness
+6bde9e5 Record execution-host acceptance and reviewed relay correction
+7a5450c feat(plugins): extract native terminal and browser providers
+6135215 fix(terminal): fence socket replacement during text submission
+c594605 docs: record native provider acceptance and review
+568cd82 feat(plugins): extract retained workflow prompts and stage policy
+eb8ad1a docs: record workflow provider acceptance and review
+2b10ce0 feat(plugins): extract retained campaign review and webhook triggers
+7ae03dc fix(triggers): preserve queue progress and requested review membership
+12a62c9 fix(triggers): retire superseded requested review decisions
+b8e1785 docs: record trigger acceptance and demo verification
+6a56de6 test: align execution fixtures and await detached worker exit
+69a4573 docs: close phase F aggregate gate and scope stabilization
+59f8b76 feat: stabilize plugin SDK and retire private feature paths
+eea83b3 test: align final plugin acceptance with public services
+553dff4 fix: preserve manual reviews of draft pull requests
+0787a55 docs: close plugin rewrite acceptance and current guides
+311185c fix: restore native Node cmux cost refresh
+ec3dd6b fix: contain concurrent GitHub review read failures
+8dcdb6a fix: protect mutations, reconcile review history and identify UI controls
+50b588f Settle never-launched attempts and retain Stop observers
+f262636 Keep never-launched terminal projections immutable
+228b7e6 fix: protect plugin recovery and retained module lifetimes
+2b03972 Preserve occupied PR worktrees and settle local worker trees before exit receipts
+e663b07 Preserve staged cleanup ownership during local supervisor shutdown
+47355a0 Preserve unresolved source claim reconciliation before launch
+875ae2a test: exercise mutation guards and accessible identities in installed browser
+c7f85c8 Require explicit coordinator cleanup acknowledgement before terminal receipts
+eb27c67 Use JSON Stop requests and await owned distribution fixture shutdown
+e3ccca4 docs: record adversarial fixes, verification and operating limits

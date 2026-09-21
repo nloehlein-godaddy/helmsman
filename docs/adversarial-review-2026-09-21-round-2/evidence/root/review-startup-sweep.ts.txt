@@ -1,0 +1,24 @@
+import { fixture, run } from './tests/distribution/isolated-fixture';
+import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+const host = await fixture({distribution:'/private/tmp/helmsman-adversarial2-20260921-e3ccca4/integration/release'});
+const git = execFileSync('/usr/bin/which',['git'],{encoding:'utf8'}).trim();
+try {
+ host.env.REPO_PROJECT_MAP='fixture/project=TASK';
+ const repo=join(host.cwd,'project');const foreign=join(host.root,'developer','.worktrees','personal-feature');const control=join(host.root,'developer','plain-checkout');
+ await mkdir(repo,{recursive:true});
+ for(const args of [['init','-b','main'],['config','user.email','fixture@example.com'],['config','user.name','Isolated review']]) await run(git,args,repo,host.env);
+ await writeFile(join(repo,'tracked.txt'),'base\n');
+ for(const args of [['add','.'],['commit','-m','fixture'],['worktree','add','-b','personal-feature',foreign],['worktree','add','-b','control-feature',control]]) await run(git,args,repo,host.env);
+ for(const tree of [foreign,control]) {await writeFile(join(tree,'tracked.txt'),'unsaved tracked content\n');await writeFile(join(tree,'untracked.txt'),'unique untracked content\n');}
+ await writeFile(join(host.root,'commands','git'),`#!${process.execPath}\nconst {spawnSync}=require('node:child_process');const a=process.argv.slice(2);if(a[0]!=='-C'||a[1]!==${JSON.stringify(repo)}||a[2]!=='worktree'||!['list','remove'].includes(a[3]))process.exit(1);const r=spawnSync(${JSON.stringify(git)},a,{stdio:'inherit'});process.exit(r.status??1);`,{mode:0o755});
+ const before={foreignTracked:await readFile(join(foreign,'tracked.txt'),'utf8'),foreignUntracked:await readFile(join(foreign,'untracked.txt'),'utf8')};
+ const origin=await host.start();
+ const exists=async(p:string)=>access(p).then(()=>true,()=>false);
+ const after={foreignCheckout:await exists(foreign),foreignTracked:await exists(join(foreign,'tracked.txt')),foreignUntracked:await exists(join(foreign,'untracked.txt')),controlTracked:await readFile(join(control,'tracked.txt'),'utf8'),controlUntracked:await readFile(join(control,'untracked.txt'),'utf8')};
+ const evidence={origin,before,after,serverReportedSweep:host.output().includes('swept 1 orphaned worktree(s)'),outsideAgentsRoot:!foreign.startsWith(host.env.AGENTS_ROOT!+'/')};
+ console.log(JSON.stringify(evidence,null,2));
+ await writeFile('/private/tmp/helmsman-adversarial2-20260921-e3ccca4/probes/root/startup-sweep.json',JSON.stringify(evidence,null,2)+'\n');
+ if(after.foreignCheckout||!evidence.serverReportedSweep) throw new Error('Startup deletion not reproduced');
+} finally {await host.close();}

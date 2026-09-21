@@ -1,0 +1,15 @@
+{
+  "reproduced": true,
+  "events": [
+    "replacement publication started after disabled precheck",
+    "enable v1 reported success",
+    "install v2 reported success"
+  ],
+  "afterRace": {
+    "id": "example.install-race",
+    "hash": "2c57b5d2b4e195a58cfe2de2df2bddd8649f12543922dca8e54d5a1ad6b5cb37",
+    "enabled": false
+  },
+  "negativeControl": "already-enabled precheck correctly rejects replacement",
+  "severityCandidate": "P2: concurrent enable is lost instead of rejecting replacement"
+}

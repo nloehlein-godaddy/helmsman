@@ -1,0 +1,316 @@
+- combobox "Panel to add":
+  - option "Backlog" [selected]
+  - option "Running"
+  - option "Recent"
+  - option "Underway"
+  - option "New run"
+  - option "Pull requests"
+  - option "Shipped"
+  - option "Activity log"
+- button "Add panel"
+- group "Underway · underway":
+  - strong: Underway
+  - button "Hide · Underway · underway": Hide
+  - button "Duplicate · Underway · underway": Duplicate
+  - button "Remove · Underway · underway": Remove
+  - combobox "Implementation for Underway · Underway · underway":
+    - option "Underway" [selected]
+    - option "Backlog"
+    - option "Running"
+    - option "Recent"
+    - option "New run"
+    - option "Pull requests"
+    - option "Shipped"
+    - option "Activity log"
+  - combobox "Scope for Underway · Underway · underway":
+    - option "Follow header" [selected]
+    - option "All galleons"
+    - option "One galleon"
+  - button "Apply scope · Underway · underway": Apply scope
+  - button "Move up · Underway · underway": Move up
+  - button "Move down · Underway · underway": Move down
+  - button "Move left · Underway · underway": Move left
+  - button "Move right · Underway · underway": Move right
+  - combobox "Stack with panel · Underway · underway":
+    - option "Choose a panel" [selected]
+    - option "New run · newrun"
+    - option "Backlog · backlog"
+    - option "Running · running"
+    - option "Pull requests · repoprs"
+    - option "Recent · recent"
+    - option "Activity log · activity"
+    - option "Shipped · shipped"
+    - option "Underway · 61f2f875-db31-425c-9871-a219cf5372e6"
+  - button "Stack · Underway · underway": Stack
+- group "New run · newrun":
+  - strong: New run
+  - button "Hide · New run · newrun": Hide
+  - button "Duplicate · New run · newrun": Duplicate
+  - button "Remove · New run · newrun": Remove
+  - combobox "Implementation for New run · New run · newrun":
+    - option "New run" [selected]
+    - option "Backlog"
+    - option "Running"
+    - option "Recent"
+    - option "Underway"
+    - option "Pull requests"
+    - option "Shipped"
+    - option "Activity log"
+  - combobox "Scope for New run · New run · newrun":
+    - option "Follow header" [selected]
+    - option "All galleons"
+    - option "One galleon"
+  - button "Apply scope · New run · newrun": Apply scope
+  - button "Move up · New run · newrun": Move up
+  - button "Move down · New run · newrun": Move down
+  - button "Move left · New run · newrun": Move left
+  - button "Move right · New run · newrun": Move right
+  - combobox "Stack with panel · New run · newrun":
+    - option "Choose a panel" [selected]
+    - option "Underway · underway"
+    - option "Backlog · backlog"
+    - option "Running · running"
+    - option "Pull requests · repoprs"
+    - option "Recent · recent"
+    - option "Activity log · activity"
+    - option "Shipped · shipped"
+    - option "Underway · 61f2f875-db31-425c-9871-a219cf5372e6"
+  - button "Stack · New run · newrun": Stack
+- group "Backlog · backlog":
+  - strong: Backlog
+  - button "Hide · Backlog · backlog": Hide
+  - button "Duplicate · Backlog · backlog": Duplicate
+  - button "Remove · Backlog · backlog": Remove
+  - combobox "Implementation for Backlog · Backlog · backlog":
+    - option "Backlog" [selected]
+    - option "Running"
+    - option "Recent"
+    - option "Underway"
+    - option "New run"
+    - option "Pull requests"
+    - option "Shipped"
+    - option "Activity log"
+  - combobox "Scope for Backlog · Backlog · backlog":
+    - option "Follow header" [selected]
+    - option "All galleons"
+    - option "One galleon"
+  - button "Apply scope · Backlog · backlog": Apply scope
+  - button "Move up · Backlog · backlog": Move up
+  - button "Move down · Backlog · backlog": Move down
+  - button "Move left · Backlog · backlog": Move left
+  - button "Move right · Backlog · backlog": Move right
+  - combobox "Stack with panel · Backlog · backlog":
+    - option "Choose a panel" [selected]
+    - option "Underway · underway"
+    - option "New run · newrun"
+    - option "Running · running"
+    - option "Pull requests · repoprs"
+    - option "Recent · recent"
+    - option "Activity log · activity"
+    - option "Shipped · shipped"
+    - option "Underway · 61f2f875-db31-425c-9871-a219cf5372e6"
+  - button "Stack · Backlog · backlog": Stack
+- group "Running · running":
+  - strong: Running
+  - button "Hide · Running · running": Hide
+  - button "Duplicate · Running · running": Duplicate
+  - button "Remove · Running · running": Remove
+  - combobox "Implementation for Running · Running · running":
+    - option "Running" [selected]
+    - option "Backlog"
+    - option "Recent"
+    - option "Underway"
+    - option "New run"
+    - option "Pull requests"
+    - option "Shipped"
+    - option "Activity log"
+  - combobox "Scope for Running · Running · running":
+    - option "Follow header" [selected]
+    - option "All galleons"
+    - option "One galleon"
+  - button "Apply scope · Running · running": Apply scope
+  - button "Move up · Running · running": Move up
+  - button "Move down · Running · running": Move down
+  - button "Move left · Running · running": Move left
+  - button "Move right · Running · running": Move right
+  - combobox "Stack with panel · Running · running":
+    - option "Choose a panel" [selected]
+    - option "Underway · underway"
+    - option "New run · newrun"
+    - option "Backlog · backlog"
+    - option "Pull requests · repoprs"
+    - option "Recent · recent"
+    - option "Activity log · activity"
+    - option "Shipped · shipped"
+    - option "Underway · 61f2f875-db31-425c-9871-a219cf5372e6"
+  - button "Stack · Running · running": Stack
+- group "Pull requests · repoprs":
+  - strong: Pull requests
+  - button "Hide · Pull requests · repoprs": Hide
+  - button "Duplicate · Pull requests · repoprs": Duplicate
+  - button "Remove · Pull requests · repoprs": Remove
+  - combobox "Implementation for Pull requests · Pull requests · repoprs":
+    - option "Pull requests" [selected]
+    - option "Backlog"
+    - option "Running"
+    - option "Recent"
+    - option "Underway"
+    - option "New run"
+    - option "Shipped"
+    - option "Activity log"
+  - combobox "Scope for Pull requests · Pull requests · repoprs":
+    - option "Follow header" [selected]
+    - option "All galleons"
+    - option "One galleon"
+  - button "Apply scope · Pull requests · repoprs": Apply scope
+  - button "Move up · Pull requests · repoprs": Move up
+  - button "Move down · Pull requests · repoprs": Move down
+  - button "Move left · Pull requests · repoprs": Move left
+  - button "Move right · Pull requests · repoprs": Move right
+  - combobox "Stack with panel · Pull requests · repoprs":
+    - option "Choose a panel" [selected]
+    - option "Underway · underway"
+    - option "New run · newrun"
+    - option "Backlog · backlog"
+    - option "Running · running"
+    - option "Recent · recent"
+    - option "Activity log · activity"
+    - option "Shipped · shipped"
+    - option "Underway · 61f2f875-db31-425c-9871-a219cf5372e6"
+  - button "Stack · Pull requests · repoprs": Stack
+- group "Recent · recent":
+  - strong: Recent
+  - button "Hide · Recent · recent": Hide
+  - button "Duplicate · Recent · recent": Duplicate
+  - button "Remove · Recent · recent": Remove
+  - combobox "Implementation for Recent · Recent · recent":
+    - option "Recent" [selected]
+    - option "Backlog"
+    - option "Running"
+    - option "Underway"
+    - option "New run"
+    - option "Pull requests"
+    - option "Shipped"
+    - option "Activity log"
+  - combobox "Scope for Recent · Recent · recent":
+    - option "Follow header" [selected]
+    - option "All galleons"
+    - option "One galleon"
+  - button "Apply scope · Recent · recent": Apply scope
+  - button "Move up · Recent · recent": Move up
+  - button "Move down · Recent · recent": Move down
+  - button "Move left · Recent · recent": Move left
+  - button "Move right · Recent · recent": Move right
+  - combobox "Stack with panel · Recent · recent":
+    - option "Choose a panel" [selected]
+    - option "Underway · underway"
+    - option "New run · newrun"
+    - option "Backlog · backlog"
+    - option "Running · running"
+    - option "Pull requests · repoprs"
+    - option "Activity log · activity"
+    - option "Shipped · shipped"
+    - option "Underway · 61f2f875-db31-425c-9871-a219cf5372e6"
+  - button "Stack · Recent · recent": Stack
+- group "Activity log · activity":
+  - strong: Activity log
+  - button "Hide · Activity log · activity": Hide
+  - button "Duplicate · Activity log · activity": Duplicate
+  - button "Remove · Activity log · activity": Remove
+  - combobox "Implementation for Activity log · Activity log · activity":
+    - option "Activity log" [selected]
+    - option "Backlog"
+    - option "Running"
+    - option "Recent"
+    - option "Underway"
+    - option "New run"
+    - option "Pull requests"
+    - option "Shipped"
+  - combobox "Scope for Activity log · Activity log · activity":
+    - option "Follow header" [selected]
+    - option "All galleons"
+    - option "One galleon"
+  - button "Apply scope · Activity log · activity": Apply scope
+  - button "Move up · Activity log · activity": Move up
+  - button "Move down · Activity log · activity": Move down
+  - button "Move left · Activity log · activity": Move left
+  - button "Move right · Activity log · activity": Move right
+  - combobox "Stack with panel · Activity log · activity":
+    - option "Choose a panel" [selected]
+    - option "Underway · underway"
+    - option "New run · newrun"
+    - option "Backlog · backlog"
+    - option "Running · running"
+    - option "Pull requests · repoprs"
+    - option "Recent · recent"
+    - option "Shipped · shipped"
+    - option "Underway · 61f2f875-db31-425c-9871-a219cf5372e6"
+  - button "Stack · Activity log · activity": Stack
+- group "Shipped · shipped":
+  - strong: Shipped
+  - button "Hide · Shipped · shipped": Hide
+  - button "Duplicate · Shipped · shipped": Duplicate
+  - button "Remove · Shipped · shipped": Remove
+  - combobox "Implementation for Shipped · Shipped · shipped":
+    - option "Shipped" [selected]
+    - option "Backlog"
+    - option "Running"
+    - option "Recent"
+    - option "Underway"
+    - option "New run"
+    - option "Pull requests"
+    - option "Activity log"
+  - combobox "Scope for Shipped · Shipped · shipped":
+    - option "Follow header" [selected]
+    - option "All galleons"
+    - option "One galleon"
+  - button "Apply scope · Shipped · shipped": Apply scope
+  - button "Move up · Shipped · shipped": Move up
+  - button "Move down · Shipped · shipped": Move down
+  - button "Move left · Shipped · shipped": Move left
+  - button "Move right · Shipped · shipped": Move right
+  - combobox "Stack with panel · Shipped · shipped":
+    - option "Choose a panel" [selected]
+    - option "Underway · underway"
+    - option "New run · newrun"
+    - option "Backlog · backlog"
+    - option "Running · running"
+    - option "Pull requests · repoprs"
+    - option "Recent · recent"
+    - option "Activity log · activity"
+    - option "Underway · 61f2f875-db31-425c-9871-a219cf5372e6"
+  - button "Stack · Shipped · shipped": Stack
+- group "Underway · 61f2f875-db31-425c-9871-a219cf5372e6":
+  - strong: Underway
+  - button "Hide · Underway · 61f2f875-db31-425c-9871-a219cf5372e6": Hide
+  - button "Duplicate · Underway · 61f2f875-db31-425c-9871-a219cf5372e6": Duplicate
+  - button "Remove · Underway · 61f2f875-db31-425c-9871-a219cf5372e6": Remove
+  - combobox "Implementation for Underway · Underway · 61f2f875-db31-425c-9871-a219cf5372e6":
+    - option "Underway" [selected]
+    - option "Backlog"
+    - option "Running"
+    - option "Recent"
+    - option "New run"
+    - option "Pull requests"
+    - option "Shipped"
+    - option "Activity log"
+  - combobox "Scope for Underway · Underway · 61f2f875-db31-425c-9871-a219cf5372e6":
+    - option "Follow header" [selected]
+    - option "All galleons"
+    - option "One galleon"
+  - button "Apply scope · Underway · 61f2f875-db31-425c-9871-a219cf5372e6": Apply scope
+  - button "Move up · Underway · 61f2f875-db31-425c-9871-a219cf5372e6": Move up
+  - button "Move down · Underway · 61f2f875-db31-425c-9871-a219cf5372e6": Move down
+  - button "Move left · Underway · 61f2f875-db31-425c-9871-a219cf5372e6": Move left
+  - button "Move right · Underway · 61f2f875-db31-425c-9871-a219cf5372e6": Move right
+  - combobox "Stack with panel · Underway · 61f2f875-db31-425c-9871-a219cf5372e6":
+    - option "Choose a panel" [selected]
+    - option "Underway · underway"
+    - option "New run · newrun"
+    - option "Backlog · backlog"
+    - option "Running · running"
+    - option "Pull requests · repoprs"
+    - option "Recent · recent"
+    - option "Activity log · activity"
+    - option "Shipped · shipped"
+  - button "Stack · Underway · 61f2f875-db31-425c-9871-a219cf5372e6": Stack

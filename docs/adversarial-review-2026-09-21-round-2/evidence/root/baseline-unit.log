@@ -1,0 +1,17 @@
+
+> helmsman@0.2.0 test
+> vitest run --maxWorkers=4
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./build-meta" without a file extension (vitest.config.ts:3:27). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /Users/nloehlein/workspace/ai/projects/helmsman
+
+repo-dir discovery failed for /var/folders/sg/lzdvm2rj7yz0kd2667h2hd800000gp/T/does-not-exist-xyz-123: Error: ENOENT: no such file or directory, scandir '/var/folders/sg/lzdvm2rj7yz0kd2667h2hd800000gp/T/does-not-exist-xyz-123'
+
+ Test Files  370 passed (370)
+      Tests  4922 passed (4922)
+   Start at  14:05:39
+   Duration  143.80s (transform 4.23s, setup 0ms, import 12.19s, tests 306.44s, environment 85.69s)
+
