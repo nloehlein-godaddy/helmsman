@@ -173,7 +173,7 @@ export function createTerminalService(options: TerminalServerOptions) {
               if (!(await options.bridge.sendKey(command.target.surfaceRef, key))?.ok) { ok = false; break; }
             }
           }
-          const outcome = ok ? receipt(command, 'succeeded', null) : uncertain;
+          const outcome = ok && current!.session === options.sessionIdentity() ? receipt(command, 'succeeded', null) : uncertain;
           persistence.transaction(() => sql.prepare('UPDATE terminal_control_receipts SET receipt=?,hash=? WHERE caller=? AND requestId=?').run(JSON.stringify(outcome), persistenceHash({ caller, command, receipt: outcome, owner }), caller, command.requestId));
           return outcome;
         } catch { return uncertain; }

@@ -57,4 +57,21 @@ describe('WezTerm native terminal provider', () => {
     expect(weztermCwd('/repo')).toBe('/repo');
     expect(weztermCwd(null)).toBeNull();
   });
+
+  it('does not send Enter after the pinned socket is replaced', async () => {
+    let metadata = socketStat;
+    const calls: readonly string[][] = [];
+    const mutableCalls = calls as string[][];
+    const run = vi.fn<WeztermCommandRunner>(async args => {
+      mutableCalls.push([...args]);
+      metadata = { ...socketStat, ino: 99n };
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const provider = createWeztermNativeTerminal({ socketPath: '/tmp/wez.sock', run, startup: 'test', stat: () => metadata });
+    await expect(provider.send('7', 'hello', true)).resolves.toEqual({
+      ok: false,
+      error: 'WezTerm native session changed; text input outcome is uncertain',
+    });
+    expect(mutableCalls).toEqual([['cli', 'send-text', '--pane-id', '7', '--no-paste', '--', 'hello']]);
+  });
 });

@@ -117,4 +117,20 @@ describe('cmux native terminal provider', () => {
       '/home/.local/state/cmux/cmux.sock',
     ]);
   });
+
+  it('does not send Enter after the pinned socket is replaced', async () => {
+    let metadata = base;
+    const calls: string[][] = [];
+    const run = vi.fn<CmuxCommandRunner>(async args => {
+      calls.push([...args]);
+      if (args[0] === 'send') metadata = { ...base, ino: 99n };
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const provider = createCmuxNativeTerminal({ socketPath: '/tmp/cmux.sock', run, startup: 'test', stat: () => metadata });
+    await expect(provider.send('surface:1', 'hello', true)).resolves.toEqual({
+      ok: false,
+      error: 'cmux native session changed; text input outcome is uncertain',
+    });
+    expect(calls).toEqual([['send', '--surface', 'surface:1', 'hello']]);
+  });
 });

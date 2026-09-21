@@ -214,7 +214,9 @@ export interface CmuxNativeTerminalOptions {
 export function createCmuxNativeTerminal(options: CmuxNativeTerminalOptions = {}): NativeTerminalProviderV1 {
   const socket = () => resolveCmuxSocket(options.socketPath ?? '', options.home, options.exists);
   const run = options.run ?? commandRunner(options.binary || 'cmux', socket);
-  const sessionIdentity = createNativeSessionIdentity({ kind: 'cmux', socket, startup: options.startup, stat: options.stat });
+  const startup = options.startup ?? randomUUID();
+  const sessionIdentity = createNativeSessionIdentity({ kind: 'cmux', socket, startup, stat: options.stat });
+  const socketIdentity = (socketPath: string) => createNativeSessionIdentity({ kind: 'cmux', socket: () => socketPath, startup, stat: options.stat })();
   const fetchSurfaces = async (workspace: Workspace, socketPath: string, signal?: AbortSignal): Promise<readonly NativeTerminalSurfaceV1[] | null> => {
     const response = await run(['list-pane-surfaces', '--workspace', workspace.workspaceRef, '--json'], signal, socketPath);
     return response.code === 0 ? parseSurfaces(parseJson(response.stdout), workspace) : null;
@@ -275,11 +277,14 @@ export function createCmuxNativeTerminal(options: CmuxNativeTerminalOptions = {}
       try {
         const surface = bounded(surfaceRef, REFERENCE_BYTES);
         const socketPath = socket();
+        const identity = socketIdentity(socketPath);
         const response = await run(['send', '--surface', surface, bounded(text, 128 * 1024, true)], signal, socketPath);
         if (response.code !== 0) return { ok: false, error: response.stderr || 'send failed' };
+        if (socketIdentity(socketPath) !== identity) return { ok: false, error: 'cmux native session changed; text input outcome is uncertain' };
         if (enter) {
           const key = await run(['send-key', '--surface', surface, 'Enter'], signal, socketPath);
           if (key.code !== 0) return { ok: false, error: key.stderr || 'enter failed' };
+          if (socketIdentity(socketPath) !== identity) return { ok: false, error: 'cmux native session changed; Enter outcome is uncertain' };
         }
         return { ok: true };
       } catch (error) { return { ok: false, error: error instanceof Error ? error.message : 'cmux unavailable' }; }

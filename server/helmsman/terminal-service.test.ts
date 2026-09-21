@@ -56,6 +56,13 @@ describe('scoped terminal service', () => {
     expect(f.bridge.send).toHaveBeenCalledTimes(1);
     await expect(f.service.control(caller, { ...command, operation: { kind: 'key', key: 'Enter' } }, 'org/a')).rejects.toMatchObject({ reason: 'conflict' });
   });
+  it('retains an uncertain receipt when the native session changes during successful dispatch', async () => {
+    const f = setup(); const command = await f.command();
+    f.bridge.send.mockImplementationOnce(async () => { f.session('replacement'); return { ok: true }; });
+    expect((await f.service.control(caller, command, 'org/a')).status).toBe('recovery-required');
+    expect((await createTerminalService(f.options).control(caller, command, 'org/a')).status).toBe('recovery-required');
+    expect(f.bridge.send).toHaveBeenCalledOnce();
+  });
   it('never replays unknown transport outcomes and revalidates each queued target', async () => {
     const f = setup(); const command = await f.command();
     f.bridge.send.mockRejectedValueOnce(new Error('response lost'));

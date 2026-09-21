@@ -233,7 +233,9 @@ export interface WeztermNativeTerminalOptions {
 export function createWeztermNativeTerminal(options: WeztermNativeTerminalOptions = {}): NativeTerminalProviderV1 {
   const socket = () => resolveWeztermSocket({ configured: options.socketPath, directory: options.directory, candidates: options.candidates, alive: options.alive });
   const run = options.run ?? commandRunner(options.binary || 'wezterm');
-  const sessionIdentity = createNativeSessionIdentity({ kind: 'wezterm', socket, startup: options.startup, stat: options.stat });
+  const startup = options.startup ?? randomUUID();
+  const sessionIdentity = createNativeSessionIdentity({ kind: 'wezterm', socket, startup, stat: options.stat });
+  const socketIdentity = (socketPath: string) => createNativeSessionIdentity({ kind: 'wezterm', socket: () => socketPath, startup, stat: options.stat })();
   const command = async (args: readonly string[], signal?: AbortSignal, pinnedSocket?: string) => {
     const target = pinnedSocket ?? socket();
     if (!target) throw new Error('WezTerm is not running');
@@ -283,11 +285,14 @@ export function createWeztermNativeTerminal(options: WeztermNativeTerminalOption
         if (!/^\d+$/.test(pane)) return { ok: false, error: `not a WezTerm pane id: ${pane}` };
         const target = socket();
         if (!target) throw new Error('WezTerm is not running');
+        const identity = socketIdentity(target);
         const response = await sendText(pane, bounded(text, 128 * 1024, true), signal, target);
         if (response.code !== 0) return { ok: false, error: response.stderr || 'send failed' };
+        if (socketIdentity(target) !== identity) return { ok: false, error: 'WezTerm native session changed; text input outcome is uncertain' };
         if (enter) {
           const key = await sendText(pane, '\r', signal, target);
           if (key.code !== 0) return { ok: false, error: key.stderr || 'enter failed' };
+          if (socketIdentity(target) !== identity) return { ok: false, error: 'WezTerm native session changed; Enter outcome is uncertain' };
         }
         return { ok: true };
       } catch (error) { return { ok: false, error: error instanceof Error ? error.message : 'WezTerm unavailable' }; }
