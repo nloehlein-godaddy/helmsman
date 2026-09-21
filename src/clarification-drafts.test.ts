@@ -26,3 +26,13 @@ it('rejects malformed and oversized records without silently replacing saved sta
   localStorage.setItem('helmsman.compat-clarifications.drafts.v2:contact', '{'); expect(() => store.read()).toThrow();
   expect(localStorage.getItem('helmsman.compat-clarifications.drafts.v2:contact')).toBe('{');
 });
+it('refuses stale draft removal and removes only the expected current content', () => {
+  const first = createClarificationDraftStore(); const second = createClarificationDraftStore();
+  first.answer(key, 'Original'); first.contact({ name: 'Original', address: 'account', enabled: true });
+  const selected = first.read(); second.answer(key, 'Newer'); second.contact({ ...selected.contact, name: 'Newer' });
+  expect(() => first.removeAnswer(key, selected.answers[key])).toThrow('Saved draft changed');
+  expect(() => first.removeContact(selected.contact)).toThrow('Saved draft changed');
+  expect(second.read().answers[key]).toBe('Newer'); expect(second.read().contact.name).toBe('Newer');
+  const current = second.read(); first.removeAnswer(key, current.answers[key]); first.removeContact(current.contact);
+  expect(second.read().answers[key]).toBeUndefined(); expect(second.read().contact.name).toBe('');
+});

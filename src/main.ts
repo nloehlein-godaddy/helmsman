@@ -15,7 +15,7 @@ import { requestSlackReview, SlackReviewRequestError, type SlackReviewResult } f
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
-import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT } from './plugins/builtins';
 import { appPageModules, disableBuiltinPageModules, syncBuiltinFrontend } from './plugins/builtin-modules';
 import { AppCompositionFactory } from './plugins/app-composition';
 import { loadPluginCatalog } from './plugins/runtime';
@@ -661,7 +661,10 @@ export class DashboardView {
       await this.loadRunHistory();
     } else if (this.isPluginPage() && localDue) {
       this.paintPluginPage();
-      if (force || (this.route.pluginSlot !== HELM_PAGE_SLOT && appPages.getPage(this.route.pluginPage ?? '')?.composition?.id !== HELM_PAGE_SLOT)) void this.pageHost?.refresh();
+      const compositionId = appPages.getPage(this.route.pluginPage ?? '')?.composition?.id;
+      const managesRefresh = [HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT]
+        .some(slot => this.route.pluginSlot === slot || compositionId === slot);
+      if (force || !managesRefresh) void this.pageHost?.refresh();
     }
     this.paintRunRetries();
   }

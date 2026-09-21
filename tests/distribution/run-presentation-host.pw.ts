@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fixture, sourceRoot } from './isolated-fixture';
+import { LOCAL_POLL_MS } from '../../src/data/live';
 
 test('installed viewer and history use selected aliases and a scoped auxiliary session in the source-denied shell', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
@@ -23,6 +24,14 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
         db.appendEvent('foreign-run','log','Explicit org/b log','2026-09-20T12:00:00.000Z');
       } finally {db.close();}`);
     const origin = await host.start();
+    await page.clock.install();
+    const passivePoll = async () => {
+      const refreshed = Promise.all(['/api/agents', '/api/slack', '/api/context'].map(path =>
+        page.waitForResponse(response => new URL(response.url()).pathname === path).then(response => response.finished())));
+      await page.clock.fastForward(LOCAL_POLL_MS);
+      await refreshed;
+      await page.clock.runFor(1000);
+    };
     await page.goto(`${origin}/run-history?repo=org/a`);
     const history = page.locator('[data-plugin-page="example.run-history/page"]');
     await expect(history.getByRole('heading', { name: 'Voyage history', exact: true })).toBeVisible();
@@ -30,6 +39,9 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     await expect(history.locator('[data-run-id]')).toHaveCount(50);
     await history.getByRole('button', { name: 'Next page', exact: true }).click();
     await expect(history.locator('[data-run-id]')).toHaveCount(5);
+    await passivePoll();
+    await expect(history.locator('[data-run-id]')).toHaveCount(5);
+    await expect(history.getByText('Page 2 · 5 runs shown.', { exact: false })).toBeVisible();
     await history.getByRole('button', { name: 'Previous page', exact: true }).click();
     await expect(history.locator('[data-run-id]')).toHaveCount(50);
     await history.getByRole('button', { name: 'TASK-54', exact: true }).click();
@@ -69,6 +81,15 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     await page.goto(`${origin}/run-viewer?repo=org/a&run=foreign-run`);
     await expect(page.locator('section.plugin-run-viewer')).toContainText('Selected run is unavailable in this scope.');
     await expect(page.locator('.run-log')).toHaveCount(0);
+    await page.goto(`${origin}/run-viewer?repo=org/a&run=run-54&runRepo=org/a`);
+    const standalone = page.locator('[data-plugin-page="example.run-viewer/page"]');
+    await expect(standalone.locator('.run-log')).toContainText('log 349');
+    await standalone.getByRole('button', { name: 'Earlier logs', exact: true }).click();
+    await expect(standalone.locator('.run-log')).toContainText('log 250');
+    const pausedLogs = await standalone.locator('.run-log').textContent();
+    await passivePoll();
+    await expect(standalone.locator('.run-log')).toHaveText(pausedLogs ?? '');
+    await expect(standalone.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible();
     await host.cli('disable', 'example.run-viewer');
     await page.goto(`${origin}/run-viewer?repo=org/a&run=run-54&runRepo=org/a`);
     await expect(page.locator('[data-plugin-page="helmsman.run-viewer/page"]')).toHaveCount(0);

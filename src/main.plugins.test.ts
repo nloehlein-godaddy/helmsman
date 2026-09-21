@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
-import { appPages, COSTS_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT } from './plugins/builtins';
+import { appPages, builtinPageSlots, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT } from './plugins/builtins';
+import { LOCAL_POLL_MS } from './data/live';
 import { appPageModules } from './plugins/builtin-modules';
 import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from './plugins/sdk';
 
@@ -64,15 +65,46 @@ afterEach(() => {
   view?.destroy();
   view = undefined;
   appPages.select(COSTS_PAGE_SLOT, null);
+  appPages.select(HELM_PAGE_SLOT, null);
+  appPages.select(RUN_HISTORY_PAGE_SLOT, null);
   appPages.select(RUN_VIEWER_PAGE_SLOT, null);
   disposers.splice(0).reverse().forEach(dispose => dispose());
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   document.body.replaceChildren();
   localStorage.clear();
 });
 
 describe('registered plugin page integration', () => {
+  it.each([HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, COSTS_PAGE_SLOT]
+    .flatMap(slot => ['alias', 'canonical'].map(route => ({ slot, route }))))
+  ('preserves panel-managed refresh for $slot through its $route route', async ({ slot, route }) => {
+    vi.useFakeTimers();
+    const plugin = sample();
+    const definition = builtinPageSlots.find(item => item.id === slot)!;
+    disposers.push(appPages.register({ manifestVersion: 2, sdkVersion: 1, id: 'example.polling', version: '1.0.0', panels: [],
+      pages: [{ id: 'page', title: 'Polling replacement', slots: [slot], panes: [],
+        ...(definition.panelContract ? { composition: { id: slot, version: 1,
+          accepts: [{ id: definition.panelContract, version: 1 }] } } : {}) }] }),
+      appPageModules.register('example.polling/page', plugin));
+    if (route === 'alias') appPages.select(slot, 'example.polling/page');
+    window.history.replaceState(null, '', `${route === 'alias' ? definition.alias : '/plugins/example.polling/page'}?repo=org/a`);
+    view = new DashboardView(document.querySelector<HTMLElement>('#app')!);
+    await view.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const mounts = plugin.mount.mock.calls.length;
+    expect(mounts).toBeGreaterThan(0);
+    plugin.refresh.mockClear();
+    await vi.advanceTimersByTimeAsync(LOCAL_POLL_MS);
+    expect(plugin.refresh).toHaveBeenCalledTimes(slot === COSTS_PAGE_SLOT ? 1 : 0);
+    plugin.refresh.mockClear();
+    await view.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plugin.refresh).toHaveBeenCalledOnce();
+    expect(plugin.mount).toHaveBeenCalledTimes(mounts);
+  });
+
   it('opens a selected auxiliary viewer through typed selection while preserving header scope and page session', async () => {
     const plugin = sample(); register(plugin);
     const viewer = sample();

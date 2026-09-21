@@ -13,8 +13,8 @@ export interface ClarificationDraftStore {
   answer(key: string, text: string): void;
   contact(draft: ClarificationContactDraft): void;
   accept(receipt: ClarificationCommandReceiptV1 | SuggestedContactAdminReceiptV1, message: string): void;
-  removeAnswer(key: string): void;
-  removeContact(): void;
+  removeAnswer(key: string, expected: string | undefined): void;
+  removeContact(expected: ClarificationContactDraft): void;
   removeResult(requestId: string): void;
 }
 export function clarificationDraftKey(item: { repo: string; runId: string; id: string }): string { return JSON.stringify([item.repo, item.runId, item.id]); }
@@ -63,8 +63,17 @@ export function createClarificationDraftStore(storage?: Storage): ClarificationD
     read,
     answer(identity, value) { write(`${prefix}answer:${answerIdentity(identity)}`, text(value, 4000)); },
     contact(value) { write(`${prefix}contact`, contact(value)); },
-    removeAnswer(identity) { store().removeItem(`${prefix}answer:${answerIdentity(identity)}`); },
-    removeContact() { store().removeItem(`${prefix}contact`); },
+    removeAnswer(identity, expected) {
+      const source = store(); const key = `${prefix}answer:${answerIdentity(identity)}`;
+      if (source.getItem(key) !== (expected === undefined ? null : JSON.stringify(text(expected, 4000)))) throw new Error('Saved draft changed; refresh before discarding it');
+      source.removeItem(key);
+    },
+    removeContact(expected) {
+      const source = store(); const key = `${prefix}contact`; const raw = source.getItem(key);
+      const current = raw === null ? emptyClarificationDrafts().contact : contact(JSON.parse(raw));
+      if (JSON.stringify(current) !== JSON.stringify(contact(expected))) throw new Error('Saved draft changed; refresh before discarding it');
+      source.removeItem(key);
+    },
     removeResult(requestId) { store().removeItem(`${prefix}result:${clarificationUuid(requestId)}`); },
     accept(receipt, message) {
       const result = { requestId: clarificationUuid(receipt.requestId), repo: 'repo' in receipt.input ? parseTaskRepo(receipt.input.repo) : null, message: text(message, 512) };

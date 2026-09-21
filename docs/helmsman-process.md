@@ -102,7 +102,10 @@ flowchart TD
     Cleanup --> ReadJournal[Read both current journals successfully]
     ReadJournal --> Protected{Associated unresolved submission?}
     Protected -->|Yes| Keep[Keep saved evidence]
-    Protected -->|No| Remove[Delete only selected draft or saved result<br/>Global contact draft is labeled separately]
+    Protected -->|No| Unchanged{Selected draft still matches displayed and saved content?}
+    Unchanged -->|Changed| Keep
+    Unchanged -->|Already unsaved at selection| Local[Discard only selected local edit<br/>Reload and retain persisted draft for review]
+    Unchanged -->|Unchanged saved draft or immutable result| Remove[Delete only selected draft or saved result<br/>Global contact draft is labeled separately]
     ReadJournal -->|Read failed| Keep
     Remove --> Journals[Command journals remain unchanged]
     Remove -->|Retry retained result save| Save
@@ -111,7 +114,7 @@ flowchart TD
     Legacy[Unknown question provenance] --> ReadOnly[Visible and read-only<br/>Required unanswered obligation still blocks publication]
 ```
 
-Saved browser drafts and results remain until explicit cleanup. Fresh successful journal reads protect records associated with unresolved submissions; a read failure prevents deletion. Scoped answer drafts, saved results and the explicitly global contact draft have separate removal actions, and none deletes journal entries.
+Saved browser drafts and results remain until explicit cleanup. Fresh successful journal reads protect records associated with unresolved submissions; a read failure prevents deletion. Cleanup checks the displayed and saved draft again after the journal read and rejects changed content. Discarding an already-unsaved local edit retains and reloads persisted text for review; deleting that text requires a separate action. Scoped answer drafts, saved results and the explicitly global contact draft have separate removal actions, and none deletes journal entries. Compatibility local storage does not provide an atomic transaction across tabs for the final comparison and deletion.
 
 Answer acceptance does not prove worker consumption. Contacts are global metadata; saving them sends no messages. Disabled contributions retain browser journals and reconcile after reenablement. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 when the public services are active. Trusted worker ingestion still requires its retained attempt channel. See [backend contracts](clarification-backend.md) and [author lifecycle](panel-authoring.md).
 

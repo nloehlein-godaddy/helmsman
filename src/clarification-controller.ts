@@ -169,22 +169,32 @@ export function mountClarifications(container: HTMLElement, options: {
     const holder = button.closest<HTMLElement>('[data-request]');
     if (holder) { void action(token => reconcile(holder.dataset.pendingKind, holder.dataset.request, button.dataset.pendingAction, token)); return; }
     if (button.hasAttribute('data-remove-draft') || button.hasAttribute('data-remove-contact-draft') || button.hasAttribute('data-remove-result')) {
+      const answerKey = button.dataset.removeDraft; const selectedAnswer = answerKey ? drafts.answers[answerKey] : undefined;
+      const selectedContact = { ...drafts.contact };
+      const discardLocalOnly = answerKey ? dirtyAnswers.has(answerKey) : button.hasAttribute('data-remove-contact-draft') && dirtyContact;
       void action(async token => {
+        const saved = draftStore.read();
+        if (!discardLocalOnly && (answerKey && saved.answers[answerKey] !== selectedAnswer
+          || button.hasAttribute('data-remove-contact-draft') && JSON.stringify(saved.contact) !== JSON.stringify(selectedContact))) throw new Error('Saved draft changed; refresh before discarding it');
         if (!await loadPending(token)) throw new Error('Recovery storage is unavailable; saved state cannot be removed');
         if (!current(token)) return;
-        if (button.dataset.removeDraft) {
-          const key = button.dataset.removeDraft; const [repo, runId, id] = JSON.parse(key) as [string, string, string];
+        if (answerKey) {
+          const key = answerKey; const [repo, runId, id] = JSON.parse(key) as [string, string, string];
           if (scope !== null && repo !== scope || pending.some(entry => entry.command.repo === repo && entry.command.runId === runId && entry.command.questionId === id)) throw new Error('Resolve this draft’s original submission before discarding it');
-          draftStore.removeAnswer(key); dirtyAnswers.delete(key); delete drafts.answers[key];
+          if (drafts.answers[key] !== selectedAnswer) throw new Error('Saved draft changed; refresh before discarding it');
+          if (!discardLocalOnly) draftStore.removeAnswer(key, saved.answers[key]);
+          dirtyAnswers.delete(key); delete drafts.answers[key];
         } else if (button.hasAttribute('data-remove-contact-draft')) {
           if (contactPending.length) throw new Error('Resolve global contact submissions before discarding their draft');
-          draftStore.removeContact(); dirtyContact = false;
+          if (JSON.stringify(drafts.contact) !== JSON.stringify(selectedContact)) throw new Error('Saved draft changed; refresh before discarding it');
+          if (!discardLocalOnly) draftStore.removeContact(saved.contact);
+          dirtyContact = false;
         } else if (button.dataset.removeResult) {
           const requestId = button.dataset.removeResult;
           if ([...pending, ...contactPending].some(entry => entry.command.requestId === requestId)) throw new Error('Resolve this submission before dismissing its saved result');
           draftStore.removeResult(requestId);
         }
-        readDrafts(); notice = 'Saved browser state removed. Command journals are unchanged.';
+        readDrafts(); notice = discardLocalOnly ? 'Unsent local draft discarded. The saved browser draft is retained; review it before discarding again.' : 'Saved browser state removed. Command journals are unchanged.';
       }); return;
     }
     if (button.hasAttribute('data-more-questions') || button.hasAttribute('data-more-contacts')) void action(async token => {

@@ -163,3 +163,53 @@ it('protects unresolved drafts from cleanup and refuses cleanup when journal rea
   await controller.refresh(); expect(container.querySelector<HTMLButtonElement>('[data-remove-draft]')?.disabled).toBe(true);
   expect(f.data.pending).toHaveLength(1);
 });
+it.each([
+  ['answer', 'same-tab'], ['answer', 'other-tab'], ['answer', 'unsaved'],
+  ['contact', 'same-tab'], ['contact', 'other-tab'], ['contact', 'unsaved'],
+] as const)('retains newer %s edits from %s while cleanup checks journals', async (kind, writer) => {
+  const f = fixture(); const base = createClarificationDraftStore(); const key = clarificationDraftKey(question());
+  base.answer(key, 'Original'); base.contact({ name: 'Original', address: 'account', enabled: true });
+  const { container, controller } = f.mount(writer === 'unsaved' ? { drafts: { ...base,
+    answer(key, value) { if (value === 'Newer edit') throw new Error('Draft quota'); base.answer(key, value); },
+    contact(value) { if (value.name === 'Newer edit') throw new Error('Draft quota'); base.contact(value); },
+  } } : {}); await controller.refresh(); await ready(container);
+  const wait = deferred<ClarificationCommandPendingV1[]>(); f.services.clarificationCommands.pending.mockReturnValueOnce(wait.promise);
+  container.querySelector<HTMLButtonElement>(kind === 'answer' ? '[data-remove-draft]' : '[data-remove-contact-draft]')!.click();
+  if (writer === 'other-tab') {
+    const other = createClarificationDraftStore();
+    if (kind === 'answer') other.answer(key, 'Newer edit');
+    else other.contact({ name: 'Newer edit', address: 'account', enabled: true });
+  } else if (kind === 'answer') draft(container, 'Newer edit');
+  else {
+    const input = container.querySelector<HTMLInputElement>('.trusted-contact-form [name="name"]')!;
+    input.value = 'Newer edit'; input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  wait.resolve([]);
+  await vi.waitFor(() => expect(container.textContent).toContain('Saved draft changed'));
+  expect(kind === 'answer' ? base.read().answers[key] : base.read().contact.name).toBe(writer === 'unsaved' ? 'Original' : 'Newer edit');
+  if (writer !== 'other-tab') expect(container.querySelector<HTMLInputElement | HTMLTextAreaElement>(kind === 'answer' ? 'textarea' : '.trusted-contact-form [name="name"]')?.value).toBe('Newer edit');
+  expect(f.services.clarificationCommands.acknowledge).not.toHaveBeenCalled();
+});
+it.each(['answer', 'contact'] as const)('discards only a preexisting unsaved %s edit and retains newer persisted content for review', async kind => {
+  const f = fixture(); const base = createClarificationDraftStore(); const key = clarificationDraftKey(question());
+  base.answer(key, 'Original'); base.contact({ name: 'Original', address: 'account', enabled: true });
+  const { container, controller } = f.mount({ drafts: { ...base,
+    answer(key, value) { if (value === 'Unsent local edit') throw new Error('Draft quota'); base.answer(key, value); },
+    contact(value) { if (value.name === 'Unsent local edit') throw new Error('Draft quota'); base.contact(value); },
+  } }); await controller.refresh(); await ready(container);
+  const selector = kind === 'answer' ? 'textarea' : '.trusted-contact-form [name="name"]';
+  const input = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
+  input.value = 'Unsent local edit'; input.dispatchEvent(new Event('input', { bubbles: true }));
+  const other = createClarificationDraftStore();
+  if (kind === 'answer') other.answer(key, 'Other tab saved edit');
+  else other.contact({ name: 'Other tab saved edit', address: 'account', enabled: true });
+  const cleanup = kind === 'answer' ? '[data-remove-draft]' : '[data-remove-contact-draft]';
+  container.querySelector<HTMLButtonElement>(cleanup)!.click();
+  await vi.waitFor(() => expect(container.textContent).toContain('Unsent local draft discarded'));
+  expect(kind === 'answer' ? base.read().answers[key] : base.read().contact.name).toBe('Other tab saved edit');
+  expect(container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)?.value).toBe('Other tab saved edit');
+  container.querySelector<HTMLButtonElement>(cleanup)!.click();
+  await vi.waitFor(() => expect(container.textContent).toContain('Saved browser state removed'));
+  expect(kind === 'answer' ? base.read().answers[key] : base.read().contact.name).toBe(kind === 'answer' ? undefined : '');
+  expect(f.services.clarificationCommands.acknowledge).not.toHaveBeenCalled();
+});
