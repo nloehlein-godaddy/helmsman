@@ -1210,7 +1210,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         };
       } else if (body.mode === 'review') {
         if (!pullRequestSource || !body.prNumber) throw new Error('Selected pull request source is unavailable');
-        const prepared = await prepareTriggerReview({ repo: body.repo, number: body.prNumber, headSha: body.headSha }, pullRequestSource);
+        const prepared = await prepareTriggerReview({ repo: body.repo, number: body.prNumber, headSha: body.headSha, allowDraft: !trigger }, pullRequestSource);
         const { pr, scope } = prepared;
         preparedPullRequestSource = retainPullRequestSource(pullRequestSource, prepared.target);
         const choice = selectReviewModel(scope?.headSha === pr.headSha ? scope : null, adapter.metadata ?? adapter.id, body);

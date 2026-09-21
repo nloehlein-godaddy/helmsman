@@ -461,3 +461,10 @@ Final aggregate evidence: all 4,828 unit/integration tests across 365 files pass
 The implementation candidate is committed as `59f8b76`. Exact-commit independent review, any required corrections, and push remain pending. This entry is not Phase G acceptance.
 
 _Helmsman · not reported - not reported_
+
+
+### Phase G independent review correction
+
+Independent Senior Software Architect review of `59f8b76` found one regression: sharing trigger preparation caused manual Review to reject open draft PRs even though its public control permits them. Shared preparation now accepts an explicit manual draft policy; automatic triggers still reject drafts, and closed targets remain rejected. All 62 affected preparation/source/watcher tests pass, including both new policy regressions. The corrected TypeScript/server distribution build and installed public-source scenario pass; that scenario now prepares a manual draft review with private network access denied. No frontend changes required rebuilding or repeating the unchanged visual suite. Review of the test-only `eea83b3` diff is clean; the production correction awaits its narrow review.
+
+_Helmsman · not reported - not reported_

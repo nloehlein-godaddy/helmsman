@@ -21,6 +21,18 @@ describe('triggered review preparation', () => {
     expect(f.provider.diff).toHaveBeenCalledWith({ version: 1, target: inspectDetail.target }, f.capture.context);
     expect(f.capture.context.http.request).not.toHaveBeenCalled();
   });
+  it('allows manual draft reviews while rejecting drafts under automatic trigger policy', async () => {
+    const f = fixture(); f.provider.detail.mockResolvedValue({ ...inspectDetail, draft: true });
+    await expect(prepareTriggerReview({ ...inspectQuery, allowDraft: true }, f.capture)).resolves.toMatchObject({ pr: { draft: true } });
+    f.provider.diff.mockClear();
+    await expect(prepareTriggerReview(inspectQuery, f.capture)).rejects.toThrow('not eligible');
+    expect(f.provider.diff).not.toHaveBeenCalled();
+  });
+  it('rejects closed PRs even when manual draft review is allowed', async () => {
+    const f = fixture(); f.provider.detail.mockResolvedValue({ ...inspectDetail, status: 'closed' });
+    await expect(prepareTriggerReview({ ...inspectQuery, allowDraft: true }, f.capture)).rejects.toThrow('not eligible');
+    expect(f.provider.diff).not.toHaveBeenCalled();
+  });
   it('blocks a changed head before reading its diff', async () => {
     const f = fixture(); await expect(prepareTriggerReview({ ...inspectQuery, headSha: 'f'.repeat(40) }, f.capture)).rejects.toThrow('PR changed');
     expect(f.provider.diff).not.toHaveBeenCalled();
