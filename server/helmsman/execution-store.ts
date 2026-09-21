@@ -57,6 +57,7 @@ export interface ExecutionStore {
   snapshot(id: string): ExecutionSnapshot | null;
   attempt(key: AttemptKey): ExecutionAttempt | null;
   recoverable(): readonly ExecutionAttempt[];
+  hasRunEvidence(runId: string): boolean;
   reservations(): readonly ExecutionReservation[];
   lease(key: AttemptKey, ttlMs: number): AttemptLease | null;
   assertLease(lease: AttemptLease): void;
@@ -292,6 +293,18 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
     return item as unknown as ExecutionCheckpoint;
   }
   const store: ExecutionStore = {
+    hasRunEvidence(runId) {
+      if (!identity(runId)) throw new PersistenceValidationError('Invalid execution identity');
+      for (const table of ['execution_attempts', 'execution_snapshots', 'execution_reservations', 'execution_checkpoints', 'execution_evidence', 'execution_controls']) {
+        if (sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)
+          && sql.prepare(`SELECT 1 FROM ${table} WHERE runId=? LIMIT 1`).get(runId)) return true;
+      }
+      if (sql.prepare("SELECT 1 FROM artifact_pins WHERE kind='admission' AND ownerId=? LIMIT 1").get(runId)) return true;
+      if (sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_claims'").get()
+        && sql.prepare("SELECT 1 FROM work_claims WHERE json_extract(json,'$.runId')=? LIMIT 1").get(runId)) return true;
+      return Boolean(sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operations'").get()
+        && sql.prepare("SELECT 1 FROM operations WHERE json_extract(draft,'$.origin.runId')=? LIMIT 1").get(runId));
+    },
     reserveAdmission(input) {
       if (!identity(input?.runId) || !nonempty(input.repo) || !Number.isSafeInteger(input.maxConcurrency) || input.maxConcurrency < 1 || input.evidence === null) throw new PersistenceValidationError('Invalid admission reservation');
       transaction(() => {

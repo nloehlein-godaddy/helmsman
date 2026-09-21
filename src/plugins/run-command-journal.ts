@@ -87,7 +87,11 @@ export function createRunCommandJournal(caller: string, options: { indexedDB?: I
                 && (saved.receipt.runId !== receipt.runId || saved.receipt.attempt !== receipt.attempt)) {
                 throw new RunCommandJournalValidationError('Command receipt execution identity changed');
               }
-              if (saved.receipt?.status === 'recovery-required' && receipt.status === 'rejected') {
+              if (receipt.resolution && saved.receipt?.runId != null
+                && (receipt.resolution.runId !== saved.receipt.runId || receipt.resolution.attempt !== saved.receipt.attempt)) {
+                throw new RunCommandJournalValidationError('Command resolution execution identity changed');
+              }
+              if (saved.receipt?.status === 'recovery-required' && receipt.status === 'rejected' && !receipt.resolution) {
                 throw new RunCommandJournalValidationError('Uncertain command cannot become rejected');
               }
               if (saved.receipt?.status === 'accepted' || saved.receipt?.status === 'rejected') {

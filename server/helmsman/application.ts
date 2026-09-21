@@ -935,7 +935,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-const recoveryService = createRecoveryService({ db, executions, admissions, operations, lifecycle, legacy: legacyExecutions, taskSources: taskSourceRuntime.store, callbacks: {
+const recoveryService = createRecoveryService({ db, executions, admissions, operations, lifecycle, runCommands, legacy: legacyExecutions, taskSources: taskSourceRuntime.store, callbacks: {
   requestStop: runId => { if (!pm.hasAttached(runId) || !pm.stop(runId)) throw new Error('Verified worker attachment is unavailable'); },
   retryAttachment: async runId => {
     if (pm.hasAttached(runId)) throw new Error('This voyage already has an attachment');

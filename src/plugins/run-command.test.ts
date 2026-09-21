@@ -57,6 +57,23 @@ describe('public run command contract', () => {
     expect(() => parseRunCommandReceiptQueryV1({ repo: null, requestId })).toThrow();
     expect(() => parseRunCommandReceiptQueryV1({ repo: base.repo, requestId: 'abc' })).toThrow();
   });
+  it('accepts an explicit not-admitted resolution only for a matching rejected execution', () => {
+    const resolution = { version: 1, id: requestId, kind: 'not-admitted', runId: 'run_1', attempt: 2 };
+    const resolved = { ...receipt, status: 'rejected', runId: null, attempt: null, resolution };
+    const expected = parseRunCommandV1({ ...base, requestId });
+    expect(parseRunCommandReceiptV1(resolved, expected)).toEqual(resolved);
+    expect(Object.isFrozen(parseRunCommandReceiptV1(resolved).resolution)).toBe(true);
+    for (const value of [null, {}, { ...resolution, id: 'not-a-uuid' }, { ...resolution, kind: 'accepted' },
+      { ...resolution, version: 2 }, { ...resolution, runId: 'other' }, { ...resolution, attempt: 3 },
+      { ...resolution, privateEvidence: 'unknown' }]) {
+      expect(() => parseRunCommandReceiptV1({ ...resolved, resolution: value }, expected)).toThrow();
+    }
+    for (const status of ['accepted', 'pending', 'recovery-required']) {
+      expect(() => parseRunCommandReceiptV1({ ...resolved, status }, expected)).toThrow();
+    }
+    expect(() => parseRunCommandReceiptV1({ ...receipt, resolution }, expected)).toThrow();
+    expect(() => parseRunCommandReceiptV1({ ...resolved, action: 'launch' })).toThrow();
+  });
   it('binds Stop receipts to the exact persisted target attempt', () => {
     const expected = parseRunCommandV1({ ...base, requestId });
     expect(parseRunCommandReceiptV1(receipt, expected)).toEqual(receipt);

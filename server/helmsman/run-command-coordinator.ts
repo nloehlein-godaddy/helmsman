@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { parseRunCommandReceiptQueryV1, parseRunCommandV1, type RunCommandReceiptQueryV1, type RunCommandReceiptV1, type RunCommandV1 } from '../../src/plugins/run-command';
 import { persistenceHash, PersistenceConflictError } from './persistence';
-import { validateRunCommandCaller, type RunCommandOwner, type RunCommandStore, type StoredRunCommand } from './run-command-store';
+import { validateRunCommandCaller, type RunCommandOwner, type RunCommandStore, type StoredRunCommand, type RunCommandResolutionInput } from './run-command-store';
 
 export type TargetRunCommand = Exclude<RunCommandV1, { action: 'launch' }>;
 export type LaunchRunCommand = RunCommandV1 & { action: 'launch' | 'retry' };
@@ -16,6 +16,22 @@ export interface RunCommandServerService {
   submit(caller: string, command: RunCommandV1): Promise<RunCommandReceiptV1>;
   receipt(caller: string, query: RunCommandReceiptQueryV1): RunCommandReceiptV1 | null;
 }
+export interface RunCommandRecoveryRecord {
+  readonly caller: string; readonly requestId: string; readonly repo: string; readonly action: RunCommandV1['action'];
+  readonly assignedRunId: string; readonly attempt: number; readonly targetRunId: string | null; readonly targetAttempt: number | null;
+  readonly status: 'recovery-required'; readonly message: string | null; readonly receiptHash: string; readonly canResolve: boolean;
+}
+export interface RunCommandRecoveryService {
+  recovery(repo?: string | null): readonly RunCommandRecoveryRecord[];
+  resolveNotAdmitted(input: RunCommandResolutionInput): RunCommandReceiptV1;
+}
+export function projectRunCommandRecovery(record: StoredRunCommand, canResolve: boolean): RunCommandRecoveryRecord {
+  const command = record.command;
+  return { caller: record.caller, requestId: command.requestId, repo: command.repo, action: command.action,
+    assignedRunId: record.assignedRunId, attempt: command.action === 'stop' ? command.target.expectedAttempt : 1,
+    targetRunId: command.action === 'launch' ? null : command.target.runId, targetAttempt: command.action === 'launch' ? null : command.target.expectedAttempt,
+    status: 'recovery-required', message: record.receipt.message, receiptHash: persistenceHash(record.receipt), canResolve };
+}
 export interface RunCommandCoordinatorOptions<Prepared> {
   readonly store: RunCommandStore;
   authorizeRead(caller: string, repo: string): void;
@@ -26,6 +42,7 @@ export interface RunCommandCoordinatorOptions<Prepared> {
   recordStop(command: TargetRunCommand): void;
   signalStop(command: TargetRunCommand): void | Promise<void>;
   inspect(record: StoredRunCommand): RunCommandEvidence;
+  assertNotAdmitted?(record: StoredRunCommand): void;
   readonly owner?: RunCommandOwner;
   ownerAlive?(owner: RunCommandOwner): boolean;
 }
@@ -33,7 +50,7 @@ function ownerAlive(owner: RunCommandOwner): boolean {
   try { process.kill(owner.pid, 0); return true; }
   catch (error) { return (error as NodeJS.ErrnoException)?.code !== 'ESRCH'; }
 }
-export function createRunCommandCoordinator<Prepared>(options: RunCommandCoordinatorOptions<Prepared>): RunCommandServerService {
+export function createRunCommandCoordinator<Prepared>(options: RunCommandCoordinatorOptions<Prepared>): RunCommandServerService & RunCommandRecoveryService {
   const { store } = options;
   const owner = options.owner ?? { token: randomUUID(), pid: process.pid };
   const alive = options.ownerAlive ?? ownerAlive;
@@ -96,7 +113,29 @@ export function createRunCommandCoordinator<Prepared>(options: RunCommandCoordin
         error instanceof RunCommandRejection ? error.message : 'Command delivery needs reconciliation.', true);
     }
   }
+  function assertAbsent(record: StoredRunCommand): void {
+    if (options.inspect(record).status !== 'absent') throw new PersistenceConflictError('Command has retained admission, execution or control evidence');
+    options.assertNotAdmitted?.(record);
+  }
   return {
+    recovery(repo = null) {
+      return store.recovery(repo).flatMap(record => {
+        let absent = false;
+        try {
+          const receipt = reconcile(record);
+          if (receipt?.status === 'accepted') return [];
+          record = current(record);
+          assertAbsent(record); absent = true;
+        } catch {}
+        return [projectRunCommandRecovery(record, absent)];
+      });
+    },
+    resolveNotAdmitted(input) {
+      validateRunCommandCaller(input.caller);
+      const query = parseRunCommandReceiptQueryV1({ requestId: input.requestId, repo: input.repo });
+      options.authorizeRead(input.caller, query.repo);
+      return store.resolveNotAdmitted(input, assertAbsent);
+    },
     async submit(caller, input) {
       validateRunCommandCaller(caller);
       const command = parseRunCommandV1(input);

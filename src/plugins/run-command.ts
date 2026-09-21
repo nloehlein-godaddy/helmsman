@@ -14,6 +14,13 @@ export type RunCommandInputV1 = { readonly version: 1; readonly repo: string } &
 );
 export type RunCommandV1 = RunCommandInputV1 & { readonly requestId: string };
 export interface RunCommandReceiptQueryV1 { readonly repo: string; readonly requestId: string; }
+export interface RunCommandNotAdmittedResolutionV1 {
+  readonly version: 1;
+  readonly id: string;
+  readonly kind: 'not-admitted';
+  readonly runId: string;
+  readonly attempt: number;
+}
 export interface RunCommandReceiptV1 extends RunCommandReceiptQueryV1 {
   readonly version: 1;
   readonly action: RunCommandInputV1['action'];
@@ -21,6 +28,7 @@ export interface RunCommandReceiptV1 extends RunCommandReceiptQueryV1 {
   readonly runId: string | null;
   readonly attempt: number | null;
   readonly message: string | null;
+  readonly resolution?: RunCommandNotAdmittedResolutionV1;
 }
 export interface RunCommandPendingV1 { readonly command: RunCommandV1; readonly receipt: RunCommandReceiptV1 | null; }
 export type RunCommandUnavailableReasonV1 = 'forbidden' | 'selection-changed' | 'not-found' | 'service-unavailable'
@@ -102,13 +110,21 @@ export function parseRunCommandReceiptQueryV1(input: unknown): RunCommandReceipt
   return Object.freeze({ repo: parseTaskRepo(value.repo), requestId: requestId(value.requestId) });
 }
 export function parseRunCommandReceiptV1(input: unknown, expected?: RunCommandReceiptQueryV1 & { action?: RunCommandInputV1['action']; target?: RunCommandTargetV1 }): RunCommandReceiptV1 {
-  const value = record(input); fields(value, ['version', 'requestId', 'repo', 'action', 'status', 'runId', 'attempt', 'message']);
+  const value = record(input); fields(value, ['version', 'requestId', 'repo', 'action', 'status', 'runId', 'attempt', 'message'], ['resolution']);
   if (value.version !== 1 || !['stop', 'retry', 'launch'].includes(value.action as string)
     || !['accepted', 'rejected', 'pending', 'recovery-required'].includes(value.status as string)) invalid();
+  let resolution: RunCommandNotAdmittedResolutionV1 | undefined;
+  if (Object.hasOwn(value, 'resolution')) {
+    const proof = record(value.resolution); fields(proof, ['version', 'id', 'kind', 'runId', 'attempt']);
+    if (proof.version !== 1 || proof.kind !== 'not-admitted' || value.status !== 'rejected' || value.runId !== null || value.attempt !== null) invalid();
+    resolution = Object.freeze({ version: 1, id: requestId(proof.id), kind: 'not-admitted', runId: runId(proof.runId), attempt: integer(proof.attempt) });
+    if (value.action !== 'stop' && resolution.attempt !== 1
+      || expected?.action === 'stop' && expected.target && (resolution.runId !== expected.target.runId || resolution.attempt !== expected.target.expectedAttempt)) invalid();
+  }
   const result = Object.freeze({ version: 1 as const, repo: parseTaskRepo(value.repo), requestId: requestId(value.requestId),
     action: value.action as RunCommandInputV1['action'], status: value.status as RunCommandReceiptV1['status'],
     runId: value.runId === null ? null : runId(value.runId), attempt: value.attempt === null ? null : integer(value.attempt),
-    message: value.message === null ? null : text(value.message, RUN_COMMAND_LIMITS.message, true) });
+    message: value.message === null ? null : text(value.message, RUN_COMMAND_LIMITS.message, true), ...(resolution ? { resolution } : {}) });
   if ((result.runId === null) !== (result.attempt === null) || result.status === 'accepted' && result.runId === null
     || expected && (result.repo !== expected.repo || result.requestId !== expected.requestId || expected.action !== undefined && result.action !== expected.action)) invalid();
   if (expected?.action === 'stop' && expected.target && result.runId !== null

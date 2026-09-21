@@ -144,4 +144,3 @@ export default page;
     async close() { await stop(); await rm(root, { recursive: true, force: true }); },
   };
 }
-

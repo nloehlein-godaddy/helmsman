@@ -8,6 +8,8 @@ Extract Todos through source-qualified reads and durable commands before moving 
 
 Use composition pages with stateful panels for feature drafts, reusing revision-checked IndexedDB layout state. Add public initial-layout declarations for new composition records rather than hardcoding feature defaults in the host. Existing records, including deliberately empty layouts, must remain unchanged. Generalize page-slot navigation while retaining core Config and Recovery.
 
+The current 16 KiB instance-state budget cannot hold the existing valid Todo description and acceptance fields, each of which permits 20,000 characters. Extend the generic bounded state budget with UTF-8 and aggregate-draft coverage before cutover; do not truncate valid drafts or introduce a separate feature-specific store. `ready` also excludes undescribed Todo drafts, so it cannot implement the full To do filter. Provider filtering must preserve that distinction, or the UI must explicitly limit filters and counts to loaded results. Editor capability discovery must identify supported create/edit contracts, not guess from provider IDs.
+
 | Boundary | Required behavior |
 |---|---|
 | `helmsman/task-edit@1` | Load a source-qualified editor envelope with canonical WorkRef, exact record/source revisions, declared editor contract, bounded public value, and explicit editability. Providers opt in; ordinary lists reuse task reads without loading every editor document. Never expose claims, bindings, credential handles or raw storage records. |

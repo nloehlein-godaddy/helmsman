@@ -100,6 +100,13 @@ export function createApplicationRunCommands(options: {
       const current = db.getRun(command.target.runId);
       if (!current && command.target.expectedAttempt === 1 || current?.attempt === command.target.expectedAttempt && current.status === 'running') options.stop(command.target.runId);
     },
+    assertNotAdmitted(record) {
+      const command = record.command;
+      if (command.action === 'stop' ? controls.isStopRequested({ runId: command.target.runId, attempt: command.target.expectedAttempt })
+        : db.getRun(record.assignedRunId) || admissions.get(record.assignedRunId) || executions.hasRunEvidence(record.assignedRunId)) {
+        throw new PersistenceConflictError('Command has retained admission, execution or control evidence');
+      }
+    },
     inspect(record) {
       const command = record.command;
       if (command.action === 'stop') {

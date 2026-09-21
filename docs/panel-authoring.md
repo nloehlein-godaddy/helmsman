@@ -60,6 +60,8 @@ Read `pending()` after mounting and on refresh. Match each entry by exact galleo
 
 Accepted and rejected receipts remain journaled until `acknowledge({repo,requestId})`. Acknowledge only after consuming the result and saving any affected draft, or after explicit user dismissal. Cancellation can occur after acceptance and before a submission result reaches the panel, so never clear drafts or assume rejection from a transport error. Acknowledgment cannot retire an uncertain command. Browser storage failure prevents dispatch.
 
+Core Recovery lists uncertain commands. An operator may resolve a command as not admitted only when core verifies absence of its durable execution or stop intent against unchanged receipt evidence. That audited resolution returns a rejected receipt with a versioned `resolution` marker carrying the original assigned execution identity. The browser accepts that explicit resolution after reload; an ordinary contradictory rejection remains invalid. Ask the operator to check the saved request again before dismissing it. Resolution does not launch work or stop an existing worker.
+
 The v1 runtime trusts same-origin packages. Contribution headers attribute commands to the mounted contribution; they are not a sandbox or authentication boundary. Current enablement and service declarations gate new commands, while retained receipts remain readable after disablement. Safe mode does not admit new work.
 
 ## Source views and launch readiness

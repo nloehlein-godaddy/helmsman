@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openPersistence } from './persistence';
+import { openPersistence, persistenceHash } from './persistence';
 import { openDb, type RunRow } from './db';
 import { openExecutionStore } from './execution-store';
 import { openExecutionControls } from './execution-controls';
@@ -108,4 +108,56 @@ describe('application run command authority', () => {
     expect((await f.service.submit(caller, { ...input, requestId: '00000000-0000-4000-8000-000000000002' })).status).toBe('rejected');
     expect(f.get).toHaveBeenCalledWith('TODO-1'); expect(f.launch).not.toHaveBeenCalled();
   });
+});
+
+function resolveInput(f: ReturnType<typeof setup>, request = command) {
+  const record = f.store.get(caller, request.requestId)!;
+  return { caller, requestId: request.requestId, repo: request.repo, receiptHash: persistenceHash(record.receipt),
+    actor: 'operator', reason: 'Checked authoritative state', evidence: { note: 'No admission' } };
+}
+it('core recovery reconciles a matching admission after the contribution is disabled', () => {
+  const f = setup(); const record = f.store.put(caller, command);
+  f.store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  f.admissions.admit({ runId: record.assignedRunId, repo: command.repo, request: { commandBinding: { ...runCommandAdmissionBinding(record) } }, settings: {}, artifacts: [artifact] }, 3);
+  f.disable(); f.removeRepo();
+  expect(f.service.recovery(command.repo)).toEqual([]);
+  expect(f.store.get(caller, command.requestId)?.receipt.status).toBe('accepted'); expect(f.launch).not.toHaveBeenCalled();
+});
+it('never resolves an unrelated retained admission as non-admission', () => {
+  const f = setup(); const record = f.store.put(caller, command);
+  f.store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  f.admissions.admit({ runId: record.assignedRunId, repo: command.repo, request: {}, settings: {}, artifacts: [artifact] }, 3);
+  expect(f.service.recovery()[0]?.canResolve).toBe(false);
+  expect(() => f.service.resolveNotAdmitted(resolveInput(f))).toThrow('retained'); expect(f.launch).not.toHaveBeenCalled();
+});
+it.each(['missing', 'foreign'] as const)('refuses Stop non-admission with durable control and %s galleon evidence', kind => {
+  const f = setup(); const input = parseRunCommandV1({ version: 1, requestId: command.requestId, repo: command.repo, action: 'stop', target: { runId: 'original', expectedAttempt: 2 } });
+  const record = f.store.put(caller, input); f.store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  if (kind === 'foreign') f.db.insertRun(run({ repo: 'org/other', attempt: 2 }));
+  f.controls.requestStop({ runId: 'original', attempt: 2 });
+  expect(f.service.recovery()[0]?.canResolve).toBe(false);
+  expect(() => f.service.resolveNotAdmitted(resolveInput(f, input))).toThrow('retained');
+  expect(f.store.get(caller, input.requestId)?.receipt.status).toBe('recovery-required'); expect(f.stop).not.toHaveBeenCalled();
+});
+it('resolves an unrecorded Stop without signaling, recording intent or losing its exact attempt', () => {
+  const f = setup(); const input = parseRunCommandV1({ version: 1, requestId: command.requestId, repo: command.repo, action: 'stop', target: { runId: 'original', expectedAttempt: 2 } });
+  const record = f.store.put(caller, input); f.store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  const receipt = f.service.resolveNotAdmitted(resolveInput(f, input));
+  expect(receipt.resolution).toMatchObject({ runId: 'original', attempt: 2 });
+  expect(f.controls.isStopRequested({ runId: 'original', attempt: 2 })).toBe(false); expect(f.stop).not.toHaveBeenCalled();
+});
+it.each(['attempt', 'snapshot', 'checkpoint', 'evidence', 'control', 'pin', 'claim', 'operation'] as const)('refuses non-admission with retained %s evidence even without attempt one', kind => {
+  const f = setup(); const record = f.store.put(caller, command); const runId = record.assignedRunId;
+  f.store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  const sql = f.persistence.sql;
+  if (kind === 'attempt') sql.prepare('INSERT INTO execution_attempts(runId,attempt,snapshotId,launchId,json) VALUES(?,2,?,?,?)').run(runId, 'snapshot', 'launch', '{}');
+  else if (kind === 'snapshot') sql.prepare('INSERT INTO execution_snapshots VALUES(?,?,2,?,?,?)').run('snapshot', runId, 'a'.repeat(64), '{}', new Date().toISOString());
+  else if (kind === 'checkpoint') sql.prepare('INSERT INTO execution_checkpoints VALUES(?,?,2,?,?,?)').run('checkpoint', runId, 'snapshot', 'retired', '{}');
+  else if (kind === 'evidence') sql.prepare('INSERT INTO execution_evidence(runId,attempt,kind,payload,createdAt) VALUES(?,2,?,?,?)').run(runId, 'outcome', '{}', new Date().toISOString());
+  else if (kind === 'control') f.controls.requestStop({ runId, attempt: 2 });
+  else if (kind === 'pin') f.executions.retainPins([{ kind: 'admission', ownerId: runId, pluginId: artifact.pluginId, artifactHash: artifact.artifactHash }]);
+  else if (kind === 'claim') { sql.exec('CREATE TABLE work_claims(json TEXT)'); sql.prepare('INSERT INTO work_claims VALUES(?)').run(JSON.stringify({ runId })); }
+  else { sql.exec('CREATE TABLE operations(draft TEXT)'); sql.prepare('INSERT INTO operations VALUES(?)').run(JSON.stringify({ origin: { runId } })); }
+  expect(f.service.recovery()[0]?.canResolve).toBe(false);
+  expect(() => f.service.resolveNotAdmitted(resolveInput(f))).toThrow('retained'); expect(f.launch).not.toHaveBeenCalled();
 });

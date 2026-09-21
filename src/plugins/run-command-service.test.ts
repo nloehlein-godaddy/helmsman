@@ -185,4 +185,31 @@ describe('durable browser run commands', () => {
     await expect(journal.acknowledge({ repo: command.repo, requestId: command.requestId })).rejects.toThrow();
     expect(await journal.reserve(input)).toEqual(command);
   });
+
+  it('consumes an explicit audited not-admitted resolution after reload without retiring a newer delivery', async () => {
+    const { journal, fetcher, service, indexedDB } = setup(); const command = await journal.reserve(input);
+    await journal.record(receipt(command, 'recovery-required'));
+    const resolved: RunCommandReceiptV1 = { ...receipt(command, 'rejected'), runId: null, attempt: null,
+      resolution: { version: 1, id: '00000000-0000-4000-8000-000000000005', kind: 'not-admitted', runId: 'run-1', attempt: 1 } };
+    fetcher.mockResolvedValueOnce(Response.json(resolved));
+    expect(await service.receipt({ repo: command.repo, requestId: command.requestId })).toEqual({ status: 'available', value: resolved });
+    const reopened = createRunCommandJournal(caller, { indexedDB });
+    expect((await reopened.pending())[0]?.receipt).toEqual(resolved);
+    expect(await journal.record(receipt(command, 'recovery-required'))).toEqual(resolved);
+    await reopened.acknowledge({ repo: command.repo, requestId: command.requestId });
+    const next = await journal.reserve(input); expect(next.requestId).not.toBe(command.requestId);
+    await journal.record(resolved);
+    expect(await journal.pending()).toEqual([{ command: next, receipt: null }]);
+  });
+
+  it('rejects a not-admitted resolution for a different assigned launch identity', async () => {
+    const { journal, fetcher, service } = setup();
+    const intent: RunCommandInputV1 = { version: 1, repo: input.repo, action: 'launch', launch: { mode: 'freeform', task: 'Retain uncertainty' } };
+    const command = await journal.reserve(intent); await journal.record(receipt(command, 'recovery-required'));
+    fetcher.mockResolvedValueOnce(Response.json({ ...receipt(command, 'rejected'), runId: null, attempt: null,
+      resolution: { version: 1, id: '00000000-0000-4000-8000-000000000005', kind: 'not-admitted', runId: 'other-run', attempt: 1 } }));
+    expect(await service.receipt({ repo: command.repo, requestId: command.requestId })).toEqual({ status: 'unavailable', reason: 'invalid-response' });
+    expect((await journal.pending())[0]?.receipt?.status).toBe('recovery-required');
+    await expect(journal.acknowledge({ repo: command.repo, requestId: command.requestId })).rejects.toThrow();
+  });
 });

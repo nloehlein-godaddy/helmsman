@@ -3,6 +3,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { parseRunCommandV1 } from '../../src/plugins/run-command';
+import { openRunCommandStore } from './run-command-store';
+import { createRunCommandCoordinator } from './run-command-coordinator';
+import { handleRecoveryRequest } from './recovery-http';
 import { openDb, type RunRow } from './db';
 import { openPersistence, type Persistence } from './persistence';
 import { openExecutionStore, type ExecutionSnapshotInput } from './execution-store';
@@ -55,8 +59,14 @@ function fixture(callbacks: RecoveryCallbacks = {}) {
       artifacts: [artifact], target: { repo: 'org/a', secret: 'private-target' }, payload: { body: 'private-payload' } });
   }
   const taskSources = openTaskSourceStore(persistence);
-  const service = createRecoveryService({ db, executions, admissions, operations, lifecycle, callbacks, taskSources });
-  return { root, path, persistence, db, executions, admissions, operations, taskSources, service, prepare, operation,
+  const commandStore = openRunCommandStore(persistence);
+  const runCommands = createRunCommandCoordinator({ store: commandStore, authorizeRead() {}, authorizeWrite() {}, validateTarget() {},
+    async prepareLaunch() { throw new Error('Must not prepare during recovery'); }, launch() { throw new Error('Must not launch during recovery'); },
+    recordStop() { throw new Error('Must not stop during recovery'); }, signalStop() { throw new Error('Must not signal during recovery'); },
+    inspect(record) { return admissions.get(record.assignedRunId) ? { status: 'recovery-required', runId: record.assignedRunId, attempt: 1, message: null } : { status: 'absent' }; },
+  });
+  const service = createRecoveryService({ db, executions, admissions, operations, lifecycle, callbacks, taskSources, runCommands });
+  return { root, path, persistence, db, executions, admissions, operations, taskSources, service, prepare, operation, commandStore, runCommands,
     close() { persistence.close(); connections.delete(persistence); } };
 }
 
@@ -286,4 +296,54 @@ it('rejects tampered source snapshot scope during safe-start recovery', () => {
   f.persistence.sql.prepare("UPDATE source_task_snapshots SET json=json_set(json,'$.task.repo',?) WHERE hash=?").run('org/b', snapshot.hash);
   const projected = readRecoverySnapshot(f.path, 'org/b');
   expect(projected.sourceClaims).toEqual([]); expect(projected.errors).toContain('Source claim metadata is incomplete or invalid.');
+});
+
+const commandCaller = 'example.launch/page';
+function uncertainCommand(f: ReturnType<typeof fixture>, repo = 'org/a', requestId = '00000000-0000-4000-8000-000000000001') {
+  const command = parseRunCommandV1({ version: 1, repo, requestId, action: 'launch', launch: { mode: 'freeform', task: 'private-task' } });
+  const record = f.commandStore.put(commandCaller, command);
+  f.commandStore.settle(commandCaller, { ...record.receipt, status: 'recovery-required', message: 'Command delivery needs reconciliation.' });
+  return record;
+}
+function commandResolution(f: ReturnType<typeof fixture>) {
+  const entry = f.service.snapshot('org/a').commands[0]!;
+  return { action: 'resolve-run-command', caller: entry.caller, requestId: entry.requestId, repo: entry.repo, receiptHash: entry.receiptHash,
+    actor: 'operator', reason: 'Verified no admission', evidence: { note: 'Checked retained state' } };
+}
+it('projects scoped command inventory without launch payload and safe-start has no mutation actions', () => {
+  const f = fixture(); const record = uncertainCommand(f); uncertainCommand(f, 'org/b', '00000000-0000-4000-8000-000000000002');
+  const normal = f.service.snapshot('ORG/A');
+  expect(normal.commands).toMatchObject([{ caller: commandCaller, requestId: record.command.requestId, repo: 'org/a', action: 'launch',
+    assignedRunId: record.assignedRunId, attempt: 1, targetRunId: null, targetAttempt: null, actions: ['resolve-run-command'] }]);
+  expect(JSON.stringify(normal.commands)).not.toContain('private-task');
+  const before = readdirSync(f.root).sort();
+  const safe = readRecoverySnapshot(f.path, 'org/a');
+  expect(safe.errors).toEqual([]); expect(safe.commands).toEqual(normal.commands.map(entry => ({ ...entry, actions: [] })));
+  expect(readdirSync(f.root).sort()).toEqual(before);
+  f.persistence.sql.prepare('UPDATE run_commands SET contentHash=? WHERE requestId=?').run('b'.repeat(64), record.command.requestId);
+  const corrupt = readRecoverySnapshot(f.path, 'org/a'); expect(corrupt.commands).toEqual([]); expect(corrupt.errors).toContain('Run command metadata is incomplete or invalid.');
+});
+it('resolves over HTTP and replays a lost response after the inventory entry disappears', async () => {
+  const f = fixture(); const record = uncertainCommand(f); const input = commandResolution(f);
+  const response = () => handleRecoveryRequest('POST', '/api/recovery/actions', new URLSearchParams(), input, f.service);
+  expect(await response()).toEqual({ status: 200, json: { ok: true } });
+  const receipt = f.commandStore.get(commandCaller, record.command.requestId)?.receipt;
+  expect(receipt).toMatchObject({ status: 'rejected', resolution: { kind: 'not-admitted', runId: record.assignedRunId, attempt: 1 } });
+  expect(f.service.snapshot().commands).toEqual([]);
+  expect(await response()).toEqual({ status: 200, json: { ok: true } });
+  expect(f.commandStore.get(commandCaller, record.command.requestId)?.receipt).toEqual(receipt);
+  await expect(f.service.act({ ...input, evidence: { note: 'Changed evidence' } })).rejects.toThrow('proof changed');
+});
+it.each([{ actor: '' }, { actor: 'bad\u0000actor' }, { reason: '' }, { evidence: null }, { receiptHash: 'bad' },
+  { requestId: 'bad' }, { repo: 'bad' }, { caller: null }, { evidence: { note: 'x'.repeat(16_384) } }, { assignedRunId: 'rebound' }])('rejects invalid command resolution %j', async change => {
+  const f = fixture(); uncertainCommand(f);
+  await expect(f.service.act({ ...commandResolution(f), ...change })).rejects.toMatchObject({ status: 400 });
+  expect(f.service.snapshot().commands).toHaveLength(1);
+});
+it('refuses stale receipt proofs and newly retained admission evidence', async () => {
+  const f = fixture(); const record = uncertainCommand(f); const input = commandResolution(f);
+  await expect(f.service.act({ ...input, receiptHash: 'a'.repeat(64) })).rejects.toThrow('changed before resolution');
+  f.admissions.admit({ runId: record.assignedRunId, repo: 'org/a', request: {}, settings: {}, artifacts: [artifact] }, 3);
+  await expect(f.service.act(input)).rejects.toThrow('retained');
+  expect(f.service.snapshot().commands[0]?.actions).toEqual([]);
 });

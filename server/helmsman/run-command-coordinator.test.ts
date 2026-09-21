@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseRunCommandV1, type RunCommandV1 } from '../../src/plugins/run-command';
-import { openPersistence } from './persistence';
+import { openPersistence, persistenceHash } from './persistence';
 import { createRunCommandCoordinator, RunCommandError, RunCommandRejection, type RunCommandCoordinatorOptions, type RunCommandEvidence } from './run-command-coordinator';
 import { openRunCommandStore, type StoredRunCommand } from './run-command-store';
 
@@ -210,4 +210,54 @@ describe('run command coordinator', () => {
     expect((await f.service.submit(caller, command)).status).toBe('rejected');
     expect(f.options.launch).toHaveBeenCalledTimes(1);
   });
+});
+
+function resolution(service: ReturnType<typeof createRunCommandCoordinator>) {
+  const entry = service.recovery('owner/repo')[0]!;
+  return { caller: entry.caller, requestId: entry.requestId, repo: entry.repo, receiptHash: entry.receiptHash,
+    actor: 'operator', reason: 'No admission exists', evidence: { note: 'Verified retained state' } };
+}
+it('resolves a failed pre-admission retry without launching and releases the original-attempt reservation', async () => {
+  const f = setup(); const originalLaunch = f.options.launch;
+  f.options.launch = vi.fn(() => { throw new Error('Unexpected launch failure'); });
+  const service = createRunCommandCoordinator(f.options); const command = targetCommand('retry');
+  expect((await service.submit(caller, command)).status).toBe('recovery-required');
+  expect(service.recovery('owner/other')).toEqual([]);
+  expect(service.recovery('OWNER/REPO')[0]).toMatchObject({ canResolve: true, targetRunId: 'original', targetAttempt: 2 });
+  f.state.allowed = false;
+  const input = resolution(service); const receipt = service.resolveNotAdmitted(input);
+  expect(await service.submit(caller, command)).toEqual(receipt);
+  expect(f.options.launch).toHaveBeenCalledTimes(1);
+  f.state.allowed = true; f.options.launch = originalLaunch;
+  const restarted = createRunCommandCoordinator({ ...f.options, store: openRunCommandStore(f.persistence) });
+  expect(restarted.resolveNotAdmitted(input)).toEqual(receipt);
+  expect((await restarted.submit(caller, { ...command, requestId: '00000000-0000-4000-8000-000000000002' })).status).toBe('accepted');
+  expect(originalLaunch).toHaveBeenCalledTimes(1);
+});
+it('fences late asynchronous preparation after an operator resolves the command', async () => {
+  const f = setup(); const wait = deferred();
+  f.options.prepareLaunch = vi.fn(async value => { await wait.promise; return value; });
+  const service = createRunCommandCoordinator(f.options); const pending = service.submit(caller, launchCommand());
+  const record = f.store.get(caller, requestId)!;
+  f.store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  const receipt = service.resolveNotAdmitted(resolution(service));
+  wait.resolve(); expect(await pending).toEqual(receipt); expect(f.options.launch).not.toHaveBeenCalled();
+});
+it('rechecks newly retained evidence transactionally against the original operator proof', () => {
+  const f = setup(); const record = f.store.put(caller, launchCommand());
+  f.store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  const input = resolution(f.service);
+  f.persistence.sql.prepare('INSERT INTO test_admissions VALUES(?,?,?)').run(record.assignedRunId, record.command.repo, 'accepted');
+  expect(() => f.service.resolveNotAdmitted(input)).toThrow('retained');
+  expect(f.service.recovery()).toEqual([]);
+  expect(f.store.get(caller, requestId)?.receipt.status).toBe('accepted');
+  expect(f.options.launch).not.toHaveBeenCalled();
+});
+it('does not offer resolution when the stricter absence proof fails', () => {
+  const f = setup(); const record = f.store.put(caller, launchCommand());
+  const receipt = f.store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  f.options.assertNotAdmitted = () => { throw new Error('Control evidence exists'); };
+  const service = createRunCommandCoordinator(f.options);
+  expect(service.recovery()[0]?.canResolve).toBe(false);
+  expect(() => service.resolveNotAdmitted({ ...resolution(service), receiptHash: persistenceHash(receipt) })).toThrow('Control evidence');
 });

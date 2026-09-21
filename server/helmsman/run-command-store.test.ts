@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseRunCommandV1 } from '../../src/plugins/run-command';
-import { openPersistence } from './persistence';
+import { openPersistence, persistenceHash } from './persistence';
 import { openRunCommandStore } from './run-command-store';
 
 const opened: ReturnType<typeof openPersistence>[] = [];
@@ -87,4 +87,52 @@ describe('durable run command store', () => {
     expect(() => persistence.sql.prepare('UPDATE run_commands SET receipt=? WHERE caller=?')
       .run(JSON.stringify({ ...blocked.receipt, status: 'pending' }), 'example.other/panel')).toThrow('UNIQUE');
   });
+});
+
+function resolutionInput(receipt: ReturnType<ReturnType<typeof openRunCommandStore>['settle']>) {
+  return { caller, requestId: command.requestId, repo: command.repo, receiptHash: persistenceHash(receipt),
+    actor: 'operator', reason: 'Verified admission is absent', evidence: { note: 'Checked durable state' } };
+}
+it('persists an audited rejection across restart and replays a lost resolution response exactly', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'helmsman-command-resolution-')); directories.push(directory);
+  const path = join(directory, 'commands.sqlite'); const first = openPersistence(path); opened.push(first);
+  const store = openRunCommandStore(first); const record = store.put(caller, command);
+  const pending = store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  const input = resolutionInput(pending);
+  const receipt = store.resolveNotAdmitted(input, () => { expect(first.sql.inTransaction).toBe(true); });
+  expect(receipt).toMatchObject({ status: 'rejected', runId: null, attempt: null,
+    resolution: { version: 1, kind: 'not-admitted', runId: record.assignedRunId, attempt: 1 } });
+  first.close(); const next = openPersistence(path); opened.push(next); const restarted = openRunCommandStore(next);
+  expect(restarted.get(caller, command.requestId)?.receipt).toEqual(receipt);
+  expect(restarted.resolveNotAdmitted(input, () => { throw new Error('Must not inspect after successful resolution'); })).toEqual(receipt);
+  expect(() => restarted.resolveNotAdmitted({ ...input, evidence: { note: 'Changed' } }, () => {})).toThrow('proof changed');
+  expect(restarted.recovery()).toEqual([]);
+  expect(next.sql.prepare('SELECT actor,reason,evidence FROM run_command_resolutions').all()).toEqual([
+    { actor: input.actor, reason: input.reason, evidence: JSON.stringify(input.evidence) },
+  ]);
+});
+it('requires current proof, non-admission and an audit for recovery rejection', () => {
+  const { persistence, store } = setup(); const record = store.put(caller, command);
+  const receipt = store.settle(caller, { ...record.receipt, status: 'recovery-required' }); const input = resolutionInput(receipt);
+  expect(() => store.resolveNotAdmitted({ ...input, receiptHash: 'a'.repeat(64) }, () => {})).toThrow('changed before resolution');
+  expect(() => store.resolveNotAdmitted(input, () => { throw new Error('Admission retained'); })).toThrow('Admission retained');
+  expect(() => store.settle(caller, { ...receipt, status: 'rejected', runId: null, attempt: null,
+    resolution: { version: 1, kind: 'not-admitted', id: '00000000-0000-4000-8000-000000000099', runId: record.assignedRunId, attempt: 1 } })).toThrow('operator audit');
+  expect(persistence.sql.prepare('SELECT * FROM run_command_resolutions').all()).toEqual([]);
+  store.settle(caller, { ...receipt, message: 'New evidence' });
+  expect(() => store.resolveNotAdmitted(input, () => {})).toThrow('changed before resolution');
+});
+it.each(['audit', 'marker'] as const)('rejects corrupted %s on a resolved command', kind => {
+  const { persistence, store } = setup(); const record = store.put(caller, command);
+  const receipt = store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  const resolved = store.resolveNotAdmitted(resolutionInput(receipt), () => {});
+  if (kind === 'audit') persistence.sql.prepare('UPDATE run_command_resolutions SET actor=?').run('tampered');
+  else { const { resolution: _resolution, ...stripped } = resolved; persistence.sql.prepare('UPDATE run_commands SET receipt=?').run(JSON.stringify(stripped)); }
+  expect(() => store.get(caller, command.requestId)).toThrow('audit integrity');
+});
+it('fences receipt changes made during an absence check atomically', () => {
+  const { store } = setup(); const record = store.put(caller, command);
+  const receipt = store.settle(caller, { ...record.receipt, status: 'recovery-required' });
+  expect(() => store.resolveNotAdmitted(resolutionInput(receipt), () => store.settle(caller, { ...receipt, status: 'accepted' }))).toThrow('changed during resolution');
+  expect(store.get(caller, command.requestId)?.receipt).toEqual(receipt);
 });
