@@ -403,8 +403,7 @@ The first Triage composition imports prior browser filters, page size and collap
 
 ### Config editor
 
-The Config tab edits supported runtime values and offers a write-only Jira token
-update. See [Configuration](#configuration) for every field, its default, storage,
+The Config tab edits core runtime values and links to independently replaceable Jira and GitHub settings. The Jira connection page provides revision-checked, write-only token updates; existing source settings own live Jira configuration. See [integration settings authoring](docs/integration-settings-authoring.md). See [Configuration](#configuration) for every field, its default, storage,
 and restart behavior. UI customization remains on Config; local Git controls open the replaceable Local Git page.
 
 ### Local todos
@@ -532,7 +531,7 @@ request an immediate poll, followed by the normal five-minute interval.
 | `JIRA_ENABLED` | `true` | Initial Jira source enablement during conversion. Manage an existing source independently in Config → Source settings; Todos remains available. | Initial conversion |
 | `JIRA_BASE_URL` | Empty | Jira Cloud site URL, e.g. `https://your-team.atlassian.net`, without an issue/API path. Required with email and token to enable Jira. | Restart |
 | `JIRA_EMAIL` | Empty | Email of the account that owns the API token. Never returned to the UI. | Restart |
-| `JIRA_API_TOKEN` | Empty | Atlassian API token for that account; see setup for read/write permissions. Config accepts a replacement without revealing the existing token and stores it in SQLite. Empty token updates are rejected. | Live, write-only |
+| `JIRA_API_TOKEN` | Empty | Atlassian API token for that account; see setup for read/write permissions. The Jira connection page accepts a revision-checked replacement without returning the token and stores it in SQLite. Empty token updates are rejected. | Live, write-only |
 | `JIRA_PROJECT` | `AIROBUILD` | Default Jira project key. Selecting a mapped repository substitutes its project from `REPO_PROJECT_MAP`. | Live |
 | `JIRA_ASSIGNEE` | `currentUser()` | Assignee for the queue, active-work, and My issues queries. Use a Jira account ID or JQL function such as `currentUser()`. | Live |
 | `JIRA_JQL` | Empty | Full override of the backlog queue query, e.g. `project = PROJECT AND status = Backlog ORDER BY priority`. Also affects auto-claim; a custom query must apply its own project/assignee scope. Other panels retain their own queries. | Live |
@@ -613,7 +612,7 @@ Recovery. See [Communication authoring](docs/communication-authoring.md).
 | `AGENTS_ROOT` | Server working directory | Parent directory of target repo checkouts, e.g. `/absolute/path/to/agent-repos`; not the path to a single checkout. | Restart |
 | `RUNS_DIR` | `<AGENTS_ROOT>/.helmsman-runs` | Directory for detached-run specifications, logs, and exit records. Created on startup; use a writable absolute path. | Restart |
 | `RUN_HOST` | Detached process | Set `cmux` to prefer new cmux workspaces for runs. Falls back to detached processes when cmux is unavailable. Slack reading can use cmux regardless of this setting. | Restart |
-| `HELMSMAN_DB` | `<server working directory>/.helmsman.sqlite` | SQLite file for runs, config overrides, watcher state, and notifications. Use a writable path and retain it across restarts. A Config-saved Jira token is stored here, so treat this file as sensitive. | Restart |
+| `HELMSMAN_DB` | `<server working directory>/.helmsman.sqlite` | SQLite file for runs, config overrides, watcher state, and notifications. Use a writable path and retain it across restarts. A saved Jira token is stored here, so treat this file as sensitive. | Restart |
 | `HELMSMAN_PORT` | `8787` | Local API/static-server port, bound to `127.0.0.1`; the Vite API proxy uses the same value. | Restart server and Vite |
 
 ### Browser preferences

@@ -10,8 +10,6 @@ import { THEMES } from './data/themes';
 
 
 export const CONFIG_HELP: Record<string, string> = {
-  get JIRA_ENABLED() { return 'Initial Jira source enablement. Example: true. Manage existing sources in Task sources.'; },
-  GITHUB_REVIEW_WATCH_ENABLED: 'Automatically review GitHub PRs requesting your review every five minutes: true or false. Changes apply immediately. Example: true',
   AGENT_ADAPTER: "Which agent runs tasks: 'codex' (default), 'claude-code', or 'command' (runs your custom AGENT_CMD). Example: codex",
   AGENT_CMD: 'Shell command for the "command" adapter, run no-shell (argv only). Placeholders {ticket} {repo} {title} are substituted, then it receives the task prompt. Example: my-agent --repo {repo} --ticket {ticket}',
   get AGENT_MAX_ATTEMPTS() { return `Total attempts for existing-PR ${term('runs').toLowerCase()}, including the initial attempt. New coding ${term('runs').toLowerCase()} use the separate pre-PR review rounds. Example: 1`; },
@@ -20,12 +18,7 @@ export const CONFIG_HELP: Record<string, string> = {
   PRE_PR_MAX_ROUNDS: 'Maximum review rounds, including the initial review. Each additional round allows fixes followed by every reviewer reviewing again. Unresolved findings block the PR. Example: 3',
   PRE_PR_STAGE_TIMEOUT_MINUTES: 'Time limit in minutes for each implementation, fix, or reviewer session. A timed-out session blocks publication and retains the worktree. Example: 45',
   AUTO_CLAIM_INTERVAL_MS: 'How often (milliseconds) the auto-claim scheduler polls for backlog tickets. Interval changes apply on restart. Example: 60000',
-  get REPO_PROJECT_MAP() { return `Comma-separated ${term('repository').toLowerCase()}=jiraProject pairs, mapping each ${term('repository').toLowerCase()} to the Jira project its tickets live in. Example: gdcorp-partners/airo-app-builder=AIROBUILD,gdcorp-enm/conversations-web=LEKA`; },
-  get JIRA_PROJECT() { return `Default Jira project for All ${term('repositories').toLowerCase()}. Map individual ${term('repositories').toLowerCase()} with REPO_PROJECT_MAP. Example: AIROBUILD`; },
-  JIRA_ASSIGNEE: 'Jira account that claimed tickets are assigned to — currentUser() or an accountId. Example: currentUser()',
-  JIRA_JQL: 'Optional JQL filter that narrows which tickets appear in the backlog queue. Example: labels = agent-ready AND priority >= High',
-  get GITHUB_REPO() { return `Default ${term('repository').toLowerCase()} (owner/name) used for GitHub PR lookups when none is otherwise provided. Example: gdcorp-partners/airo-app-builder`; },
-  get GITHUB_PR_AUTHOR() { return `GitHub username whose authored PRs populate the ${term('shipped')} and ${term('activity')} panels. Example: nloehlein-godaddy`; },
+  get REPO_PROJECT_MAP() { return `Comma-separated ${term('repository').toLowerCase()}=jiraProject pairs, registering configured ${term('repositories').toLowerCase()} and initial Jira project defaults. Existing Jira sources use Source settings. Example: gdcorp-partners/airo-app-builder=AIROBUILD,gdcorp-enm/conversations-web=LEKA`; },
 };
 
 const ICON_LOCK: string =
@@ -174,7 +167,7 @@ export interface ConfigViewOpts {
 
 function configRowsHtml(uiConfig: UiConfig): string {
   const entries: [string, unknown][] = Object.entries(uiConfig.config ?? {})
-    .filter(([key]) => key !== 'JIRA_ENABLED' && !key.startsWith('SLACK_') && !PRE_PR_CONFIG_KEYS.some((reviewKey) => reviewKey === key));
+    .filter(([key]) => !key.startsWith('JIRA_') && !key.startsWith('GITHUB_') && !key.startsWith('SLACK_') && !PRE_PR_CONFIG_KEYS.some((reviewKey) => reviewKey === key));
   if (entries.length === 0) return '<div class="empty-note">No configuration keys.</div>';
   return entries
     .map(([key, value]) => {
@@ -221,20 +214,6 @@ function prePrConfigPanel(uiConfig: UiConfig): string {
       </section>`;
 }
 
-function jiraTokenRowHtml(tokenSet: boolean): string {
-  const status: string = tokenSet
-    ? '<span class="config-secret-status is-set">set ✓</span>'
-    : '<span class="config-secret-status is-unset">not set</span>';
-  return `
-      <div class="config-row config-secret-row" data-key="JIRA_API_TOKEN">
-        <label class="config-key mono" for="config-JIRA_API_TOKEN">JIRA_API_TOKEN ${status}<span class="config-hint" tabindex="0" role="img" aria-label="Write-only. Paste a new Atlassian API token; applies live, no restart. Never displayed." title="Write-only. Paste a new Atlassian API token; applies live, no restart. Never displayed.">${ICON_INFO}</span></label>
-        <input id="config-JIRA_API_TOKEN" class="config-input config-secret-input" type="password" autocomplete="off" placeholder="Paste new token to update" aria-describedby="help-JIRA_API_TOKEN error-JIRA_API_TOKEN">
-        <button type="button" class="config-save" data-key="JIRA_API_TOKEN" aria-label="Update Jira API token">Update</button>
-        <span class="config-error" id="error-JIRA_API_TOKEN" role="alert"></span>
-        <span class="sr-only" id="help-JIRA_API_TOKEN">Write-only. Paste a new Atlassian API token; applies live, no restart. Never displayed.</span>
-      </div>`;
-}
-
 function configCustomizationPanel(themeId: string): string {
   const themeOptions = THEMES.map(
     (theme) => `<option value="${esc(theme.id)}"${theme.id === themeId ? ' selected' : ''}>${esc(theme.label)}</option>`,
@@ -255,22 +234,24 @@ function configCustomizationPanel(themeId: string): string {
 export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): string {
   const customization = configCustomizationPanel(opts.themeId);
   const sources = `<section class="panel config-panel"><h2>Task sources</h2><p><a href="${esc(routeHref({ view: 'plugin', pluginSlot: SOURCE_SETTINGS_PAGE_SLOT, repo: opts.selectedRepo }))}">Source settings</a></p></section>`;
+  const integrations = `<section class="panel config-panel"><h2>Integrations and workspace</h2><ul>${[
+    ['/jira-settings', 'Jira connection'], ['/github-settings', 'GitHub settings'],
+    ['/communication', 'Notifications and Slack settings'], ['/local-git', 'Local branches and worktrees'],
+  ].map(([path, label]) => `<li><a class="app-link" href="${path}${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">${label}</a></li>`).join('')}</ul></section>`;
   const intro = `<header class="page-intro"><h1>Config</h1><p>Configure work sources, integrations, and ${term('agent').toLowerCase()} defaults. Save each setting separately.</p></header>`;
   const status = `${opts.error ? `<div class="config-load-error degraded-banner" role="alert">${esc(opts.error)}${opts.unavailable ? '' : ' Showing the last loaded settings.'} <button type="button" data-config-retry${opts.loading ? ' disabled' : ''}>Try again</button></div>` : ''}${opts.loading ? '<p class="empty-note" role="status">Loading configuration…</p>' : ''}`;
   if (opts.unavailable) {
-    return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `${intro}<section class="panel config-loading" aria-label="Configuration" aria-busy="${Boolean(opts.loading)}">${status || '<p class="empty-note">Configuration is unavailable. <button type="button" data-config-retry>Try again</button></p>'}</section>${sources}${customization}`);
+    return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `${intro}<section class="panel config-loading" aria-label="Configuration" aria-busy="${Boolean(opts.loading)}">${status || '<p class="empty-note">Configuration is unavailable. <button type="button" data-config-retry>Try again</button></p>'}</section>${sources}${integrations}${customization}`);
   }
   return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `
       ${intro}${status}
       ${sources}
+      ${integrations}
       ${customization}
-      <section class="panel config-panel"><h2>Communication</h2><p><a class="app-link" href="/communication${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">Notifications and Slack settings</a></p></section>
-      <section class="panel config-panel"><h2>Local Git</h2><p><a class="app-link" href="/local-git${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">Local branches and worktrees</a></p></section>
       <section class="panel config-panel">
         <div class="panel-head"><span class="panel-title">Runtime settings</span></div>
         <div class="config-warning">Adapter and <span class="mono">AGENT_CMD</span> can run arbitrary commands &mdash; change with care. Auto-claim interval changes apply on restart.</div>
         <div class="config-list">
-          ${jiraTokenRowHtml(uiConfig.jiraTokenSet === true)}
           ${configRowsHtml(uiConfig)}
         </div>
       </section>

@@ -576,7 +576,7 @@ describe('config routes', () => {
     const r = await handleApi('PUT', '/api/config', new URLSearchParams(), { key: 'AGENT_MAX_ATTEMPTS', value: '3' }, configDeps);
     expect(setConfig).toHaveBeenCalledWith('AGENT_MAX_ATTEMPTS', '3');
     expect(r?.status).toBe(200);
-    expect(r?.json).toEqual({ key: 'AGENT_MAX_ATTEMPTS', value: '3' });
+    expect(r?.json).toEqual({ ok: true });
   });
 
   it('rejects updates to a non-editable config key', async () => {
@@ -905,4 +905,11 @@ it('returns terminal Todo rejection evidence only for durable source command rej
   const publicLocalGit = {} as NonNullable<RouterDeps['publicLocalGit']>;
   expect((await handleApi(method, '/api/repo/local', new URLSearchParams({ repo: 'o/r' }), { repo: 'o/r', action: 'refresh-remotes' }, { ...deps, publicLocalGit, localGit, localGitAction }))?.status).toBe(410);
   expect(localGit).not.toHaveBeenCalled(); expect(localGitAction).not.toHaveBeenCalled();
+});
+
+it.each(['JIRA_API_TOKEN', 'JIRA_ENABLED', 'JIRA_PROJECT', 'JIRA_ASSIGNEE', 'JIRA_JQL', 'GITHUB_REPO', 'GITHUB_PR_AUTHOR', 'GITHUB_REVIEW_WATCH_ENABLED'])('retires legacy %s writes without echoing values', async key => {
+  const setConfig = vi.fn();
+  const integrationSettings = {} as NonNullable<RouterDeps['integrationSettings']>;
+  const result = await handleApi('PUT', '/api/config', new URLSearchParams(), { key, value: 'fixture-secret-never-return' }, { ...deps, integrationSettings, setConfig });
+  expect(result?.status).toBe(410); expect(JSON.stringify(result)).not.toContain('fixture-secret-never-return'); expect(setConfig).not.toHaveBeenCalled();
 });

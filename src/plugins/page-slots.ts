@@ -39,6 +39,12 @@ export const RUNS_PAGE_ID = 'helmsman.runs/page';
 export const PR_PAGE_SLOT = 'helmsman/pr-compatibility-page';
 export const PR_PAGE_ID = 'helmsman.compat-pr/page';
 
+export const JIRA_SETTINGS_PAGE_SLOT = 'helmsman/jira-settings-page';
+export const JIRA_SETTINGS_PAGE_ID = 'helmsman.jira-settings/page';
+
+export const GITHUB_SETTINGS_PAGE_SLOT = 'helmsman/github-settings-page';
+export const GITHUB_SETTINGS_PAGE_ID = 'helmsman.github-settings/page';
+
 export const LOCAL_GIT_PAGE_SLOT = 'helmsman/local-git-page';
 export const LOCAL_GIT_PAGE_ID = 'helmsman.local-git/page';
 
@@ -57,6 +63,8 @@ interface BuiltinPageSlot extends PageSlot {
 }
 
 export const builtinPageSlots: readonly BuiltinPageSlot[] = Object.freeze([
+  Object.freeze({ id: GITHUB_SETTINGS_PAGE_SLOT, alias: '/github-settings', defaultContributionId: GITHUB_SETTINGS_PAGE_ID, panelContract: 'helmsman/github-settings-panel' }),
+  Object.freeze({ id: JIRA_SETTINGS_PAGE_SLOT, alias: '/jira-settings', defaultContributionId: JIRA_SETTINGS_PAGE_ID, panelContract: 'helmsman/jira-settings-panel' }),
   Object.freeze({ id: LOCAL_GIT_PAGE_SLOT, alias: '/local-git', defaultContributionId: LOCAL_GIT_PAGE_ID, panelContract: 'helmsman/local-git-panel' }),
   Object.freeze({ id: CAMPAIGNS_PAGE_SLOT, alias: '/campaigns', defaultContributionId: CAMPAIGNS_PAGE_ID, panelContract: 'helmsman/campaigns-panel' }),
   Object.freeze({ id: TERMINAL_PAGE_SLOT, alias: '/terminal', aliases: Object.freeze(['/cmux']), defaultContributionId: TERMINAL_PAGE_ID, panelContract: 'helmsman/terminal-panel' }),

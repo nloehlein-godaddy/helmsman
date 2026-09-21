@@ -744,14 +744,12 @@ export class DashboardView {
       this.refreshPending = null;
       this.captureConfigDrafts();
       if (this.configDrafts.get(key) === value) this.configDrafts.delete(key);
-      if (key === 'JIRA_API_TOKEN') this.uiConfig.jiraTokenSet = true;
-      else this.uiConfig.config[key] = value;
+      this.uiConfig.config[key] = value;
       for (const currentRow of this.root.querySelectorAll<HTMLElement>('.config-row')) {
         if (currentRow.dataset.key !== key) continue;
         const currentInput = currentRow.querySelector<HTMLInputElement | HTMLSelectElement>('.config-input');
         if (!currentInput) continue;
-        currentInput.dataset.configValue = key === 'JIRA_API_TOKEN' ? '' : value;
-        if (key === 'JIRA_API_TOKEN' && currentInput.value === value) currentInput.value = '';
+        currentInput.dataset.configValue = value;
       }
       this.configPendingKeys.delete(key);
       if (this.configPendingKeys.size === 0) await this.refresh();

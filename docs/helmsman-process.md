@@ -273,6 +273,26 @@ flowchart TD
 
 The header galleon remains unchanged by panel overrides. Reads and preview never delete; force and deletion remain explicit decisions. A crash between Git and receipt storage does not prove success or authorize replay. Disabling presentation retains command evidence and host protections. See [Local Git authoring](local-git-authoring.md).
 
+## Global integration settings
+
+```mermaid
+flowchart TD
+    Config[Core Config links] --> Page[Selected Jira or GitHub settings composition]
+    Page --> Read[Namespaced global snapshot<br/>Redacted credential presence + revision]
+    Read --> Draft[Retain original revision<br/>Jira token in memory only]
+    Draft --> Save[Explicit save through declared capability]
+    Save --> Check{Current revision matches?}
+    Check -->|No| Conflict[Keep edits and original revision]
+    Check -->|Yes| Commit[Atomic configuration + revision update]
+    Commit --> Result[Return redacted snapshot]
+    Save -->|Response lost| Refresh[Refresh before another explicit attempt]
+    Conflict --> Refresh
+    Refresh --> Rebase[Explicitly rebase or discard edits]
+    Rebase --> Draft
+```
+
+These forms are global and leave the header galleon unchanged. Jira token rotation neither provisions nor enables a source; live project, query and source enablement remain in Source settings. Generic Config rejects migrated integration writes and never echoes submitted values. GitHub review scheduling remains a Phase F adapter. See [integration settings authoring](integration-settings-authoring.md).
+
 ## Conditional panel-state saves
 
 Authored question/contact panels use conditional panel-state saves. This behavior passed independent package and production acceptance and is pushed as 773cce4:

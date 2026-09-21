@@ -1,3 +1,5 @@
+export * from './github-settings';
+export * from './jira-settings';
 export * from './local-git';
 export * from './campaigns';
 import type { TerminalRouteV1 } from './terminal-route';

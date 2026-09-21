@@ -1,0 +1,80 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.jira-settings",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Jira settings",
+        "slots": [
+          "helmsman/jira-settings-page"
+        ],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ],
+        "composition": {
+          "id": "helmsman/jira-settings-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/jira-settings-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "jira-settings",
+                "contributionId": "helmsman.jira-settings/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "jira-settings"
+                  ],
+                  "activeInstanceId": "jira-settings",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Jira settings",
+        "contract": {
+          "id": "helmsman/jira-settings-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/jira-settings",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

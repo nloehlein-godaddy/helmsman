@@ -78,3 +78,7 @@ HTTP equivalents are `GET /api/usage/v1`, `GET /api/pricing/v1` (query parameter
 ## Local Git presentation
 
 The independently buildable `local-git` author package provides the selected `/local-git` page and replaceable panel through `helmsman/local-git@1`. Core retains checkout validation, active-worktree protection and durable command receipts. Lost responses require inspection; no retry operation is exposed. See [Local Git authoring](local-git-authoring.md) and the [implementation ledger](plugin-implementation-progress.md) for delivery evidence.
+
+## Integration settings ownership
+
+Jira and GitHub settings have independent authored page/panel packages with namespaced schemas, redacted reads and revision-checked global saves. Jira token input never enters browser persistence or response bodies; live Jira configuration stays in Source settings. Core retains configuration storage and credential binding. See [integration settings authoring](integration-settings-authoring.md) for the contracts and [delivery evidence](plugin-implementation-progress.md).

@@ -1,3 +1,5 @@
+import { handleIntegrationSettingsApi } from './integration-settings-routes';
+import type { IntegrationSettingsServerService } from './integration-settings-service';
 import { handleLocalGitApi } from './local-git-routes';
 import type { LocalGitServerService } from './local-git-service';
 import { handleCampaignPublicApi } from './campaigns-public-routes';
@@ -146,11 +148,13 @@ export interface RouterDeps {
   setAutoClaim: (repo: string, enabled: boolean) => void;
   autoClaimRepos: () => string[];
   caps: () => { maxAttempts: number; maxCostUsd: number | null };
-  getConfig: () => { config: Record<string, unknown>; overridden: string[]; jiraTokenSet: boolean };
+  getConfig: () => { config: Record<string, unknown>; overridden: string[]; jiraTokenSet?: boolean };
   setConfig: (key: string, value: string) => { ok: true } | { ok: false; error: string };
   prStatus: (repo: string, prNumber: number) => Promise<PrStatus | null>;
   reviewRequestedPrs: (repo: string | null) => Promise<PrListResponse>;
   repoOpenPrs: (repo: string) => Promise<PrListResponse>;
+  integrationSettings?: IntegrationSettingsServerService;
+  integrationSettingsCaller?: string;
   publicLocalGit?: LocalGitServerService;
   localGitCaller?: string;
   localGit?: (repo: string) => Promise<ApiResult>;
@@ -493,6 +497,8 @@ export async function handleApi(
     deps.setAutoClaim(repo, enabled);
     return { status: 200, json: { repo, enabled } };
   }
+  const settingsResult = await handleIntegrationSettingsApi({ method, path, query, body: _body, caller: deps.integrationSettingsCaller, service: deps.integrationSettings });
+  if (settingsResult) return settingsResult;
   if (path === '/api/config' && method === 'GET') {
     return { status: 200, json: deps.getConfig() };
   }
@@ -501,9 +507,10 @@ export async function handleApi(
     if (typeof b?.key !== 'string' || typeof b?.value !== 'string') {
       return { status: 400, json: { error: 'key and value required' } };
     }
+    if (deps.integrationSettings && /^(?:JIRA_|GITHUB_)/.test(b.key)) return { status: 410, json: { error: 'Use revision-checked integration settings; live Jira source settings belong to Source settings.' } };
     if (deps.communication && b.key.startsWith('SLACK_')) return { status: 410, json: { error: 'Use revision-checked communication settings.' } };
     const r: { ok: true } | { ok: false; error: string } = deps.setConfig(b.key, b.value);
-    return r.ok ? { status: 200, json: { key: b.key, value: b.value } } : { status: 400, json: { error: r.error } };
+    return r.ok ? { status: 200, json: { ok: true } } : { status: 400, json: { error: r.error } };
   }
   if (path === '/api/pr/review-requests' && method === 'GET') {
     const repo: string | null = query.get('repo');

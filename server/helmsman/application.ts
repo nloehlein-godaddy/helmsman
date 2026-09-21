@@ -1,3 +1,5 @@
+import { createIntegrationSettingsService } from './integration-settings-service';
+import { jiraSettingsContributionEnabled, githubSettingsContributionEnabled } from './integration-settings-runtime';
 import { createLocalGitService } from './local-git-service';
 import { localGitContributionEnabled } from './local-git-runtime';
 import { createCampaignPublicService } from './campaigns-public-service';
@@ -119,15 +121,15 @@ import { openTodoStore } from './todos';
 import { reconcileTodoRuns } from './todo-source';
 import { repositoryScope } from './repository-scope';
 import { AutoClaimScheduler, type BacklogItem } from './scheduler';
-import { ConfigStore, publicConfig, WRITABLE_SECRET_KEYS } from './config-store';
+import { ConfigStore, publicConfig } from './config-store';
 import { launchIntentJson, RetryError, type LaunchIntent } from './retry';
 import type { Bridge } from './cmux/bridge';
 import { openSlackStore } from './slack/store';
 import { openVoyageNotifications } from './voyage-notifications';
 import { createSlackWatcher, type SlackWatcher } from './slack/watcher';
 import { createSlackBrowserReviewSender } from './slack/browser-review';
-import { publicSlackSettings, slackSettings, SLACK_INTERVAL_MS, SLACK_CONFIG_KEYS } from './slack/config';
-import { openSlackReviewRequester, publicSlackReviewSettings, slackReviewSettings } from './slack/review-request';
+import { slackSettings, SLACK_INTERVAL_MS } from './slack/config';
+import { openSlackReviewRequester, slackReviewSettings } from './slack/review-request';
 import type { SlackState } from '../../src/data/slack';
 import { createGithubReviewWatcher } from './github-review-watcher';
 import { createCreatedPrReviews } from './created-pr-reviews';
@@ -351,6 +353,22 @@ const gateway = createScopedGateway({ path: persistence.sql, openaiKey: () => pr
   clarificationReady, clarificationGate,
 });
 if (runHost === 'docker' && !process.env.HELMSMAN_DOCKER_IMAGE) throw new Error('Set HELMSMAN_DOCKER_IMAGE to a built Helmsman runtime image before selecting Docker');
+const integrationSettings = createIntegrationSettingsService({ persistence,
+  githubValues: () => { const env = configStore.effectiveEnv(); return { defaultRepo: env.GITHUB_REPO ?? '', author: env.GITHUB_PR_AUTHOR ?? '', reviewWatchEnabled: env.GITHUB_REVIEW_WATCH_ENABLED === 'true' }; },
+  writeGithub: values => {
+    for (const [key, value] of Object.entries({ GITHUB_REPO: values.defaultRepo, GITHUB_PR_AUTHOR: values.author, GITHUB_REVIEW_WATCH_ENABLED: String(values.reviewWatchEnabled) })) configStore.setOverride(key, value, () => new Date().toISOString());
+  },
+  afterGithubSave: () => { queueMicrotask(() => { void pollGithubReviews(); }); },
+  githubTokenSet: () => Boolean(configStore.effectiveEnv().GITHUB_TOKEN?.trim()),
+  jiraTokenSet: () => configStore.hasJiraToken(),
+  writeJiraToken: token => configStore.setSecret('JIRA_API_TOKEN', token, () => new Date().toISOString()),
+  sourceConfigured: () => taskSourceRuntime.store.sources().some(source => source.provisioningKey === 'legacy-jira'),
+  bootstrapEnabled: () => configStore.current().jiraEnabled,
+  authorize: (caller, namespace) => {
+    const enabled = namespace === 'helmsman.jira/settings' ? jiraSettingsContributionEnabled(pluginSnapshot.catalog, caller) : githubSettingsContributionEnabled(pluginSnapshot.catalog, caller);
+    if (!enabled) throw new ClarificationServiceError(403, 'forbidden');
+  },
+});
 const publicLocalGit = createLocalGitService({ persistence, agentsRoot: AGENTS_ROOT, repos: applicationRepos,
   activeWorktreePaths: () => db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
   authorize: caller => {
@@ -1248,7 +1266,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
     }
-    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/terminal/') || url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/local-git/') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
+    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/terminal/') || url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/local-git/') || url.pathname.startsWith('/api/jira-settings') || url.pathname.startsWith('/api/github-settings') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
       && (req.headers['content-type']?.split(';')[0] !== 'application/json'
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
       res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
@@ -1263,6 +1281,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      integrationSettings, integrationSettingsCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       publicLocalGit, localGitCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
@@ -1307,19 +1326,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         return { maxAttempts: c.maxAttempts, maxCostUsd: c.maxCostUsd };
       },
       getConfig: () => ({
-        config: { ...publicConfig(configStore.current()), ...(!configStore.current().jiraEnabled ? { JIRA_PROJECT: configStore.effectiveEnv().JIRA_PROJECT ?? null, JIRA_ASSIGNEE: configStore.effectiveEnv().JIRA_ASSIGNEE ?? null, JIRA_JQL: configStore.effectiveEnv().JIRA_JQL ?? null } : {}), ...publicSlackSettings(configStore.effectiveEnv()), ...publicSlackReviewSettings(configStore.effectiveEnv()), GITHUB_REVIEW_WATCH_ENABLED: githubReviewEnabled() ? 'true' : 'false' },
-        overridden: Object.keys(configStore.overrides()),
-        jiraTokenSet: configStore.hasJiraToken(),
+        config: Object.fromEntries(Object.entries(publicConfig(configStore.current())).filter(([key]) => !/^(?:JIRA_|GITHUB_|SLACK_)/.test(key))),
+        overridden: Object.keys(configStore.overrides()).filter(key => !/^(?:JIRA_|GITHUB_|SLACK_)/.test(key)),
       }),
       setConfig: (key: string, value: string): { ok: true } | { ok: false; error: string } => {
         try {
-          if (WRITABLE_SECRET_KEYS.includes(key)) configStore.setSecret(key, value, () => new Date().toISOString());
-          else configStore.setOverride(key, value, () => new Date().toISOString());
-          if (SLACK_CONFIG_KEYS.some((configKey) => configKey === key)) {
-            configuredSlackWatcher();
-            void pollSlack();
-          }
-          if (key === 'GITHUB_REVIEW_WATCH_ENABLED') void pollGithubReviews();
+          configStore.setOverride(key, value, () => new Date().toISOString());
           return { ok: true as const };
         } catch (err: unknown) {
           return { ok: false as const, error: err instanceof Error ? err.message : 'invalid config key' };

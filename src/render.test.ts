@@ -72,7 +72,7 @@ describe('application views', () => {
   });
 
   it('has help text with an example for every editable config key', () => {
-    for (const key of EDITABLE_KEYS.filter(key => !key.startsWith('SLACK_'))) {
+    for (const key of EDITABLE_KEYS.filter(key => !/^(?:JIRA_|GITHUB_|SLACK_)/.test(key))) {
       expect(CONFIG_HELP[key]?.length ?? 0, `missing tooltip for ${key}`).toBeGreaterThan(0);
       expect(CONFIG_HELP[key] ?? '', `missing example for ${key}`).toContain('Example:');
     }
@@ -142,24 +142,15 @@ describe('application views', () => {
     expect(el.querySelector('.pre-pr-config-panel [data-key="PRE_PR_REVIEWER_COUNT"] .config-overridden')).toBeNull();
   });
 
-  it('renders a write-only JIRA_API_TOKEN update row that never carries a value', () => {
-    const el: HTMLDivElement = root();
-    const uiConfig: UiConfig = { config: { AGENT_ADAPTER: 'claude-code' }, overridden: [], jiraTokenSet: true };
-    el.innerHTML = renderConfigView(uiConfig, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
-    const tokenRow: HTMLElement | null = el.querySelector<HTMLElement>('.config-secret-row[data-key="JIRA_API_TOKEN"]');
-    expect(tokenRow).not.toBeNull();
-    const input: HTMLInputElement | null = tokenRow!.querySelector<HTMLInputElement>('.config-secret-input');
-    expect(input!.type).toBe('password');
-    expect(input!.value).toBe('');
-    expect(tokenRow!.querySelector('.config-save')?.getAttribute('data-key')).toBe('JIRA_API_TOKEN');
-    expect(tokenRow!.textContent).toContain('set ✓');
+  it.each([false, true])('links independently available integration settings without legacy fields; unavailable=%s', unavailable => {
+    const el = root();
+    el.innerHTML = renderConfigView({ config: { JIRA_API_TOKEN: 'do-not-render', JIRA_JQL: 'old bootstrap', GITHUB_REPO: 'org/a' }, overridden: [], jiraTokenSet: true },
+      { repos: ['org/a'], selectedRepo: 'org/a', themeId: DEFAULT_THEME_ID, unavailable });
+    expect(el.textContent).not.toContain('do-not-render');
+    expect(el.querySelector('[data-key^="JIRA_"], [data-key^="GITHUB_"]')).toBeNull();
+    for (const path of ['jira-settings', 'github-settings', 'communication', 'local-git']) expect(el.querySelector(`a[href="/${path}?repo=org%2Fa"]`)).not.toBeNull();
   });
 
-  it('shows the Jira token as not set when absent', () => {
-    const el: HTMLDivElement = root();
-    el.innerHTML = renderConfigView({ config: {}, overridden: [], jiraTokenSet: false }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
-    expect(el.querySelector('.config-secret-row .config-secret-status')?.textContent).toContain('not set');
-  });
 });
 
 it('links to authored communication settings with the header scope', () => {

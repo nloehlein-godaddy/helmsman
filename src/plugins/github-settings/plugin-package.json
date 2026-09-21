@@ -1,0 +1,80 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.github-settings",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "GitHub settings",
+        "slots": [
+          "helmsman/github-settings-page"
+        ],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ],
+        "composition": {
+          "id": "helmsman/github-settings-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/github-settings-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "github-settings",
+                "contributionId": "helmsman.github-settings/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "github-settings"
+                  ],
+                  "activeInstanceId": "github-settings",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "GitHub settings",
+        "contract": {
+          "id": "helmsman/github-settings-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/github-settings",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

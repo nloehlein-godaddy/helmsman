@@ -1,0 +1,6 @@
+{
+  "name": "helmsman-github-settings-source",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
+}

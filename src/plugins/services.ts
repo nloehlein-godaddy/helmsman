@@ -1,3 +1,5 @@
+import type { GithubSettingsServiceV1 } from './github-settings';
+import type { JiraSettingsServiceV1 } from './jira-settings';
 import type { LocalGitServiceV1 } from './local-git';
 import type { CampaignServiceV1 } from './campaigns';
 import type { TerminalServiceV1 } from './terminal';
@@ -43,6 +45,8 @@ export interface PluginPageServices {
   readonly communication?: CommunicationServiceV1;
   readonly terminal?: TerminalServiceV1;
   readonly campaigns?: CampaignServiceV1;
+  readonly jiraSettings?: JiraSettingsServiceV1;
+  readonly githubSettings?: GithubSettingsServiceV1;
   readonly localGit?: LocalGitServiceV1;
   readonly communicationCommands?: CommunicationCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;
