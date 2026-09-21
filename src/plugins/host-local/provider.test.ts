@@ -40,10 +40,14 @@ describe('local execution host providers', () => {
     const spec = await fixture();
     const provider = createDetachedExecutionHost();
     const ref = await provider.launch(spec);
-    expect(ref.identity).toEqual({ runId: spec.runId, launchId: spec.launchId, attempt: 1, receiptPath: spec.receiptPath });
-    await vi.waitFor(async () => expect((await provider.discover(spec, ref)).status).toBe('found'));
-    expect(await provider.isAlive(ref)).toBe(true);
-    await provider.stop(ref);
+    try {
+      expect(ref.identity).toEqual({ runId: spec.runId, launchId: spec.launchId, attempt: 1, receiptPath: spec.receiptPath });
+      await vi.waitFor(async () => expect((await provider.discover(spec, ref)).status).toBe('found'));
+      expect(await provider.isAlive(ref)).toBe(true);
+    } finally {
+      await provider.stop(ref);
+      await vi.waitFor(async () => expect(await provider.discover(spec, ref)).toMatchObject({ status: 'found', evidence: { state: 'exited' } }));
+    }
   });
 
   it('retains cmux workspace ownership and distinguishes absent inventory', async () => {

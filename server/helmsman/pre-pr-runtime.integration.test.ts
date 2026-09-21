@@ -456,7 +456,7 @@ describe.skipIf(!hasShebangShims)('pre-PR runtime with real git and fake CLIs', 
       expect(result.output).not.toContain('"prNumber":');
       await expect(readFile(env.state)).rejects.toThrow();
       expect(await readFile(join(env.cwd, 'code.txt'), 'utf8')).toContain('initial');
-      if (mode === 'unavailable') expect(result.output).toContain('writer CLI is unavailable');
+      if (mode === 'unavailable') expect(result.output).toContain('spawn codex ENOENT');
       if (mode === 'modified') expect(result.output).toContain('modified its immutable worktree');
       if (mode === 'auth') {
         expect(result.output).toContain('exited 7');
