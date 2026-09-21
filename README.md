@@ -260,7 +260,7 @@ silently reduce the gate. The selected workflow package owns prompt templates an
 guarded stage sequencing. Configure `maxRounds` (1–5) and `stageTimeoutMinutes`
 (5–180) on `helmsman.workflow-coding`. Defaults are three rounds and 45 minutes per
 session. Agent and workflow settings are captured at admission; changes do not
-affect an existing voyage. Workflow extraction is still undergoing acceptance.
+affect an existing voyage. Workflow extraction is accepted; trigger extraction remains in Phase F.
 
 Reviewers inspect the same pinned commit in separate detached worktrees and focus
 on material logic, structure, acceptance criteria, UX, and external effects. Codex

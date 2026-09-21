@@ -182,11 +182,11 @@ The shipped Codex, Claude Code and command providers are SDK-only packages. Code
 
 For each extraction, preserve behavior through one active implementation path. Validate read equivalence with fixtures or shadow reads when useful; never run old and new write paths simultaneously. Cut over admission explicitly. Rollback requires compatible data and retained bindings, not merely changing a feature flag.
 
-### F execution-host extraction (active)
+### F execution-host extraction (complete)
 
 `helmsman/execution-host@1` captures one exact provider, its settings and immutable nonsecret run configuration. Local detached/cmux/WezTerm and Docker packages implement launch, native ownership discovery, stop and optional isolated stages through the same public contract. Node receipt helpers are exported only from the SDK's `/node` entry. Core retains reservations, receipt verification, workspace protection and publication authority. Missing ownership or retained artifacts blocks recovery; changes to defaults and enablement cannot substitute another host.
 
-The current increment includes Docker child stages, not just top-level selection. Native terminal interaction, workflow definitions and remaining triggers follow. Execution-host acceptance and independent correction review are complete through `5849a30`; this is not a Phase F completion claim.
+The current increment includes Docker child stages, not just top-level selection. Native terminal/browser providers and workflow definitions are now accepted through `c594605` and `568cd82`; triggers remain. Execution-host acceptance and independent correction review are complete through `5849a30`; this is not a Phase F completion claim.
 
 ## 6. Define lifecycle, persistence, and recovery protocols
 
