@@ -3,7 +3,7 @@ const styles = '.plugin-pr-compatibility .question-tools { display:flex; flex-wr
 
 const page: PluginPageModule = { mount(container, context) {
   const composition = context.composition;
-  if (composition?.version !== 1 || composition.compositionId !== 'helmsman/pr-compatibility-page') throw new Error('Pull request compatibility requires its composition service');
+  if (composition?.version !== 1 || composition.compositionId !== 'helmsman/pr-compatibility-page') throw new Error('Pull requests requires its composition service');
   let state = context.state;
   let layout: CompositionLayoutV1 | null = null;
   let disposed = false; let generation = 0; let saving = false; let error = '';
@@ -18,7 +18,7 @@ const page: PluginPageModule = { mount(container, context) {
       if (disposed || current !== generation) return;
       if (!layout || next.revision >= layout.revision) layout = next;
       error = ''; revealRoute(); draw();
-    } catch { if (!disposed && current === generation) { error = 'Your saved Pull request compatibility panels are unavailable. Refresh to retry.'; draw(); } }
+    } catch { if (!disposed && current === generation) { error = 'Your saved Pull requests panels are unavailable. Refresh to retry.'; draw(); } }
   }
   async function save(next: CompositionLayoutV1, routeKey: string | null = null) {
     if (disposed || saving || !layout) return;
@@ -32,7 +32,7 @@ const page: PluginPageModule = { mount(container, context) {
   }
   function routeTarget() {
     if (!layout) return null;
-    if (state.panelInstance) return layout.instances.find(instance => instance.instanceId === state.panelInstance) ?? null;
+    if (state.panelInstance) { const exact = layout.instances.find(instance => instance.instanceId === state.panelInstance); if (exact) return exact; }
     return state.panelContribution ? layout.instances.find(instance => instance.contributionId === state.panelContribution) ?? null : null;
   }
   function revealRoute() {
@@ -53,9 +53,9 @@ const page: PluginPageModule = { mount(container, context) {
     if (disposed) return;
     const focused = document.activeElement instanceof HTMLElement && container.contains(document.activeElement) ? document.activeElement : null;
     let routedFocus: HTMLElement | null = null;
-    const root = node('div'); root.className = 'plugin-pr-compatibility'; root.append(node('style', styles), node('h1', 'Pull request compatibility'));
+    const root = node('div'); root.className = 'plugin-pr-compatibility'; root.append(node('style', styles), node('h1', state.pirateMode ? 'Bounties' : 'PRs'));
     const toolbar = node('div'); toolbar.className = 'question-tools'; toolbar.append(button('Refresh', () => { if (failedRoute === located) { located = null; failedRoute = null; } void refresh(); }));
-    const options = node('select'); options.setAttribute('aria-label', 'Pull request compatibility panel implementation');
+    const options = node('select'); options.setAttribute('aria-label', 'Pull requests panel implementation');
     for (const candidate of composition!.discover()) { const option = node('option', candidate.title); option.value = candidate.contributionId; options.append(option); }
     toolbar.append(options, button('Add panel', () => {
       if (!layout || !options.value) return;
@@ -64,7 +64,7 @@ const page: PluginPageModule = { mount(container, context) {
         columns: [...layout.columns, ...(layout.columns.length ? [] : [[]])].map((column, index) => index ? column : [...column, { instances: [id], activeInstanceId: id, collapsed: false }]) });
     })); root.append(toolbar);
     if (error) { const message = node('p', error); message.setAttribute('role', 'alert'); root.append(message); }
-    if (!layout) root.append(node('p', 'Loading Pull request compatibility panels…'));
+    if (!layout) root.append(node('p', 'Loading Pull requests panels…'));
     else {
       if ((state.panelInstance || state.panelContribution) && !routeTarget()) { const missing = node('p', `The requested panel (${state.panelInstance ?? state.panelContribution}) is not present in this layout. Your saved layout is kept.`); missing.setAttribute('role', 'status'); root.append(missing); }
       if (!layout.instances.length) root.append(node('p', 'Add a panel to view a pull request.'));
@@ -105,7 +105,7 @@ const page: PluginPageModule = { mount(container, context) {
     if (target?.active && target.node.isConnected) { pendingFocus = null; const control = routedFocus ?? (focused && target.node.contains(focused) ? focused : target.node); control.focus({ preventScroll: true }); target.node.scrollIntoView?.({ block: 'start' }); }
     else if (focused?.isConnected) focused.focus({ preventScroll: true });
   }
-  async function refresh() { await read(); await Promise.all([...mounted.values()].filter(value => value.active).map(value => value.handle?.refresh())); }
+  async function refresh() { await read(); const results = await Promise.allSettled([...mounted.values()].filter(value => value.active).map(async value => value.handle?.refresh())); if (!disposed && results.some(result => result.status === 'rejected')) { error = 'Some panels could not be refreshed. Their saved state is kept.'; draw(); } }
   const unsubscribe = composition.subscribe(() => { void read(); });
   function dispose() {
     if (disposed) return; disposed = true; ++generation; unsubscribe(); context.signal.removeEventListener('abort', dispose);

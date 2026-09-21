@@ -12,14 +12,16 @@ export interface ClarificationJournal<Input, Command, Receipt, Query> {
   pending(signal?: AbortSignal): Promise<readonly { readonly command: Command; readonly receipt: Receipt | null }[]>;
 }
 interface Entry<Command, Receipt> { readonly key: string; readonly caller: string; readonly command: Command; readonly receipt: Receipt | null; }
-const equal = (left: unknown, right: unknown) => JSON.stringify(clarificationJson(left)) === JSON.stringify(clarificationJson(right));
+const equal = (left: unknown, right: unknown) => JSON.stringify(clarificationJson(left, 8 * 1024 * 1024)) === JSON.stringify(clarificationJson(right, 8 * 1024 * 1024));
 
 export function createClarificationJournal<Input, Command extends { readonly requestId: string }, Receipt extends { readonly requestId: string }, Query extends { readonly requestId: string }>(caller: string, options: ClarificationJournalOptions, contract: {
   database: string; parseInput(value: unknown): Input; parseCommand(value: unknown): Command; parseReceipt(value: unknown, command?: Command): Receipt; parseQuery(value: unknown): Query;
+  terminal?(receipt: Receipt): boolean;
   key(input: Input): readonly unknown[]; input(command: Command): Input; create(input: Input, uuid: () => string): Command; matches(command: Command, query: Query): boolean;
 }): ClarificationJournal<Input, Command, Receipt, Query> {
   if (!isContributionId(caller)) throw new TypeError('Invalid command contribution');
   const limit = 256; const maximum = 8 * 1024 * 1024;
+  const terminal = contract.terminal ?? (() => true);
   const key = (input: Input) => JSON.stringify([caller, ...contract.key(input)]);
   function entry(value: unknown): Entry<Command, Receipt> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ClarificationJournalValidationError('Invalid saved command');
@@ -104,7 +106,8 @@ export function createClarificationJournal<Input, Command extends { readonly req
           try {
             if (read.result === undefined) { done(receipt); return; }
             const saved = entry(read.result); contract.parseReceipt(receipt, saved.command);
-            if (saved.receipt) {
+            if (saved.receipt && terminal(saved.receipt)) {
+              if (!terminal(receipt)) { done(saved.receipt); return; }
               if (!equal(saved.receipt, receipt)) throw new ClarificationJournalValidationError('Recorded terminal receipt changed');
               done(saved.receipt); return;
             }
@@ -127,7 +130,7 @@ export function createClarificationJournal<Input, Command extends { readonly req
           try {
             if (read.result !== undefined) {
               const saved = entry(read.result);
-              if (!saved.receipt || !contract.matches(saved.command, query)) throw new ClarificationJournalValidationError('Only matching recorded terminal receipts can be acknowledged');
+              if (!saved.receipt || !terminal(saved.receipt) || !contract.matches(saved.command, query)) throw new ClarificationJournalValidationError('Only matching recorded terminal receipts can be acknowledged');
               table.delete(saved.key);
             }
             done();

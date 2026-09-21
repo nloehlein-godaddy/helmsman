@@ -71,12 +71,12 @@ describe('persistent app shell', () => {
     for (const page of ['prs', 'runs', 'triage', 'bugs', 'config', 'cmux', 'dashboard']) {
       await switchTo(page);
       selectors.forEach((selector, i) => expect(root.querySelector(selector), `${page}: ${selector}`).toBe(elements[i]));
-      expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe(['dashboard', 'triage', 'bugs', 'runs'].includes(page) ? 'plugin' : page);
+      expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe(['dashboard', 'triage', 'bugs', 'runs', 'prs'].includes(page) ? 'plugin' : page);
       expect(root.querySelector('#page-content')?.getAttribute('aria-labelledby')).toBe(`page-tab-${page}`);
       expect(root.querySelectorAll('.page-tab[aria-selected="true"]')).toHaveLength(1);
       expect(root.querySelector('[data-fleet-count="running"]')?.textContent).toBe('1');
-      expect(root.querySelector('[data-fleet-count="queued"]')?.textContent).toBe('7');
-      expect(root.querySelector('[data-fleet-count="review"]')?.textContent).toBe('2');
+      expect(root.querySelector('[data-fleet-count="queued"]')?.textContent).toBe('—');
+      expect(root.querySelector('[data-fleet-count="review"]')?.textContent).toBe('—');
       expect(root.querySelector('.app-footer')?.textContent).toBe(footer);
       expect(root.querySelector('#page-content .app-footer')).toBeNull();
       expect(root.querySelector('#page-content .helm-head')).toBeNull();
@@ -96,7 +96,7 @@ describe('persistent app shell', () => {
     expect(count('/api/bugs')).toBe(0);
   });
 
-  it.each(['jira', 'github'])('uses Jira availability for queue and review when %s is unavailable', async service => {
+  it.each(['jira', 'github'])('keeps queue and review unknown without legacy reads when %s is unavailable', async service => {
     const { root } = await setup('/prs?repo=org/a', [service]);
     const queue = root.querySelector('[data-fleet-count="queued"]')?.textContent;
     const review = root.querySelector('[data-fleet-count="review"]')?.textContent;
@@ -104,8 +104,8 @@ describe('persistent app shell', () => {
       expect(queue).toBe('—');
       expect(review).toBe('—');
     } else {
-      expect(queue).toBe('7');
-      expect(review).toBe('2');
+      expect(queue).toBe('—');
+      expect(review).toBe('—');
     }
   });
 

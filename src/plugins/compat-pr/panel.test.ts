@@ -1,73 +1,163 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import panel from './panel';
-import { PrCompatibilitySession, bindPrCompatibilitySession, prTarget } from '../../pr-compatibility-session';
-import { renderPrPanel } from '../../render';
-import type { PluginPanelState } from '../sdk';
-import type { PrStatusView } from '../../data/pr';
+import type { PluginPanelContext, PluginPanelInstance, PluginPanelState, PullRequestCommandInputV1, PullRequestCommandPendingV1, PullRequestCommandReceiptV1, PullRequestInspectDetailV1, PullRequestInspectDiffV1, RunReadPageV1, RunCommandPendingV1, RunCommandReceiptV1 } from '../sdk';
 
-const status: PrStatusView = { repo: 'org/b', number: 42, headSha: 'original', state: 'open', draft: false, merged: false, headRefName: 'topic', reviewDecision: '', comments: 0, checks: { passed: 0, failed: 0, pending: 0 }, url: 'https://github.com/org/b/pull/42' };
-const json = (value: unknown) => new Response(JSON.stringify(value));
+const head = 'a'.repeat(40); const base = 'b'.repeat(40);
+const detail: PullRequestInspectDetailV1 = { version: 1, target: { repo: 'org/b', number: 42, headSha: head, baseSha: base }, observedAt: '2026-09-20T12:00:00Z', title: 'Public PR', url: 'https://github.com/org/b/pull/42', status: 'open', draft: false, authorLogin: 'writer', isOwnPr: true, headRefName: 'topic', updatedAt: '2026-09-20T12:00:00Z', comments: 3,
+  checks: { quality: 'complete', passed: 2, failed: 0, pending: 0 }, reviews: { quality: 'complete', approved: 1, changesRequested: 0, commented: 2, requested: 0, viewerReview: null, viewerReviewedAt: null, viewerReviewedCommitId: null } };
+const available = <T>(value: T) => ({ status: 'available' as const, value });
+const requestId = 'b0ef36b8-e7a2-4b24-a343-2dac4b561824';
 const lifetimes: AbortController[] = [];
-afterEach(() => { lifetimes.splice(0).forEach(value => value.abort()); vi.unstubAllGlobals(); document.body.replaceChildren(); });
-async function fixture(overrides: Partial<PluginPanelState> = {}) {
-  const root = document.createElement('div'); const container = document.createElement('div'); root.append(container); document.body.append(root);
-  const session = new PrCompatibilitySession({ repos: () => ['org/a', 'org/b'], headerRepo: () => 'org/a' }); bindPrCompatibilitySession(root, session);
-  const lifetime = new AbortController(); lifetimes.push(lifetime); const activity = new AbortController();
-  const state: PluginPanelState = { repo: 'org/a', themeId: 'dark', pirateMode: false, visible: true, pane: null, instanceId: 'pr', activity: { epoch: 1, signal: activity.signal, active: true, repo: 'org/a' }, savedState: { version: 1, value: { target: { repo: 'org/b', number: 42 } } }, ...overrides };
-  const saveState = vi.fn(async () => {}); const navigate = vi.fn();
-  const instance = await panel.mount(container, { state, activity: state.activity, signal: lifetime.signal, services: { version: 1 }, onDispose: vi.fn(), navigate, saveState });
-  return { root, container, session, lifetime, activity, state, instance, saveState, navigate };
+beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/prs?repo=org/a'); });
+afterEach(() => { lifetimes.splice(0).forEach(value => value.abort()); vi.restoreAllMocks(); document.body.replaceChildren(); });
+async function fixture(overrides: Partial<PluginPanelState> = {}, configure?: (context: PluginPanelContext) => void, contributionId = 'helmsman.compat-pr/panel') {
+  const container = document.createElement('div'); document.body.append(container); const lifetime = new AbortController(); lifetimes.push(lifetime);
+  let state: PluginPanelState = { repo: 'org/b', headerRepo: 'org/a', themeId: 'dark', pirateMode: false, visible: true, pane: null, instanceId: 'pr', activity: { epoch: 1, signal: new AbortController().signal, active: true, repo: 'org/b' }, savedState: { version: 1, value: { target: { repo: 'org/b', number: 42 } } }, ...overrides };
+  const reviewPending: PullRequestCommandPendingV1[] = []; const runPending: RunCommandPendingV1[] = [];
+  const context: PluginPanelContext = { contributionId, state, activity: state.activity, signal: lifetime.signal, onDispose: vi.fn(), navigate: vi.fn(), selectPresentation: vi.fn(), saveState: vi.fn(async () => {}),
+    services: { version: 1,
+      pullRequests: { version: 1, list: vi.fn(async query => available({ ...query, items: [], quality: 'complete', truncated: false, browseUrl: null })), watchList: vi.fn(() => vi.fn()) },
+      pullRequestInspect: { version: 1, detail: vi.fn(async query => available({ ...detail, target: { ...detail.target, repo: query.repo, number: query.number } })), diff: vi.fn(async query => available<PullRequestInspectDiffV1>({ version: 1, target: query.target, observedAt: detail.observedAt, coverage: 'immutable-comparison-preview', quality: 'complete', truncated: false, files: [{ filename: 'src/file.ts', previousFilename: null, status: 'modified', additions: 1, deletions: 1, patch: '+new\n-old', patchStatus: 'preview' }] })) },
+      runs: { version: 1, list: vi.fn(async query => available<RunReadPageV1>({ version: 1, repo: query.repo, items: [], nextCursor: null })), load: vi.fn(), log: vi.fn(), watchList: vi.fn(), watchLoad: vi.fn(), watchLog: vi.fn() },
+      runCommands: { version: 1, submit: vi.fn(), retry: vi.fn(), receipt: vi.fn(), pending: vi.fn(async () => [...runPending]), acknowledge: vi.fn(async query => { const index = runPending.findIndex(item => item.command.requestId === query.requestId); if (index >= 0) runPending.splice(index, 1); }) },
+      pullRequestCommands: { version: 1, submit: vi.fn(), retry: vi.fn(), receipt: vi.fn(), pending: vi.fn(async () => [...reviewPending]), acknowledge: vi.fn(async query => { const index = reviewPending.findIndex(item => item.command.requestId === query.requestId); if (index >= 0) reviewPending.splice(index, 1); }) },
+    } };
+  let instance: PluginPanelInstance;
+  Object.assign(context, { setScope: vi.fn<NonNullable<PluginPanelContext['setScope']>>(async scope => { const repo = scope.kind === 'galleon' ? scope.repo : scope.kind === 'all' ? null : state.headerRepo ?? null; state = { ...state, repo, activity: { epoch: state.activity.epoch + 1, signal: new AbortController().signal, active: true, repo } }; await instance?.update(state); }) });
+  configure?.(context); instance = await panel.mount(container, context);
+  return { container, lifetime, context, instance, state: () => state, reviewPending, runPending };
 }
-it('repaints shared status and head updates without losing form edits or header scope', async () => {
-  let current = status;
-  vi.stubGlobal('fetch', vi.fn(async (url, init) => String(url).startsWith('/api/pr/diff') ? json({ files: [] }) : init?.method === 'POST' ? json({ ok: true }) : json(current)));
-  const f = await fixture(); await vi.waitFor(() => expect(f.container.querySelector('.pr-review-body')).not.toBeNull());
-  const input = f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')!; input.value = 'New unsent draft'; input.dispatchEvent(new Event('input', { bubbles: true })); input.focus(); input.setSelectionRange(2, 5);
-  const legacy = document.createElement('div'); f.root.append(legacy); legacy.innerHTML = renderPrPanel(status, true); f.session.restore(legacy);
-  const owner = {}; f.session.setActive(owner, true); current = { ...status, viewerReview: 'APPROVED', headSha: 'new-head' };
-  await f.session.review(owner, prTarget(legacy.querySelector('.pr-approve')!)!, 'APPROVE');
-  expect(f.container.querySelector('.pr-viewer-review')?.textContent).toContain('Approved');
-  expect(f.container.querySelector<HTMLElement>('.pr-panel')?.dataset.prHeadSha).toBe('new-head');
-  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('New unsent draft');
-  expect(document.activeElement).toBe(f.container.querySelector('.pr-review-body')); expect(f.session.headerRepo()).toBe('org/a');
-  await f.instance.dispose(); expect(f.session.active(owner)).toBe(true);
-});
-it('rejects stale reads after retarget/hide and persists explicit selection without navigating the header', async () => {
-  let resolve!: (response: Response) => void; const pending = new Promise<Response>(done => { resolve = done; }); const signals: AbortSignal[] = [];
-  vi.stubGlobal('fetch', vi.fn((url, init) => { if (String(url).startsWith('/api/pr/diff')) return Promise.resolve(json({ files: [] })); signals.push(init.signal); return pending; }));
-  const f = await fixture();
-  await f.instance.update({ ...f.state, visible: false }); expect(signals[0]?.aborted).toBe(true); resolve(json(status)); await Promise.resolve();
-  vi.mocked(fetch).mockImplementation(async url => String(url).startsWith('/api/pr/diff') ? json({ files: [] }) : json({ ...status, repo: 'org/c', number: 9 }));
-  const nextActivity = new AbortController();
-  await f.instance.update({ ...f.state, activity: { ...f.state.activity, signal: nextActivity.signal, epoch: 2 }, presentation: { version: 1, kind: 'pull-request', repo: 'org/c', number: 9 } });
-  expect(f.container.querySelector<HTMLElement>('.pr-panel')?.dataset.prRepo).toBe('org/c');
-  expect(f.session.status(status)).toBeNull(); expect(f.navigate).not.toHaveBeenCalled();
-  const input = f.container.querySelector<HTMLInputElement>('[data-pr-compat-lookup]')!; input.value = 'org/c#9'; input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-  expect(f.saveState).toHaveBeenCalledWith({ version: 1, value: { target: { repo: 'org/c', number: 9 } } });
-});
-it('keeps a launched run scoped to the explicitly selected galleon while retaining the header default', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (url, init) => init?.method === 'POST' ? json({ runId: 'review-result' }) : String(url).startsWith('/api/pr/diff') ? json({ files: [] }) : json(status)));
-  const f = await fixture(); await vi.waitFor(() => expect(f.container.querySelector('.pr-review-agent')).not.toBeNull());
-  f.container.querySelector<HTMLButtonElement>('.pr-review-agent')!.click();
-  await vi.waitFor(() => expect(f.navigate).toHaveBeenCalled());
-  const route = new URL(f.navigate.mock.calls[0]![0] as string, 'https://helmsman.test');
-  expect(route.searchParams.get('repo')).toBe('org/a'); expect(route.searchParams.get('runRepo')).toBe('org/b'); expect(route.searchParams.get('run')).toBe('review-result');
-});
-it.each(['review', 'rerun'] as const)('preselects and focuses route %s without launching and retains draft on route updates', async mode => {
-  vi.stubGlobal('fetch', vi.fn(async url => String(url).startsWith('/api/pr/diff') ? json({ files: [] }) : json({ ...status, isOwnPr: true })));
-  const f = await fixture(); await vi.waitFor(() => expect(f.container.querySelector('.pr-review-body')).not.toBeNull());
-  const textarea = f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')!; textarea.value = 'Preserve routed draft'; textarea.dispatchEvent(new Event('input', { bubbles: true }));
-  await f.instance.update({ ...f.state, routeState: { version: 1, value: { target: { repo: 'org/b', number: 42 }, mode } } });
-  expect(document.activeElement).toBe(f.container.querySelector(mode === 'review' ? '.pr-review-agent' : '.pr-rerun-feedback'));
-  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Preserve routed draft');
-  expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
-});
+async function ready(f: Awaited<ReturnType<typeof fixture>>) { await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('.pr-comment')?.disabled).toBe(false)); }
+function fill(container: HTMLElement, selector: string, value: string) { const control = container.querySelector<HTMLTextAreaElement>(selector)!; control.focus(); control.value = value; control.dispatchEvent(new Event('input', { bubbles: true })); }
+function click(container: HTMLElement, selector: string) { container.querySelector<HTMLButtonElement>(selector)!.click(); }
+const reviewReceipt = (input: PullRequestCommandInputV1, status: PullRequestCommandReceiptV1['status'] = 'succeeded'): PullRequestCommandReceiptV1 => ({ version: 1, requestId, input, status, result: status === 'succeeded' ? { repo: input.repo, number: input.number, headSha: input.expectedHeadSha, actor: 'authenticated-user', reviewId: 23 } : null, reason: status === 'succeeded' ? null : 'Original result uncertain' });
 
-it.each(['../private', 'org/..', '-owner/repo', 'org/repo?bad', 'org/repo/extra', 'org/' + 'x'.repeat(101)])('rejects malformed opaque PR targets before provider reads: %s', async repo => {
-  vi.stubGlobal('fetch', vi.fn(async () => json(status)));
-  const f = await fixture({ savedState: null, routeState: { version: 1, value: { target: { repo, number: 1 }, mode: 'review' } } });
-  await f.instance.refresh?.();
-  expect(fetch).not.toHaveBeenCalled(); expect(f.container.querySelector('.pr-panel')).toBeNull();
-  await f.instance.update({ ...f.state, routeState: null, presentation: { version: 1, kind: 'pull-request', repo, number: 1 } });
-  expect(fetch).not.toHaveBeenCalled();
+it('uses public list/detail/immutable diff services and preserves focused edits across refresh and reload', async () => {
+  const f = await fixture(); await ready(f);
+  expect(f.context.services.pullRequestInspect?.diff).toHaveBeenCalledWith({ version: 1, target: detail.target }, expect.any(AbortSignal));
+  expect(f.container.textContent).toContain('complete file enumeration'); expect(f.container.textContent).toContain('2 passed');
+  fill(f.container, '.pr-review-body', 'Retained draft'); const input = f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')!; input.setSelectionRange(2, 6);
+  await f.instance.refresh?.(); expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Retained draft'); expect(document.activeElement).toBe(f.container.querySelector('.pr-review-body')); expect((document.activeElement as HTMLTextAreaElement).selectionStart).toBe(2);
+  f.lifetime.abort(); const next = await fixture(); await ready(next); expect(next.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Retained draft');
+  expect(next.context.navigate).not.toHaveBeenCalled(); expect(next.context.services.pullRequestCommands?.submit).not.toHaveBeenCalled();
+});
+it('keeps identical caller drafts shared between surfaces and copied caller drafts isolated', async () => {
+  const original = await fixture(); await ready(original); fill(original.container, '.pr-review-body', 'Original draft');
+  const second = await fixture(); await ready(second); expect(second.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Original draft');
+  const copy = await fixture({}, undefined, 'example.copied-pr/panel'); await ready(copy); expect(copy.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('');
+});
+it('pins original review input through uncertain result, changed draft/head and explicit retry, then saves before acknowledgment', async () => {
+  const f = await fixture(); await ready(f); const service = f.context.services.pullRequestCommands!;
+  let input!: PullRequestCommandInputV1;
+  vi.mocked(service.submit).mockImplementation(async next => { input = next; f.reviewPending.push({ command: { ...next, requestId }, receipt: null }); return { status: 'unavailable', reason: 'connection-failed' }; });
+  fill(f.container, '.pr-review-body', 'Original review'); click(f.container, '.pr-comment'); await vi.waitFor(() => expect(f.container.textContent).toContain('Retry original request'));
+  fill(f.container, '.pr-review-body', 'Newer unsent draft');
+  vi.mocked(f.context.services.pullRequestInspect!.detail).mockResolvedValue(available({ ...detail, target: { ...detail.target, headSha: 'c'.repeat(40) } })); await f.instance.refresh?.();
+  expect(service.submit).toHaveBeenCalledTimes(1); expect(service.retry).not.toHaveBeenCalled(); expect(f.container.querySelector<HTMLButtonElement>('.pr-comment')?.disabled).toBe(true);
+  vi.mocked(service.retry).mockResolvedValue(available(reviewReceipt(input)));
+  vi.mocked(service.acknowledge).mockImplementation(async () => { expect(Object.values(localStorage).some(value => value.includes('authenticated-user'))).toBe(true); f.reviewPending.splice(0); });
+  click(f.container, '[data-retry="true"][data-pending-kind="review"]'); await vi.waitFor(() => expect(service.acknowledge).toHaveBeenCalled());
+  expect(service.retry).toHaveBeenCalledWith({ repo: 'org/b', requestId }, expect.any(AbortSignal)); expect(input.expectedHeadSha).toBe(head); expect(input.body).toBe('Original review');
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Newer unsent draft'); expect(f.container.textContent).toContain('Saved review result: succeeded by authenticated-user');
+});
+it('retains terminal receipt without acknowledgment when result storage fails', async () => {
+  const f = await fixture(); await ready(f); const service = f.context.services.pullRequestCommands!;
+  vi.mocked(service.submit).mockImplementation(async input => { const receipt = reviewReceipt(input); f.reviewPending.push({ command: { ...input, requestId }, receipt }); return available(receipt); });
+  fill(f.container, '.pr-review-body', 'Save required'); const original = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function(this: Storage, key, value) { if (key.includes(':result:')) throw new Error('Storage full'); original.call(this, key, value); });
+  click(f.container, '.pr-comment'); await vi.waitFor(() => expect(f.container.textContent).toContain('Storage full')); expect(service.acknowledge).not.toHaveBeenCalled(); expect(f.reviewPending).toHaveLength(1);
+});
+it('preserves unsaved edits after failed draft storage and refresh and prevents submission', async () => {
+  const f = await fixture(); await ready(f);
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage full'); });
+  fill(f.container, '.pr-review-body', 'Unstored current draft'); await f.instance.refresh?.();
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Unstored current draft'); expect(f.container.querySelector<HTMLButtonElement>('.pr-comment')?.disabled).toBe(true); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it('launches review and rerun with durable public commands and opens shared scoped viewer after saved acceptance', async () => {
+  const f = await fixture(); await ready(f); const service = f.context.services.runCommands!;
+  vi.mocked(service.submit).mockImplementation(async input => { const receipt: RunCommandReceiptV1 = { version: 1, repo: input.repo, requestId, action: 'launch', status: 'accepted', runId: 'new-run', attempt: 1, message: null }; f.runPending.push({ command: { ...input, requestId }, receipt }); return available(receipt); });
+  fill(f.container, '.pr-rerun-feedback', 'Change branch behavior'); click(f.container, '.pr-rerun');
+  await vi.waitFor(() => expect(f.context.selectPresentation).toHaveBeenCalledWith({ version: 1, kind: 'run', repo: 'org/b', runId: 'new-run' }));
+  expect(service.submit).toHaveBeenCalledWith({ version: 1, repo: 'org/b', action: 'launch', launch: { mode: 'rerun', prNumber: 42, feedback: 'Change branch behavior' } }, expect.any(AbortSignal)); expect(service.acknowledge).toHaveBeenCalled(); expect(f.state().headerRepo).toBe('org/a');
+});
+it.each(['review', 'rerun'] as const)('reveals route %s with explicit panel scope and no automatic command', async mode => {
+  const f = await fixture({ activity: { epoch: 1, active: true, repo: 'org/a', signal: new AbortController().signal }, routeState: { version: 1, value: { target: { repo: 'org/b', number: 42 }, mode } } });
+  await f.instance.refresh?.(); await ready(f);
+  expect(f.context.setScope).toHaveBeenCalledWith({ kind: 'galleon', repo: 'org/b' }); expect(f.state().headerRepo).toBe('org/a'); expect(document.activeElement).toBe(f.container.querySelector(mode === 'review' ? '.pr-review-agent' : '.pr-rerun-feedback'));
+  expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled();
+});
+it('lookup persists explicit target and panel scope while keeping header in route', async () => {
+  const f = await fixture(); await ready(f); fill(f.container, '[data-pr-compat-lookup]', 'org/c#9'); click(f.container, '[data-load]');
+  await vi.waitFor(() => expect(f.context.navigate).toHaveBeenCalled()); expect(f.context.setScope).toHaveBeenCalledWith({ kind: 'galleon', repo: 'org/c' }); expect(f.context.saveState).toHaveBeenCalledWith({ version: 1, value: { target: { repo: 'org/c', number: 9 } } });
+  const url = new URL(vi.mocked(f.context.navigate).mock.calls[0]![0], 'https://host.test'); expect(url.searchParams.get('repo')).toBe('org/a'); expect(url.searchParams.get('prRepo')).toBe('org/c'); expect(url.searchParams.get('panel')).toBe('pr');
+});
+it('fails commands closed after journal read failure and does not overwrite unsupported stored drafts', async () => {
+  localStorage.setItem('helmsman.pull-request.v1:helmsman.compat-pr/panel:draft:["org/b",42]', '{"version":9,"future":true}');
+  const f = await fixture({}, context => { vi.mocked(context.services.pullRequestCommands!.pending).mockRejectedValue(new Error('Unavailable')); });
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Command journal unavailable'));
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-comment')?.disabled).toBe(true); expect(localStorage.getItem('helmsman.pull-request.v1:helmsman.compat-pr/panel:draft:["org/b",42]')).toBe('{"version":9,"future":true}');
+});
+it('hides cancel public reads and ignores late responses', async () => {
+  let resolve!: (value: ReturnType<typeof available<PullRequestInspectDetailV1>>) => void; const pending = new Promise<ReturnType<typeof available<PullRequestInspectDetailV1>>>(done => { resolve = done; });
+  const f = await fixture({}, context => { vi.mocked(context.services.pullRequestInspect!.detail).mockReturnValue(pending); });
+  const signal = vi.mocked(f.context.services.pullRequestInspect!.detail).mock.calls[0]?.[1]; await f.instance.update({ ...f.state(), visible: false }); expect(signal?.aborted).toBe(true);
+  resolve(available(detail)); await Promise.resolve(); expect(f.container.querySelector('.pr-panel')).toBeNull(); expect(f.context.services.pullRequestInspect!.diff).not.toHaveBeenCalled();
+});
+it('renders unknown counts and patch truncation without inventing completeness', async () => {
+  const f = await fixture({}, context => {
+    vi.mocked(context.services.pullRequestInspect!.detail).mockResolvedValue(available({ ...detail, checks: { quality: 'partial', passed: null, failed: null, pending: null }, reviews: { ...detail.reviews, quality: 'unavailable', approved: null, changesRequested: null, commented: null, requested: null } }));
+    vi.mocked(context.services.pullRequestInspect!.diff).mockResolvedValue(available({ version: 1, target: detail.target, observedAt: detail.observedAt, coverage: 'immutable-comparison-preview', quality: 'partial', truncated: true, files: [{ filename: 'large.bin', previousFilename: null, status: 'modified', additions: 0, deletions: 0, patch: null, patchStatus: 'unavailable' }] }));
+  }); await ready(f); expect(f.container.textContent).toContain('unknown passed'); expect(f.container.textContent).toContain('partial file enumeration'); expect(f.container.textContent).toContain('Inline patch unavailable');
+});
+it.each(['../private', 'org/..', '-owner/repo', 'org/repo?bad', 'org/repo/extra', 'org/' + 'x'.repeat(101)])('rejects malformed route target before inspection: %s', async repo => {
+  const f = await fixture({ savedState: null, routeState: { version: 1, value: { target: { repo, number: 1 }, mode: 'review' } } }); await f.instance.refresh?.(); expect(f.context.services.pullRequestInspect!.detail).not.toHaveBeenCalled();
+});
+it('rejects missing mounted contribution identity before storage access', async () => {
+  const read = vi.spyOn(Storage.prototype, 'getItem'); await expect(fixture({}, context => { delete (context as { contributionId?: string }).contributionId; })).rejects.toThrow('mounted contribution identity'); expect(read).not.toHaveBeenCalled();
+});
+it('uses public PR route hint for renamed panel copies while a run presentation is also selected', async () => {
+  const f = await fixture({ savedState: null, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'selected-run' }, pullRequest: { version: 1, repo: 'org/b', number: 42, mode: 'rerun' } }, undefined, 'example.copied-pr/panel'); await ready(f);
+  expect(f.container.querySelector<HTMLElement>('.pr-panel')?.dataset.prRepo).toBe('org/b'); expect(document.activeElement).toBe(f.container.querySelector('.pr-rerun-feedback')); expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled();
+});
+it('does not restore the previous explicit target while lookup changes scope', async () => {
+  const f = await fixture({ pullRequest: { version: 1, repo: 'org/b', number: 42, mode: null } }); await ready(f);
+  fill(f.container, '[data-pr-compat-lookup]', 'org/c#9'); click(f.container, '[data-load]'); await vi.waitFor(() => expect(f.context.navigate).toHaveBeenCalled());
+  expect(f.state().activity.repo).toBe('org/c'); expect(vi.mocked(f.context.setScope!).mock.calls).toEqual([[{ kind: 'galleon', repo: 'org/c' }]]);
+});
+it('returns to inherited header scope without restoring an explicit route target', async () => {
+  const f = await fixture({ pullRequest: { version: 1, repo: 'org/b', number: 42, mode: null } }); await ready(f); click(f.container, '[data-inherit]');
+  await vi.waitFor(() => expect(f.context.setScope).toHaveBeenCalledWith({ kind: 'inherit' })); expect(f.state().activity.repo).toBe('org/a'); expect(f.container.querySelector('.pr-panel')).toBeNull(); expect(f.context.navigate).toHaveBeenCalled();
+});
+it('focuses pane-only navigation without issuing commands', async () => {
+  const scroll = vi.fn(); Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll });
+  const f = await fixture({ savedState: null }); await f.instance.refresh?.(); await f.instance.update({ ...f.state(), pane: 'authored' }); expect(scroll).toHaveBeenCalled(); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it('rehydrates a retained request after remount and only checks it on explicit action', async () => {
+  const input: PullRequestCommandInputV1 = { version: 1, repo: 'org/b', number: 42, expectedHeadSha: head, event: 'COMMENT', body: 'Retained original' };
+  const f = await fixture({}, context => { vi.mocked(context.services.pullRequestCommands!.pending).mockResolvedValue([{ command: { ...input, requestId }, receipt: null }]); });
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Retained original')); expect(f.context.services.pullRequestCommands!.receipt).not.toHaveBeenCalled(); expect(f.context.services.pullRequestCommands!.retry).not.toHaveBeenCalled(); expect(f.container.querySelector<HTMLButtonElement>('.pr-comment')?.disabled).toBe(true);
+  vi.mocked(f.context.services.pullRequestCommands!.receipt).mockResolvedValue(available(null)); click(f.container, '[data-pending-id]:not([data-retry])');
+  await vi.waitFor(() => expect(f.context.services.pullRequestCommands!.receipt).toHaveBeenCalledWith({ repo: 'org/b', requestId }, expect.any(AbortSignal))); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it('keeps opaque panel state with unknown fields unchanged during explicit lookup', async () => {
+  const f = await fixture({ savedState: { version: 1, value: { target: { repo: 'org/b', number: 42 }, future: true } } }); await f.instance.refresh?.();
+  fill(f.container, '[data-pr-compat-lookup]', 'org/b#42'); click(f.container, '[data-load]'); await vi.waitFor(() => expect(f.context.navigate).toHaveBeenCalled()); expect(f.context.saveState).not.toHaveBeenCalled(); expect(f.container.textContent).toContain('unsupported format');
+});
+it('uses the host header default for setup links after the panel receives a different effective scope', async () => {
+  const f = await fixture({ repo: 'org/b', headerRepo: 'org/a' }); await ready(f);
+  const link = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open review setup ↗')!;
+  expect(new URL(link.href).searchParams.get('repo')).toBe('org/a'); expect(new URL(link.href).searchParams.get('prRepo')).toBe('org/b');
+  await f.instance.update({ ...f.state(), headerRepo: null }); const cleared = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open review setup ↗')!; expect(new URL(cleared.href).searchParams.has('repo')).toBe(false);
+});
+it('preserves a legacy saved explicit target when its old layout still inherits a different header', async () => {
+  const f = await fixture({ repo: 'org/a', headerRepo: 'org/a', activity: { epoch: 1, active: true, repo: 'org/a', signal: new AbortController().signal } }); await f.instance.refresh?.(); await ready(f);
+  expect(f.context.setScope).toHaveBeenCalledWith({ kind: 'galleon', repo: 'org/b' }); expect(f.state().headerRepo).toBe('org/a'); expect(f.container.querySelector<HTMLElement>('.pr-panel')?.dataset.prRepo).toBe('org/b'); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it('does not replace the next field during a blur/change storage notification and retains that edit across surfaces', async () => {
+  const f = await fixture(); await ready(f); fill(f.container, '.pr-review-body', 'Review before moving focus');
+  const body = f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')!; const feedback = f.container.querySelector<HTMLTextAreaElement>('.pr-rerun-feedback')!;
+  body.blur(); body.dispatchEvent(new Event('change', { bubbles: true }));
+  expect(feedback.isConnected).toBe(true); feedback.focus(); feedback.value = 'Feedback entered while moving focus'; feedback.dispatchEvent(new Event('input', { bubbles: true })); feedback.blur(); feedback.dispatchEvent(new Event('change', { bubbles: true }));
+  f.lifetime.abort(); const next = await fixture(); await ready(next);
+  expect(next.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Review before moving focus'); expect(next.container.querySelector<HTMLTextAreaElement>('.pr-rerun-feedback')?.value).toBe('Feedback entered while moving focus');
 });

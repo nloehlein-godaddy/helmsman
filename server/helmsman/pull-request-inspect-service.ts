@@ -14,6 +14,14 @@ export class PullRequestInspectError extends Error {
   readonly status: number; readonly reason: PullRequestInspectUnavailableReasonV1;
   constructor(status: number, reason: PullRequestInspectUnavailableReasonV1) { super(reason); this.status = status; this.reason = reason; }
 }
+function providerError(error: unknown): PullRequestInspectError | null {
+  const reason = error && typeof error === 'object' && 'reason' in error ? (error as { reason?: unknown }).reason : null;
+  if (reason === 'head-changed' || reason === 'selection-changed') return new PullRequestInspectError(409, reason);
+  if (reason === 'invalid-response') return new PullRequestInspectError(502, reason);
+  if (reason === 'timeout') return new PullRequestInspectError(504, reason);
+  if (reason === 'service-unavailable' || reason === 'connection-failed') return new PullRequestInspectError(503, reason);
+  return null;
+}
 export function createPullRequestInspectService(options: { repos(): readonly string[]; provider: PullRequestInspectProvider; timeoutMs?: number }): PullRequestInspectServerService {
   const timeoutMs = options.timeoutMs ?? 30_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) throw new RangeError('Invalid inspection timeout');
@@ -46,7 +54,9 @@ export function createPullRequestInspectService(options: { repos(): readonly str
       try { return parse(value); } catch { throw new PullRequestInspectError(502, 'invalid-response'); }
     } catch (error) {
       caller?.throwIfAborted(); if (timeout.aborted) throw new PullRequestInspectError(504, 'timeout');
-      if (error instanceof PullRequestInspectError) throw error; throw new PullRequestInspectError(503, 'service-unavailable');
+      if (error instanceof PullRequestInspectError) throw error;
+      const mapped = providerError(error); if (mapped) throw mapped;
+      throw new PullRequestInspectError(503, 'service-unavailable');
     } finally {
       signal.removeEventListener('abort', cancel); entry.users--;
       if (!entry.users) { if (reads.get(identity) === entry) reads.delete(identity); entry.controller.abort(); }

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { PluginBackendContext, PluginBackendModule, PluginJson, PricingProvider } from '../../../src/plugins/backend';
+import type { PullRequestProviderV1 } from '../../../src/plugins/pull-request-provider';
 import { validateTaskSourceProvider, type TaskSourceProviderV1 } from '../../../src/plugins/tasks';
 import { parsePluginPackage, type PluginPackage } from '../../../src/plugins/package';
 import type { PricingEstimate, UsageQueryService, UsageSnapshot } from '../../../src/plugins/usage';
@@ -10,6 +11,7 @@ import type { PluginArchive } from './artifacts';
 import { builtinPluginEnabled, initializePricingDefault, openPluginData, pluginJson, readPricingBinding } from './data';
 import type { PluginCoordinator, PluginSnapshot } from './store';
 import { createTaskSourceRegistry, type TaskSourceRegistry } from '../task-sources/registry';
+import { createPullRequestProviderRegistry, type PullRequestProviderRegistry } from '../pull-request-providers';
 
 export class CapabilityResolutionError extends Error {
   readonly code: 'missing' | 'ambiguous' | 'invalid-selection' | 'inactive' | 'invalid-result';
@@ -25,6 +27,7 @@ export interface BuiltinBackendPlugin { package: PluginPackage; module: PluginBa
 export interface BackendRuntime {
   readonly errors: readonly string[];
   readonly taskSources: TaskSourceRegistry;
+  readonly pullRequests: PullRequestProviderRegistry;
   activePluginIds(): readonly string[];
   providers(): readonly string[];
   pricing(input: UsageSnapshot, selections?: PricingSelections): Promise<{ providerId: string; estimate: PricingEstimate | null }>;
@@ -101,6 +104,14 @@ export async function activateBackendPlugins(options: {
     const state = options.coordinator.state(binding.pluginId);
     return purpose === 'obligation' && state?.artifactHash === binding.artifactHash && state.obligationsOnly;
   } });
+  const pullRequests = createPullRequestProviderRegistry({ eligible(binding, purpose) {
+    if (disposed || !activeIds.has(binding.pluginId)) return false;
+    if (purpose === 'admission' && draining.has(binding.pluginId)) return false;
+    if (!options.coordinator) return true;
+    if (options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) return true;
+    const state = options.coordinator.state(binding.pluginId);
+    return purpose === 'obligation' && state?.artifactHash === binding.artifactHash && state.obligationsOnly;
+  } });
   let bindingInitializationFailed = false;
   async function bounded<T>(work: () => Promise<T>, label: string): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -116,12 +127,12 @@ export async function activateBackendPlugins(options: {
     const canServeOrdinary = () => !options.coordinator || options.coordinator.canActivate(id, artifactHash);
     const canServeObligations = () => {
       const state = options.coordinator?.state(id);
-      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources);
+      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests);
     };
     if (options.coordinator) {
       const state = options.coordinator.state(id);
       if (!options.coordinator.canActivate(id, artifactHash)
-        && !(state?.obligationsOnly && state.artifactHash === artifactHash && pkg.backend?.taskSources)) return;
+        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests))) return;
     }
     let data: ReturnType<typeof openPluginData> | undefined;
     const abort = new AbortController();
@@ -129,7 +140,9 @@ export async function activateBackendPlugins(options: {
     const staged = new Map<string, PluginJson | undefined>();
     const pending = new Map<string, PricingProvider>();
     const pendingSources = new Map<string, TaskSourceProviderV1>();
+    const pendingPullRequests = new Map<string, PullRequestProviderV1>();
     let publishedSources = false;
+    let publishedPullRequests = false;
     let phase: 'activating' | 'active' | 'disposed' = 'activating';
     const activationLive = () => { if (phase === 'disposed') throw new CapabilityResolutionError('inactive', 'Plugin activation was disposed.'); };
     const live = () => { if (phase === 'disposed' || draining.has(id) || !canServeOrdinary()) throw new CapabilityResolutionError('inactive', 'Plugin has been disposed or is draining.'); };
@@ -138,6 +151,7 @@ export async function activateBackendPlugins(options: {
       if (phase === 'active') activeIds.delete(id);
       phase = 'disposed'; abort.abort();
       if (publishedSources) taskSources.removePlugin(id);
+      if (publishedPullRequests) pullRequests.removePlugin(id);
       pluginDrains.delete(id);
       for (const provider of pending.keys()) providers.delete(provider);
       for (const dispose of cleanups.reverse()) {
@@ -182,6 +196,12 @@ export async function activateBackendPlugins(options: {
           if (pendingSources.has(localId)) throw new Error('Duplicate task source registration.');
           pendingSources.set(localId, provider);
         },
+        registerPullRequest: (localId: string, provider: PullRequestProviderV1) => {
+          const declaration = pkg.backend?.pullRequests?.[localId];
+          if (phase !== 'activating' || !declaration || !pkg.backend?.provides.some(item => item.id === 'helmsman/pull-request' && item.localId === localId)) throw new Error('Undeclared pull request provider registration.');
+          if (pendingPullRequests.has(localId)) throw new Error('Duplicate pull request provider registration.');
+          pendingPullRequests.set(localId, provider);
+        },
       });
       const work = (async () => {
         const imported = await load(abort.signal);
@@ -195,20 +215,26 @@ export async function activateBackendPlugins(options: {
         await module.activate(context);
       })();
       await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Backend activation timed out.')), timeoutMs); })]);
-      if (pending.size + pendingSources.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
+      if (pending.size + pendingSources.size + pendingPullRequests.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
       const ordinary = canServeOrdinary();
-      if (!ordinary && (!pendingSources.size || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
+      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
       const sourceRegistrations = [...pendingSources].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Task source registration requires an exact artifact.');
         return taskSources.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, pkg.backend!.taskSources![localId]!, provider);
       });
       taskSources.publish(sourceRegistrations);
       publishedSources = sourceRegistrations.length > 0;
+      const pullRequestRegistrations = [...pendingPullRequests].map(([localId, provider]) => {
+        if (!artifactHash) throw new Error('Pull request registration requires an exact artifact.');
+        return pullRequests.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider);
+      });
+      pullRequests.publish(pullRequestRegistrations);
+      publishedPullRequests = pullRequestRegistrations.length > 0;
       if (ordinary) data.commit(staged);
       staged.clear();
       for (const [providerId, provider] of pending) providers.set(providerId, provider);
       phase = 'active'; activeIds.add(id); owners.push(cleanup); pluginCleanups.set(id, cleanup);
-      if (pendingSources.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
+      if (pendingSources.size || pendingPullRequests.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
       if (options.coordinator && artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'active', null);
       if (options.coordinator?.state(id)?.obligationsOnly) pluginDrains.get(id)?.();
     } catch (error) {
@@ -249,6 +275,7 @@ export async function activateBackendPlugins(options: {
   return {
     errors,
     taskSources,
+    pullRequests,
     activePluginIds: () => Object.freeze([...activeIds].sort()),
     providers: () => Object.freeze([...providers.keys()].sort()),
     async pricing(snapshot, selections = {}) {

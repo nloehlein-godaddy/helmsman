@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parsePresentationLocatorV1, samePresentationLocatorV1, scopedPresentationLocatorV1 } from './presentation';
+import { parsePullRequestRouteV1, samePullRequestRouteV1, parsePresentationLocatorV1, samePresentationLocatorV1, scopedPresentationLocatorV1 } from './presentation';
 
 describe('public presentation identities', () => {
   it('validates and freezes canonical identities without private fields', () => {
@@ -32,4 +32,15 @@ describe('public presentation identities', () => {
     expect(samePresentationLocatorV1(undefined, null)).toBe(true);
     expect(samePresentationLocatorV1(a, { version: 1, kind: 'legacy-run', runId: 'run-1' })).toBe(false);
   });
+});
+
+it('validates independent PR route hints without accepting malformed targets or invoking accessors', () => {
+  const value = { version: 1 as const, repo: 'org/a', number: 42, mode: 'rerun' as const };
+  expect(parsePullRequestRouteV1(value)).toEqual(value);
+  expect(Object.isFrozen(parsePullRequestRouteV1(value))).toBe(true);
+  expect(samePullRequestRouteV1(value, { ...value, mode: 'review' })).toBe(false);
+  const getter = vi.fn(() => 'org/a');
+  for (const input of [[], 1, { ...value, repo: 'org/..' }, { ...value, mode: 'post' }, { ...value, number: 0 },
+    Object.defineProperty({ ...value }, 'repo', { get: getter })]) expect(() => parsePullRequestRouteV1(input)).toThrow();
+  expect(getter).not.toHaveBeenCalled();
 });

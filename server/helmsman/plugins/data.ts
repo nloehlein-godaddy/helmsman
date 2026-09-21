@@ -164,6 +164,33 @@ export function initializePricingDefault(root: string, provider: string): void {
   } finally { sql.close(); }
 }
 
+export function readPullRequestProviderBinding(root: string): string | undefined {
+  const sql = database(root);
+  try {
+    const row = sql.prepare('SELECT provider FROM capability_bindings WHERE capability=?').get('helmsman/pull-request') as { provider: unknown } | undefined;
+    if (row && !isContributionId(row.provider)) throw new Error('Pull request provider binding is invalid.');
+    return row?.provider as string | undefined;
+  } finally { sql.close(); }
+}
+
+export function selectPullRequestProvider(root: string, provider: string | null): void {
+  if (provider !== null && !isContributionId(provider)) throw new Error('Invalid pull request provider ID.');
+  const sql = database(root);
+  try {
+    sql.transaction(() => {
+      if (provider === null) sql.prepare('DELETE FROM capability_bindings WHERE capability=?').run('helmsman/pull-request');
+      else sql.prepare('INSERT INTO capability_bindings VALUES(?,?) ON CONFLICT(capability) DO UPDATE SET provider=excluded.provider').run('helmsman/pull-request', provider);
+    })();
+  } finally { sql.close(); }
+}
+
+export function initializePullRequestProviderDefault(root: string, provider: string): void {
+  if (!isContributionId(provider)) throw new Error('Invalid default pull request provider.');
+  const sql = database(root);
+  try { sql.prepare('INSERT INTO capability_bindings VALUES(?,?) ON CONFLICT(capability) DO NOTHING').run('helmsman/pull-request', provider); }
+  finally { sql.close(); }
+}
+
 export function builtinPluginEnabled(root: string, pkg: PluginPackage): boolean {
   const sql = database(root);
   try {

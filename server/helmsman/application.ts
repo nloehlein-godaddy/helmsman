@@ -5,9 +5,13 @@ import { isAppPagePath } from '../../src/logic/routes';
 import { appPages } from '../../src/plugins/builtins';
 import { createPluginCoordinator, loadPluginSnapshot, pluginDirectory } from './plugins/store';
 import { builtinFrontendArtifacts } from './plugins/builtin-frontend';
-import { createPullRequestReadService, projectLegacyOpenPullRequests, projectLegacyAuthoredPullRequests } from './pull-request-read-service';
+import { createPullRequestReadService } from './pull-request-read-service';
 import { createPullRequestInspectService } from './pull-request-inspect-service';
-import { createGithubPullRequestInspectProvider } from './pull-request-inspect-github';
+import { createPullRequestCommandService, pullRequestCommandContributionEnabled } from './pull-request-command-service';
+import { ClarificationServiceError } from './clarification-service-common';
+import { createPullRequestProviderEffects } from './pull-request-provider-effects';
+import { createPullRequestProviderHttp } from './pull-request-provider-http';
+import { bootstrapPullRequestProviderSelection, resolveSelectedPullRequestProvider } from './pull-request-providers';
 import { createActivityReadService } from './activity-read-service';
 import { createRunReadService } from './run-read-service';
 import { createRunInspectService } from './run-inspect-service';
@@ -51,6 +55,7 @@ import { openUsageStore } from './usage-store';
 import { createUsageQueryService } from './usage-service';
 import { builtinPricing } from './plugins/builtin-pricing';
 import { builtinTaskSources } from './plugins/builtin-task-sources';
+import { builtinPullRequests } from './plugins/builtin-pull-requests';
 import { readPluginArtifact } from './plugins/artifacts';
 import { openTaskSourceStore, type WorkClaimRecord } from './task-sources/store';
 import { openSourceConnectionStore } from './task-source-connections';
@@ -58,7 +63,7 @@ import { bootstrapTaskSources } from './task-source-bootstrap';
 import { createTaskSourceRuntime } from './task-source-runtime';
 import { sourceExecutionSettings, sourceExecutionSnapshot } from './task-source-execution';
 import type { SourceInstanceV1 } from '../../src/plugins/tasks';
-import type { ArtifactBinding } from './execution-store';
+import type { ArtifactBinding, ProviderBinding } from './execution-store';
 import { activateBackendPlugins } from './plugins/backend';
 import { retainActivatedPluginPages } from './plugins/activation';
 import { openRunTelemetry } from './run-telemetry';
@@ -96,7 +101,7 @@ import { dockerReviewAdapter } from './agents/docker-review';
 import { restoreRunAdapter } from './agents/restore';
 import { readReviewArtifact } from './review-artifacts';
 import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeWorktree, removeWorktreeAt, repoBasename, sweepOrphanedWorktrees } from './worktree';
-import { findPrNumberByBranch, fetchPrStatus, fetchPrDiff, fetchAuthoredPrs, type PrStatus } from '../github';
+import { findPrNumberByBranch, fetchPrStatus, fetchPrDiff, type PrStatus } from '../github';
 import { fetchRepoOpenPrs, fetchReviewRequestedPrs } from '../pr-lists';
 import { fetchGithubProfile } from '../github-profile';
 import { getLocalGit, mutateLocalGit } from '../local-git';
@@ -168,7 +173,7 @@ const usageStore = openUsageStore(persistence.sql);
 const outcomeStore = openOutcomeStore(persistence.sql, undefined, usageStore);
 const runTelemetry = openRunTelemetry(persistence.sql, usageStore, createOutcomeTelemetrySink(outcomeStore));
 const usageQueries = createUsageQueryService({ db, usage: usageStore });
-const builtinBackends = [builtinPricing, ...builtinTaskSources];
+const builtinBackends = [builtinPricing, ...builtinTaskSources, ...builtinPullRequests];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -176,6 +181,7 @@ pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMA
 const backendPlugins = await activateBackendPlugins({ root: pluginDirectory(), coordinator: pluginCoordinator,
   snapshot: process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1' ? await loadPluginSnapshot(pluginDirectory(), false, pluginCoordinator) : pluginSnapshot,
   usage: usageQueries, builtins: builtinBackends, defaultPricingProvider: 'helmsman.standard-pricing/standard' });
+bootstrapPullRequestProviderSelection(pluginDirectory(), 'helmsman.github/github');
 for (const error of backendPlugins.errors) process.stderr.write(`${error}\n`);
 pluginSnapshot = retainActivatedPluginPages(await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator), backendPlugins.activePluginIds());
 const serverPages = createServerPageCatalog(appPages);
@@ -274,20 +280,6 @@ const scheduler: AutoClaimScheduler = new AutoClaimScheduler({
 
 const sourceAdmin = createApplicationSourceAdmin({ ...taskSourceRuntime, scheduler, repos: applicationRepos, catalog: () => pluginSnapshot.catalog });
 
-const pullRequestInspect = createPullRequestInspectService({ repos: applicationRepos,
-  provider: createGithubPullRequestInspectProvider({ github: () => configStore.current().github }),
-});
-const pullRequestRead = createPullRequestReadService({ repos: applicationRepos, async read(query, repos, signal) {
-  signal.throwIfAborted();
-  const github = configStore.current().github;
-  if (!github) throw new Error('GitHub reads are unavailable');
-  if (query.kind === 'repo-open') {
-    if (!query.repo) throw new Error('Select a galleon');
-    return projectLegacyOpenPullRequests(await fetchRepoOpenPrs(github, query.repo), `https://github.com/${query.repo}/pulls`);
-  }
-  if (query.kind === 'review-requested') return projectLegacyOpenPullRequests(await fetchReviewRequestedPrs(github, [...repos], query.repo), null);
-  return projectLegacyAuthoredPullRequests(await fetchAuthoredPrs(github, [...repos]), null);
-} });
 const runSettlement = (runId: string): { state: 'settled' | 'operator-required' | 'pending' } | null => {
   const claim = taskSourceRuntime.claimForRun(runId);
   return claim ? { state: claim.state === 'settled' ? 'settled' : claim.settlement?.disposition === 'retained-for-operator' ? 'operator-required' : 'pending' } : null;
@@ -437,6 +429,122 @@ async function verifyEffectArtifacts(artifacts: readonly ArtifactBinding[]): Pro
     }
   }
 }
+function pullRequestConnection(): { connectionId: string; credentialHandle: string } | null {
+  const github = configStore.current().github;
+  if (!github?.token || typeof github.author !== 'string' || !github.author.trim()) return null;
+  return { connectionId: persistenceHash({ host: 'api.github.com', author: github.author }), credentialHandle: 'github-primary' };
+}
+function selectedPullRequestProvider(): ProviderBinding | null {
+  return resolveSelectedPullRequestProvider({ root: pluginDirectory(), registry: backendPlugins.pullRequests, connection: pullRequestConnection });
+}
+function samePullRequestBinding(first: ProviderBinding, second: ProviderBinding | null): boolean {
+  return second !== null && first.role === second.role && first.capability === second.capability && first.contractVersion === second.contractVersion
+    && first.contributionId === second.contributionId && first.pluginId === second.pluginId && first.artifactHash === second.artifactHash
+    && first.connectionId === second.connectionId && first.credentialHandle === second.credentialHandle;
+}
+function pullRequestSelectionChanged(): Error & { reason: 'selection-changed' } {
+  return Object.assign(new Error('selection-changed'), { reason: 'selection-changed' as const });
+}
+function pullRequestRegistration(binding: ProviderBinding, purpose: 'admission' | 'obligation') {
+  return backendPlugins.pullRequests.resolve({ providerId: binding.contributionId, pluginId: binding.pluginId, artifactHash: binding.artifactHash,
+    contractVersion: 1, connectionId: null, credentialHandle: null }, purpose);
+}
+function pullRequestArtifacts(binding: ProviderBinding): readonly ArtifactBinding[] {
+  const result = new Map<string, ArtifactBinding>();
+  function visit(pluginId: string, artifactHash: string): void {
+    const prior = result.get(pluginId);
+    if (prior) { if (prior.artifactHash !== artifactHash) throw new Error('Pull request artifact closure conflicts'); return; }
+    const row = persistence.sql.prepare('SELECT json FROM plugin_artifacts WHERE pluginId=? AND artifactHash=?').get(pluginId, artifactHash) as { json: string } | undefined;
+    const artifact = row ? (persistedJson(JSON.parse(row.json)) as unknown as { artifact: ArtifactBinding }).artifact : null;
+    if (!artifact || artifact.pluginId !== pluginId || artifact.artifactHash !== artifactHash || !Array.isArray(artifact.requires)) throw new Error('Pull request artifact closure is unavailable');
+    result.set(pluginId, artifact);
+    for (const dependency of artifact.requires) {
+      const hash = pluginCoordinator.state(dependency)?.artifactHash;
+      if (!hash) throw new Error('Pull request artifact dependency is unavailable');
+      visit(dependency, hash);
+    }
+  }
+  visit(binding.pluginId, binding.artifactHash);
+  return [...result.values()];
+}
+function pullRequestContext(binding: ProviderBinding, signal: AbortSignal, mutation: boolean) {
+  const requireConnection = () => {
+    const github = configStore.current().github;
+    const connection = pullRequestConnection();
+    if (!github?.token || !connection || connection.connectionId !== binding.connectionId || connection.credentialHandle !== binding.credentialHandle) throw new Error('Pinned GitHub pull request connection is unavailable.');
+    return github;
+  };
+  const github = requireConnection();
+  return { signal, configuredAuthor: github.author, http: createPullRequestProviderHttp({
+    connection: { id: binding.connectionId!, credentialHandle: binding.credentialHandle!, origin: 'https://api.github.com', subject: github.author }, signal, mutation,
+    authorize: () => { requireConnection(); },
+    resolve: async () => {
+      const current = requireConnection();
+      return { id: binding.connectionId!, credentialHandle: binding.credentialHandle!, origin: 'https://api.github.com', subject: current.author,
+        headers: { Authorization: `Bearer ${current.token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' } };
+    },
+  }) };
+}
+function pullRequestReadContext(binding: ProviderBinding, signal: AbortSignal) {
+  const initial = configStore.current().github;
+  if (!initial?.token || typeof initial.author !== 'string' || !initial.author.trim()) throw pullRequestSelectionChanged();
+  const context = pullRequestContext(binding, signal, false);
+  return { context, assertCurrent() {
+    const current = configStore.current().github;
+    if (!samePullRequestBinding(binding, selectedPullRequestProvider()) || current?.token !== initial.token || current.author !== initial.author) throw pullRequestSelectionChanged();
+  } };
+}
+function assertPullRequestAdmission(): void {
+  const binding = selectedPullRequestProvider();
+  if (!binding) throw new Error('Selected pull request provider is unavailable.');
+  pullRequestRegistration(binding, 'admission');
+}
+const pullRequestProviderEffects = createPullRequestProviderEffects({
+  registry: backendPlugins.pullRequests,
+  selected: selectedPullRequestProvider,
+  artifacts: pullRequestArtifacts,
+  verifyArtifacts: verifyEffectArtifacts,
+  http: (binding, signal, mutation) => pullRequestContext(binding, signal, mutation).http,
+  authorize: async (binding, operation, context) => {
+    const live = operations.get(operation.id);
+    if (!live || live.contentHash !== operation.contentHash || live.generation !== context.generation || live.status !== 'leased'
+      || !live.leaseExpiresAt || Date.parse(live.leaseExpiresAt) <= Date.now()) return { allowed: false as const, reason: 'The pull request review operation lease is no longer current.' };
+    try { pullRequestContext(binding, new AbortController().signal, true); return { allowed: true as const }; }
+    catch (error) { return { allowed: false as const, reason: error instanceof Error ? error.message : 'Pinned GitHub pull request connection is unavailable.' }; }
+  },
+  assertAdmission: assertPullRequestAdmission,
+});
+const pullRequestInspect = createPullRequestInspectService({ repos: applicationRepos, provider: {
+  async detail(query, signal) {
+    const binding = selectedPullRequestProvider();
+    if (!binding) throw new Error('Selected pull request provider is unavailable.');
+    const read = pullRequestReadContext(binding, signal);
+    const result = await pullRequestRegistration(binding, 'admission').provider.detail(query, read.context);
+    read.assertCurrent(); return result;
+  },
+  async diff(query, signal) {
+    const binding = selectedPullRequestProvider();
+    if (!binding) throw new Error('Selected pull request provider is unavailable.');
+    const read = pullRequestReadContext(binding, signal);
+    const result = await pullRequestRegistration(binding, 'admission').provider.diff(query, read.context);
+    read.assertCurrent(); return result;
+  },
+} });
+const pullRequestRead = createPullRequestReadService({ repos: applicationRepos, async read(query, repos, signal) {
+  const binding = selectedPullRequestProvider();
+  if (!binding) throw new Error('Selected pull request provider is unavailable.');
+  const read = pullRequestReadContext(binding, signal);
+  const result = await pullRequestRegistration(binding, 'admission').provider.list({ query, repos }, read.context);
+  read.assertCurrent(); return result;
+} });
+const pullRequestCommands = createPullRequestCommandService({ persistence, operations, repos: applicationRepos,
+  authorize: caller => {
+    if (!pullRequestCommandContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden');
+  },
+  assertAdmission: assertPullRequestAdmission,
+  prepareReview: pullRequestProviderEffects.prepareReview,
+  resolve: pullRequestProviderEffects.resolve,
+});
 const runEffects = new Map<string, LegacyRunEffects>();
 function effectsFor(runId: string): LegacyRunEffects {
   const existing = runEffects.get(runId);
@@ -560,6 +668,7 @@ function drainEffects(): Promise<void> {
     await publicationService.drainPending();
     await slackEffects.drainPending();
     await manualReviewEffects.drainPending();
+    await pullRequestCommands.drainPending();
     await taskSourceRuntime.drain();
   })().catch(error => { process.stderr.write(`Operation recovery failed: ${String(error)}\n`); }).finally(() => { drainingEffects = null; });
   return drainingEffects;
@@ -997,6 +1106,7 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
   reconcileOperation: async id => {
     const operation = operations.get(id);
     if (operation?.kind === 'task-source.effect') { await dispatchOperation(operations, id, taskSourceRuntime.effects.resolve, { reconcile: operation.requiresReconciliation }); await taskSourceRuntime.drain(); return; }
+    if (operation?.origin.kind === 'public-pull-request-review') { await pullRequestCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'manual-review') { await manualReviewEffects.dispatch(id); return; }
     if (operation?.kind === 'slack.review-request') { await slackEffects.dispatch(id); return; }
     if (operation && ['git.push', 'github.pr-create', 'github.pr-edit'].includes(operation.kind)) {
@@ -1077,7 +1187,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
     }
-    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
+    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
       && (req.headers['content-type']?.split(';')[0] !== 'application/json'
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
       res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
@@ -1092,6 +1202,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,

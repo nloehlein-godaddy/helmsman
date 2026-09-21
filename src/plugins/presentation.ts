@@ -37,3 +37,29 @@ export function scopedPresentationLocatorV1(input: unknown, repo: string | null)
   if (locator && locator.kind !== 'legacy-run' && repo !== null && locator.repo !== parseTaskRepo(repo)) throw new TypeError('Presentation is outside the effective galleon scope.');
   return locator;
 }
+
+export interface PullRequestRouteV1 {
+  readonly version: 1;
+  readonly repo: string;
+  readonly number: number;
+  readonly mode: 'review' | 'rerun' | null;
+}
+
+export function parsePullRequestRouteV1(input: unknown): PullRequestRouteV1 | null {
+  if (input === null || input === undefined) return null;
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new TypeError('Invalid pull request route.');
+  for (const key of Reflect.ownKeys(input)) {
+    if (typeof key !== 'string' || !['version', 'repo', 'number', 'mode'].includes(key)
+      || !('value' in (Object.getOwnPropertyDescriptor(input, key) ?? {}))) throw new TypeError('Invalid pull request route.');
+  }
+  const value = input as Record<string, unknown>;
+  const locator = parsePresentationLocatorV1({ ...value, kind: 'pull-request' });
+  const mode = value.mode;
+  if (!locator || locator.kind !== 'pull-request' || mode !== null && mode !== 'review' && mode !== 'rerun') throw new TypeError('Invalid pull request route.');
+  return Object.freeze({ version: 1, repo: locator.repo, number: locator.number, mode });
+}
+
+export function samePullRequestRouteV1(a: PullRequestRouteV1 | null | undefined, b: PullRequestRouteV1 | null | undefined): boolean {
+  return a == null && b == null || !!a && !!b && a.version === b.version && a.repo === b.repo && a.number === b.number && a.mode === b.mode;
+}

@@ -43,7 +43,7 @@ Triage applies provider filters before pagination and preserves independent curs
 
 ## E4 foundation: run inspection and streamed downloads
 
-This flow describes the reviewed and pushed E4 foundation. Authored Runs/history/viewer packages use selected composition slots; Runs uses the shared auxiliary viewer and a temporary private PR panel.
+This flow describes the reviewed and pushed E4 foundation. Authored Runs/history/viewer packages use selected composition slots; Runs uses the shared auxiliary viewer and a public PR panel.
 
 ```mermaid
 flowchart TD
@@ -71,7 +71,7 @@ Log events remain run-wide because stored events have no reliable attempt proven
 
 ## E4 working slice: presentation and durable answers
 
-These flows describe the current integration work. Runs composes the authored history panel and temporary private PR panel; the shared viewer retains selected runs. The legacy PR drawer remains pending extraction. Clarification recovery is an independently buildable package under its original caller.
+These flows describe the current integration work. Runs composes the authored history panel and public PR panel; the shared viewer retains selected runs. The PR alias uses an authored composition and the same shared viewer. Clarification recovery is an independently buildable package under its original caller.
 
 ```mermaid
 flowchart TD
@@ -91,10 +91,10 @@ flowchart TD
     Move --> Transfer[Synchronous transfer retains active reads and requests]
     Auxiliary --> Hidden[Hidden or detached<br/>Abort scoped work; retain session]
     Hidden --> Visible[Visible again<br/>Resume from retained package state]
-    PR[Typed PR selection] --> LegacyPR[Legacy PR route]
-    LegacyPR --> PRSession[Shared private compatibility session<br/>Memory-only drafts and request IDs]
-    CanonicalPR[Canonical compatibility panel] --> PRSession
-    PRSession --> Interests[Independent read interests<br/>Last reader cancels provider work]
+    PR[Typed PR selection] --> PRPage[Selected public PR composition]
+    PRPage --> CanonicalPR[Independent public PR panel]
+    CanonicalPR --> PRState[Caller-scoped drafts and durable command journal]
+    CanonicalPR --> Interests[Public inspection and selected provider<br/>Last reader cancels provider work]
 ```
 
 ```mermaid
@@ -138,7 +138,7 @@ Answer acceptance does not prove worker consumption. Contacts are global metadat
 
 ## Clarification alias and PR inspection
 
-The clarification alias selects an authored composition; retained compatibility evidence stays under its original identity. PR inspection is a public read facet while private review and Slack actions remain in the compatibility session.
+The clarification alias selects an authored composition; retained compatibility evidence stays under its original identity. PR presentation, inspection and durable review commands use public contracts and a selected backend provider. Optional Slack review controls remain in a narrow Config surface until Slack extraction.
 
 ```mermaid
 flowchart TD
@@ -159,7 +159,28 @@ flowchart TD
     Last[Last reader leaves or deadline expires] --> Cancel[Abort provider work and release capacity]
 ```
 
-A complete file enumeration never claims complete patches. The private PR session preserves drafts and pending request IDs only within the current browser session. Disabling its canonical contribution does not disable the still-legacy PR route. See [PR inspection](pull-request-inspect-authoring.md) and [authored clarification recovery](authored-clarifications.md).
+A complete file enumeration never claims complete patches. The public PR package stores drafts and results under its mounted contribution identity. Its command journal reserves exact requests before transport; durable operations retain provider bindings across uncertainty and restart. Disabling the selected PR contribution makes the alias unavailable without restoring a legacy page. See [PR inspection](pull-request-inspect-authoring.md) and [authored clarification recovery](authored-clarifications.md).
+
+## PR review publication
+
+```mermaid
+flowchart TD
+    Alias[PR alias or Runs composition] --> Panel[Independent public PR panel]
+    Panel --> Scope[Explicit PR scope; header unchanged]
+    Scope --> Inspect[Selected GitHub provider; exact head]
+    Inspect --> Journal[Caller-scoped draft and reserved request ID]
+    Journal --> Prepare[Read authenticated actor; pin provider and connection]
+    Prepare --> Durable[Commit operation before external mutation]
+    Durable --> Publish[Authorize current operation; publish once]
+    Publish --> Proven{Exact actor, head and review receipt?}
+    Proven -->|Yes| Save[Save terminal result then acknowledge browser journal]
+    Proven -->|Uncertain| Retain[Keep original ID and input for receipt check or retry]
+    Retain --> Durable
+    Durable --> Recovery[Core Recovery; retained provider obligation]
+    Panel --> Slack[Optional Slack request opens Config<br/>No automatic send]
+```
+
+See [PR authoring](pull-request-authoring.md) for public commands, replacement selection and the temporary Slack boundary.
 
 ## Conditional panel-state saves
 

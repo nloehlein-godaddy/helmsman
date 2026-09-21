@@ -1,12 +1,12 @@
 import type { PluginPageServices } from './services';
-import type { PresentationLocatorV1 } from './presentation';
+import type { PresentationLocatorV1, PullRequestRouteV1 } from './presentation';
 export * from './presentation';
 import type { CompositionServiceV1, PageCompositionDefinitionV1, PanelOpaqueStateV1, PluginPanelDefinition, PluginServiceRequirementV1 } from './composition';
 export * from './composition';
 export type { PluginPageServices } from './services';
 export type { AssessmentInput, OutcomeAssessment, OutcomeSummary, OutcomeRun, OutcomeDay, OutcomeWindow } from './outcomes';
 export type { UsageQuery, UsageSnapshot, UsageRun, UsageTotals, ProviderUsage, UsageCostEstimate, PricingEstimate } from './usage';
-export type { PluginBackendModule, PluginBackendContext, PluginBackendDefinition, PluginSetting, PluginStorage, PluginJson, PricingProvider, TaskSourceDeclaration } from './backend';
+export type { PluginBackendModule, PluginBackendContext, PluginBackendDefinition, PluginSetting, PluginStorage, PluginJson, PricingProvider, TaskSourceDeclaration, PullRequestDeclaration } from './backend';
 export * from './tasks';
 export * from './task-read';
 export * from './task-views';
@@ -23,6 +23,8 @@ export * from './clarification-command';
 export * from './suggested-contact-admin';
 export * from './pull-request-read';
 export * from './pull-request-inspect';
+export * from './pull-request-command';
+export * from './pull-request-provider';
 export * from './activity-read';
 export * from './run-command';
 
@@ -70,6 +72,7 @@ export interface PageResolution {
 }
 
 export interface PluginPageState {
+  readonly pullRequest?: PullRequestRouteV1 | null;
   readonly presentation?: PresentationLocatorV1 | null;
   readonly repo: string | null;
   readonly themeId: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appPages, CLARIFICATIONS_PAGE_ID, CLARIFICATIONS_PAGE_SLOT, clarificationsManifest, compatibilityClarificationsManifest, RUNS_PAGE_ID, RUNS_PAGE_SLOT, runsManifest } from '../plugins/builtins';
+import { appPages, CLARIFICATIONS_PAGE_ID, CLARIFICATIONS_PAGE_SLOT, clarificationsManifest, compatibilityClarificationsManifest, RUNS_PAGE_ID, RUNS_PAGE_SLOT, runsManifest, PR_PAGE_ID, PR_PAGE_SLOT, compatibilityPrManifest } from '../plugins/builtins';
 import { parseRoute, routeHref, type AppRoute, type PageView } from './routes';
 
 const parse = (href: string) => parseRoute(new URL(href, 'https://helmsman.example'));
@@ -33,7 +33,7 @@ describe('routes', () => {
 
   it.each([
     ['/', 'plugin'], ['/helm', 'plugin'], ['/triage', 'plugin'],
-    ['/terminal', 'cmux'], ['/terminal/', 'cmux'], ['/cmux', 'cmux'], ['/bugs', 'plugin'], ['/prs', 'prs'], ['/pr', 'prs'],
+    ['/terminal', 'cmux'], ['/terminal/', 'cmux'], ['/cmux', 'cmux'], ['/bugs', 'plugin'], ['/prs', 'plugin'], ['/pr', 'plugin'],
     ['/config', 'config'], ['/runs', 'plugin'], ['/runs/', 'plugin'], ['/unknown', 'dashboard'],
     ['/todos', 'plugin'], ['/todos/', 'plugin'],
   ])('resolves %s to %s', (path, view) => {
@@ -68,7 +68,8 @@ describe('routes', () => {
   it('retains legacy PR links without adding an implicit override', () => {
     const route = parse('/pr?repo=owner/legacy&pr=42');
     expect(route).toMatchObject({ repo: 'owner/legacy', prRepo: null, pr: 42 });
-    expect(routeHref(route)).toBe('/prs?repo=owner%2Flegacy&pr=42');
+    expect(routeHref(route)).toMatch(/^\/prs\?repo=owner%2Flegacy&pr=42&panelState=/);
+    expect(parse(routeHref(route))).toEqual(route);
   });
 
   it.each(['', 'bad repo', 'owner/..', 'owner/repo/extra'])('does not reinterpret an invalid explicit PR override as the header repository: %j', prRepo => {
@@ -157,15 +158,15 @@ describe('routes', () => {
   it('serializes canonical paths and encoded parameters', () => {
     expect(routeHref({ view: 'dashboard' })).toBe('/helm');
     expect(routeHref({ view: 'prs', repo: 'owner/my.repo', pane: 'diff', pr: 42 }))
-      .toBe('/prs?repo=owner%2Fmy.repo&pane=diff&pr=42');
+      .toMatch(/^\/prs\?repo=owner%2Fmy.repo&pane=diff&pr=42&panelState=/);
     expect(routeHref({ view: 'cmux', surface: 'surface:15' })).toBe('/terminal?surface=surface%3A15');
     expect(routeHref(parse('/cmux?repo=owner/repo&pane=screen&surface=surface:15')))
       .toBe('/terminal?repo=owner%2Frepo&pane=screen&surface=surface%3A15');
-    expect(routeHref(parse('/pr?repo=owner/repo&pr=42'))).toBe('/prs?repo=owner%2Frepo&pr=42');
+    expect(routeHref(parse('/pr?repo=owner/repo&pr=42'))).toMatch(/^\/prs\?repo=owner%2Frepo&pr=42&panelState=/);
   });
 
   it('omits invalid, null, and unspecified parameters when serializing', () => {
-    expect(routeHref({ view: 'prs', repo: 'bad repo', pr: 42, pane: 'recent', run: null }))
+    expect(routeHref({ view: 'prs', repo: 'bad repo', pr: 42, pane: 'invalid', run: null }))
       .toBe('/prs');
     expect(routeHref({ view: 'runs', pr: -1, ticket: 'foo-42' })).toBe('/runs?ticket=FOO-42');
   });
@@ -279,5 +280,35 @@ describe('authored Runs alias', () => {
       expect(parse('/runs')).toMatchObject({ view: 'plugin', pluginPage: 'example.runs/page' });
       expect(appPages.resolvePath('/runs')?.page).toBeNull();
     } finally { appPages.select(RUNS_PAGE_SLOT, null); removeReplacement(); cleanup(); }
+  });
+});
+
+
+describe('authored PR alias', () => {
+  it.each(['/prs', '/pr'])('retains explicit header, PR, viewer and pane identities at %s', path => {
+    const route = parse(`${path}?repo=org/header&prRepo=org/target&pr=42&mode=rerun&pane=diff&run=run-1&runRepo=org/run`);
+    expect(route).toMatchObject({ view: 'plugin', pluginPage: PR_PAGE_ID, pluginSlot: PR_PAGE_SLOT,
+      repo: 'org/header', prRepo: 'org/target', pr: 42, mode: 'rerun', pane: 'diff', run: 'run-1', runRepo: 'org/run',
+      panelInstance: 'pull-request', panelContribution: 'helmsman.compat-pr/panel' });
+    expect(JSON.parse(route.panelState!)).toEqual({ 'helmsman.compat-pr/panel': { version: 1, value: { target: { repo: 'org/target', number: 42 }, mode: 'rerun' } } });
+    expect(parse(routeHref(route))).toEqual(route);
+  });
+  it('preserves explicit instances and a missing selected replacement', () => {
+    const cleanup = appPages.register(compatibilityPrManifest);
+    try {
+      const direct = parse(`/plugins/${PR_PAGE_ID}?prRepo=org/target&pr=42&panel=custom`);
+      expect(direct.panelInstance).toBe('custom'); expect(direct.panelContribution).toBeUndefined();
+      expect(parse(routeHref(direct))).toEqual(direct);
+      appPages.select(PR_PAGE_SLOT, 'example.missing/page');
+      expect(parse('/pr?pane=lookup')).toMatchObject({ view: 'plugin', pluginPage: 'example.missing/page', pane: 'lookup', panelContribution: 'helmsman.compat-pr/panel' });
+      expect(appPages.resolvePath('/prs')?.page).toBeNull();
+    } finally { appPages.select(PR_PAGE_SLOT, null); cleanup(); }
+  });
+  it('isolates the temporary Slack settings target from header and PR scopes', () => {
+    const route = parse('/config?repo=org/header&slackPrRepo=org/target&slackPr=42');
+    expect(route).toMatchObject({ view: 'config', repo: 'org/header', slackPrRepo: 'org/target', slackPr: 42, pr: null, prRepo: null });
+    expect(parse(routeHref(route))).toEqual(route);
+    expect(parse('/config?repo=org/header&slackPrRepo=org/..&slackPr=42').slackPr).toBeUndefined();
+    expect(parse('/prs?slackPrRepo=org/target&slackPr=42').slackPr).toBeUndefined();
   });
 });

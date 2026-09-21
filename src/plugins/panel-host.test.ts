@@ -114,3 +114,10 @@ describe('panel lifecycle', () => {
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 });
+
+it('provides immutable mounted contribution identity independently of instance or header state', async () => {
+  const { host, context } = setup(undefined, { contributionId: 'example.pr/panel' }); await settle();
+  expect(context.contributionId).toBe('example.pr/panel'); expect(Object.isFrozen(context)).toBe(true);
+  host.update(state({ repo: 'org/second', visible: false })); await settle();
+  expect(context.contributionId).toBe('example.pr/panel');
+});

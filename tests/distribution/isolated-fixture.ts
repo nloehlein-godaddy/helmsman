@@ -139,12 +139,15 @@ export default page;
     await cli('select', 'helmsman/costs-page', contribution);
     return JSON.parse(await cli('list')) as { plugins: { id: string; hash: string; enabled: boolean }[] };
   }
-  async function installAuthorPackage(relative: string, replacementId?: string) {
+  async function installAuthorPackage(relative: string, replacementId?: string, options: { buildScript?: boolean } = {}) {
     const author = join(root, `author-${relative.replaceAll('/', '-')}`);
     await cp(join(app, relative), author, { recursive: true });
     await cp(join(app, 'sdk'), join(author, 'node_modules/@helmsman/plugin-sdk'), { recursive: true });
-    const output = join(author, 'compiled');
-    await run(process.execPath, [await compiler(), '-p', author, '--outDir', output], author, env);
+    const output = join(author, options.buildScript ? 'dist' : 'compiled');
+    if (options.buildScript) {
+      await cp(dirname(dirname(await compiler())), join(author, 'node_modules/typescript'), { recursive: true });
+      await run(process.execPath, [join(author, 'build.mjs')], author, env);
+    } else await run(process.execPath, [await compiler(), '-p', author, '--outDir', output], author, env);
     await cp(join(author, 'plugin-package.json'), join(output, 'plugin-package.json'));
     const descriptor = JSON.parse(await readFile(join(author, 'plugin-package.json'), 'utf8'));
     if (replacementId) {

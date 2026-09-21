@@ -1,4 +1,4 @@
-import { parsePresentationLocatorV1, samePresentationLocatorV1, scopedPresentationLocatorV1, type PresentationLocatorV1 } from './presentation';
+import { parsePullRequestRouteV1, samePullRequestRouteV1, parsePresentationLocatorV1, samePresentationLocatorV1, scopedPresentationLocatorV1, type PresentationLocatorV1 } from './presentation';
 import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from './sdk';
 import { createHostPageServices } from './host-services';
 import type { PluginCompositionHost } from './composition-host';
@@ -31,7 +31,7 @@ export interface PluginPageHostOptions {
 
 const sameState = (a: PluginPageState, b: PluginPageState) => a.repo === b.repo && a.themeId === b.themeId
   && a.pirateMode === b.pirateMode && a.visible === b.visible && a.pane === b.pane && a.panelInstance === b.panelInstance
-  && a.panelContribution === b.panelContribution && samePresentationLocatorV1(a.presentation, b.presentation)
+  && a.panelContribution === b.panelContribution && samePresentationLocatorV1(a.presentation, b.presentation) && samePullRequestRouteV1(a.pullRequest, b.pullRequest)
   && JSON.stringify(a.panelRouteState ?? {}) === JSON.stringify(b.panelRouteState ?? {});
 
 function validInstance(value: unknown): value is PluginPageInstance {
@@ -64,7 +64,7 @@ export class PluginPageHost {
           if (!state.visible) current.activityController.abort();
         }
         if (current.state.repo !== state.repo) this.loading();
-        current.state = Object.freeze({ ...state, ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }) });
+        current.state = Object.freeze({ ...state, ...(state.pullRequest === undefined ? {} : { pullRequest: parsePullRequestRouteV1(state.pullRequest) }), ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }) });
         current.composition?.update(current.state);
         ++current.revision;
         void this.update(current);
@@ -74,7 +74,7 @@ export class PluginPageHost {
     this.clear();
     const session: PageSession = {
       id, module, element: document.createElement('div'), controller: new AbortController(), cleanups: new Set(),
-      instance: null, state: Object.freeze({ ...state, ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }) }), revision: 0, applied: 0,
+      instance: null, state: Object.freeze({ ...state, ...(state.pullRequest === undefined ? {} : { pullRequest: parsePullRequestRouteV1(state.pullRequest) }), ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }) }), revision: 0, applied: 0,
       mounting: Promise.resolve(), updating: null, refreshing: null,
       composition: null,
       activityController: new AbortController(), activityEpoch: 0,

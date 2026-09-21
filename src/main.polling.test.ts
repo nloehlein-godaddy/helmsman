@@ -56,18 +56,18 @@ afterEach(() => {
 });
 
 describe('view-aware polling', () => {
-  it('refreshes local status every 30 seconds and GitHub data only every five minutes', async () => {
+  it('refreshes local status every 30 seconds without legacy PR or dashboard reads', async () => {
     const { count } = await setup();
-    expect(count('/api/dashboard')).toBe(1);
-    expect(count('/api/pr/review-requests')).toBe(1);
+    expect(count('/api/dashboard')).toBe(0);
+    expect(count('/api/pr/review-requests')).toBe(0);
     await vi.advanceTimersByTimeAsync(POLL_MS - LOCAL_POLL_MS);
-    expect(count('/api/dashboard')).toBe(1);
-    expect(count('/api/pr/review-requests')).toBe(1);
+    expect(count('/api/dashboard')).toBe(0);
+    expect(count('/api/pr/review-requests')).toBe(0);
     expect(count('/api/agents')).toBe(10);
     expect(count('/api/config')).toBe(1);
     await vi.advanceTimersByTimeAsync(LOCAL_POLL_MS);
-    expect(count('/api/dashboard')).toBe(2);
-    expect(count('/api/pr/review-requests')).toBe(2);
+    expect(count('/api/dashboard')).toBe(0);
+    expect(count('/api/pr/review-requests')).toBe(0);
   });
 
   it('updates shared run counts on Helm without refetching legacy GitHub data', async () => {
@@ -85,16 +85,16 @@ describe('view-aware polling', () => {
     const { count } = await setup();
     visible(false);
     await vi.advanceTimersByTimeAsync(POLL_MS * 2);
-    expect(count('/api/dashboard')).toBe(1);
+    expect(count('/api/dashboard')).toBe(0);
     expect(count('/api/agents')).toBe(1);
     visible(true);
     await vi.advanceTimersByTimeAsync(0);
-    expect(count('/api/dashboard')).toBe(2);
+    expect(count('/api/dashboard')).toBe(0);
     expect(count('/api/agents')).toBe(2);
     visible(false);
     visible(true);
     await vi.advanceTimersByTimeAsync(0);
-    expect(count('/api/dashboard')).toBe(2);
+    expect(count('/api/dashboard')).toBe(0);
     expect(count('/api/agents')).toBe(2);
   });
 
@@ -114,32 +114,6 @@ describe('view-aware polling', () => {
     expect(count('/api/context')).toBeGreaterThan(2);
   });
 
-  it('loads the authored PR inbox when leaving a metadata-only Config bootstrap', async () => {
-    const { root, count } = await setup('/config?repo=org/a');
-    expect(count('/api/dashboard')).toBe(0);
-    expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/a');
-    root.querySelector<HTMLAnchorElement>('[data-view="prs"]')!.click();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(count('/api/dashboard')).toBe(1);
-    expect(count('/api/pr/review-requests')).toBe(1);
-    expect(root.querySelector('[data-page="prs"]')).not.toBeNull();
-  });
-
-  it('fetches the authored PR inbox after navigating during a local Config refresh', async () => {
-    const { root, count, fetcher } = await setup('/config?repo=org/a');
-    const original = fetcher.getMockImplementation()!;
-    let resolve!: (response: Response) => void;
-    const pending = new Promise<Response>(done => { resolve = done; });
-    fetcher.mockImplementation(async input => String(input).startsWith('/api/agents') ? pending : original(input));
-    const refresh = view!.refresh();
-    root.querySelector<HTMLAnchorElement>('[data-view="prs"]')!.click();
-    resolve(json({ runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } }));
-    await refresh;
-    await vi.advanceTimersByTimeAsync(0);
-    expect(count('/api/dashboard')).toBe(1);
-    expect(root.querySelector('[data-page="prs"]')).not.toBeNull();
-  });
-
   it('keeps core pages usable without a legacy dashboard fallback if context is unavailable', async () => {
     const { root, count } = await setup('/runs?repo=org/a', [], false);
     expect(count('/api/context')).toBe(2);
@@ -147,38 +121,6 @@ describe('view-aware polling', () => {
     expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/a');
     await vi.advanceTimersByTimeAsync(POLL_MS * 2);
     expect(count('/api/dashboard')).toBe(0);
-  });
-
-  it('loads relevant lists on navigation without refetching fresh dashboard data', async () => {
-    const { root, count } = await setup('/config');
-    root.querySelector<HTMLAnchorElement>('[data-view="prs"]')!.click();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(count('/api/pr/review-requests')).toBe(1);
-    expect(count('/api/dashboard')).toBe(1);
-    root.querySelector<HTMLAnchorElement>('[data-view="config"]')!.click();
-    await vi.advanceTimersByTimeAsync(0);
-    root.querySelector<HTMLAnchorElement>('[data-view="prs"]')!.click();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(count('/api/pr/review-requests')).toBe(1);
-    await vi.advanceTimersByTimeAsync(POLL_MS);
-    expect(count('/api/pr/review-requests')).toBe(2);
-    expect(count('/api/dashboard')).toBe(2);
-  });
-
-  it('loads the destination view when navigation shares a pending list refresh', async () => {
-    const { root, fetcher, count } = await setup();
-    const original = fetcher.getMockImplementation()!;
-    let resolve!: (response: Response) => void;
-    const pending = new Promise<Response>(done => { resolve = done; });
-    fetcher.mockImplementation(async input => String(input).startsWith('/api/pr/review-requests') ? pending : original(input));
-    const refresh = view!.refresh();
-    await vi.advanceTimersByTimeAsync(0);
-    root.querySelector<HTMLAnchorElement>('[data-view="runs"]')!.click();
-    resolve(json({ prs: [], degraded: false, truncated: false }));
-    await refresh;
-    await vi.advanceTimersByTimeAsync(0);
-    expect(root.querySelector('[data-page="plugin"]')).not.toBeNull();
-    expect(count('/api/pr/review-requests')).toBe(1);
   });
 
   it('shares in-flight refreshes and disposes the recurring timer', async () => {

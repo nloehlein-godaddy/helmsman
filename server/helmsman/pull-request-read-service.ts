@@ -1,12 +1,18 @@
 import { parseTaskRepo } from '../../src/plugins/tasks';
 import { parsePullRequestReadItemV1, parsePullRequestReadPageV1, parsePullRequestReadQueryV1, PULL_REQUEST_READ_LIMITS } from '../../src/plugins/pull-request-read';
-import type { PullRequestReadItemV1, PullRequestReadPageV1, PullRequestReadQualityV1, PullRequestReadQueryV1 } from '../../src/plugins/pull-request-read';
+import type { PullRequestReadItemV1, PullRequestReadPageV1, PullRequestReadQueryV1 } from '../../src/plugins/pull-request-read';
+import type { PullRequestProviderBatchV1 } from '../../src/plugins/pull-request-provider';
 
-export interface PullRequestProviderBatch { readonly items: readonly PullRequestReadItemV1[]; readonly quality: PullRequestReadQualityV1; readonly truncated: boolean; readonly browseUrl: string | null; }
+export type PullRequestProviderBatch = PullRequestProviderBatchV1;
 export interface PullRequestReadServerService { list(query: PullRequestReadQueryV1, signal?: AbortSignal): Promise<PullRequestReadPageV1>; }
 export class PullRequestReadError extends Error {
   readonly status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
+}
+function providerError(error: unknown): PullRequestReadError | null {
+  const reason = error && typeof error === 'object' && 'reason' in error ? (error as { reason?: unknown }).reason : null;
+  if (reason === 'selection-changed') return new PullRequestReadError(409, reason);
+  return null;
 }
 function record(value: unknown): Record<string, unknown> | null { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function count(value: unknown): number | null { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null; }
@@ -81,7 +87,11 @@ export function createPullRequestReadService(options: {
     const timeout = AbortSignal.timeout(timeoutMs); const signal = caller ? AbortSignal.any([caller, timeout]) : timeout;
     let batch: PullRequestProviderBatch;
     try { batch = await abortable(pending, signal); }
-    catch { caller?.throwIfAborted(); throw new PullRequestReadError(503, 'Pull request provider unavailable'); }
+    catch (error) {
+      caller?.throwIfAborted();
+      const mapped = providerError(error); if (mapped) throw mapped;
+      throw new PullRequestReadError(503, 'Pull request provider unavailable');
+    }
     caller?.throwIfAborted();
     if (JSON.stringify(scope(query.repo)) !== scopeKey) throw new PullRequestReadError(409, 'Pull request scope changed');
     if (!batch || !Array.isArray(batch.items) || batch.items.length > 300) throw new PullRequestReadError(503, 'Invalid pull request provider response');

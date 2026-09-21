@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { renderAppShell, renderConfigView, renderHelmHead, renderVoyage, runTabStatus } from './render';
+import { renderAppShell, renderConfigView, renderHelmHead } from './render';
 import { DEFAULT_THEME_ID } from './data/themes';
 import { setPirateMode } from './logic/terminology';
 
@@ -25,15 +25,6 @@ describe('pirate interface wording', () => {
     expect(element.querySelector('.helm-readout')?.getAttribute('aria-label')).toBe(enabled ? 'Fleet status' : 'System status');
     expect(element.querySelector('[data-readout-label="review"]')?.textContent).toBe(enabled ? 'inspection' : 'review');
     expect(element.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/agent-review');
-  });
-
-  it.each([true, false])('preserves user titles, repository IDs and machine status with mode=%s', enabled => {
-    setPirateMode(enabled);
-    const element = mount(renderVoyage({ id: 'review-agent', ticketId: 'Review PR tokens voyage', repo: 'org/agent-review', status: 'failed', attempt: 1, prNumber: null, startedAt: '', costUsd: null }));
-    expect(element.querySelector('.ticket-id')?.textContent).toBe('Review PR tokens voyage');
-    expect(element.querySelector('.agent-repo')?.getAttribute('title')).toBe('org/agent-review');
-    expect(element.querySelector('[data-retry-run-id]')?.getAttribute('data-retry-run-id')).toBe('review-agent');
-    expect(runTabStatus('failed')).toEqual({ kind: 'failed', label: enabled ? 'Marooned' : 'Failed' });
   });
 
   it.each([true, false])('reflects mode=%s in the footer and keeps the Appearance reference and browser setup literal', enabled => {

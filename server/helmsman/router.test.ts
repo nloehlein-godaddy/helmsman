@@ -646,6 +646,13 @@ describe('GET /api/pr', () => {
 });
 
 describe('POST /api/pr/review', () => {
+  it('closes legacy admission when public review commands own publication', async () => {
+    const submitReview = vi.fn();
+    const response = await handleApi('POST', '/api/pr/review', new URLSearchParams(),
+      { repo: 'o/r', number: 5, event: 'APPROVE', body: '' },
+      { ...deps, submitReview, pullRequestCommands: {} } as unknown as RouterDeps);
+    expect(response?.status).toBe(410); expect(submitReview).not.toHaveBeenCalled();
+  });
   it('submits an approve review and returns ok', async () => {
     const submitReview = vi.fn(async (_repo: string, _n: number, _event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', _body: string) => ({ ok: true as const }));
     const reviewDeps = { ...deps, submitReview } as unknown as RouterDeps;

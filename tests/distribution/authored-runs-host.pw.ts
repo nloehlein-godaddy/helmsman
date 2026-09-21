@@ -44,18 +44,21 @@ async function navigate(page: Page, path: string) {
   await page.evaluate(path => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, path);
 }
 
-test('copied Runs page preserves legacy PR scope, drafts and request identities and reuses the shared viewer', async ({ page }, testInfo) => {
+test('copied Runs page preserves public PR scope, drafts and command identity and reuses the shared viewer', async ({ page }, testInfo) => {
   test.setTimeout(150_000);
   const host = await fixture({ distribution: process.env.HELMSMAN_AUTHORED_RUNS_DISTRIBUTION }); host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  const reviews: Record<string, unknown>[] = []; const slacks: Record<string, unknown>[] = []; const otherMutations: string[] = []; const legacyStreams: string[] = [];
+  const reviews: Record<string, unknown>[] = []; const otherMutations: string[] = []; const legacyStreams: string[] = [];
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
-    if (request.method() === 'POST' && !['/api/pr/review', '/api/slack/review-request'].includes(path)) otherMutations.push(path);
+    if (request.method() === 'POST' && path !== '/api/pull-request-command') otherMutations.push(path);
     if (/^\/api\/agents\/[^/]+\/log$/.test(path)) legacyStreams.push(path);
   });
-  const status = { repo: 'org/b', number: 42, headSha: 'head-42', state: 'open', title: 'Runs compatibility target', isOwnPr: true, draft: false, merged: false,
-    headRefName: 'topic', reviewDecision: '', comments: 0, checks: { passed: 1, failed: 0, pending: 0 }, url: 'https://github.com/org/b/pull/42' };
+  const target = { repo: 'org/b', number: 42, headSha: 'a'.repeat(40), baseSha: 'b'.repeat(40) };
+  const status = { version: 1, target, observedAt: '2026-09-20T12:00:00Z', title: 'Runs public target', url: 'https://github.com/org/b/pull/42',
+    status: 'open', draft: false, authorLogin: 'writer', isOwnPr: true, headRefName: 'topic', updatedAt: '2026-09-20T12:00:00Z', comments: 0,
+    checks: { quality: 'complete', passed: 1, failed: 0, pending: 0 },
+    reviews: { quality: 'complete', approved: 0, changesRequested: 0, commented: 0, requested: 0, viewerReview: null, viewerReviewedAt: null, viewerReviewedCommitId: null } };
   try {
     await expect(host.script('deny-runs-source.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/runs/page.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
     const descriptor = await host.installAuthorPackage('plugin-sources/runs', packageId);
@@ -68,29 +71,38 @@ test('copied Runs page preserves legacy PR scope, drafts and request identities 
         for(let index=0;index<350;index++) db.appendEvent('runs-proof','log','Authored Runs retained log '+index,'2026-09-20T12:00:00.000Z');
       } finally {db.close();}`);
     const origin = await host.start();
-    await page.route('**/api/pr?*', route => route.fulfill({ json: status }));
-    await page.route('**/api/pr/diff?*', route => route.fulfill({ json: { files: [] } }));
-    await page.route('**/api/pr/review', async route => { reviews.push(route.request().postDataJSON()); await route.abort('failed'); });
-    await page.route('**/api/slack/review-request', async route => { slacks.push(route.request().postDataJSON()); await route.abort('failed'); });
+    await page.route('**/api/pull-request-inspect/detail?*', route => route.fulfill({ json: status }));
+    await page.route('**/api/pull-request-inspect/diff?*', route => route.fulfill({ json: { version: 1, target, observedAt: status.observedAt, coverage: 'immutable-comparison-preview', quality: 'complete', truncated: false, files: [] } }));
+    await page.route('**/api/pull-request-command', async route => { reviews.push(route.request().postDataJSON().command); await route.abort('failed'); });
     await page.route('**/api/config', route => route.request().method() === 'GET' ? route.fulfill({ json: { config: { SLACK_ENABLED: 'true' }, overridden: [] } }) : route.continue());
     await page.goto(`${origin}/prs?repo=org/a&prRepo=org/b&pr=42`);
-    const legacy = page.locator('.pr-lookup-result');
-    await legacy.locator('.pr-review-body').fill('Review draft retained on authored Runs');
-    await legacy.locator('.pr-rerun-feedback').fill('Feedback retained on authored Runs');
-    await legacy.locator('.pr-comment').click(); await expect(legacy.locator('.pr-review-error')).toBeVisible();
-    await legacy.locator('[data-slack-review-request]').click(); await expect(legacy.locator('.slack-review-result')).not.toBeEmpty();
+    const initialPr = page.locator('.pr-lookup-result');
+    await initialPr.locator('.pr-review-body').fill('Review draft retained on authored Runs');
+    await initialPr.locator('.pr-rerun-feedback').fill('Feedback retained on authored Runs');
+    await initialPr.locator('.pr-comment').click(); await expect(page.locator('[data-pending-kind="review"][data-retry="true"]')).toBeVisible();
     const targetPath = '/runs?repo=org/a&prRepo=org/b&pr=42&pane=newrun&mode=rerun';
     await navigate(page, targetPath);
     const runs = page.locator(`[data-plugin-page="${pageId}"]`); const pr = runs.locator('.pr-panel[data-pr-repo="org/b"][data-pr-number="42"]');
     await expect(runs).toBeVisible(); await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await expect(pr.locator('.pr-rerun-feedback')).toHaveValue('Feedback retained on authored Runs'); await expect(pr.locator('.pr-rerun-feedback')).toBeFocused();
     await expect(pr.locator('.pr-review-body')).toHaveValue('Review draft retained on authored Runs');
-    expect(reviews).toHaveLength(1); expect(slacks).toHaveLength(1); expect(otherMutations).toEqual([]);
-    await pr.locator('.pr-comment').click(); await expect.poll(() => reviews.length).toBe(2);
-    await pr.locator('[data-slack-review-request]').click(); await expect.poll(() => slacks.length).toBe(2);
-    expect(reviews[1]?.requestId).toBe(reviews[0]?.requestId); expect(slacks[1]?.requestId).toBe(slacks[0]?.requestId);
+    expect(reviews).toHaveLength(1); expect(otherMutations).toEqual([]);
+    await runs.locator('[data-pending-kind="review"][data-retry="true"]').click(); await expect.poll(() => reviews.length).toBe(2);
+    expect(reviews[1]).toEqual(reviews[0]); expect(reviews[1]?.expectedHeadSha).toBe(target.headSha);
+    await pr.getByRole('link', { name: 'Open review setup ↗', exact: true }).click();
+    await expect(pr.locator('.pr-review-agent')).toBeDisabled();
+    await page.reload(); await expect(pr).toBeVisible(); await expect(pr.locator('.pr-review-agent')).toBeDisabled();
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    const { requestId, ...input } = reviews[0]!;
+    await page.route('**/api/pull-request-command/receipts/*?*', route => route.fulfill({ json: {
+      version: 1, requestId, input, status: 'succeeded', reason: null,
+      result: { repo: target.repo, number: target.number, headSha: target.headSha, actor: 'reviewer', reviewId: 101 },
+    } }));
+    await runs.locator('[data-pending-kind="review"]:not([data-retry])').click();
+    await expect(pr.locator('.pr-review-agent')).toBeEnabled();
+    await navigate(page, targetPath);
     await pr.getByRole('link', { name: 'Open review setup ↗', exact: true }).click(); await expect(pr.locator('.pr-review-agent')).toBeFocused();
-    await page.reload(); await expect(pr).toBeVisible(); await expect(pr.locator('.pr-review-agent')).toBeFocused(); await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await page.reload(); await expect(pr).toBeVisible(); await expect(pr.locator('.pr-review-agent')).toBeFocused();
     expect((await layout(page)).instances.map(instance => instance.contributionId)).toEqual(['helmsman.compat-pr/panel', 'helmsman.run-history/panel']);
     const historyPanel = runs.locator('section.plugin-run-history');
     await expect(historyPanel.getByRole('button', { name: 'TASK-1', exact: true })).toBeVisible();
@@ -110,7 +122,7 @@ test('copied Runs page preserves legacy PR scope, drafts and request identities 
     await page.setViewportSize({ width: 390, height: 844 }); await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await runs.getByRole('heading', { name: 'Voyages', exact: true }).scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath('authored-runs-mobile.png') });
     await viewer.locator('.run-log').scrollIntoViewIfNeeded(); await expect(viewer.locator('.run-log')).toBeInViewport(); await page.screenshot({ path: testInfo.outputPath('authored-runs-mobile-viewer.png') });
-    expect(reviews).toHaveLength(2); expect(slacks).toHaveLength(2); expect(otherMutations).toEqual([]); expect(legacyStreams).toEqual([]); expect(errors).toEqual([]);
+    expect(reviews).toHaveLength(2); expect(otherMutations).toEqual([]); expect(legacyStreams).toEqual([]); expect(errors).toEqual([]);
     expect(host.output()).not.toContain('Source checkout is unavailable');
   } finally { await host.close(); }
 });

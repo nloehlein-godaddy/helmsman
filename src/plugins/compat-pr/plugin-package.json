@@ -1,0 +1,102 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.compat-pr",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Pull requests",
+        "slots": [
+          "helmsman/pr-compatibility-page"
+        ],
+        "panes": [
+          "review-requests",
+          "authored",
+          "recent",
+          "lookup",
+          "diff"
+        ],
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ],
+        "composition": {
+          "id": "helmsman/pr-compatibility-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/pull-request-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "pull-request",
+                "contributionId": "helmsman.compat-pr/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "pull-request"
+                  ],
+                  "activeInstanceId": "pull-request",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Pull requests",
+        "contract": {
+          "id": "helmsman/pull-request-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/pull-request-read",
+            "version": 1
+          },
+          {
+            "id": "helmsman/pull-request-inspect",
+            "version": 1
+          },
+          {
+            "id": "helmsman/pull-request-command",
+            "version": 1
+          },
+          {
+            "id": "helmsman/run-read",
+            "version": 1
+          },
+          {
+            "id": "helmsman/run-command",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "helmsman-pull-requests-source",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
+}

@@ -23,6 +23,10 @@ describe('PR inspection server authority and lifecycle', () => {
     const pending = f.service.detail(query); await vi.waitFor(() => expect(f.provider.detail).toHaveBeenCalled()); f.repos = [query.repo, 'other/project']; finish(detail);
     await expect(pending).rejects.toMatchObject({ reason: 'selection-changed' });
   });
+  it('preserves provider head-change outcomes for callers to refresh', async () => {
+    const f = fixture(); f.provider.detail.mockRejectedValue(Object.assign(new Error('head-changed'), { reason: 'head-changed' }));
+    await expect(f.service.detail(query)).rejects.toMatchObject({ status: 409, reason: 'head-changed' });
+  });
   it('shares identical concurrent reads without letting one cancelled caller abort another', async () => {
     const f = fixture(); let finish!: (value: typeof detail) => void; f.provider.detail.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const caller = new AbortController(); const first = f.service.detail(query, caller.signal); const rejected = expect(first).rejects.toMatchObject({ name: 'AbortError' }); const second = f.service.detail(query);

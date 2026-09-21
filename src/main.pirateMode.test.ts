@@ -46,31 +46,6 @@ const toggle = (enabled: boolean) => {
 
 describe('Pirate mode and greeting', () => {
 
-  it('preserves unsent PR lookup, review, feedback and tuning fields across mode changes', async () => {
-    window.history.replaceState(null, '', '/prs?repo=org/app&pr=42');
-    await start();
-    const values = [
-      ['.pr-lookup-input', 'org/other#88'], ['.pr-review-body', 'Unsent PR review\nKeep my wording.'],
-      ['.pr-rerun-feedback', 'Unsent agent feedback'], ['.pr-model', 'sonnet'], ['.pr-effort', 'high'],
-    ] as const;
-    for (const [selector, value] of values) {
-      const field = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
-      expect(field, selector).not.toBeNull();
-      field!.value = value;
-      field!.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    for (const enabled of [false, true]) {
-      toggle(enabled);
-      for (const [selector, value] of values) {
-        expect(document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector)?.value, selector).toBe(value);
-      }
-      expect(document.querySelector('.pr-panel')?.getAttribute('data-pr-number')).toBe('42');
-      expect(new URL(window.location.href).searchParams.get('pr')).toBe('42');
-      expect(document.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/app');
-    }
-    expect(vi.mocked(fetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
-  });
-
   it('defaults on, switches immediately, preserves unsaved settings and persists across reloads', async () => {
     await start();
     expect(document.querySelector<HTMLButtonElement>('button[data-pirate-mode]')?.getAttribute('aria-pressed')).toBe('true');

@@ -3,45 +3,26 @@ import { scopedPresentationLocatorV1, type PresentationLocatorV1 } from './plugi
 import { applyBootTerminology } from './logic/bootTerminology';
 import { term, setPirateMode, isPirateMode } from './logic/terminology';
 import { loadProfile } from './data/profile';
-import { copyText } from './logic/clipboard';
-import { RUN_LOG_PREVIEW_LIMIT } from './logic/runLog';
-import { appendHighlightedLog } from './logic/logHighlight';
 import { getContext } from './data/context';
 import { emptyLocalGit, fetchLocalGit, updateLocalGit, type LocalGitAction, type LocalGitState } from './data/localGit';
 import { renderLocalGit } from './renderLocalGit';
 import { fetchSlack, markSlackNotificationRead, unavailableSlack, type SlackState } from './data/slack';
 import { renderSlack } from './renderSlack';
-import { PrCompatibilitySession, bindPrCompatibilitySession, prTarget } from './pr-compatibility-session';
+import { SlackReviewSession } from './slack-review-session';
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
-import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUNS_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, PR_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUNS_PAGE_SLOT } from './plugins/builtins';
 import { appPageModules, disableBuiltinPageModules, syncBuiltinFrontend } from './plugins/builtin-modules';
 import { AppCompositionFactory } from './plugins/app-composition';
 import { loadPluginCatalog } from './plugins/runtime';
 import { PluginPageHost } from './plugins/page-host';
 import type { PluginPageState } from './plugins/sdk';
 import { mountCampaigns } from './renderCampaigns';
-import { loadDashboard, POLL_MS, LOCAL_POLL_MS, type DashboardResponse } from './data/live';
-import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderPrPanel, renderCmuxView, renderRunsDrawer, renderVoyageRetry, runTabStatus, renderConfigView, renderPrView, renderPrLists, renderRecentPrRuns } from './render';
-import type { RunTabView } from './render';
-import type { DashboardSnapshot } from './data/mock';
-import { fetchReviewRequests, type PrListState, type PrInboxState } from './data/prLists';
-import {
-  launchAgent,
-  launchRun,
-  retryRun,
-  openRunStream,
-  getRun,
-  fetchAgents,
-  stopAgent,
-  type LaunchResult,
-  type RunEvent,
-  type RunStatusSummary,
-  type RunSummary,
-} from './data/agents';
+import { LOCAL_POLL_MS } from './data/live';
+import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderCmuxView, renderConfigView } from './render';
+import { fetchAgents, type RunSummary } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
-import { parsePrUrl } from './data/pr';
 import { selectSurface, isPolling, providerOf, parseCmuxTabs, type CmuxTabView, type PanelState } from './logic/cmuxPanel';
 import { mapKeyEvent, type CmuxKeyIntent } from './logic/cmuxKeys';
 import { applyTheme, loadThemeId, saveThemeId } from './data/themes';
@@ -51,8 +32,6 @@ import {
   loadCollapsed,
   saveCollapsed,
 } from './logic/prefs';
-
-const RUN_LOG_BATCH_MS = 32;
 
 const CMUX_SCREEN_POLL_MS: number = 2_000;
 const CMUX_SCREEN_UNAVAILABLE: string = 'Screen unavailable — tab has no rendered output yet.';
@@ -66,51 +45,14 @@ interface CmuxEventPayload {
   kind?: string;
 }
 
-interface RunTab {
-  runId: string;
-  label: string;
-  lines: RunEvent[];
-  footer: RunStatusSummary | null;
-  pr: { repo: string; number: number } | null;
-  unsub: (() => void) | null;
-  streamPaused?: boolean;
-  lastEventId?: number;
-  complete: boolean;
-  status?: string;
-}
-
-function deriveTicketStatus(summary: RunStatusSummary): string {
-  if (summary.status === 'succeeded' && summary.prNumber != null) return term('inReview');
-  if (summary.status === 'succeeded') return term('success');
-  if (summary.status === 'failed') return term('failed');
-  if (summary.status === 'stopped') return 'Stopped';
-  return summary.status;
-}
-
 export class DashboardView {
   private readonly root: HTMLElement;
   private readonly rootEvents = new window.AbortController();
-  private readonly prSession = new PrCompatibilitySession({ repos: () => this.repos, headerRepo: () => this.selectedRepo, slackEnabled: () => String(this.uiConfig.config?.SLACK_ENABLED) !== 'false' });
-  private drawerPrIdentity: string | null = null;
-  private readonly drawerPrOwner = {};
-  private readonly unbindPrSession: () => void;
-  private readonly runDrawerEl: HTMLElement;
+  private readonly slackReviews = new SlackReviewSession();
   private readonly auxiliary: AuxiliaryPageHost;
   private presentationSelection: { locator: Exclude<PresentationLocatorV1, { kind: 'pull-request' }>; scopeRepo: string | null } | null = null;
-  private runTabs: RunTab[] = [];
-  private activeTabId: string | null = null;
-  private tabSeq: number = 0;
-  private stickToBottom: boolean = true;
-  private runLogTimer: ReturnType<typeof setTimeout> | null = null;
-  private renderedRunLines: RunEvent[] = [];
   private destroyed = false;
-  private copyTimers = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>();
-  private copying = new WeakSet<HTMLButtonElement>();
-  private runRetries = new Map<string, { pending: boolean; error?: string }>();
-  private snapshot: DashboardSnapshot | null = null;
-  private snapshotRepo: string | null | undefined = undefined;
   private contentView: PageView | null = null;
-  private degraded: string[] = [];
   private repos: string[] = [];
   private selectedRepo: string | null = loadRepoScope();
   private runs: RunSummary[] = [];
@@ -123,32 +65,18 @@ export class DashboardView {
   private configErrors = new Map<string, string>();
   private configPendingKeys = new Set<string>();
   private collapsed: Set<string> = loadCollapsed();
-  private launchSeq: number = 0;
   private refreshSeq: number = 0;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
-  private refreshPending: { repo: string | null; view: PageView; promise: Promise<void> } | null = null;
+  private refreshPending: { repo: string | null; promise: Promise<void> } | null = null;
   private lastLocalRefresh: number = -Infinity;
-  private lastDashboardRefresh: number = -Infinity;
-  private dashboardRepo: string | null | undefined = undefined;
-  private lastReviewRequestsRefresh: number = -Infinity;
-  private reviewRequestsRepo: string | null | undefined = undefined;
   private readonly onVisibilityChange = (): void => {
     this.syncCmuxPolling();
-    this.prSession.setActive(this, !document.hidden);
-    this.prSession.setActive(this.drawerPrOwner, this.canRenderRunLog());
-    if (!document.hidden && this.view === 'prs' && this.prSession.view.repo && this.prSession.view.number) void this.loadPrView(this.prSession.view.repo, this.prSession.view.number, false);
     if (this.isPluginPage()) this.paintPluginPage();
-    if (document.hidden) this.cancelRunLogFlush();
-    else this.scheduleRunLogFlush();
     if (!document.hidden) {
       void this.refresh(false);
       if (this.view === 'cmux') void this.handleCmuxTabsChanged();
     }
   };
-  private reviewRequestsSeq: number = 0;
-  private reviewRequestsPending: { repo: string | null; seq: number; promise: Promise<void> } | null = null;
-  private dashboardUnavailable: boolean = false;
-  private reviewRequests: PrListState = { prs: [], loading: true, degraded: false, truncated: false };
   private view: PageView = parseRoute(new URL('/helm', window.location.origin)).view;
   private route: AppRoute = parseRoute(new URL('/helm', window.location.origin));
   private routeSeq: number = 0;
@@ -187,11 +115,7 @@ export class DashboardView {
 
   constructor(root: HTMLElement) {
     this.root = root;
-    this.unbindPrSession = bindPrCompatibilitySession(root, this.prSession);
-    this.prSession.setActive(this, !document.hidden);
-    this.prSession.subscribe(() => { if (!this.destroyed) this.paintSlackReviewRequests(); });
-    this.root.addEventListener('input', () => this.prSession.capture(this.root), { signal: this.rootEvents.signal });
-    this.root.addEventListener('change', () => this.prSession.capture(this.root), { signal: this.rootEvents.signal });
+    this.slackReviews.subscribe(() => { if (!this.destroyed) this.paintSlackReviewRequests(); });
     applyTheme(this.themeId);
     this.root.addEventListener('click', (event: MouseEvent): void => this.handleClick(event), { signal: this.rootEvents.signal });
     this.root.addEventListener('keydown', (event: KeyboardEvent): void => {
@@ -218,25 +142,6 @@ export class DashboardView {
         }
         return;
       }
-      if (tab instanceof HTMLButtonElement && tab.matches('.run-tab-select')) {
-        const tabs = Array.from(this.runDrawerEl.querySelectorAll<HTMLButtonElement>('.run-tab-select'));
-        const index = tabs.indexOf(tab);
-        const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length
-          : event.key === 'ArrowLeft' ? (index - 1 + tabs.length) % tabs.length
-          : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null;
-        const runId = next === null ? undefined : tabs[next]?.dataset.tabid;
-        if (runId) {
-          event.preventDefault();
-          this.setActiveTab(runId);
-          this.focusRunTab(runId);
-        }
-        return;
-      }
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      const target = event.target;
-      if (!(target instanceof HTMLElement) || !target.matches('.pr-list-row')) return;
-      event.preventDefault();
-      this.handlePrListClick(target);
     }, { signal: this.rootEvents.signal });
     this.root.addEventListener('change', (event: Event): void => {
       const control = event.target;
@@ -264,10 +169,6 @@ export class DashboardView {
     this.root.addEventListener('submit', (event: SubmitEvent): void => this.handleSubmit(event), { signal: this.rootEvents.signal });
     this.root.addEventListener('paste', (event: ClipboardEvent): void => void this.handlePasteImage(event), { signal: this.rootEvents.signal });
 
-    const drawer: HTMLDivElement = document.createElement('div');
-    drawer.className = 'run-drawer';
-    this.runDrawerEl = drawer;
-    this.renderRunDrawer();
     this.auxiliary = new AuxiliaryPageHost(this.pluginPresentationState(), {
       slotId: RUN_VIEWER_PAGE_SLOT, registry: appPages, modules: appPageModules,
       createComposition: (id, owner, state) => this.compositions.create(id, owner, state,
@@ -304,13 +205,11 @@ export class DashboardView {
     this.route = route;
     this.selectedRepo = route.repo;
     this.view = route.view;
-    if (route.view !== 'prs') {
-      const context = await getContext();
-      if (this.destroyed) return;
-      if (context) {
-        this.repos = context.repos;
-        this.jiraEnabled = context.jiraEnabled !== false;
-      }
+    const context = await getContext();
+    if (this.destroyed) return;
+    if (context) {
+      this.repos = context.repos;
+      this.jiraEnabled = context.jiraEnabled !== false;
     }
     await this.refresh();
     if (this.destroyed) return;
@@ -352,8 +251,7 @@ export class DashboardView {
       const result = new Map<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>();
       const occurrences = new Map<string, number>();
       for (const control of this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')) {
-        const scope = control.closest('.run-drawer') ? 'drawer' : 'page';
-        const identity = `${scope}:${control.tagName}:${control.id || control.name || control.className}`;
+        const identity = `${control.tagName}:${control.id || control.name || control.className}`;
         const occurrence = occurrences.get(identity) ?? 0;
         occurrences.set(identity, occurrence + 1);
         result.set(`${identity}:${occurrence}`, control);
@@ -363,16 +261,9 @@ export class DashboardView {
     const savedControls = controls();
     const openDetails = Array.from(this.root.querySelectorAll('details'), detail => detail.open);
     const pageScroll = this.root.querySelector('#page-content')?.scrollTop ?? 0;
-    const logScroll = this.runDrawerEl.querySelector('.run-drawer-body')?.scrollTop ?? 0;
-    const followLog = this.stickToBottom;
     setPirateMode(enabled);
     this.paint();
     this.paintSlack();
-    this.renderRunDrawer(false);
-    this.stickToBottom = followLog;
-    this.flushRunLog();
-    const log = this.runDrawerEl.querySelector('.run-drawer-body');
-    if (log && !followLog) log.scrollTop = logScroll;
     this.updateAddress(this.route, 'replace');
     const template = document.createElement('template');
     template.innerHTML = renderAppShell(this.shellOptions(), '');
@@ -392,9 +283,6 @@ export class DashboardView {
 
   destroy(): void {
     this.destroyed = true;
-    this.copyTimers.forEach(timer => clearTimeout(timer));
-    this.copyTimers.clear();
-    this.cancelRunLogFlush();
     this.rootEvents.abort();
     this.unsubscribePages?.();
     this.unsubscribePages = null;
@@ -410,8 +298,6 @@ export class DashboardView {
     this.refreshTimer = null;
     ++this.routeSeq;
     ++this.refreshSeq;
-    this.prSession.setActive(this, false);
-    ++this.reviewRequestsSeq;
     ++this.localGitSeq;
     ++this.slackSeq;
     window.removeEventListener('popstate', this.onPopState);
@@ -419,10 +305,8 @@ export class DashboardView {
     this.stopCapture();
     this.campaigns?.destroy();
     this.campaigns = null;
-    this.unbindPrSession();
-    this.prSession.dispose();
+    this.slackReviews.dispose();
     this.cmuxEventSource?.close();
-    this.runTabs.forEach(tab => tab.unsub?.());
   }
 
   private updateAddress(route: AppRoute, history: 'push' | 'replace' | 'none' = 'push'): void {
@@ -434,8 +318,7 @@ export class DashboardView {
   }
 
   private async navigate(route: AppRoute, history: 'push' | 'replace' | 'none' = 'push'): Promise<void> {
-    if (route.view === 'runs') route = parseRoute(new URL(routeHref(route), window.location.origin));
-    if (route.view !== 'prs') for (const tab of this.runTabs) { if (tab.unsub) { tab.unsub(); tab.unsub = null; tab.streamPaused = true; } }
+    if (route.view === 'runs' || route.view === 'prs') route = parseRoute(new URL(routeHref(route), window.location.origin));
     if (this.view === 'campaigns' && route.view !== 'campaigns') {
       this.campaigns?.destroy();
       this.campaigns = null;
@@ -443,11 +326,6 @@ export class DashboardView {
     if (this.presentationSelection && (route.run !== this.presentationSelection.locator.runId
       || this.presentationSelection.locator.kind === 'run' && route.runRepo !== this.presentationSelection.locator.repo)) this.presentationSelection = null;
     const seq = ++this.routeSeq;
-    ++this.launchSeq;
-    this.prSession.capture(this.root);
-    this.prSession.setActive(this, false);
-    this.prSession.setActive(this.drawerPrOwner, false);
-    this.prSession.setActive(this, !document.hidden);
     this.stopCmuxScreenPoll();
     this.stopCapture();
     this.cmuxCapturing = false;
@@ -459,18 +337,8 @@ export class DashboardView {
     }
     if (scopeChanged) {
       this.presentationSelection = null;
-      this.snapshot = null;
-      this.snapshotRepo = undefined;
-      this.dashboardRepo = undefined;
-      this.lastDashboardRefresh = -Infinity;
-      this.dashboardUnavailable = false;
       ++this.refreshSeq;
       this.refreshPending = null;
-      ++this.reviewRequestsSeq;
-      this.reviewRequestsPending = null;
-      this.reviewRequestsRepo = undefined;
-      this.lastReviewRequestsRefresh = -Infinity;
-      this.reviewRequests = { prs: [], loading: true, degraded: false, truncated: false };
       ++this.localGitSeq;
       this.localGitPending = null;
       this.localGit = emptyLocalGit(scope);
@@ -484,14 +352,10 @@ export class DashboardView {
     }
     this.updateAddress(route, history);
     if (route.pane) this.collapsed.delete(`${route.view}:${route.pane === 'tabs' ? 'list' : route.pane === 'screen' ? 'detail' : route.pane}`);
-    if (route.run || route.pane === 'tasks') this.collapsed.delete('runs:drawer');
-    if (route.view === 'prs') {
-      this.prSession.select(route.pr ? route.prRepo ?? route.repo : null, route.pr);
-    }
-    if (!route.run) { this.activeTabId = null; this.presentationSelection = null; }
+    if (!route.run) this.presentationSelection = null;
     this.paint();
     if (scopeChanged) this.paintSlack();
-    if (scopeChanged || route.view === 'prs') await this.refresh(false);
+    if (scopeChanged) await this.refresh(false);
     if (seq !== this.routeSeq) return;
     if (this.isPluginPage() && !this.isRunViewerPage()) await this.pageHost?.refresh();
     else if (route.view === 'config') {
@@ -506,28 +370,10 @@ export class DashboardView {
       this.ensureCmuxEvents();
       await this.pollCmuxScreen();
       this.syncCmuxPolling();
-    } else if (route.view === 'prs') await this.loadReviewRequests(false);
-    if (seq !== this.routeSeq) return;
-    const prRepo = route.prRepo ?? route.repo;
-    if ((route.view === 'prs') && prRepo && route.pr) await this.loadPrView(prRepo, route.pr, false);
-    if (seq !== this.routeSeq) return;
-    if (route.view !== 'prs' && route.view !== 'config') this.paint();
-    if (route.run && route.view === 'prs') {
-      const summary = this.runs.find(run => run?.id === route.run) ?? await getRun(route.run);
-      if (seq !== this.routeSeq) return;
-      if (summary) {
-        this.openRunTab(route.run, summary.ticketId || (summary.prNumber ? `${term('pr')} #${summary.prNumber}` : route.run), false);
-        const tab = this.runTabs.find(item => item.runId === route.run);
-        if (tab) {
-          tab.footer = summary;
-          tab.status = summary.status;
-          tab.complete = this.isTerminalRunStatus(summary.status);
-          if (summary.prNumber) tab.pr = { repo: summary.repo, number: summary.prNumber };
-        }
-      } else this.openErrorTab(term('unavailableRunTitle'), term('unavailableRunMessage'));
     }
-    this.renderRunDrawer();
-    this.rehomeRunDrawer();
+    if (seq !== this.routeSeq) return;
+    if (route.view !== 'config') this.paint();
+    this.rehomeRunViewer();
     this.focusRoute();
   }
 
@@ -540,8 +386,7 @@ export class DashboardView {
   }
 
   private bindPaneLinks(): void {
-    const selectors: Record<string, string> = this.view === 'prs' ? { 'review-requests': '.pr-review-requests', authored: '.pr-authored', lookup: '.pr-lookup-panel', diff: '.pr-diff-panel' }
-      : this.view === 'cmux' ? { tabs: '[data-collapse-id="cmux:list"]', screen: '[data-collapse-id="cmux:detail"]' } : {};
+    const selectors: Record<string, string> = this.view === 'cmux' ? { tabs: '[data-collapse-id="cmux:list"]', screen: '[data-collapse-id="cmux:detail"]' } : {};
     for (const [pane, selector] of Object.entries(selectors)) {
       const found = this.root.querySelector<HTMLElement>(selector);
       const panel = found?.closest<HTMLElement>('.panel, .faceplate');
@@ -562,34 +407,24 @@ export class DashboardView {
     if (!force && document.hidden) return Promise.resolve();
     if (this.refreshPending?.repo === this.selectedRepo) {
       const pending = this.refreshPending;
-      if (this.view === 'prs' && pending.view !== 'prs') {
-        return pending.promise.then(() => this.refresh(force));
-      }
       return pending.promise;
     }
     const repo = this.selectedRepo;
     const promise = this.performRefresh(force).finally(() => {
       if (this.refreshPending?.promise === promise) this.refreshPending = null;
     });
-    this.refreshPending = { repo, view: this.view, promise };
+    this.refreshPending = { repo, promise };
     return promise;
   }
 
   private async performRefresh(force: boolean): Promise<void> {
     const now = Date.now();
     const localDue = force || now - this.lastLocalRefresh >= LOCAL_POLL_MS;
-    const dashboardDue = (this.view === 'prs'
-      && (force || this.dashboardRepo !== this.selectedRepo || now - this.lastDashboardRefresh >= (this.jiraEnabled ? POLL_MS : LOCAL_POLL_MS)));
     if (localDue) this.lastLocalRefresh = now;
-    if (dashboardDue) {
-      this.lastDashboardRefresh = now;
-      this.dashboardRepo = this.selectedRepo;
-    }
     const seq: number = ++this.refreshSeq;
     const slackSeq = ++this.slackSeq;
     const repo: string | null = this.selectedRepo;
-    const [response, agents, , slack, context] = await Promise.all([
-      dashboardDue ? loadDashboard(repo).catch((): DashboardResponse | null => null) : null,
+    const [agents, , slack, context] = await Promise.all([
       localDue ? fetchAgents() : null,
       force ? this.loadUiConfig(false) : null,
       localDue ? fetchSlack() : undefined,
@@ -597,29 +432,15 @@ export class DashboardView {
     ]);
     if (seq !== this.refreshSeq || repo !== this.selectedRepo) return;
     const priorJiraEnabled = this.jiraEnabled;
-    if (dashboardDue) this.dashboardUnavailable = !response;
-    if (response) {
-      this.snapshot = response.snapshot;
-      this.snapshotRepo = response.selectedRepo;
-      this.degraded = response.degraded;
-      this.repos = response.repos;
-      this.selectedRepo = response.selectedRepo;
-      if (typeof response.jiraEnabled === 'boolean') this.jiraEnabled = response.jiraEnabled;
-    }
     if (agents) {
       this.runs = agents.runs;
     }
     if (context) {
-      this.repos = [...new Set([...(response?.repos ?? this.repos), ...context.repos])].sort();
+      this.repos = [...new Set(context.repos)].sort();
       if (typeof context.jiraEnabled === 'boolean') this.jiraEnabled = context.jiraEnabled;
     }
     if (priorJiraEnabled !== this.jiraEnabled) {
       this.uiConfig.config.JIRA_ENABLED = String(this.jiraEnabled);
-      if (response?.jiraEnabled !== this.jiraEnabled) {
-      this.snapshot = null;
-        this.dashboardRepo = undefined;
-        this.lastDashboardRefresh = -Infinity;
-      }
     }
     this.syncShell();
     if (localDue && slackSeq === this.slackSeq) {
@@ -630,78 +451,16 @@ export class DashboardView {
       };
       this.paintSlack();
     }
-    if (this.view === 'prs') {
-      this.paintPrInbox();
-      if (localDue) {
-        const recent = this.root.querySelector('.pr-recent-runs');
-        if (recent) {
-          const template = document.createElement('template');
-          template.innerHTML = renderRecentPrRuns(this.runs, this.selectedRepo);
-          const next = template.content.firstElementChild;
-          if (next) recent.replaceWith(next);
-        }
-      }
-      await this.loadReviewRequests(force);
-    } else if (this.view === 'config' && force) {
+    if (this.view === 'config' && force) {
       this.paintConfig();
       void this.loadLocalGit();
     } else if (this.isPluginPage() && localDue) {
       this.paintPluginPage();
       const compositionId = appPages.getPage(this.route.pluginPage ?? '')?.composition?.id;
-      const managesRefresh = [HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUNS_PAGE_SLOT]
+      const managesRefresh = [HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUNS_PAGE_SLOT, PR_PAGE_SLOT]
         .some(slot => this.route.pluginSlot === slot || compositionId === slot);
       if (force || !managesRefresh) void (this.isRunViewerPage() ? this.auxiliary.refresh() : this.pageHost?.refresh());
     }
-    this.paintRunRetries();
-  }
-
-  private prInbox(): PrInboxState {
-    const unavailable = this.dashboardUnavailable || this.degraded.includes('github');
-    const authored = this.snapshotRepo === this.selectedRepo ? this.snapshot?.myOpenPrs ?? [] : [];
-    return {
-      reviewRequests: this.reviewRequests,
-      authored: {
-        prs: this.degraded.includes('github') ? [] : authored.filter(pr => !this.selectedRepo || pr?.repo?.toLowerCase() === this.selectedRepo.toLowerCase()),
-        loading: !this.snapshot && !unavailable,
-        degraded: unavailable,
-        truncated: false,
-      },
-    };
-  }
-
-  private paintPrInbox(): void {
-    if (this.view !== 'prs') return;
-    const inbox: HTMLElement | null = this.root.querySelector('.pr-inbox');
-    if (inbox) inbox.innerHTML = renderPrLists(this.prInbox(), this.selectedRepo);
-    this.bindPaneLinks();
-    this.paintSlackReviewRequests();
-  }
-
-  private loadReviewRequests(force: boolean = true): Promise<void> {
-    if (!force && document.hidden) return Promise.resolve();
-    if (this.reviewRequestsPending?.repo === this.selectedRepo && this.reviewRequestsPending.seq === this.reviewRequestsSeq) {
-      return this.reviewRequestsPending.promise;
-    }
-    const repo = this.selectedRepo;
-    if (!force && this.reviewRequestsRepo === repo && Date.now() - this.lastReviewRequestsRefresh < POLL_MS) return Promise.resolve();
-    this.reviewRequestsRepo = repo;
-    this.lastReviewRequestsRefresh = Date.now();
-    const pending: Promise<void> = this.fetchReviewRequests().finally(() => {
-      if (this.reviewRequestsPending?.promise === pending) this.reviewRequestsPending = null;
-    });
-    this.reviewRequestsPending = { repo, seq: this.reviewRequestsSeq, promise: pending };
-    return pending;
-  }
-
-  private async fetchReviewRequests(): Promise<void> {
-    const seq: number = ++this.reviewRequestsSeq;
-    const repo = this.selectedRepo;
-    this.reviewRequests = { ...this.reviewRequests, loading: true };
-    this.paintPrInbox();
-    const result = await fetchReviewRequests(repo);
-    if (seq !== this.reviewRequestsSeq || repo !== this.selectedRepo || this.destroyed) return;
-    this.reviewRequests = { ...result, loading: false };
-    this.paintPrInbox();
   }
 
   private paint(): void {
@@ -710,7 +469,6 @@ export class DashboardView {
       ? focused.id : null;
     const sameView = this.root.querySelector<HTMLElement>('.helm')?.dataset.page === this.view;
     this.paintView();
-    this.paintRunRetries();
     this.syncPirateToggle();
     if (focusedTab) {
       const tabs = Array.from(this.root.querySelectorAll<HTMLAnchorElement>('.page-tab'));
@@ -798,6 +556,7 @@ export class DashboardView {
           errorMessage: () => term('failedPluginPage'),
         });
       }
+      const pullRequestRepo = this.route.prRepo ?? this.route.repo;
       const state: PluginPageState = {
         ...this.pluginPresentationState(),
         repo: this.selectedRepo,
@@ -805,12 +564,13 @@ export class DashboardView {
         panelInstance: this.route.panelInstance ?? null,
         panelContribution: this.route.panelContribution ?? null,
         panelRouteState: this.panelRouteState(),
+        pullRequest: this.route.pr && pullRequestRepo ? { version: 1, repo: pullRequestRepo, number: this.route.pr, mode: this.route.mode } : null,
       };
       this.pageHost.show(page.contributionId, module, state);
       this.syncShell();
     }
     this.bindHeadControls();
-    this.rehomeRunDrawer();
+    this.rehomeRunViewer();
   }
 
   private paintView(): void {
@@ -832,7 +592,7 @@ export class DashboardView {
         }
       } else void this.campaigns.refresh();
       this.bindHeadControls();
-      this.rehomeRunDrawer();
+      this.rehomeRunViewer();
       return;
     }
     if (this.view === 'cmux') {
@@ -843,12 +603,8 @@ export class DashboardView {
       this.paintConfig();
       return;
     }
-    if (this.view === 'prs') {
-      this.paintPrView();
-      return;
-    }
     this.mountPage(renderAppShell(this.shellOptions(), `<p role="status">${escapeHtml(term('unavailablePluginMessage'))}</p>`));
-    this.bindHeadControls(); this.rehomeRunDrawer();
+    this.bindHeadControls(); this.rehomeRunViewer();
   }
 
   private revealActiveTab(): void {
@@ -862,7 +618,6 @@ export class DashboardView {
   }
 
   private shellOptions(): HelmHeadOpts {
-    const snapshot = this.snapshotRepo === this.selectedRepo ? this.snapshot : null;
     return {
       active: this.view, repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId,
       pluginPage: this.route.pluginPage, pluginSlot: this.route.pluginSlot,
@@ -870,14 +625,13 @@ export class DashboardView {
       greetingName: this.greetingName,
       readout: {
         running: this.runs.filter(run => run?.status === 'running' && (!this.selectedRepo || run.repo === this.selectedRepo)).length,
-        queued: snapshot && !this.degraded.includes('jira') ? snapshot.queue?.length ?? null : null,
-        review: snapshot && !this.degraded.includes('jira') ? snapshot.stats?.awaitingReview ?? null : null,
+        queued: null,
+        review: null,
       },
     };
   }
 
   private mountPage(markup: string): void {
-    const prFocus = this.prSession.capture(this.root);
     this.pageHost?.dispose();
     this.pageHost = null;
     if (this.contentView === 'config') this.captureConfigDrafts();
@@ -896,7 +650,6 @@ export class DashboardView {
     this.contentView = this.view;
     this.syncShell();
     this.paintSlackReviewRequests();
-    this.prSession.restore(this.root, prFocus);
   }
 
   private syncShell(): void {
@@ -998,13 +751,13 @@ export class DashboardView {
   }
 
   private paintSlackReviewRequests(): void {
-    this.prSession.paintSlack(this.root, String(this.uiConfig.config?.SLACK_ENABLED) !== 'false');
+    this.slackReviews.paint(this.root, String(this.uiConfig.config?.SLACK_ENABLED) !== 'false');
   }
 
   private async sendSlackReviewRequest(button: HTMLButtonElement): Promise<void> {
     const repo = button.dataset.repo; const number = Number(button.dataset.number);
     if (!repo || !Number.isSafeInteger(number) || number < 1) return;
-    await this.prSession.requestSlack(this, { repo, number });
+    await this.slackReviews.request({ repo, number });
   }
 
   private async readSlackNotification(id: string): Promise<void> {
@@ -1176,19 +929,16 @@ export class DashboardView {
         ?.querySelector<HTMLElement>(`[data-source-field="${sourceFocusField}"]`);
       field?.focus({ preventScroll: true });
     }
+    const slackRepo = this.route.slackPrRepo; const slackPr = this.route.slackPr;
+    if (slackRepo && slackPr) {
+      const content = this.root.querySelector('#page-content');
+      const section = document.createElement('section');
+      section.className = 'panel slack-review-settings';
+      section.innerHTML = `<h2>${escapeHtml(term('requestSlackReview'))}</h2><p>${escapeHtml(slackRepo)} #${slackPr}</p><div data-slack-review-control data-repo="${escapeHtml(slackRepo)}" data-number="${slackPr}"><button type="button" data-slack-review-request data-repo="${escapeHtml(slackRepo)}" data-number="${slackPr}">${escapeHtml(term('requestSlackReview'))}</button><span class="slack-review-result" role="status"></span></div>`;
+      content?.prepend(section);
+      this.paintSlackReviewRequests();
+    }
     this.bindHeadControls();
-  }
-
-  private paintPrView(): void {
-    this.mountPage(renderPrView(this.prSession.view, {
-      repos: this.repos,
-      selectedRepo: this.selectedRepo,
-      themeId: this.themeId,
-      lists: this.prInbox(),
-      runs: this.runs,
-    }));
-    this.bindHeadControls();
-    this.rehomeRunDrawer();
   }
 
   private async loadCmuxTabs(): Promise<void> {
@@ -1538,66 +1288,6 @@ export class DashboardView {
     void this.withStableView(() => this.handleCmuxSend(target));
   }
 
-  private paintRunRetries(): void {
-    this.root.querySelectorAll<HTMLButtonElement>('button[data-retry-run-id]').forEach(button => {
-      const state = this.runRetries.get(button.dataset.retryRunId ?? '');
-      button.disabled = state?.pending ?? false;
-      button.setAttribute('aria-busy', String(state?.pending ?? false));
-      const label = button.querySelector('span');
-      if (label) label.textContent = state?.pending ? 'Retrying…' : 'Retry';
-      if (state?.pending || state?.error) button.dataset.retryState = state.pending ? 'pending' : 'error';
-      else delete button.dataset.retryState;
-    });
-    this.root.querySelectorAll<HTMLElement>('[data-retry-feedback-for]').forEach(feedback => {
-      const state = this.runRetries.get(feedback.dataset.retryFeedbackFor ?? '');
-      feedback.textContent = state?.error ?? '';
-      if (state?.error) feedback.dataset.retryState = 'error';
-      else delete feedback.dataset.retryState;
-    });
-  }
-
-  private async handleRetryRun(button: HTMLButtonElement): Promise<void> {
-    const runId = button.dataset.retryRunId;
-    if (!runId || !/^[a-z\d_-]{1,128}$/i.test(runId) || this.runRetries.get(runId)?.pending) return;
-    this.runRetries.set(runId, { pending: true });
-    this.paintRunRetries();
-    try {
-      const result = await retryRun(runId);
-      if (this.destroyed) return;
-      this.runRetries.delete(runId);
-      const previous = this.runTabs.find(tab => tab.runId === runId);
-      const run = this.runs.find(item => item.id === runId);
-      const label = previous?.label ?? run?.ticketId ?? 'Retry';
-      this.openRunTab(result.runId, label, true, run?.repo);
-      this.focusRunTab(result.runId);
-      void this.refresh();
-    } catch (error: unknown) {
-      if (this.destroyed) return;
-      this.runRetries.set(runId, { pending: false, error: error instanceof Error ? error.message : term('retryFailed') });
-    } finally {
-      if (!this.destroyed) this.paintRunRetries();
-    }
-  }
-
-  private async copyRunId(button: HTMLButtonElement): Promise<void> {
-    const id = button.dataset.copyRunId;
-    if (!id || !/^[a-z\d_-]{1,128}$/i.test(id) || this.copying.has(button)) return;
-    this.copying.add(button);
-    const copied = await copyText(id);
-    this.copying.delete(button);
-    if (this.destroyed || !button.isConnected) return;
-    const previousTimer = this.copyTimers.get(button);
-    if (previousTimer) clearTimeout(previousTimer);
-    button.dataset.copyState = copied ? 'copied' : 'error';
-    const feedback = button.querySelector<HTMLElement>('.voyage-copy-feedback');
-    if (feedback) feedback.textContent = copied ? 'Copied' : 'Copy failed';
-    this.copyTimers.set(button, setTimeout(() => {
-      this.copyTimers.delete(button);
-      delete button.dataset.copyState;
-      if (feedback) feedback.textContent = '';
-    }, 2_000));
-  }
-
   private handleClick(event: MouseEvent): void {
     if (event.defaultPrevented) return;
     const target: EventTarget | null = event.target;
@@ -1605,20 +1295,6 @@ export class DashboardView {
     const pirateToggle = target.closest<HTMLButtonElement>('[data-pirate-mode]');
     if (pirateToggle) {
       if (!pirateToggle.disabled) this.changePirateMode(!isPirateMode());
-      return;
-    }
-    const copyButton = target.closest<HTMLButtonElement>('button[data-copy-run-id]');
-    if (copyButton) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!copyButton.disabled) void this.copyRunId(copyButton);
-      return;
-    }
-    const retryButton = target.closest<HTMLButtonElement>('button[data-retry-run-id]');
-    if (retryButton) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!retryButton.disabled) void this.handleRetryRun(retryButton);
       return;
     }
     const slackReview = target.closest<HTMLButtonElement>('[data-slack-review-request]');
@@ -1658,8 +1334,7 @@ export class DashboardView {
         if (this.collapsed.has(id)) this.collapsed.delete(id);
         else this.collapsed.add(id);
         saveCollapsed(this.collapsed);
-        if (id === 'runs:drawer') this.renderRunDrawer();
-        else this.paint();
+        this.paint();
       }
       return;
     }
@@ -1690,18 +1365,6 @@ export class DashboardView {
     const cmuxKeypadBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.cmux-keypad-btn');
     if (cmuxKeypadBtn) {
       void this.handleCmuxKeyPad(cmuxKeypadBtn);
-      return;
-    }
-
-    const launchBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.launch-btn');
-    if (launchBtn) {
-      void this.withStableView(() => this.handleLaunchClick(launchBtn));
-      return;
-    }
-
-    const stopBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.agent-stop');
-    if (stopBtn) {
-      void this.handleStopClick(stopBtn);
       return;
     }
 
@@ -1746,308 +1409,13 @@ export class DashboardView {
       return;
     }
 
-    const lookupBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.pr-lookup-go');
-    if (lookupBtn) {
-      void this.handlePrLookup();
-      return;
-    }
-
-    const approveBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.pr-approve');
-    if (approveBtn) {
-      void this.withStableView(() => this.handleReview(approveBtn, 'APPROVE'));
-      return;
-    }
-
-    const requestChangesBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.pr-request-changes');
-    if (requestChangesBtn) {
-      void this.withStableView(() => this.handleReview(requestChangesBtn, 'REQUEST_CHANGES'));
-      return;
-    }
-
-    const commentBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.pr-comment');
-    if (commentBtn) {
-      void this.withStableView(() => this.handleReview(commentBtn, 'COMMENT'));
-      return;
-    }
-
-    const rerunBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.pr-rerun');
-    if (rerunBtn) {
-      void this.withStableView(() => this.handleRerun(rerunBtn));
-      return;
-    }
-
-    const reviewAgentBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.pr-review-agent');
-    if (reviewAgentBtn) {
-      void this.withStableView(() => this.handleReviewAgent(reviewAgentBtn));
-      return;
-    }
-
-    const tabCloseBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.run-tab-close');
-    if (tabCloseBtn) {
-      const id: string | undefined = tabCloseBtn.dataset.tabid;
-      if (id) this.closeRunTab(id);
-      return;
-    }
-
-    const tabSelectBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.run-tab-select');
-    if (tabSelectBtn) {
-      const id: string | undefined = tabSelectBtn.dataset.tabid;
-      if (id) this.setActiveTab(id);
-      return;
-    }
-
-    const prListRow: HTMLElement | null = target.closest<HTMLElement>('.pr-list-row');
-    if (prListRow) {
-      this.handlePrListClick(prListRow);
-      return;
-    }
-
-    const openInTab: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.pr-open-in-tab');
-    if (openInTab) {
-      const repo: string | undefined = openInTab.dataset.repo;
-      const number: number = Number(openInTab.dataset.number);
-      if (repo && Number.isFinite(number)) void this.enterPrView(repo, number);
-      return;
-    }
-
-    if (target.closest('a')) return;
-    const runRow: HTMLElement | null = target.closest<HTMLElement>('.agent-row, .recent-run');
-    if (runRow) this.handleRunRowClick(runRow);
-  }
-
-  private async handleReview(button: HTMLElement, event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'): Promise<void> {
-    const target = prTarget(button); if (!target) return;
-    const showOpenInTab = Boolean(target.panel.querySelector('.pr-open-in-tab'));
-    const reviewed = await this.prSession.review(this, target, event);
-    if (this.destroyed) return;
-    if (reviewed && target.panel.isConnected) {
-      const focus = this.prSession.capture(this.root);
-      target.panel.outerHTML = renderPrPanel(this.prSession.status(target), this.repos.includes(target.repo), showOpenInTab, this.selectedRepo);
-      this.prSession.restore(this.root, focus); this.paintSlackReviewRequests();
-    } else this.prSession.restore(this.root);
-    if (reviewed) void this.loadReviewRequests();
-  }
-
-  private async handleRerun(button: HTMLElement): Promise<void> { await this.launchPr(button, 'rerun'); }
-  private async handleReviewAgent(button: HTMLElement): Promise<void> { await this.launchPr(button, 'review'); }
-  private async launchPr(button: HTMLElement, mode: 'rerun' | 'review'): Promise<void> {
-    const target = prTarget(button); if (!target || button instanceof HTMLButtonElement && button.disabled) return;
-    const seq = ++this.launchSeq;
-    if (button instanceof HTMLButtonElement) button.disabled = true;
-    const outcome = await this.prSession.launch(this, target, mode);
-    if (button instanceof HTMLButtonElement) button.disabled = false;
-    if (!outcome || this.destroyed || seq !== this.launchSeq) return;
-    const label = mode === 'rerun' ? `feedback #${target.number}` : `${term('review')} #${target.number}`;
-    if (outcome.result) this.openRunTab(outcome.result.runId, label);
-    else if (outcome.error) this.openErrorTab(label, outcome.error);
-  }
-
-  private async handlePrLookup(): Promise<void> {
-    const input: HTMLInputElement | null = this.root.querySelector<HTMLInputElement>('.pr-lookup-input');
-    if (!input) return;
-    const parsed: { repo: string; number: number } | null = parsePrUrl(input.value);
-    const result: HTMLElement | null = this.root.querySelector<HTMLElement>('.pr-lookup-result');
-    if (!parsed) {
-      if (result) result.innerHTML = `<div class="pr-panel empty-note">${term('prLookupInvalid')}</div>`;
-      return;
-    }
-    await this.loadPrView(parsed.repo, parsed.number);
-  }
-
-  private async loadPrView(repo: string, number: number, updateRoute: boolean = true): Promise<void> {
-    this.prSession.capture(this.root);
-    if (updateRoute) this.updateAddress({ ...this.route, view: this.view, repo: this.selectedRepo, prRepo: repo, pr: number, pane: 'lookup' });
-    const pending = this.prSession.loadView(this, { repo, number });
-    if (this.view === 'prs') this.paint();
-    await pending;
-    if (!this.destroyed && this.view === 'prs' && this.prSession.view.repo === repo && this.prSession.view.number === number) this.paint();
   }
 
   private async enterPrView(repo?: string, number?: number): Promise<void> {
     await this.navigate(parseRoute(new URL(routeHref({ view: 'prs', repo: this.selectedRepo, prRepo: repo ?? null, pr: number ?? null, pane: number ? 'lookup' : null }), window.location.origin)));
   }
 
-  private handlePrListClick(row: HTMLElement): void {
-    const repo: string | undefined = row.dataset.repo;
-    const number: number = Number(row.dataset.number);
-    if (!repo || !Number.isSafeInteger(number) || number <= 0) return;
-    void this.enterPrView(repo, number).then(() => {
-      if (this.view !== 'prs' || this.prSession.view.repo !== repo || this.prSession.view.number !== number) return;
-      this.root.querySelector<HTMLElement>('.pr-lookup-panel')?.scrollIntoView?.({ block: 'start' });
-      this.root.querySelector<HTMLInputElement>('.pr-lookup-input')?.focus({ preventScroll: true });
-    });
-  }
-
-  private async handleStopClick(btn: HTMLButtonElement): Promise<void> {
-    const runId: string | undefined = btn.dataset.runid;
-    if (!runId) return;
-    await stopAgent(runId);
-    await this.refresh();
-  }
-
-  private handleRunRowClick(row: HTMLElement): void {
-    const runId: string | undefined = row.dataset.runid;
-    if (!runId) return;
-    void this.navigate({ ...this.route, view: 'runs', pane: 'tasks', run: runId });
-  }
-
-  private openRunTab(runId: string, label: string, updateRoute: boolean = true, repo?: string): void {
-    if (this.view !== 'prs') {
-      void this.navigate({ ...this.route, view: 'runs', pane: 'tasks', run: runId, runRepo: repo ?? null });
-      return;
-    }
-    if (updateRoute) this.updateAddress({ ...this.route, view: this.view, run: runId });
-    const existing: RunTab | undefined = this.runTabs.find((t: RunTab): boolean => t.runId === runId);
-    if (existing) {
-      this.setActiveTab(runId, false);
-      return;
-    }
-    const run: RunSummary | undefined = this.runs.find((r: RunSummary): boolean => r.id === runId);
-    const tab: RunTab = {
-      runId,
-      label,
-      lines: [],
-      footer: run ?? null,
-      pr: run && run.prNumber != null ? { repo: run.repo, number: run.prNumber } : null,
-      unsub: null,
-      complete: this.isTerminalRunStatus(run?.status),
-      status: run?.status,
-    };
-    this.runTabs.push(tab);
-    tab.unsub = openRunStream(runId, (event: RunEvent): void => this.onTabEvent(runId, event));
-    this.activeTabId = runId;
-    this.renderRunDrawer();
-    this.rehomeRunDrawer();
-  }
-
-  private openErrorTab(label: string, message: string): void {
-    const id: string = `err-${++this.tabSeq}`;
-    const tab: RunTab = {
-      runId: id,
-      label,
-      lines: [{ id: 0, runId: '', ts: new Date().toISOString(), kind: 'error', text: message }],
-      footer: null,
-      pr: null,
-      unsub: null,
-      complete: true,
-      status: 'failed',
-    };
-    this.runTabs.push(tab);
-    this.activeTabId = id;
-    this.renderRunDrawer();
-    this.rehomeRunDrawer();
-  }
-
-  private resumeRunStream(tab: RunTab): void {
-    if (!tab.streamPaused || this.view !== 'prs') return;
-    tab.streamPaused = false;
-    tab.unsub = openRunStream(tab.runId, event => this.onTabEvent(tab.runId, event));
-  }
-
-  private setActiveTab(runId: string, updateRoute: boolean = true): void {
-    const tab = this.runTabs.find(value => value.runId === runId); if (!tab) return;
-    this.resumeRunStream(tab);
-    this.activeTabId = runId;
-    if (updateRoute) this.updateAddress({ ...this.route, view: this.view, run: runId });
-    this.renderRunDrawer();
-    this.rehomeRunDrawer();
-  }
-
-  private closeRunTab(runId: string): void {
-    const idx: number = this.runTabs.findIndex((t: RunTab): boolean => t.runId === runId);
-    if (idx < 0) return;
-    const focusedTab = document.activeElement?.closest<HTMLElement>('.run-tab')?.dataset.tabid;
-    this.runTabs[idx]?.unsub?.();
-    this.runTabs.splice(idx, 1);
-    if (this.activeTabId === runId) {
-      const next: RunTab | undefined = this.runTabs[idx] ?? this.runTabs[idx - 1];
-      this.activeTabId = next ? next.runId : null;
-      if (next) this.resumeRunStream(next);
-    }
-    this.updateAddress({ ...this.route, view: this.view, run: this.activeTabId?.startsWith('err-') ? null : this.activeTabId });
-    this.renderRunDrawer();
-    this.rehomeRunDrawer();
-    if (focusedTab === runId) {
-      if (this.activeTabId) this.focusRunTab(this.activeTabId);
-      else this.runDrawerEl.querySelector<HTMLElement>('.run-drawer-body')?.focus();
-    }
-  }
-
-  private focusRunTab(runId: string): void {
-    const button = this.runDrawerEl.querySelector<HTMLButtonElement>(`.run-tab-select[data-tabid="${CSS.escape(runId)}"]`);
-    button?.focus({ preventScroll: true });
-    button?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }
-
-  private isTerminalRunStatus(status?: string): boolean {
-    return status === 'succeeded' || status === 'failed' || status === 'stopped';
-  }
-
-  private onTabEvent(runId: string, event: RunEvent): void {
-    if (this.destroyed || this.view !== 'prs') return;
-    const tab = this.runTabs.find(item => item.runId === runId);
-    if (!tab || event.id > 0 && event.id <= (tab.lastEventId ?? 0)) return;
-    if (event.id > 0) tab.lastEventId = event.id;
-    tab.lines.push(event);
-    if (tab.lines.length > RUN_LOG_PREVIEW_LIMIT) tab.lines.splice(0, tab.lines.length - RUN_LOG_PREVIEW_LIMIT);
-    if (event.kind === 'run-complete') {
-      tab.complete = true;
-      tab.status = this.isTerminalRunStatus(event.text) ? event.text : 'completed';
-      tab.unsub?.();
-      tab.unsub = null;
-      this.updateRunTabStatus(tab);
-      void this.finalizeTab(runId);
-    }
-    if (runId === this.activeTabId) this.scheduleRunLogFlush();
-  }
-
-  private updateRunTabStatus(tab: RunTab): void {
-    const element = this.runDrawerEl.querySelector<HTMLElement>(`.run-tab[data-tabid="${CSS.escape(tab.runId)}"]`);
-    if (!element) return;
-    const status = runTabStatus(tab.status, tab.complete);
-    element.dataset.runStatus = status.kind;
-    const badge = element.querySelector<HTMLElement>('.run-tab-status');
-    if (badge) badge.textContent = status.label;
-    if (tab.runId === this.activeTabId) {
-      const retrySlot = this.runDrawerEl.querySelector<HTMLElement>('.run-drawer-retry');
-      if (retrySlot) retrySlot.innerHTML = tab.status === 'failed' ? renderVoyageRetry(tab.runId) : '';
-      this.paintRunRetries();
-    }
-  }
-
-  private async finalizeTab(runId: string): Promise<void> {
-    const summary: RunStatusSummary | null = await getRun(runId);
-    const tab: RunTab | undefined = this.runTabs.find((t: RunTab): boolean => t.runId === runId);
-    if (!tab || this.destroyed) return;
-    tab.footer = summary;
-    if (summary) {
-      tab.status = summary.status;
-      this.updateRunTabStatus(tab);
-    }
-    if (summary && summary.prNumber != null && !tab.pr) {
-      tab.pr = { repo: summary.repo, number: summary.prNumber };
-    }
-    if (runId === this.activeTabId) {
-      this.renderFooterDom(tab);
-      if (tab.pr) void this.loadTabPr(runId, tab.pr.repo, tab.pr.number, true);
-    }
-  }
-
-  private async loadTabPr(runId: string, repo: string, number: number, refresh = false): Promise<void> {
-    const tab = this.runTabs.find(item => item.runId === runId);
-    if (!tab || this.destroyed || runId !== this.activeTabId || !this.canRenderRunLog()) return;
-    this.prSession.setActive(this.drawerPrOwner, true);
-    const status = await this.prSession.readStatus(this.drawerPrOwner, { repo, number }, refresh);
-    if (this.destroyed || !this.runTabs.includes(tab) || runId !== this.activeTabId || !this.prSession.active(this.drawerPrOwner)) return;
-    const slot = this.runDrawerEl.querySelector<HTMLElement>('.run-drawer-pr');
-    if (slot) {
-      const focus = this.prSession.capture(this.runDrawerEl);
-      slot.innerHTML = renderPrPanel(status, this.repos.includes(repo), true, this.selectedRepo);
-      this.prSession.restore(this.runDrawerEl, focus); this.paintSlackReviewRequests();
-    }
-  }
-
-  private rehomeRunDrawer(): void {
+  private rehomeRunViewer(): void {
     const presentation = this.pluginPresentationState();
     const standalone = this.isPluginPage() && this.isRunViewerPage();
     const auxiliarySlot = this.root.querySelector<HTMLElement>('.plugin-auxiliary-slot');
@@ -2062,157 +1430,6 @@ export class DashboardView {
       scopeRepo: this.presentationScopeRepo(),
     } : undefined);
     this.auxiliary.rehome(standalone ? this.root.querySelector<HTMLElement>('[data-plugin-standalone]') : showAuxiliary ? auxiliarySlot : null);
-    const slot = this.root.querySelector<HTMLElement>('.runs-drawer-slot');
-    if (slot && this.runDrawerEl.parentElement !== slot) slot.appendChild(this.runDrawerEl);
-    const wasActive = this.prSession.active(this.drawerPrOwner);
-    this.prSession.setActive(this.drawerPrOwner, this.canRenderRunLog());
-    if (!wasActive && this.canRenderRunLog()) {
-      const active = this.runTabs.find(tab => tab.runId === this.activeTabId);
-      if (active?.pr) void this.loadTabPr(active.runId, active.pr.repo, active.pr.number);
-    }
-    if (this.canRenderRunLog()) this.scheduleRunLogFlush();
-    else this.cancelRunLogFlush();
-  }
-
-  private renderRunDrawer(refreshPr: boolean = true): void {
-    const prFocus = this.prSession.capture(this.runDrawerEl);
-    this.cancelRunLogFlush();
-    this.renderedRunLines = [];
-    const tabsView: RunTabView[] = this.runTabs.map((t: RunTab): RunTabView => ({
-      id: t.runId,
-      label: t.label,
-      complete: t.complete,
-      status: t.status,
-    }));
-    const drawerCollapsed: boolean = this.collapsed.has('runs:drawer') && this.runTabs.length > 0;
-    this.runDrawerEl.innerHTML = renderRunsDrawer(tabsView, this.activeTabId, drawerCollapsed);
-    this.runDrawerEl.classList.toggle('is-collapsed', drawerCollapsed);
-    this.paintRunRetries();
-    const active: RunTab | undefined = this.runTabs.find((t: RunTab): boolean => t.runId === this.activeTabId);
-    const identity = active?.pr ? JSON.stringify([active.pr.repo, active.pr.number]) : null;
-    if (identity !== this.drawerPrIdentity || drawerCollapsed || !active) this.prSession.setActive(this.drawerPrOwner, false);
-    this.drawerPrIdentity = identity;
-    if (!active) return;
-    const body: HTMLElement | null = this.runDrawerEl.querySelector<HTMLElement>('.run-drawer-body');
-    if (body) {
-      body.addEventListener('scroll', () => this.updateStick(body));
-      this.stickToBottom = true;
-      this.scheduleRunLogFlush();
-    }
-    this.renderFooterDom(active);
-    if (active.pr) {
-      const panel = this.runDrawerEl.querySelector('.run-drawer-pr');
-      if (panel) panel.innerHTML = renderPrPanel(this.prSession.status(active.pr), this.repos.includes(active.pr.repo), true, this.selectedRepo);
-      this.prSession.restore(this.runDrawerEl, prFocus);
-      this.paintSlackReviewRequests();
-      if (refreshPr) void this.loadTabPr(active.runId, active.pr.repo, active.pr.number);
-    }
-  }
-
-  private lineEl(event: RunEvent): HTMLDivElement {
-    const line: HTMLDivElement = document.createElement('div');
-    line.className = `run-line run-line-${event.kind}`;
-    appendHighlightedLog(line, event.text, event.kind);
-    return line;
-  }
-
-  private canRenderRunLog(): boolean {
-    return !this.destroyed && !document.hidden && this.runDrawerEl.isConnected
-      && !this.collapsed.has('runs:drawer');
-  }
-
-  private cancelRunLogFlush(): void {
-    if (this.runLogTimer !== null) clearTimeout(this.runLogTimer);
-    this.runLogTimer = null;
-  }
-
-  private scheduleRunLogFlush(): void {
-    if (this.runLogTimer !== null || !this.canRenderRunLog()) return;
-    this.runLogTimer = setTimeout(() => {
-      this.runLogTimer = null;
-      this.flushRunLog();
-    }, RUN_LOG_BATCH_MS);
-  }
-
-  private flushRunLog(): void {
-    if (!this.canRenderRunLog()) return;
-    const tab = this.runTabs.find(item => item.runId === this.activeTabId);
-    const body = this.runDrawerEl.querySelector<HTMLElement>('.run-drawer-body');
-    if (!tab || !body) return;
-    const retained = this.renderedRunLines.filter(line => tab.lines.includes(line));
-    const removed = this.renderedRunLines.length - retained.length;
-    const previousHeight = !this.stickToBottom && removed > 0 ? body.scrollHeight : 0;
-    const previousTop = body.scrollTop;
-    for (let index = 0; index < removed; index++) body.firstElementChild?.remove();
-    const removedHeight = previousHeight ? previousHeight - body.scrollHeight : 0;
-    const fragment = document.createDocumentFragment();
-    for (let index = retained.length; index < tab.lines.length; index++) {
-      fragment.appendChild(this.lineEl(tab.lines[index]!));
-    }
-    body.appendChild(fragment);
-    this.renderedRunLines = [...tab.lines];
-    if (this.stickToBottom) body.scrollTop = body.scrollHeight;
-    else if (removed > 0) body.scrollTop = Math.max(0, previousTop - removedHeight);
-  }
-
-  private updateStick(body: HTMLElement): void {
-    this.stickToBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
-  }
-
-  private renderFooterDom(tab: RunTab): void {
-    const footer: HTMLElement | null = this.runDrawerEl.querySelector<HTMLElement>('.run-drawer-footer');
-    if (!footer) return;
-    footer.textContent = '';
-    const summary: RunStatusSummary | null = tab.footer;
-    if (!summary) return;
-
-    const statusLine: HTMLDivElement = document.createElement('div');
-    statusLine.className = 'run-drawer-footer-status';
-    statusLine.textContent = `${term('ticketStatus')}: ${deriveTicketStatus(summary)}`;
-    footer.appendChild(statusLine);
-
-    if (summary.prNumber == null) return;
-    const prLine: HTMLDivElement = document.createElement('div');
-    prLine.className = 'run-drawer-footer-pr';
-    const repoParts: string[] = summary.repo.split('/');
-    if (repoParts.length === 2 && repoParts[0] && repoParts[1]) {
-      const link: HTMLAnchorElement = document.createElement('a');
-      link.href = `https://github.com/${summary.repo}/pull/${summary.prNumber}`;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = `${term('pr')} #${summary.prNumber}`;
-      prLine.appendChild(link);
-    } else {
-      prLine.textContent = `${term('pr')} #${summary.prNumber}`;
-    }
-    footer.appendChild(prLine);
-  }
-
-  private async handleLaunchClick(btn: HTMLButtonElement): Promise<void> {
-    const ticketId: string | undefined = btn.dataset.ticket;
-    const title: string | undefined = btn.dataset.title;
-    const repo: string | undefined = btn.dataset.repo;
-    if (!ticketId || !repo) return;
-    const seq: number = ++this.launchSeq;
-    btn.disabled = true;
-    try {
-      if (btn.dataset.sourceInvalid) throw new Error('Task source information is unavailable. Refresh and retry.');
-      const sourceInstanceId = btn.dataset.sourceInstance;
-      const sourceInstanceRevision = Number(btn.dataset.sourceRevision);
-      const sourceId = btn.dataset.sourceId;
-      const externalId = btn.dataset.sourceItem;
-      const result: LaunchResult = sourceInstanceId && sourceId && externalId && Number.isSafeInteger(sourceInstanceRevision) && sourceInstanceRevision > 0
-        ? await launchRun({ mode: 'source', repo, sourceInstanceId, sourceInstanceRevision, workRef: { sourceId, externalId } })
-        : await launchAgent(ticketId, title ?? ticketId, repo);
-      if (seq !== this.launchSeq) return;
-      this.openRunTab(result.runId, ticketId);
-    } catch (err: unknown) {
-      if (seq !== this.launchSeq) return;
-      const message: string = err instanceof Error ? err.message : term('launchFailed');
-      this.openErrorTab(ticketId, message);
-    } finally {
-      btn.disabled = false;
-    }
   }
 
   private async handleConfigSave(btn: HTMLButtonElement): Promise<void> {

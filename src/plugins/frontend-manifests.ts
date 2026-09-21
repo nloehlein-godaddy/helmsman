@@ -7,6 +7,7 @@ import bugsPackage from './bugs/plugin-package.json' with { type: 'json' };
 import sourceSettingsPackage from './source-settings/plugin-package.json' with { type: 'json' };
 import runViewerPackage from './run-viewer/plugin-package.json' with { type: 'json' };
 import runHistoryPackage from './run-history/plugin-package.json' with { type: 'json' };
+import compatibilityPrPackage from './compat-pr/plugin-package.json' with { type: 'json' };
 import runsPackage from './runs/plugin-package.json' with { type: 'json' };
 import clarificationsPackage from './clarifications/plugin-package.json' with { type: 'json' };
 import compatibilityClarificationsPackage from './compat-clarifications/plugin-package.json' with { type: 'json' };
@@ -94,13 +95,6 @@ export const clarificationsManifest = clarificationsPackage.manifest as PluginMa
 export const suggestedContactsManifest = suggestedContactsPackage.manifest as PluginManifest;
 export const compatibilityClarificationsManifest = compatibilityClarificationsPackage.manifest as PluginManifest;
 
-export const compatibilityPrManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.compat-pr', version: '0.1.0', sdkVersion: 1,
-  panels: [{ id: 'panel', title: 'Pull request', contract: { id: 'helmsman/pull-request-panel', version: 1 }, requires: [] }],
-  pages: [{ id: 'page', title: 'Pull request compatibility', slots: [], panes: [], requires: [{ id: 'helmsman/composition', version: 1 }],
-    composition: { id: 'helmsman/pr-compatibility-page', version: 1, accepts: [{ id: 'helmsman/pull-request-panel', version: 1 }],
-      initialLayout: { instances: [{ instanceId: 'pull-request', contributionId: 'helmsman.compat-pr/panel' }],
-        columns: [[{ instances: ['pull-request'], activeInstanceId: 'pull-request', collapsed: false }]] } } }],
-};
+export const compatibilityPrManifest = compatibilityPrPackage.manifest as PluginManifest;
 
 export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);

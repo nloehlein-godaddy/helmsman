@@ -1,3 +1,4 @@
+import type { PullRequestCommandServiceV1 } from './pull-request-command';
 import type { ClarificationReadServiceV1 } from './clarification-read';
 import type { ClarificationCommandServiceV1 } from './clarification-command';
 import type { SuggestedContactAdminServiceV1 } from './suggested-contact-admin';
@@ -18,7 +19,7 @@ import type { SourceCommandServiceV1 } from './source-command';
 import type { TaskViewsReadServiceV1 } from './task-views';
 
 export interface PluginServiceRequirementV1 {
-  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/pull-request-inspect' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
+  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/pull-request-inspect' | 'helmsman/pull-request-command' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
   readonly version: 1;
 }
 
@@ -89,6 +90,7 @@ export interface PanelActivityV1 {
 }
 
 export interface PluginPanelState extends PluginPageState {
+  readonly headerRepo?: string | null;
   readonly instanceId: string;
   readonly activity: PanelActivityV1;
   readonly savedState: PanelOpaqueStateV1 | null;
@@ -96,6 +98,7 @@ export interface PluginPanelState extends PluginPageState {
 }
 
 export interface PluginPanelContext {
+  readonly contributionId?: string;
   readonly selectPresentation?: (locator: PresentationLocatorV1 | null) => void;
   readonly state: PluginPanelState;
   readonly signal: AbortSignal;
@@ -124,6 +127,7 @@ export interface PluginPanelServicesV1 {
   readonly suggestedContacts?: SuggestedContactAdminServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
   readonly pullRequestInspect?: PullRequestInspectServiceV1;
+  readonly pullRequestCommands?: PullRequestCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;
 }

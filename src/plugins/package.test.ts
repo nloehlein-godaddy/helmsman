@@ -51,6 +51,15 @@ describe('plugin packages', () => {
     expect(parsePluginPackage({ ...descriptor(), backend: backend() }).backend?.taskSources).toBeUndefined();
   });
 
+  it('requires declared core HTTP access for pull request providers', () => {
+    const pullRequests = { github: { access: ['core-http'] } };
+    const backend = { entry: 'backend.js', storageVersion: 1, settings: {},
+      provides: [{ id: 'helmsman/pull-request', version: 1, localId: 'github' }], pullRequests };
+    expect(parsePluginPackage({ ...descriptor(), backend }).backend?.pullRequests?.github).toEqual({ access: ['core-http'] });
+    expect(() => parsePluginPackage({ ...descriptor(), backend: { ...backend, pullRequests: { github: { access: [] } } } })).toThrow();
+    expect(() => parsePluginPackage({ ...descriptor(), backend: { ...backend, pullRequests: undefined } })).toThrow();
+  });
+
   it('validates and snapshots provider-declared public source settings', () => {
     const source = taskSource();
     const fields = { project: { label: 'Project', schema: { type: 'string', default: '', maxLength: 128 } } };

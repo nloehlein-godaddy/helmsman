@@ -1,3 +1,4 @@
+import type { PullRequestCommandServiceV1 } from './pull-request-command';
 import type { ClarificationReadServiceV1 } from './clarification-read';
 import type { ClarificationCommandServiceV1 } from './clarification-command';
 import type { SuggestedContactAdminServiceV1 } from './suggested-contact-admin';
@@ -33,6 +34,7 @@ export interface PluginPageServices {
   readonly suggestedContacts?: SuggestedContactAdminServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
   readonly pullRequestInspect?: PullRequestInspectServiceV1;
+  readonly pullRequestCommands?: PullRequestCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;
   readonly usage: {

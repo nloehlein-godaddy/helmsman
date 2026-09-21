@@ -1,7 +1,7 @@
 import { validRepo } from './repo';
 import { parseTaskRepo } from '../plugins/tasks';
 import { LEGACY_PAGE_ALIASES, LEGACY_PAGE_PATHS } from './pagePaths';
-import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUNS_PAGE_ID, RUNS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_ID } from '../plugins/builtins';
+import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, PR_PAGE_ID, PR_PAGE_SLOT, RUNS_PAGE_ID, RUNS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_ID } from '../plugins/builtins';
 import { isContributionId } from '../plugins/manifest';
 
 export type PageView = keyof typeof LEGACY_PAGE_PATHS | 'outcomes' | 'plugin';
@@ -10,6 +10,8 @@ export interface AppRoute {
   view: PageView;
   repo: string | null;
   prRepo: string | null;
+  slackPrRepo?: string | null;
+  slackPr?: number | null;
   pane: string | null;
   pr: number | null;
   run: string | null;
@@ -29,7 +31,7 @@ const panes: Record<keyof typeof LEGACY_PAGE_PATHS, readonly string[]> = {
   triage: ['backlog', 'todo', 'mine'],
   cmux: ['tabs', 'screen'],
   bugs: [],
-  prs: ['review-requests', 'authored', 'lookup', 'diff'],
+  prs: ['review-requests', 'authored', 'recent', 'lookup', 'diff'],
   config: ['local-git'],
   runs: ['recent', 'newrun', 'tasks'],
   todos: ['list', 'new'],
@@ -81,7 +83,10 @@ export function parseRoute(url: URL): AppRoute {
   const params = url.searchParams;
   const repo = validRepo(params.get('repo'));
   const runsPage = plugin?.slotId === RUNS_PAGE_SLOT || plugin?.page?.composition?.id === RUNS_PAGE_SLOT || plugin?.contributionId === RUNS_PAGE_ID;
-  const supportsPrPanel = view === 'prs' || view === 'runs' || runsPage;
+  const prPage = plugin?.slotId === PR_PAGE_SLOT || plugin?.page?.composition?.id === PR_PAGE_SLOT || plugin?.contributionId === PR_PAGE_ID;
+  const supportsPrPanel = view === 'prs' || view === 'runs' || runsPage || prPage;
+  const slackPrRepo = view === 'config' ? validRepo(params.get('slackPrRepo')) : null;
+  const slackPr = slackPrRepo ? positiveInteger(params.get('slackPr')) : null;
   const prRepo = supportsPrPanel ? validRepo(params.get('prRepo')) : null;
   const prTarget = supportsPrPanel && params.has('prRepo') ? prRepo : repo;
   const helm = plugin?.slotId === HELM_PAGE_SLOT || plugin?.page?.composition?.id === HELM_PAGE_SLOT;
@@ -109,13 +114,14 @@ export function parseRoute(url: URL): AppRoute {
       ? { contribution: 'helmsman.triage/panel', pane } : null;
   const runsPanel = runsPage && !explicitInstance ? pane === 'recent' ? { instance: 'run-history', contribution: 'helmsman.run-history/panel' }
     : pane === 'newrun' || selectedPr && pane !== 'tasks' ? { instance: 'pull-request', contribution: 'helmsman.compat-pr/panel' } : null : null;
-  const instance = explicitInstance ?? runsPanel?.instance ?? locatorPane;
+  const prPanel = prPage && !explicitInstance && (selectedPr || pane && panes.prs.includes(pane)) ? { instance: 'pull-request', contribution: 'helmsman.compat-pr/panel' } : null;
+  const instance = explicitInstance ?? runsPanel?.instance ?? prPanel?.instance ?? locatorPane;
   const savedPanelState = panelState(params.get('panelState'));
   const taskPanelState = taskPane ? panelState(JSON.stringify({
     ...(savedPanelState ? JSON.parse(savedPanelState) as Record<string, unknown> : {}),
     [taskPane.contribution]: { version: 1, value: { pane: taskPane.pane } },
   })) ?? savedPanelState : null;
-  const runsPanelState = runsPage && selectedPr && prTarget ? panelState(JSON.stringify({
+  const runsPanelState = (runsPage || prPage) && selectedPr && prTarget ? panelState(JSON.stringify({
     ...(savedPanelState ? JSON.parse(savedPanelState) as Record<string, unknown> : {}),
     'helmsman.compat-pr/panel': { version: 1, value: { target: { repo: prTarget, number: selectedPr }, mode: selectedMode } },
   })) ?? savedPanelState : savedPanelState;
@@ -124,19 +130,21 @@ export function parseRoute(url: URL): AppRoute {
     view,
     repo,
     prRepo,
-    pane: explicitInstance && !validExplicitInstance ? null : locatorPane ?? taskPane?.pane ?? (pane && (plugin?.page?.panes ?? (runsPage ? panes.runs : view === 'outcomes' || view === 'plugin' ? [] : panes[view])).includes(pane) ? pane : null),
+    ...(slackPrRepo && slackPr ? { slackPrRepo, slackPr } : {}),
+    pane: explicitInstance && !validExplicitInstance ? null : locatorPane ?? taskPane?.pane ?? (pane && (plugin?.page?.panes ?? (runsPage ? panes.runs : prPage ? panes.prs : view === 'outcomes' || view === 'plugin' ? [] : panes[view])).includes(pane) ? pane : null),
     pr: selectedPr,
     run: validRun,
     ...(validRun && runRepo ? { runRepo } : {}),
     mode: selectedMode,
-    ticket: view !== 'plugin' || helm || runsPage ? validTicket : null,
+    ticket: view !== 'plugin' || helm || runsPage || prPage ? validTicket : null,
     surface: view === 'cmux' && isSurfaceRef(surface) ? surface : null,
     ...(instance && /^[a-z\d][a-z\d_.:-]{0,159}$/i.test(instance) ? { panelInstance: instance, panelState: panelState(params.get('panelState')) } : {}),
     ...(plugin && params.has('panelState') ? { panelState: panelState(params.get('panelState')) } : {}),
     ...(helm && locatorPane && !explicitInstance ? { panelContribution: `helmsman.${locatorPane}/panel` } : {}),
     ...(taskPane ? { panelState: taskPanelState, ...(!explicitInstance ? { panelContribution: taskPane.contribution } : {}) } : {}),
-    ...(runsPage && runsPanelState ? { panelState: runsPanelState } : {}),
+    ...((runsPage || prPage) && runsPanelState ? { panelState: runsPanelState } : {}),
     ...(runsPanel ? { panelContribution: runsPanel.contribution } : {}),
+    ...(prPanel ? { panelContribution: prPanel.contribution } : {}),
     ...(plugin && (plugin.slotId === null || view === 'plugin') ? {
       pluginPage: plugin.contributionId,
       ...(plugin.slotId ? { pluginSlot: plugin.slotId } : {}),
@@ -171,6 +179,9 @@ function hasExplicitPanel(route: Partial<AppRoute>): boolean {
   if (route.panelContribution && route.panelInstance === route.pane) return false;
   const runsPage = route.pluginSlot === RUNS_PAGE_SLOT || route.pluginPage === RUNS_PAGE_ID
     || route.pluginPage && appPages.resolvePath(`/plugins/${route.pluginPage}`)?.page?.composition?.id === RUNS_PAGE_SLOT;
+  const prPage = route.pluginSlot === PR_PAGE_SLOT || route.pluginPage === PR_PAGE_ID
+    || route.pluginPage && appPages.resolvePath(`/plugins/${route.pluginPage}`)?.page?.composition?.id === PR_PAGE_SLOT;
+  if (prPage && route.panelInstance === 'pull-request' && route.panelContribution === 'helmsman.compat-pr/panel') return false;
   if (runsPage && (route.panelInstance === 'run-history' && route.panelContribution === 'helmsman.run-history/panel'
     || route.panelInstance === 'pull-request' && route.panelContribution === 'helmsman.compat-pr/panel')) return false;
   return true;
@@ -178,7 +189,7 @@ function hasExplicitPanel(route: Partial<AppRoute>): boolean {
 
 export function routeHref(route: Partial<AppRoute> & { view: PageView }): string {
   const url = new URL(routePath(route), 'http://helmsman.local');
-  const keys = ['repo', 'prRepo', 'pane', 'pr', 'run', 'runRepo', 'mode', 'ticket', 'surface'] as const;
+  const keys = ['repo', 'prRepo', 'pane', 'pr', 'run', 'runRepo', 'mode', 'ticket', 'surface', 'slackPrRepo', 'slackPr'] as const;
   for (const key of keys) {
     const value = route[key];
     if (value !== null && value !== undefined) url.searchParams.set(key, String(value));

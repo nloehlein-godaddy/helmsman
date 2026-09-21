@@ -36,12 +36,15 @@ export const RUN_HISTORY_PAGE_SLOT = 'helmsman/run-history-page';
 export const RUN_HISTORY_PAGE_ID = 'helmsman.run-history/page';
 export const RUNS_PAGE_SLOT = 'helmsman/runs-page';
 export const RUNS_PAGE_ID = 'helmsman.runs/page';
+export const PR_PAGE_SLOT = 'helmsman/pr-compatibility-page';
+export const PR_PAGE_ID = 'helmsman.compat-pr/page';
 
 interface BuiltinPageSlot extends PageSlot {
   readonly panelContract?: string;
 }
 
 export const builtinPageSlots: readonly BuiltinPageSlot[] = Object.freeze([
+  Object.freeze({ id: PR_PAGE_SLOT, alias: '/prs', aliases: Object.freeze(['/pr']), defaultContributionId: PR_PAGE_ID, panelContract: 'helmsman/pull-request-panel' }),
   Object.freeze({ id: RUNS_PAGE_SLOT, alias: '/runs', defaultContributionId: RUNS_PAGE_ID, panelContract: 'helmsman/run-history-panel' }),
   Object.freeze({ id: CLARIFICATIONS_PAGE_SLOT, alias: CLARIFICATIONS_PAGE_ALIAS, defaultContributionId: CLARIFICATIONS_PAGE_ID, panelContract: CLARIFICATIONS_PANEL_CONTRACT }),
   Object.freeze({ id: RUN_VIEWER_PAGE_SLOT, alias: '/run-viewer', defaultContributionId: RUN_VIEWER_PAGE_ID, panelContract: 'helmsman/run-viewer-panel' }),

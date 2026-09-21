@@ -1,3 +1,4 @@
+import { createHostPullRequestCommandService } from './pull-request-command-service';
 import { createHostClarificationReadService } from './clarification-read-service';
 import { createHostClarificationCommandService } from './clarification-command-service';
 import { createHostSuggestedContactAdminService } from './suggested-contact-admin-service';
@@ -189,7 +190,7 @@ export class PluginCompositionHost {
     const contribution = this.options.registry.get(instance.contributionId);
     const compatible = contribution && this.options.definition.accepts.some(contract =>
       contract.id === contribution.contract.id && contract.version === contribution.contract.version)
-      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
+      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
     const module = compatible ? this.options.registry.getModule(instance.contributionId) : null;
     if (panel.module !== module || panel.contributionId !== instance.contributionId) {
       panel.host?.dispose(); panel.host = null;
@@ -206,16 +207,17 @@ export class PluginCompositionHost {
     const stack = this.layout?.columns.flat().find(stack => stack.instances.includes(instance.instanceId));
     const visible = this.state.visible && panel.requestedActive && !instance.hidden && !!stack && !stack.collapsed
       && stack.activeInstanceId === instance.instanceId;
-    const state = { ...this.state, repo: instance.scope.kind === 'inherit' ? this.state.repo
+    const state = { ...this.state, headerRepo: this.state.repo, repo: instance.scope.kind === 'inherit' ? this.state.repo
       : instance.scope.kind === 'all' ? null : instance.scope.repo, visible };
     const savedState = instance.state[instance.contributionId] ?? null;
     const routeTarget = this.layout?.instances.find(value => value.instanceId === state.panelInstance)
       ?? this.layout?.instances.find(value => value.contributionId === state.panelContribution);
-    const routeState = !state.panelInstance && !state.panelContribution || routeTarget?.instanceId === instance.instanceId
-      ? state.panelRouteState?.[instance.contributionId] ?? null : null;
+    const acceptsRoute = !state.panelInstance && !state.panelContribution || routeTarget?.instanceId === instance.instanceId;
+    state.pullRequest = acceptsRoute ? state.pullRequest : null;
+    const routeState = acceptsRoute ? state.panelRouteState?.[instance.contributionId] ?? null : null;
     if (panel.host) { panel.host.update(state, savedState, routeState); return; }
     panel.host = new PluginPanelHost(panel.container, module, state, savedState, {
-      instanceId: instance.instanceId, services: (lifetime, activity) => Object.freeze({ version: 1,
+      instanceId: instance.instanceId, contributionId: instance.contributionId, services: (lifetime, activity) => Object.freeze({ version: 1,
         tasks: createHostTaskReadService(lifetime, { scope: activity }),
         taskEdit: createHostTaskEditService(lifetime, { scope: activity }),
         todoLegacyRecovery: createHostTodoLegacyRecoveryService(lifetime, { scope: activity }),
@@ -227,6 +229,7 @@ export class PluginCompositionHost {
         downloads: createHostDownloadService(lifetime, activity),
         clarifications: createHostClarificationReadService(lifetime, { scope: activity, caller: instance.contributionId }),
         clarificationCommands: createHostClarificationCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
+        pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope: activity, caller: instance.contributionId }),
         pullRequests: createHostPullRequestReadService(lifetime, { scope: activity }),
         pullRequestInspect: createHostPullRequestInspectService(lifetime, { scope: activity }),

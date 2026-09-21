@@ -31,6 +31,8 @@ import type { TaskEditServerService } from './task-edit-service';
 import { handleTaskViewsReadApi } from './task-views-read-routes';
 import type { TaskViewsReadService } from './task-views-read-service';
 import type { RunCommandServerService } from './run-command-coordinator';
+import { handlePullRequestCommandApi } from './pull-request-command-routes';
+import type { PullRequestCommandServerService } from './pull-request-command-service';
 import { handlePullRequestReadApi } from './pull-request-read-routes';
 import { handlePullRequestInspectApi } from './pull-request-inspect-routes';
 import type { PullRequestInspectServerService } from './pull-request-inspect-service';
@@ -89,6 +91,8 @@ export interface RouterDeps {
   clarificationCaller?: string;
   runRead?: RunReadServerService;
   runInspect?: RunInspectServerService;
+  pullRequestCommands?: PullRequestCommandServerService;
+  pullRequestCommandCaller?: string;
   pullRequestRead?: PullRequestReadServerService;
   pullRequestInspect?: PullRequestInspectServerService;
   pullRequestInspectSignal?: AbortSignal;
@@ -172,6 +176,8 @@ export async function handleApi(
   if (taskViewsResult) return taskViewsResult;
   const commandResult = await handleRunCommandApi({ method, path, query, body: _body, caller: deps.runCommandCaller, service: deps.runCommands });
   if (commandResult) return commandResult;
+  const pullRequestCommandResult = await handlePullRequestCommandApi({ method, path, query, body: _body, caller: deps.pullRequestCommandCaller, service: deps.pullRequestCommands });
+  if (pullRequestCommandResult) return pullRequestCommandResult;
   const pullRequestInspectResult = await handlePullRequestInspectApi({ method, path, query, service: deps.pullRequestInspect, signal: deps.pullRequestInspectSignal });
   if (pullRequestInspectResult) return pullRequestInspectResult;
   const pullRequestReadResult = await handlePullRequestReadApi({ method, path, query, service: deps.pullRequestRead });
@@ -512,6 +518,7 @@ export async function handleApi(
     return files ? { status: 200, json: { files } } : { status: 404, json: { error: 'PR diff not found or GitHub not configured' } };
   }
   if (path === '/api/pr/review' && method === 'POST') {
+    if (deps.pullRequestCommands) return { status: 410, json: { error: 'Use the public pull request command service.' } };
     const b: { repo?: string; number?: number; event?: string; body?: string; requestId?: string; expectedHeadSha?: string } | null = _body as
       | { repo?: string; number?: number; event?: string; body?: string; requestId?: string; expectedHeadSha?: string }
       | null;

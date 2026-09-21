@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COSTS_PAGE_SLOT } from '../../../src/plugins/builtins';
 import { parsePluginArchive } from './artifacts';
 import { pluginCommand } from './cli';
+import { readPullRequestProviderBinding } from './data';
 import { loadPluginSnapshot, readPluginState } from './store';
 import { openPersistence, registerPersistenceWriter } from '../persistence';
 
@@ -40,6 +41,12 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 const command = (...args: string[]) => pluginCommand(['--dir', store, ...args], { coordinate: false });
 
 describe('plugin CLI', () => {
+  it('persists explicit pull request provider selection separately from installed pages', async () => {
+    await command('select-pull-request', 'example.github/github');
+    expect(readPullRequestProviderBinding(store)).toBe('example.github/github');
+    await command('select-pull-request', 'default');
+    expect(readPullRequestProviderBinding(store)).toBeUndefined();
+  });
   it('packs, installs, enables, selects, lists, disables, and resets a page using real artifacts', async () => {
     expect(await command('pack', directory, archive)).toMatch(/^Packed example\.cli: [a-f0-9]{64}$/);
     const packed = parsePluginArchive(await readFile(archive));

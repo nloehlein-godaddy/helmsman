@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { parsePluginPackage } from '../../../src/plugins/package';
-import { openPluginData, pluginJson, writePluginSettings } from './data';
+import { initializePullRequestProviderDefault, openPluginData, pluginJson, readPullRequestProviderBinding, selectPullRequestProvider, writePluginSettings } from './data';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -57,4 +57,15 @@ it('rejects incompatible storage versions and invalid settings without changing 
   const sql = new Database(join(root, 'plugin-data.sqlite'));
   sql.prepare('INSERT INTO plugin_storage_versions VALUES(?,?)').run(pkg.manifest.id, 2); sql.close();
   expect(() => openPluginData(root, pkg)).toThrow('version');
+});
+
+it('retains an explicit pull request provider selection without silently replacing it', async () => {
+  const root = await temporary();
+  initializePullRequestProviderDefault(root, 'example.github/github');
+  expect(readPullRequestProviderBinding(root)).toBe('example.github/github');
+  selectPullRequestProvider(root, 'example.alternative/reviews');
+  initializePullRequestProviderDefault(root, 'example.github/github');
+  expect(readPullRequestProviderBinding(root)).toBe('example.alternative/reviews');
+  selectPullRequestProvider(root, null);
+  expect(readPullRequestProviderBinding(root)).toBeUndefined();
 });
