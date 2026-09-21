@@ -657,9 +657,9 @@ With `.env` present but credentials missing or invalid, Helmsman falls back per-
 The dashboard renders a banner naming the degraded sources so it never shows fake data as
 real.
 
-The Config tab’s Local branches & worktrees card reads the selected repository’s
+The replaceable Local Git page, linked from Config, reads the selected repository’s
 configured checkout under `AGENTS_ROOT`. It shows the checkout path, local branches
-and upstreams, and registered worktrees. Refresh stays local. Check remotes explicitly
+and upstreams, and registered worktrees. Refresh stays local. Fetch remote status explicitly
 fetches and prunes remote-tracking branches so deleted upstreams can be identified;
 it does not prune local branches or tags.
 
@@ -675,7 +675,7 @@ Select **Include unmerged branches** to also remove branches with unmerged commi
 the preview warns before this destructive option is confirmed. The preview
 lists each candidate and explains protected skips; confirmation deletes
 the exact reviewed names and commits atomically. Any changed branch or HEAD requires a
-new preview. Use **Check remotes** first to refresh deleted-upstream information.
+new preview. Use **Fetch remote status** first to refresh deleted-upstream information.
 Current, default, and checked-out branches remain protected in either mode.
 
 Single and bulk branch deletion hold Git's HEAD locks for existing worktrees while
