@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
+import { loadDashboard } from './data/mock';
 
 class RunStream {
   static instances: RunStream[] = [];
@@ -21,11 +22,14 @@ beforeEach(async () => {
   localStorage.clear();
   hidden = false;
   vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
-  window.history.replaceState(null, '', '/runs?run=run-a');
+  window.history.replaceState(null, '', '/prs?run=run-a');
   RunStream.instances = [];
   vi.stubGlobal('EventSource', RunStream);
+  const snapshot = await loadDashboard();
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), window.location.origin);
+    if (url.pathname === '/api/dashboard') return json({ snapshot, repos: ['org/repo'], degraded: [], selectedRepo: null, jiraBaseUrl: null });
+    if (url.pathname === '/api/pr/review-requests') return json({ prs: [], degraded: false, truncated: false });
     if (url.pathname === '/api/context') return json({ repos: ['org/repo'], jiraBaseUrl: null });
     if (url.pathname === '/api/agents') return json({ runs: [
       { id: 'run-a', ticketId: 'A', repo: 'org/repo', status: 'running', prNumber: null },
@@ -124,7 +128,7 @@ describe('bounded voyage log rendering', () => {
 
   it('switches voyages without rendering the old batch into the new tab', async () => {
     for (let id = 1; id <= 5000; id++) RunStream.instances[0]!.emit(id);
-    window.history.pushState(null, '', '/runs?run=run-b');
+    window.history.pushState(null, '', '/prs?run=run-b');
     window.dispatchEvent(new PopStateEvent('popstate'));
     await flush();
     expect(RunStream.instances).toHaveLength(2);
@@ -144,13 +148,30 @@ describe('bounded voyage log rendering', () => {
     await flush();
     const log = document.querySelector('.run-drawer-body');
     expect(log).toBeNull();
+    expect(RunStream.instances[0]!.close).toHaveBeenCalledOnce();
     for (let id = 1; id <= 5000; id++) RunStream.instances[0]!.emit(id);
     await flush();
-    window.history.pushState(null, '', '/runs?run=run-a');
+    window.history.pushState(null, '', '/prs?run=run-a');
     window.dispatchEvent(new PopStateEvent('popstate'));
+    await flush();
+    expect(RunStream.instances).toHaveLength(2);
+    for (let id = 1; id <= 5000; id++) RunStream.instances[1]!.emit(id);
     await flush();
     expect(body().children).toHaveLength(300);
     expect(body().firstElementChild?.textContent).toBe('line 4701');
+  });
+
+  it('resumes a paused neighbor on close and ignores old replay beyond the retained log window', async () => {
+    for (let id = 1; id <= 5000; id++) RunStream.instances[0]!.emit(id);
+    window.history.pushState(null, '', '/prs?run=run-b'); window.dispatchEvent(new PopStateEvent('popstate')); await flush();
+    document.querySelector<HTMLAnchorElement>('[data-view="config"]')!.click(); await flush();
+    window.history.pushState(null, '', '/prs?run=run-b'); window.dispatchEvent(new PopStateEvent('popstate')); await flush();
+    expect(RunStream.instances).toHaveLength(3);
+    document.querySelector<HTMLButtonElement>('.run-tab[data-tabid="run-b"] .run-tab-close')!.click(); await flush();
+    expect(RunStream.instances).toHaveLength(4);
+    for (let id = 1; id <= 4700; id++) RunStream.instances[3]!.emit(id);
+    await flush(); expect(body().children).toHaveLength(300); expect(body().firstElementChild?.textContent).toBe('line 4701'); expect(body().lastElementChild?.textContent).toBe('line 5000');
+    RunStream.instances[3]!.emit(5001); await flush(); expect(body().firstElementChild?.textContent).toBe('line 4702'); expect(body().lastElementChild?.textContent).toBe('line 5001');
   });
 
   it('cancels pending work on close and ignores late stream callbacks', async () => {

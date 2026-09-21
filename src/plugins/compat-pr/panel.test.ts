@@ -53,3 +53,12 @@ it('keeps a launched run scoped to the explicitly selected galleon while retaini
   const route = new URL(f.navigate.mock.calls[0]![0] as string, 'https://helmsman.test');
   expect(route.searchParams.get('repo')).toBe('org/a'); expect(route.searchParams.get('runRepo')).toBe('org/b'); expect(route.searchParams.get('run')).toBe('review-result');
 });
+it.each(['review', 'rerun'] as const)('preselects and focuses route %s without launching and retains draft on route updates', async mode => {
+  vi.stubGlobal('fetch', vi.fn(async url => String(url).startsWith('/api/pr/diff') ? json({ files: [] }) : json({ ...status, isOwnPr: true })));
+  const f = await fixture(); await vi.waitFor(() => expect(f.container.querySelector('.pr-review-body')).not.toBeNull());
+  const textarea = f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')!; textarea.value = 'Preserve routed draft'; textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  await f.instance.update({ ...f.state, routeState: { version: 1, value: { target: { repo: 'org/b', number: 42 }, mode } } });
+  expect(document.activeElement).toBe(f.container.querySelector(mode === 'review' ? '.pr-review-agent' : '.pr-rerun-feedback'));
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Preserve routed draft');
+  expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
+});

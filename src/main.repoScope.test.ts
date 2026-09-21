@@ -46,7 +46,7 @@ describe('Helm repository scope changes', () => {
 
     window.history.pushState(null, '', '/runs?repo=org/b');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    await vi.waitFor(() => expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe('runs'));
+    await vi.waitFor(() => expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe('plugin'));
     expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/b');
     expect(dashboardRequests).toEqual(['org/a']);
 

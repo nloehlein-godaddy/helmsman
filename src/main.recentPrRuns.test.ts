@@ -74,7 +74,8 @@ describe('recent PR voyages local refresh', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(window.location.pathname).toBe('/runs');
     expect(new URLSearchParams(window.location.search).get('run')).toBe('review-a');
-    expect(root.querySelector('.run-tab[data-tabid="review-a"]')).not.toBeNull();
+    expect(root.querySelector('.run-tab[data-tabid="review-a"]')).toBeNull();
+    expect(root.textContent).toContain('Page unavailable');
     expect(requests).not.toContain('/api/agents/launch');
   });
 });

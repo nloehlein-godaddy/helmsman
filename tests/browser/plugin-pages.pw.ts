@@ -121,7 +121,8 @@ test('shell navigation leaves and returns to Costs with scope intact', async ({ 
   await openCosts(page, '/plugins/helmsman.costs/page');
   await page.locator('.page-tab[data-view="runs"]').click();
   await expect(page).toHaveURL(url => url.pathname === '/runs' && url.searchParams.get('repo') === 'org/a');
-  await expect(page.locator('.helm')).toHaveAttribute('data-page', 'runs');
+  await expect(page.locator('.helm')).toHaveAttribute('data-page', 'plugin');
+  await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
   await page.getByRole('tab', { name: 'Costs & Outcomes' }).click();
   await expect(page.getByRole('heading', { name: 'Costs & Outcomes' })).toBeVisible();
   await expect(page.locator('.repo-select')).toHaveValue('org/a');
@@ -198,7 +199,8 @@ test('leaving Costs cancels a pending save without updating the next page', asyn
   await page.locator('.page-tab[data-view="runs"]').click();
   release();
   await aborted;
-  await expect(page.locator('.helm')).toHaveAttribute('data-page', 'runs');
+  await expect(page.locator('.helm')).toHaveAttribute('data-page', 'plugin');
+  await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
   await expect(page.getByText('Late save failure', { exact: true })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Costs & Outcomes' }).click();
   await expect(page.locator('.outcome-runs')).toContainText('run_a');

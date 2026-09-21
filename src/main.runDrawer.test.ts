@@ -22,10 +22,10 @@ class RunStream {
 }
 
 function run(id: string, status = 'running'): RunSummary {
-  return { id, ticketId: `TASK-${id.at(-1)}`, repo: 'org/repo', status, attempt: 1, prNumber: null, startedAt: '2026-09-18T00:00:00Z', costUsd: null };
+  return { id, ticketId: `TASK-${id.at(-1)}`, repo: 'org/repo', status, attempt: 1, prNumber: 1, startedAt: '2026-09-18T00:00:00Z', costUsd: null };
 }
 
-async function setup(path = `/runs?run=${FIRST}`, runs = [run(FIRST), run(SECOND), run(THIRD)], details = new Map(runs.map(item => [item.id, item]))) {
+async function setup(path = `/prs?run=${FIRST}`, runs = [run(FIRST), run(SECOND), run(THIRD)], details = new Map(runs.map(item => [item.id, item]))) {
   window.history.replaceState(null, '', path);
   const snapshot = await loadDashboard();
   const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
@@ -83,7 +83,7 @@ const select = (id: string) => tab(id).querySelector<HTMLButtonElement>('.run-ta
 const copy = (element: ParentNode, id: string) => element.querySelector<HTMLButtonElement>(`[data-copy-run-id="${id}"]`)!;
 
 async function open(id: string): Promise<void> {
-  window.history.pushState(null, '', `/runs?run=${id}`);
+  window.history.pushState(null, '', `/prs?run=${id}`);
   window.dispatchEvent(new PopStateEvent('popstate'));
   await flush();
 }
@@ -105,8 +105,8 @@ describe('voyage drawer interactions', () => {
     expect(tab(FIRST).querySelector('.voyage-copy-feedback[role="status"]')?.textContent).toBe('Copied');
   });
 
-  it('copies a recent voyage UUID without opening its drawer or leaving Runs', async () => {
-    const { writeText } = await setup('/runs', [run(FIRST, 'failed')]);
+  it('copies a recent voyage UUID without opening its drawer or leaving PRs', async () => {
+    const { writeText } = await setup('/prs', [run(FIRST, 'failed')]);
     const row = document.querySelector<HTMLElement>(`.recent-run[data-runid="${FIRST}"]`)!;
     const address = window.location.href;
     const button = copy(row, FIRST);
@@ -138,7 +138,7 @@ describe('voyage drawer interactions', () => {
     const { details } = await setup();
     expect(tab(FIRST).dataset.runStatus).toBe('running');
     expect(tab(FIRST).querySelector('.run-tab-status')?.textContent).toBe('Underway');
-    details.set(FIRST, run(FIRST, status));
+    details.set(FIRST, { ...run(FIRST, status), prNumber: null });
     streams[0]!.complete(status);
     await flush();
     expect(tab(FIRST).dataset.runStatus).toBe(status);
@@ -157,7 +157,7 @@ describe('voyage drawer interactions', () => {
   });
 
   it.each([['failed', 'Marooned'], ['succeeded', 'Shipshape'], ['running', 'Underway']])('opens a directly linked historical voyage using its %s getRun status', async (status, label) => {
-    await setup(`/runs?run=${FIRST}`, [], new Map([[FIRST, run(FIRST, status)]]));
+    await setup(`/prs?run=${FIRST}`, [], new Map([[FIRST, run(FIRST, status)]]));
     expect(tab(FIRST).dataset.runStatus).toBe(status);
     expect(tab(FIRST).querySelector('.run-tab-status')?.textContent).toBe(label);
   });

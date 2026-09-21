@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { renderPrLists, renderPrPanel, renderPrView, renderRepoPrs } from './render';
-import { renderRunsView } from './renderRuns';
 import { DEFAULT_THEME_ID } from './data/themes';
 import type { PrStatusView } from './data/pr';
 
@@ -55,10 +54,10 @@ describe('PR panel repository overrides', () => {
     expect(target(authored!).get('q')).toBe('is:open is:pr author:@me repo:owner/header');
   });
 
-  it.each([null, 'owner/header'])('propagates header scope %j through PR and voyage pages', selectedRepo => {
+  it.each([null, 'owner/header'])('propagates header scope %j through the PR page', selectedRepo => {
     const state = { repo: pr.repo, number: pr.number, pr, diff: null, loading: false };
     const opts = { repos: ['owner/header', pr.repo], selectedRepo, themeId: DEFAULT_THEME_ID, runs: [], lists: { reviewRequests: list, authored: list } };
-    for (const html of [renderPrView(state, opts), renderRunsView(state, opts)]) {
+    for (const html of [renderPrView(state, opts)]) {
       const element = mount(html);
       expect(element.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe(selectedRepo ?? '');
       const links = [...element.querySelectorAll('.pr-voyage-links a, .pr-list-row .app-link, [data-pane="newrun"] .runs-pane-link')];

@@ -1,4 +1,4 @@
-import type { PluginPanelModule } from '../sdk';
+import type { PluginPanelModule, PluginPanelState } from '../sdk';
 import { findPrCompatibilitySession, prTarget, type PrIdentity } from '../../pr-compatibility-session';
 import { parsePrUrl } from '../../data/pr';
 import { renderPrPanel, renderPrDiff } from '../../render';
@@ -9,18 +9,28 @@ const validTarget = (value: unknown): PrIdentity | null => {
   const item = value as Partial<PrIdentity>;
   return typeof item.repo === 'string' && /^[^/\s]+\/[^/\s]+$/.test(item.repo) && Number.isSafeInteger(item.number) && Number(item.number) > 0 ? { repo: item.repo, number: Number(item.number) } : null;
 };
-const identity = (target: PrIdentity | null) => target ? JSON.stringify([target.repo, target.number]) : '';
+function routeSelection(state: PluginPanelState): { target: PrIdentity; mode: 'review' | 'rerun' | null } | null {
+  const value = state.routeState?.version === 1 ? state.routeState.value : null;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>; const target = validTarget(record.target);
+    if (target && (record.mode === null || record.mode === 'review' || record.mode === 'rerun')) return { target, mode: record.mode };
+  }
+  return state.presentation?.kind === 'pull-request' ? { target: state.presentation, mode: null } : null;
+}
 const panel: PluginPanelModule = { mount(container, context) {
   const session = findPrCompatibilitySession(container);
   if (!session) throw new Error('Pull request compatibility requires its private host session.');
   const owner = {}; let state = context.state; let disposed = false; let generation = 0; let loading = false; let error = ''; let lookup = '';
-  let target = validTarget(state.presentation?.kind === 'pull-request' ? state.presentation : state.savedState?.version === 1 && state.savedState.value && typeof state.savedState.value === 'object' && !Array.isArray(state.savedState.value) ? (state.savedState.value as Record<string, unknown>).target : null);
-  let routed = identity(state.presentation?.kind === 'pull-request' ? state.presentation : null);
+  let target = routeSelection(state)?.target ?? validTarget(state.savedState?.version === 1 && state.savedState.value && typeof state.savedState.value === 'object' && !Array.isArray(state.savedState.value) ? (state.savedState.value as Record<string, unknown>).target : null);
+  let routed = JSON.stringify(routeSelection(state));
+  let pendingFocus = routeSelection(state)?.mode ?? null;
+  if (target) lookup = `${target.repo}#${target.number}`;
   const active = () => !disposed && !context.signal.aborted && state.visible && state.activity.active && !state.activity.signal.aborted;
   const cancel = () => { ++generation; session.setActive(owner, false); loading = false; };
   function draw() {
     if (disposed) return;
     const focus = session!.capture(container);
+    const reviewFocused = document.activeElement === container.querySelector('.pr-review-agent');
     const lookupFocused = document.activeElement === container.querySelector('[data-pr-compat-lookup]');
     const root = document.createElement('section');
     const label = document.createElement('label'); label.textContent = `${term('pr')} URL or owner/name#number`;
@@ -31,8 +41,15 @@ const panel: PluginPanelModule = { mount(container, context) {
       if (!active()) return;
       const parsed = validTarget(parsePrUrl(input.value));
       if (!parsed) { error = term('prLookupInvalid'); draw(); return; }
-      cancel(); target = parsed; error = ''; session!.setActive(owner, active());
+      cancel(); target = parsed; pendingFocus = null; error = ''; session!.setActive(owner, active());
       void context.saveState({ version: 1, value: { target: { ...parsed } } }).catch(() => { if (!disposed) { error = 'The selected pull request could not be saved. It remains open here.'; draw(); } });
+      if (state.routeState) {
+        const url = new URL(window.location.href);
+        const panelState = { ...(JSON.parse(url.searchParams.get('panelState') ?? '{}') as Record<string, unknown>),
+          'helmsman.compat-pr/panel': { version: 1, value: { target: parsed, mode: null } } };
+        url.searchParams.set('panelState', JSON.stringify(panelState)); url.searchParams.set('prRepo', parsed.repo); url.searchParams.set('pr', String(parsed.number)); url.searchParams.delete('mode');
+        context.navigate(url.pathname + url.search);
+      }
       void refresh();
     };
     input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); select(); } });
@@ -44,6 +61,11 @@ const panel: PluginPanelModule = { mount(container, context) {
     container.replaceChildren(root); session!.restore(container, focus); session!.paintSlack(container, session!.slackEnabled());
     if (!active()) container.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = true; });
     if (lookupFocused) input.focus({ preventScroll: true });
+    if (reviewFocused) container.querySelector<HTMLElement>('.pr-review-agent')?.focus({ preventScroll: true });
+    if (pendingFocus && active()) {
+      const control = container.querySelector<HTMLElement>(pendingFocus === 'rerun' ? '.pr-rerun-feedback' : '.pr-review-agent');
+      if (control) { pendingFocus = null; control.focus({ preventScroll: true }); }
+    }
   }
   async function refresh() {
     if (!active()) return;
@@ -88,11 +110,11 @@ const panel: PluginPanelModule = { mount(container, context) {
   return { update(next) {
     if (disposed) return;
     session!.capture(container); const previous = state; state = next;
-    const nextRoute = identity(next.presentation?.kind === 'pull-request' ? next.presentation : null);
+    const selection = routeSelection(next); const nextRoute = JSON.stringify(selection);
     const changed = previous.activity !== next.activity || previous.visible !== next.visible || nextRoute !== routed;
     if (changed) {
       previous.activity.signal.removeEventListener('abort', cancel); cancel();
-      if (nextRoute !== routed) { routed = nextRoute; if (next.presentation?.kind === 'pull-request') target = validTarget(next.presentation); }
+      if (nextRoute !== routed) { routed = nextRoute; if (selection) { target = selection.target; lookup = `${target.repo}#${target.number}`; pendingFocus = selection.mode; } else if (previous.activity.repo !== next.activity.repo) { target = null; lookup = ''; pendingFocus = null; } }
       state.activity.signal.addEventListener('abort', cancel, { once: true }); session!.setActive(owner, active());
     }
     draw(); if (changed) return refresh();

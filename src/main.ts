@@ -15,14 +15,12 @@ import { PrCompatibilitySession, bindPrCompatibilitySession, prTarget } from './
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
-import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUNS_PAGE_SLOT } from './plugins/builtins';
 import { appPageModules, disableBuiltinPageModules, syncBuiltinFrontend } from './plugins/builtin-modules';
 import { AppCompositionFactory } from './plugins/app-composition';
 import { loadPluginCatalog } from './plugins/runtime';
 import { PluginPageHost } from './plugins/page-host';
 import type { PluginPageState } from './plugins/sdk';
-import { renderRunsView, renderRunHistory, type RunHistoryState } from './renderRuns';
-import { fetchRunHistory, RUN_HISTORY_PAGE_SIZE } from './data/runHistory';
 import { mountCampaigns } from './renderCampaigns';
 import { loadDashboard, POLL_MS, LOCAL_POLL_MS, type DashboardResponse } from './data/live';
 import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderPrPanel, renderCmuxView, renderRunsDrawer, renderVoyageRetry, runTabStatus, renderConfigView, renderPrView, renderPrLists, renderRecentPrRuns } from './render';
@@ -75,6 +73,8 @@ interface RunTab {
   footer: RunStatusSummary | null;
   pr: { repo: string; number: number } | null;
   unsub: (() => void) | null;
+  streamPaused?: boolean;
+  lastEventId?: number;
   complete: boolean;
   status?: string;
 }
@@ -114,10 +114,6 @@ export class DashboardView {
   private repos: string[] = [];
   private selectedRepo: string | null = loadRepoScope();
   private runs: RunSummary[] = [];
-  private historyRuns: RunSummary[] = [];
-  private runHistory: RunHistoryState = { total: 0, offset: 0, limit: RUN_HISTORY_PAGE_SIZE, loading: true, error: null };
-  private runHistorySeq = 0;
-  private runHistoryPending: { repo: string | null; offset: number; promise: Promise<void> } | null = null;
   private uiConfig: UiConfig = { config: {}, overridden: [] };
   private configLoaded = false;
   private configLoading = false;
@@ -140,7 +136,7 @@ export class DashboardView {
     this.syncCmuxPolling();
     this.prSession.setActive(this, !document.hidden);
     this.prSession.setActive(this.drawerPrOwner, this.canRenderRunLog());
-    if (!document.hidden && (this.view === 'prs' || this.view === 'runs') && this.prSession.view.repo && this.prSession.view.number) void this.loadPrView(this.prSession.view.repo, this.prSession.view.number, false);
+    if (!document.hidden && this.view === 'prs' && this.prSession.view.repo && this.prSession.view.number) void this.loadPrView(this.prSession.view.repo, this.prSession.view.number, false);
     if (this.isPluginPage()) this.paintPluginPage();
     if (document.hidden) this.cancelRunLogFlush();
     else this.scheduleRunLogFlush();
@@ -253,7 +249,11 @@ export class DashboardView {
       }
       if (!(control instanceof HTMLSelectElement)) return;
       if (control.matches('.repo-select')) {
-        void this.navigate({ ...this.route, view: this.view, repo: control.value || null, prRepo: null, pr: null, run: null });
+        const panelState = this.panelRouteState() ?? {};
+        const nextPanelState = { ...panelState };
+        if (this.route.pr && !this.route.prRepo) delete nextPanelState['helmsman.compat-pr/panel'];
+        void this.navigate({ ...this.route, view: this.view, repo: control.value || null, prRepo: null, pr: null, run: null,
+          panelState: Object.keys(nextPanelState).length ? JSON.stringify(nextPanelState) : null });
       } else if (control.matches('.theme-select')) {
         this.themeId = control.value;
         applyTheme(this.themeId);
@@ -409,7 +409,6 @@ export class DashboardView {
     if (this.refreshTimer !== null) clearInterval(this.refreshTimer);
     this.refreshTimer = null;
     ++this.routeSeq;
-    ++this.runHistorySeq;
     ++this.refreshSeq;
     this.prSession.setActive(this, false);
     ++this.reviewRequestsSeq;
@@ -435,6 +434,8 @@ export class DashboardView {
   }
 
   private async navigate(route: AppRoute, history: 'push' | 'replace' | 'none' = 'push'): Promise<void> {
+    if (route.view === 'runs') route = parseRoute(new URL(routeHref(route), window.location.origin));
+    if (route.view !== 'prs') for (const tab of this.runTabs) { if (tab.unsub) { tab.unsub(); tab.unsub = null; tab.streamPaused = true; } }
     if (this.view === 'campaigns' && route.view !== 'campaigns') {
       this.campaigns?.destroy();
       this.campaigns = null;
@@ -442,11 +443,7 @@ export class DashboardView {
     if (this.presentationSelection && (route.run !== this.presentationSelection.locator.runId
       || this.presentationSelection.locator.kind === 'run' && route.runRepo !== this.presentationSelection.locator.repo)) this.presentationSelection = null;
     const seq = ++this.routeSeq;
-    if (this.view === 'runs' && route.view !== 'runs') {
-      ++this.runHistorySeq;
-      this.runHistoryPending = null;
-      this.runHistory.loading = false;
-    }
+    ++this.launchSeq;
     this.prSession.capture(this.root);
     this.prSession.setActive(this, false);
     this.prSession.setActive(this.drawerPrOwner, false);
@@ -462,10 +459,6 @@ export class DashboardView {
     }
     if (scopeChanged) {
       this.presentationSelection = null;
-      ++this.runHistorySeq;
-      this.runHistoryPending = null;
-      this.historyRuns = [];
-      this.runHistory = { total: 0, offset: 0, limit: RUN_HISTORY_PAGE_SIZE, loading: true, error: null };
       this.snapshot = null;
       this.snapshotRepo = undefined;
       this.dashboardRepo = undefined;
@@ -492,7 +485,7 @@ export class DashboardView {
     this.updateAddress(route, history);
     if (route.pane) this.collapsed.delete(`${route.view}:${route.pane === 'tabs' ? 'list' : route.pane === 'screen' ? 'detail' : route.pane}`);
     if (route.run || route.pane === 'tasks') this.collapsed.delete('runs:drawer');
-    if (route.view === 'prs' || route.view === 'runs') {
+    if (route.view === 'prs') {
       this.prSession.select(route.pr ? route.prRepo ?? route.repo : null, route.pr);
     }
     if (!route.run) { this.activeTabId = null; this.presentationSelection = null; }
@@ -500,9 +493,7 @@ export class DashboardView {
     if (scopeChanged) this.paintSlack();
     if (scopeChanged || route.view === 'prs') await this.refresh(false);
     if (seq !== this.routeSeq) return;
-    let historyLoad: Promise<void> | undefined;
     if (this.isPluginPage() && !this.isRunViewerPage()) await this.pageHost?.refresh();
-    else if (route.view === 'runs') historyLoad = this.loadRunHistory();
     else if (route.view === 'config') {
       await this.loadUiConfig();
       if (seq !== this.routeSeq) return;
@@ -518,10 +509,10 @@ export class DashboardView {
     } else if (route.view === 'prs') await this.loadReviewRequests(false);
     if (seq !== this.routeSeq) return;
     const prRepo = route.prRepo ?? route.repo;
-    if ((route.view === 'prs' || route.view === 'runs') && prRepo && route.pr) await this.loadPrView(prRepo, route.pr, false);
+    if ((route.view === 'prs') && prRepo && route.pr) await this.loadPrView(prRepo, route.pr, false);
     if (seq !== this.routeSeq) return;
-    if (route.view !== 'prs' && route.view !== 'runs' && route.view !== 'config') this.paint();
-    if (route.run && !this.isPluginPage()) {
+    if (route.view !== 'prs' && route.view !== 'config') this.paint();
+    if (route.run && route.view === 'prs') {
       const summary = this.runs.find(run => run?.id === route.run) ?? await getRun(route.run);
       if (seq !== this.routeSeq) return;
       if (summary) {
@@ -538,7 +529,6 @@ export class DashboardView {
     this.renderRunDrawer();
     this.rehomeRunDrawer();
     this.focusRoute();
-    await historyLoad;
   }
 
   private focusRoute(): void {
@@ -626,7 +616,7 @@ export class DashboardView {
     if (priorJiraEnabled !== this.jiraEnabled) {
       this.uiConfig.config.JIRA_ENABLED = String(this.jiraEnabled);
       if (response?.jiraEnabled !== this.jiraEnabled) {
-        this.snapshot = null;
+      this.snapshot = null;
         this.dashboardRepo = undefined;
         this.lastDashboardRefresh = -Infinity;
       }
@@ -655,70 +645,14 @@ export class DashboardView {
     } else if (this.view === 'config' && force) {
       this.paintConfig();
       void this.loadLocalGit();
-
-    } else if (this.view === 'runs' && localDue && this.contentView === 'runs') {
-      await this.loadRunHistory();
     } else if (this.isPluginPage() && localDue) {
       this.paintPluginPage();
       const compositionId = appPages.getPage(this.route.pluginPage ?? '')?.composition?.id;
-      const managesRefresh = [HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT]
+      const managesRefresh = [HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUNS_PAGE_SLOT]
         .some(slot => this.route.pluginSlot === slot || compositionId === slot);
       if (force || !managesRefresh) void (this.isRunViewerPage() ? this.auxiliary.refresh() : this.pageHost?.refresh());
     }
     this.paintRunRetries();
-  }
-
-  private loadRunHistory(offset = this.runHistory.offset): Promise<void> {
-    const repo = this.selectedRepo;
-    if (this.runHistoryPending?.repo === repo && this.runHistoryPending.offset === offset) return this.runHistoryPending.promise;
-    const seq = ++this.runHistorySeq;
-    if (offset !== this.runHistory.offset) this.historyRuns = [];
-    this.runHistory = { ...this.runHistory, offset, loading: true, error: null };
-    this.paintRunHistory();
-    const current = () => !this.destroyed && this.view === 'runs' && seq === this.runHistorySeq && repo === this.selectedRepo;
-    const promise = (async () => {
-      try {
-        let page = await fetchRunHistory(repo, offset);
-        if (!current()) return;
-        if (page.offset > 0 && page.offset >= page.total) {
-          const lastOffset = Math.max(0, Math.ceil(page.total / RUN_HISTORY_PAGE_SIZE) - 1) * RUN_HISTORY_PAGE_SIZE;
-          this.historyRuns = [];
-          this.runHistory = { ...this.runHistory, offset: lastOffset, total: page.total };
-          this.paintRunHistory();
-          page = await fetchRunHistory(repo, lastOffset);
-          if (!current()) return;
-        }
-        this.historyRuns = page.runs;
-        this.runHistory = { total: page.total, offset: page.offset, limit: page.limit, loading: false, error: null };
-      } catch (error: unknown) {
-        if (!current()) return;
-        this.runHistory = { ...this.runHistory, loading: false, error: error instanceof Error ? error.message : 'Could not load history.' };
-      }
-      if (current()) this.paintRunHistory();
-    })().finally(() => {
-      if (this.runHistoryPending?.promise === promise) this.runHistoryPending = null;
-    });
-    this.runHistoryPending = { repo, offset, promise };
-    return promise;
-  }
-
-  private paintRunHistory(): void {
-    if (this.view !== 'runs') return;
-    const panel = this.root.querySelector('[data-pane=recent]');
-    if (!panel) return;
-    const focused = document.activeElement;
-    const focusInside = focused instanceof HTMLElement && panel.contains(focused);
-    const direction = focusInside ? focused.dataset.runsPage : undefined;
-    const retry = focusInside && focused.hasAttribute('data-runs-retry');
-    const template = document.createElement('template');
-    template.innerHTML = renderRunHistory(this.historyRuns, this.selectedRepo, this.runHistory);
-    const next = template.content.firstElementChild;
-    if (next) panel.replaceWith(next);
-    this.paintRunRetries();
-    if (focusInside) {
-      const selector = direction === 'previous' || direction === 'next' ? `[data-runs-page="${direction}"]:not(:disabled)` : retry ? '[data-runs-retry]:not(:disabled)' : '.runs-pagination';
-      (next?.querySelector<HTMLElement>(selector) ?? next?.querySelector<HTMLElement>('.runs-pagination'))?.focus({ preventScroll: true });
-    }
   }
 
   private prInbox(): PrInboxState {
@@ -882,12 +816,6 @@ export class DashboardView {
   private paintView(): void {
     if (this.isPluginPage()) {
       this.paintPluginPage();
-      return;
-    }
-    if (this.view === 'runs') {
-      this.mountPage(renderRunsView(this.prSession.view, { repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId, runs: this.historyRuns, history: this.runHistory }));
-      this.bindHeadControls();
-      this.rehomeRunDrawer();
       return;
     }
     if (this.view === 'campaigns') {
@@ -1640,7 +1568,7 @@ export class DashboardView {
       const previous = this.runTabs.find(tab => tab.runId === runId);
       const run = this.runs.find(item => item.id === runId);
       const label = previous?.label ?? run?.ticketId ?? 'Retry';
-      this.openRunTab(result.runId, label);
+      this.openRunTab(result.runId, label, true, run?.repo);
       this.focusRunTab(result.runId);
       void this.refresh();
     } catch (error: unknown) {
@@ -1699,16 +1627,6 @@ export class DashboardView {
       if (!slackReview.disabled) void this.sendSlackReviewRequest(slackReview);
       return;
     }
-    const historyButton = target.closest<HTMLButtonElement>('[data-runs-page], [data-runs-retry]');
-    if (historyButton && this.view === 'runs') {
-      if (historyButton.disabled || this.runHistory.loading) return;
-      const direction = historyButton.dataset.runsPage;
-      if (historyButton.hasAttribute('data-runs-retry')) void this.loadRunHistory();
-      else if (direction === 'previous' && this.runHistory.offset > 0) void this.loadRunHistory(Math.max(0, this.runHistory.offset - RUN_HISTORY_PAGE_SIZE));
-      else if (direction === 'next' && this.runHistory.offset + RUN_HISTORY_PAGE_SIZE < this.runHistory.total) void this.loadRunHistory(this.runHistory.offset + RUN_HISTORY_PAGE_SIZE);
-      return;
-    }
-
     if (target.closest('[data-slack-toggle], [data-slack-close]')) {
       this.slackOpen = target.closest('[data-slack-close]') ? false : !this.slackOpen;
       this.paintSlack();
@@ -1938,11 +1856,11 @@ export class DashboardView {
 
   private async loadPrView(repo: string, number: number, updateRoute: boolean = true): Promise<void> {
     this.prSession.capture(this.root);
-    if (updateRoute) this.updateAddress({ ...this.route, view: this.view, repo: this.selectedRepo, prRepo: repo, pr: number, pane: this.view === 'runs' ? 'newrun' : 'lookup' });
+    if (updateRoute) this.updateAddress({ ...this.route, view: this.view, repo: this.selectedRepo, prRepo: repo, pr: number, pane: 'lookup' });
     const pending = this.prSession.loadView(this, { repo, number });
-    if (this.view === 'prs' || this.view === 'runs') this.paint();
+    if (this.view === 'prs') this.paint();
     await pending;
-    if (!this.destroyed && (this.view === 'prs' || this.view === 'runs') && this.prSession.view.repo === repo && this.prSession.view.number === number) this.paint();
+    if (!this.destroyed && this.view === 'prs' && this.prSession.view.repo === repo && this.prSession.view.number === number) this.paint();
   }
 
   private async enterPrView(repo?: string, number?: number): Promise<void> {
@@ -1973,7 +1891,11 @@ export class DashboardView {
     void this.navigate({ ...this.route, view: 'runs', pane: 'tasks', run: runId });
   }
 
-  private openRunTab(runId: string, label: string, updateRoute: boolean = true): void {
+  private openRunTab(runId: string, label: string, updateRoute: boolean = true, repo?: string): void {
+    if (this.view !== 'prs') {
+      void this.navigate({ ...this.route, view: 'runs', pane: 'tasks', run: runId, runRepo: repo ?? null });
+      return;
+    }
     if (updateRoute) this.updateAddress({ ...this.route, view: this.view, run: runId });
     const existing: RunTab | undefined = this.runTabs.find((t: RunTab): boolean => t.runId === runId);
     if (existing) {
@@ -2016,8 +1938,15 @@ export class DashboardView {
     this.rehomeRunDrawer();
   }
 
+  private resumeRunStream(tab: RunTab): void {
+    if (!tab.streamPaused || this.view !== 'prs') return;
+    tab.streamPaused = false;
+    tab.unsub = openRunStream(tab.runId, event => this.onTabEvent(tab.runId, event));
+  }
+
   private setActiveTab(runId: string, updateRoute: boolean = true): void {
-    if (!this.runTabs.some((t: RunTab): boolean => t.runId === runId)) return;
+    const tab = this.runTabs.find(value => value.runId === runId); if (!tab) return;
+    this.resumeRunStream(tab);
     this.activeTabId = runId;
     if (updateRoute) this.updateAddress({ ...this.route, view: this.view, run: runId });
     this.renderRunDrawer();
@@ -2033,6 +1962,7 @@ export class DashboardView {
     if (this.activeTabId === runId) {
       const next: RunTab | undefined = this.runTabs[idx] ?? this.runTabs[idx - 1];
       this.activeTabId = next ? next.runId : null;
+      if (next) this.resumeRunStream(next);
     }
     this.updateAddress({ ...this.route, view: this.view, run: this.activeTabId?.startsWith('err-') ? null : this.activeTabId });
     this.renderRunDrawer();
@@ -2054,9 +1984,10 @@ export class DashboardView {
   }
 
   private onTabEvent(runId: string, event: RunEvent): void {
-    if (this.destroyed) return;
+    if (this.destroyed || this.view !== 'prs') return;
     const tab = this.runTabs.find(item => item.runId === runId);
-    if (!tab) return;
+    if (!tab || event.id > 0 && event.id <= (tab.lastEventId ?? 0)) return;
+    if (event.id > 0) tab.lastEventId = event.id;
     tab.lines.push(event);
     if (tab.lines.length > RUN_LOG_PREVIEW_LIMIT) tab.lines.splice(0, tab.lines.length - RUN_LOG_PREVIEW_LIMIT);
     if (event.kind === 'run-complete') {

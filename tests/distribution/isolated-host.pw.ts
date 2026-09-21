@@ -22,7 +22,7 @@ test('isolated production distribution installs an independently compiled SDK pa
     await page.goto(`${origin}/outcomes?repo=org/a`);
     await expect(page.locator('[data-isolated-scope]')).toHaveText('org/a');
     await page.goto(`${origin}/runs`);
-    await expect(page.locator('.helm')).toHaveAttribute('data-page', 'runs');
+    await expect(page.locator('[data-plugin-page="helmsman.runs/page"] .plugin-runs')).toBeVisible();
     const missing = await request.get(`${origin}/plugin-assets/${pluginId}/${installed.plugins[0]?.hash}/missing.js`);
     expect(missing.status()).toBe(404);
     expect(await missing.text()).not.toContain('<html');

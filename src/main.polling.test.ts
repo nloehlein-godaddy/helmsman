@@ -177,7 +177,7 @@ describe('view-aware polling', () => {
     resolve(json({ prs: [], degraded: false, truncated: false }));
     await refresh;
     await vi.advanceTimersByTimeAsync(0);
-    expect(root.querySelector('[data-page="runs"]')).not.toBeNull();
+    expect(root.querySelector('[data-page="plugin"]')).not.toBeNull();
     expect(count('/api/pr/review-requests')).toBe(1);
   });
 

@@ -1,0 +1,13 @@
+# Runs composition
+
+`helmsman.runs/page` supplies the selected `/runs` page through `helmsman/runs-page`. It is an independently buildable page-only package using SDK types and package-relative runtime imports. It requires only the public composition service and declares no panel renderer or private host dependency.
+
+The `helmsman/runs-page@1` composition accepts independent `helmsman/run-history-panel@1` and `helmsman/pull-request-panel@1` implementations. An absent layout starts with the private PR compatibility panel followed by authored run history, each in its own stack. Existing layouts remain authoritative, including empty layouts, hidden or missing implementations, panel scope overrides and opaque state. Changing the selected page never rewrites existing instances.
+
+The page owns refresh, add, hide and open controls, scoped styles, and Runs/Voyages terminology. Public panel route targets reveal and focus an existing instance without adding defaults. Derived legacy targets can resolve their matching contribution when the saved instance has a custom ID; explicit missing-instance routes remain missing. Failed reveal saves preserve the layout and require an explicit retry. Failed panel refreshes show a bounded error without discarding saved state. Hidden panels suspend activity without deleting drafts; disposal releases mounted handles, including late mounts.
+
+Run selection uses the shell's existing shared auxiliary viewer. This page never creates a viewer panel or manages logs, commands, PR drafts or request identities. The host translates legacy `recent`, `newrun` and `tasks` panes into public route state and auxiliary presentation; panel implementations retain their own responsibilities. Missing or disabled page selections remain unavailable without falling back to another page.
+
+Copy this directory outside the checkout, rename `manifest.id` to a nonreserved ID such as `example.runs`, install the distributed `@helmsman/plugin-sdk` and TypeScript, and run `npm run build`. Keep slot, composition and accepted contract IDs unchanged. Initial references point to separate packages; retain them or explicitly choose compatible installed panels. Pack/install/enable the output, visit `/plugins/example.runs/page`, and select it with `select helmsman/runs-page example.runs/page`. Selecting `default` restores the builtin page without rewriting the saved layout. See [package installation](../../../docs/plugin-packages.md) and [run presentation](../../../docs/run-presentation-authoring.md).
+
+_Helmsman · not reported - not reported_

@@ -1,0 +1,82 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.runs",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Runs",
+        "slots": [
+          "helmsman/runs-page"
+        ],
+        "panes": [
+          "recent",
+          "newrun",
+          "tasks"
+        ],
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ],
+        "composition": {
+          "id": "helmsman/runs-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/run-history-panel",
+              "version": 1
+            },
+            {
+              "id": "helmsman/pull-request-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "pull-request",
+                "contributionId": "helmsman.compat-pr/panel"
+              },
+              {
+                "instanceId": "run-history",
+                "contributionId": "helmsman.run-history/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "pull-request"
+                  ],
+                  "activeInstanceId": "pull-request",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "run-history"
+                  ],
+                  "activeInstanceId": "run-history",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "panels": []
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {}
+}

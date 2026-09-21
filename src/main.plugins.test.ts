@@ -297,7 +297,7 @@ describe('registered plugin page integration', () => {
     await starting;
     await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
     if (element) element.textContent = 'Late plugin content';
-    expect(document.querySelector('.helm')?.getAttribute('data-page')).toBe('runs');
+    expect(document.querySelector('.helm')?.getAttribute('data-page')).toBe('plugin');
     expect(document.querySelector('#page-content')?.textContent).not.toContain('Late plugin content');
   });
 });

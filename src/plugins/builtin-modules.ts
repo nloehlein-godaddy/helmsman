@@ -7,6 +7,7 @@ import suggestedContactsPanel from './suggested-contacts/panel';
 import runViewerPage from './run-viewer/page';
 import runViewerPanel from './run-viewer/panel';
 import runHistoryPage from './run-history/page';
+import runsPage from './runs/page';
 import runHistoryPanel from './run-history/panel';
 import { appPages, COSTS_PAGE_ID, builtinFrontendManifests, HELM_PAGE_ID, ensureBuiltinPageSlots } from './builtins';
 import costsPage from './costs/page';
@@ -54,7 +55,7 @@ export function syncBuiltinFrontend(entries: readonly BuiltinFrontendCatalogEntr
     const cleanups: (() => void)[] = [];
     if (manifest.id === 'helmsman.costs') cleanups.push(appPageModules.register(COSTS_PAGE_ID, costsPage));
     if (manifest.id === 'helmsman.helm') cleanups.push(appPageModules.register(HELM_PAGE_ID, helmPage));
-    const page = { 'helmsman.compat-pr': compatibilityPrPage, 'helmsman.clarifications': clarificationsPage, 'helmsman.compat-clarifications': compatibilityClarificationsPage, 'helmsman.run-viewer': runViewerPage, 'helmsman.run-history': runHistoryPage, 'helmsman.todos-ui': todosPage, 'helmsman.triage': triagePage, 'helmsman.bugs': bugsPage, 'helmsman.source-settings': sourceSettingsPage }[manifest.id];
+    const page = { 'helmsman.runs': runsPage, 'helmsman.compat-pr': compatibilityPrPage, 'helmsman.clarifications': clarificationsPage, 'helmsman.compat-clarifications': compatibilityClarificationsPage, 'helmsman.run-viewer': runViewerPage, 'helmsman.run-history': runHistoryPage, 'helmsman.todos-ui': todosPage, 'helmsman.triage': triagePage, 'helmsman.bugs': bugsPage, 'helmsman.source-settings': sourceSettingsPage }[manifest.id];
     if (page) cleanups.push(appPageModules.register(`${manifest.id}/page`, page));
     const panel = { 'helmsman.compat-pr': compatibilityPrPanel, 'helmsman.clarifications': clarificationsPanel, 'helmsman.suggested-contacts': suggestedContactsPanel, 'helmsman.run-viewer': runViewerPanel, 'helmsman.run-history': runHistoryPanel, 'helmsman.todos-ui': todosPanel, 'helmsman.triage': triagePanel, 'helmsman.bugs': bugsPanel, 'helmsman.source-settings': sourceSettingsPanel, 'helmsman.backlog': backlogPanel, 'helmsman.running': runningPanel, 'helmsman.recent': recentPanel,
       'helmsman.underway': underwayPanel, 'helmsman.newrun': newRunPanel, 'helmsman.repoprs': repoPrsPanel,

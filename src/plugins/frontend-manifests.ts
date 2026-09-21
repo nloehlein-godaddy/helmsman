@@ -7,6 +7,7 @@ import bugsPackage from './bugs/plugin-package.json' with { type: 'json' };
 import sourceSettingsPackage from './source-settings/plugin-package.json' with { type: 'json' };
 import runViewerPackage from './run-viewer/plugin-package.json' with { type: 'json' };
 import runHistoryPackage from './run-history/plugin-package.json' with { type: 'json' };
+import runsPackage from './runs/plugin-package.json' with { type: 'json' };
 import clarificationsPackage from './clarifications/plugin-package.json' with { type: 'json' };
 import compatibilityClarificationsPackage from './compat-clarifications/plugin-package.json' with { type: 'json' };
 import suggestedContactsPackage from './suggested-contacts/plugin-package.json' with { type: 'json' };
@@ -88,6 +89,7 @@ export const sourceSettingsManifest = sourceSettingsPackage.manifest as PluginMa
 
 export const runViewerManifest = runViewerPackage.manifest as PluginManifest;
 export const runHistoryManifest = runHistoryPackage.manifest as PluginManifest;
+export const runsManifest = runsPackage.manifest as PluginManifest;
 export const clarificationsManifest = clarificationsPackage.manifest as PluginManifest;
 export const suggestedContactsManifest = suggestedContactsPackage.manifest as PluginManifest;
 export const compatibilityClarificationsManifest = compatibilityClarificationsPackage.manifest as PluginManifest;
@@ -101,4 +103,4 @@ export const compatibilityPrManifest: PluginManifest = {
         columns: [[{ instances: ['pull-request'], activeInstanceId: 'pull-request', collapsed: false }]] } } }],
 };
 
-export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);
+export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);

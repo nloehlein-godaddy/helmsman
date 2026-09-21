@@ -12,4 +12,6 @@ Selection emits a canonical repository/run locator through `selectPresentation`;
 
 Run `npx vitest run src/plugins/run-history` from the repository for scoped pagination, count, failure and composition tests. See [the run presentation author guide](../../../docs/run-presentation-authoring.md).
 
+The authored `/runs` composition also hosts this panel. Its selections open the same retained auxiliary viewer used by the standalone history page; the Runs package does not create another viewer instance.
+
 _Helmsman · not reported - not reported_

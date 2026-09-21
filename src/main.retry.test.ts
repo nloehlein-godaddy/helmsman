@@ -23,7 +23,7 @@ class RunStream {
 }
 
 function run(id: string, status: string): RunSummary {
-  return { id, ticketId: 'TODO-1', repo: 'org/repo', status, attempt: 1, prNumber: null, startedAt: '2026-09-18T00:00:00Z', costUsd: null };
+  return { id, ticketId: 'TODO-1', repo: 'org/repo', status, attempt: 1, prNumber: 1, startedAt: '2026-09-18T00:00:00Z', costUsd: null };
 }
 
 function deferred<T>() {
@@ -95,7 +95,7 @@ const writes = (requests: { method: string }[]) => requests.filter(request => re
 
 describe('retrying a failed voyage', () => {
   it('adds retry after a live failure without replacing the drawer log or its existing output', async () => {
-    const { runs } = await setup(`/runs?run=${RUNNING}`);
+    const { runs } = await setup(`/prs?run=${RUNNING}`);
     const stream = streams.find(item => item.url === `/api/agents/${RUNNING}/log`)!;
     expect(buttons(RUNNING)).toHaveLength(0);
     stream.emit('log', 'Keep this output', 1);
@@ -112,7 +112,7 @@ describe('retrying a failed voyage', () => {
     expect(document.querySelector(`.run-drawer-retry .voyage-retry[data-retry-run-id="${RUNNING}"]`)).not.toBeNull();
   });
 
-  it.each(['/runs', `/runs?run=${FAILED}`])('exposes retry only for failed voyages on %s', async (path) => {
+  it.each(['/prs', `/prs?run=${FAILED}`])('exposes retry only for failed voyages on %s', async (path) => {
     await setup(path);
     expect(buttons().length).toBeGreaterThan(0);
     for (const id of [SUCCEEDED, RUNNING, STOPPED]) expect(buttons(id)).toHaveLength(0);
@@ -121,7 +121,7 @@ describe('retrying a failed voyage', () => {
 
   it('posts the complete source UUID and opens only the fresh voyage when retry succeeds', async () => {
     const pending = deferred<Response>();
-    const { requests } = await setup('/runs', () => pending.promise);
+    const { requests } = await setup('/prs', () => pending.promise);
     buttons()[0]!.click();
     await flush();
     expect(writes(requests)).toEqual([{ pathname: `/api/agents/${FAILED}/retry`, method: 'POST' }]);
@@ -137,7 +137,7 @@ describe('retrying a failed voyage', () => {
 
   it('disables every control for the same source and suppresses duplicate clicks while pending', async () => {
     const pending = deferred<Response>();
-    const { requests } = await setup(`/runs?run=${FAILED}`, () => pending.promise);
+    const { requests } = await setup(`/prs?run=${FAILED}`, () => pending.promise);
     const controls = buttons();
     expect(controls.length).toBeGreaterThanOrEqual(2);
     controls[0]!.click();
@@ -159,7 +159,7 @@ describe('retrying a failed voyage', () => {
     const retry = failure === 'server'
       ? async () => json({ error: 'Original task is unavailable.' }, 409)
       : async (): Promise<Response> => { throw new Error('Network unavailable'); };
-    await setup(`/runs?run=${FAILED}`, retry);
+    await setup(`/prs?run=${FAILED}`, retry);
     const address = window.location.href;
     buttons()[0]!.click();
     await flush();
@@ -177,10 +177,10 @@ describe('retrying a failed voyage', () => {
   it('retains pending state through route redraws and allows a fresh attempt after failure', async () => {
     const pending = deferred<Response>();
     const retry = vi.fn().mockImplementationOnce(() => pending.promise).mockResolvedValueOnce(json({ runId: FRESH }));
-    const { requests } = await setup(`/runs?run=${FAILED}`, retry);
+    const { requests } = await setup(`/prs?run=${FAILED}`, retry);
     buttons()[0]!.click();
     await flush();
-    window.history.pushState(null, '', `/runs?run=${SUCCEEDED}`);
+    window.history.pushState(null, '', `/prs?run=${SUCCEEDED}`);
     window.dispatchEvent(new PopStateEvent('popstate'));
     await flush();
     expect(buttons().length).toBeGreaterThan(0);

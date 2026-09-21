@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appPages, CLARIFICATIONS_PAGE_ID, CLARIFICATIONS_PAGE_SLOT, clarificationsManifest, compatibilityClarificationsManifest } from '../plugins/builtins';
+import { appPages, CLARIFICATIONS_PAGE_ID, CLARIFICATIONS_PAGE_SLOT, clarificationsManifest, compatibilityClarificationsManifest, RUNS_PAGE_ID, RUNS_PAGE_SLOT, runsManifest } from '../plugins/builtins';
 import { parseRoute, routeHref, type AppRoute, type PageView } from './routes';
 
 const parse = (href: string) => parseRoute(new URL(href, 'https://helmsman.example'));
@@ -34,7 +34,7 @@ describe('routes', () => {
   it.each([
     ['/', 'plugin'], ['/helm', 'plugin'], ['/triage', 'plugin'],
     ['/terminal', 'cmux'], ['/terminal/', 'cmux'], ['/cmux', 'cmux'], ['/bugs', 'plugin'], ['/prs', 'prs'], ['/pr', 'prs'],
-    ['/config', 'config'], ['/runs', 'runs'], ['/runs/', 'runs'], ['/unknown', 'dashboard'],
+    ['/config', 'config'], ['/runs', 'plugin'], ['/runs/', 'plugin'], ['/unknown', 'dashboard'],
     ['/todos', 'plugin'], ['/todos/', 'plugin'],
   ])('resolves %s to %s', (path, view) => {
     expect(parse(path).view).toBe(view);
@@ -49,7 +49,7 @@ describe('routes', () => {
 
   it('loads a review form route without requiring a tracked repo', () => {
     expect(parse('/runs?repo=another-org%2Fsome.repo&pane=newrun&pr=10280&mode=review')).toMatchObject({
-      view: 'runs', repo: 'another-org/some.repo', pane: 'newrun', pr: 10280, mode: 'review',
+      view: 'plugin', pluginPage: RUNS_PAGE_ID, repo: 'another-org/some.repo', pane: 'newrun', pr: 10280, mode: 'review',
     });
   });
 
@@ -62,7 +62,7 @@ describe('routes', () => {
   it('preserves All galleons while opening an explicit repository PR', () => {
     const route = parse('/runs?prRepo=other/panel&pr=42&pane=newrun&mode=review');
     expect(route).toMatchObject({ repo: null, prRepo: 'other/panel', pr: 42, pane: 'newrun', mode: 'review' });
-    expect(routeHref(route)).toBe('/runs?prRepo=other%2Fpanel&pane=newrun&pr=42&mode=review');
+    expect(parse(routeHref(route))).toEqual(route);
   });
 
   it('retains legacy PR links without adding an implicit override', () => {
@@ -175,7 +175,7 @@ describe('routes', () => {
       view: 'runs', repo: 'owner/repo', prRepo: 'other/repo', pane: 'newrun', pr: 123,
       run: 'run_42', mode: 'rerun', ticket: 'AIRO-42', surface: null,
     };
-    expect(parse(`${routeHref(route)}&unused=1#other`)).toEqual(route);
+    expect(parse(`${routeHref(route)}&unused=1#other`)).toMatchObject({ ...route, view: 'plugin', pluginPage: RUNS_PAGE_ID });
     expect(routeHref(parse(`${routeHref(route)}&unused=1#other`))).toBe(routeHref(route));
   });
 });
@@ -231,5 +231,53 @@ describe('authored clarification alias', () => {
       expect(recovery).toMatchObject({ view: 'plugin', pluginPage: 'helmsman.compat-clarifications/page', repo: 'org/a' });
       expect(recovery.pluginSlot).toBeUndefined(); expect(routeHref(recovery)).toBe('/plugins/helmsman.compat-clarifications/page?repo=org%2Fa');
     } finally { appPages.select(CLARIFICATIONS_PAGE_SLOT, null); cleanup(); }
+  });
+});
+
+
+describe('authored Runs alias', () => {
+  it.each(['review', 'rerun'])('retains %s prefill with independent header, PR and run targets', mode => {
+    const state = { 'example.extra/panel': { version: 2, value: { draft: 'keep' } } };
+    const route = parse(`/runs?repo=org/header&prRepo=org/target&pr=42&pane=newrun&mode=${mode}&run=run-1&runRepo=org/run&ticket=task-7&panelState=${encodeURIComponent(JSON.stringify(state))}`);
+    expect(route).toMatchObject({ view: 'plugin', pluginPage: RUNS_PAGE_ID, pluginSlot: RUNS_PAGE_SLOT,
+      repo: 'org/header', prRepo: 'org/target', pr: 42, mode, run: 'run-1', runRepo: 'org/run', ticket: 'TASK-7',
+      panelInstance: 'pull-request', panelContribution: 'helmsman.compat-pr/panel' });
+    expect(JSON.parse(route.panelState!)).toEqual({ ...state,
+      'helmsman.compat-pr/panel': { version: 1, value: { target: { repo: 'org/target', number: 42 }, mode } } });
+    expect(parse(routeHref(route))).toEqual(route);
+  });
+  it.each(['', 'bad repo', 'owner/..'])('rejects malformed explicit PR targets without header fallback: %j', target => {
+    const route = parse(`/runs?repo=org/header&prRepo=${encodeURIComponent(target)}&pr=42`);
+    expect(route).toMatchObject({ repo: 'org/header', prRepo: null, pr: null });
+    expect(route.panelState).toBeUndefined();
+    expect(parse(routeHref(route))).toEqual(route);
+  });
+  it('resolves history focus and leaves the tasks pane to the shared viewer', () => {
+    const history = parse('/runs?pane=recent&run=run-1&runRepo=org/run');
+    expect(history).toMatchObject({ panelInstance: 'run-history', panelContribution: 'helmsman.run-history/panel' });
+    expect(parse(routeHref(history))).toEqual(history);
+    expect(parse('/runs?pane=tasks&prRepo=org/target&pr=42').panelInstance).toBeUndefined();
+  });
+  it('retains an explicit instance instead of inferring a contribution', () => {
+    const route = parse('/runs?pane=newrun&prRepo=org/target&pr=42&panel=custom');
+    expect(route.panelInstance).toBe('custom'); expect(route.panelContribution).toBeUndefined();
+    expect(parse(routeHref(route))).toEqual(route);
+  });
+  it('supports the canonical contribution and compatible replacement without legacy fallback', () => {
+    const cleanup = appPages.register(runsManifest);
+    const replacement = { ...runsManifest, id: 'example.runs' };
+    const removeReplacement = appPages.register(replacement);
+    try {
+      const canonical = parse(`/plugins/${RUNS_PAGE_ID}?pane=recent`);
+      expect(canonical).toMatchObject({ view: 'plugin', pluginPage: RUNS_PAGE_ID, panelInstance: 'run-history' });
+      expect(parse(routeHref(canonical))).toEqual(canonical);
+      appPages.select(RUNS_PAGE_SLOT, 'example.runs/page');
+      const selected = parse('/runs?prRepo=org/target&pr=42&mode=review');
+      expect(selected).toMatchObject({ view: 'plugin', pluginPage: 'example.runs/page', panelInstance: 'pull-request' });
+      expect(parse(routeHref(selected))).toEqual(selected);
+      removeReplacement();
+      expect(parse('/runs')).toMatchObject({ view: 'plugin', pluginPage: 'example.runs/page' });
+      expect(appPages.resolvePath('/runs')?.page).toBeNull();
+    } finally { appPages.select(RUNS_PAGE_SLOT, null); removeReplacement(); cleanup(); }
   });
 });

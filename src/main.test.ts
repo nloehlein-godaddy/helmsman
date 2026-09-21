@@ -23,7 +23,7 @@ function prepareRunRoute(runs: RunSummary[], runId: string | null = runs[0]?.id 
     if (run) return Response.json(run);
     return fetcher(input, init);
   });
-  window.history.replaceState(null, '', runId ? `/runs?run=${encodeURIComponent(runId)}` : '/runs');
+  window.history.replaceState(null, '', runId ? `/prs?run=${encodeURIComponent(runId)}` : '/prs');
 }
 
 function runSummary(id = 'run-1', ticketId = 'TICK-1'): RunSummary {
@@ -165,7 +165,7 @@ describe('DashboardView drawer survives polling', () => {
       repo: 'acme/widgets',
       status: 'running',
       attempt: 1,
-      prNumber: null,
+      prNumber: 1,
       startedAt: new Date().toISOString(),
       costUsd: null,
     };
@@ -231,7 +231,7 @@ describe('DashboardView drawer survives polling', () => {
       repo: 'acme/widgets',
       status: 'succeeded',
       attempt: 1,
-      prNumber: null,
+      prNumber: 1,
       startedAt: new Date().toISOString(),
       costUsd: 0.4,
     };
@@ -1452,7 +1452,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
       repo: 'acme/widgets',
       status: 'running',
       attempt: 1,
-      prNumber: null,
+      prNumber: 1,
       startedAt: new Date().toISOString(),
       costUsd: null,
     };
@@ -1481,9 +1481,9 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     await view.start();
 
 
-    await vi.waitFor(() => expect(root.querySelector('[data-page="runs"]')).not.toBeNull());
+    await vi.waitFor(() => expect(root.querySelector('[data-page="prs"]')).not.toBeNull());
     await vi.waitFor(() => expect(root.querySelector('.recent-run[data-runid="run-b"]')).not.toBeNull());
-    root.querySelector<HTMLElement>('.recent-run[data-runid="run-b"]')!.click();
+    window.history.pushState(null, '', '/prs?run=run-b'); window.dispatchEvent(new PopStateEvent('popstate'));
 
     await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
     expect(FakeEventSource.instances.every((s) => !s.closed)).toBe(true);
@@ -1493,7 +1493,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     expect(drawer.querySelectorAll('.run-tab').length).toBe(2);
     expect(drawer.querySelector('.run-tab.is-active .run-tab-label')?.textContent).toContain('TICK-B');
 
-    root.querySelector<HTMLElement>('.recent-run[data-runid="run-a"]')!.click();
+    root.querySelector<HTMLButtonElement>('.run-tab[data-tabid="run-a"] .run-tab-select')!.click();
     expect(FakeEventSource.instances).toHaveLength(2);
     expect(drawer.querySelector('.run-tab.is-active .run-tab-label')?.textContent).toContain('TICK-A');
   });
@@ -1521,9 +1521,9 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     await view.start();
 
 
-    await vi.waitFor(() => expect(root.querySelector('[data-page="runs"]')).not.toBeNull());
+    await vi.waitFor(() => expect(root.querySelector('[data-page="prs"]')).not.toBeNull());
     await vi.waitFor(() => expect(root.querySelector('.recent-run[data-runid="run-b"]')).not.toBeNull());
-    root.querySelector<HTMLElement>('.recent-run[data-runid="run-b"]')!.click();
+    window.history.pushState(null, '', '/prs?run=run-b'); window.dispatchEvent(new PopStateEvent('popstate'));
     await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
 
     const drawer: HTMLElement = document.body.querySelector<HTMLElement>('.run-drawer')!;

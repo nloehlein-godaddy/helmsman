@@ -71,7 +71,7 @@ describe('persistent app shell', () => {
     for (const page of ['prs', 'runs', 'triage', 'bugs', 'config', 'cmux', 'dashboard']) {
       await switchTo(page);
       selectors.forEach((selector, i) => expect(root.querySelector(selector), `${page}: ${selector}`).toBe(elements[i]));
-      expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe(['dashboard', 'triage', 'bugs'].includes(page) ? 'plugin' : page);
+      expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe(['dashboard', 'triage', 'bugs', 'runs'].includes(page) ? 'plugin' : page);
       expect(root.querySelector('#page-content')?.getAttribute('aria-labelledby')).toBe(`page-tab-${page}`);
       expect(root.querySelectorAll('.page-tab[aria-selected="true"]')).toHaveLength(1);
       expect(root.querySelector('[data-fleet-count="running"]')?.textContent).toBe('1');

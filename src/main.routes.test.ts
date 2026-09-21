@@ -70,6 +70,7 @@ beforeEach(() => {
   localStorage.clear();
   window.history.replaceState(null, '', '/');
   streams.length = 0;
+  syncBuiltinFrontend(['helmsman.runs', 'helmsman.compat-pr'].map(id => ({ id, version: '0.1.0', hash: 'a'.repeat(64), enabled: true })), false);
   vi.stubGlobal('EventSource', RunStream);
 });
 
@@ -83,7 +84,7 @@ afterEach(() => {
 
 describe('URL navigation', () => {
   it('shares drafts and status with the registered private PR page without changing header scope', async () => {
-    syncBuiltinFrontend([{ id: 'helmsman.compat-pr', version: '0.1.0', hash: 'a'.repeat(64), enabled: true }], false);
+
     const { root, requests } = await setup('/prs?repo=org/a&prRepo=org/b&pr=42');
     await vi.waitFor(() => expect(root.querySelector('.pr-lookup-result .pr-review-body')).not.toBeNull());
     const draft = root.querySelector<HTMLTextAreaElement>('.pr-lookup-result .pr-review-body')!;
@@ -100,7 +101,7 @@ describe('URL navigation', () => {
   });
 
   it.each([
-    ['/prs', 'org/a'], ['/runs', 'org/a'], ['/prs', null], ['/runs', null],
+    ['/prs', 'org/a'], ['/prs', null],
   ] as const)('retains header scope %s %j after a panel override and reload', async (path, selectedRepo) => {
     const initial = await setup(`${path}${selectedRepo ? `?repo=${encodeURIComponent(selectedRepo)}` : ''}`);
     const input = initial.root.querySelector<HTMLInputElement>('.pr-lookup-input');
@@ -144,9 +145,8 @@ describe('URL navigation', () => {
 
   it.each(['review', 'rerun'])('prefills the %s action without launching a voyage', async (mode) => {
     const { root, requests } = await setup(`/runs?repo=org/a&pr=11&mode=${mode}`);
-    expect(root.querySelector('[data-page="runs"]')).not.toBeNull();
-    expect(root.querySelector<HTMLInputElement>('.pr-lookup-input')?.value).toBe('org/a#11');
-    expect(root.querySelector('.pr-lookup-result .pr-panel')?.getAttribute('data-pr-number')).toBe('11');
+    await vi.waitFor(() => expect(root.querySelector('.plugin-runs .pr-panel')?.getAttribute('data-pr-number')).toBe('11'));
+    expect(root.querySelector<HTMLInputElement>('[data-pr-compat-lookup]')?.value).toBe('org/a#11');
     expect(document.activeElement).toBe(root.querySelector(mode === 'review' ? '.pr-review-agent' : '.pr-rerun-feedback'));
     expect(requests.every(({ method }) => method === 'GET')).toBe(true);
     expect(streams).toHaveLength(0);
@@ -155,16 +155,16 @@ describe('URL navigation', () => {
   it('does not expose relaunch for another author through a relaunch URL', async () => {
     const { root, requests } = await setup('/runs?repo=org/a&pr=11&mode=rerun', url =>
       url.pathname === '/api/pr' ? json({ ...status('org/a', 11), isOwnPr: false }) : null);
+    await vi.waitFor(() => expect(root.querySelector('.pr-review-agent')).not.toBeNull());
     expect(root.querySelector('.pr-rerun')).toBeNull();
     expect(root.querySelector('.pr-rerun-feedback')).toBeNull();
-    expect(root.querySelector('.pr-review-agent')).not.toBeNull();
     expect(requests.every(({ method }) => method === 'GET')).toBe(true);
   });
 
   it('restores the page and PR through browser Back and Forward', async () => {
     const { root } = await setup('/prs?repo=org/a&pr=11');
     root.querySelector<HTMLAnchorElement>('[data-view="runs"]')!.click();
-    await vi.waitFor(() => expect(root.querySelector('[data-page="runs"]')).not.toBeNull());
+    await vi.waitFor(() => expect(root.querySelector('[data-plugin-page="helmsman.runs/page"]')).not.toBeNull());
     expect(window.location.pathname).toBe('/runs');
     window.history.back();
     await vi.waitFor(() => {
@@ -175,7 +175,7 @@ describe('URL navigation', () => {
     window.history.forward();
     await vi.waitFor(() => {
       expect(window.location.pathname).toBe('/runs');
-      expect(root.querySelector('[data-page="runs"]')).not.toBeNull();
+      expect(root.querySelector('[data-plugin-page="helmsman.runs/page"]')).not.toBeNull();
     });
   });
 
@@ -211,7 +211,7 @@ describe('URL navigation', () => {
 
   it('drops malformed parameters before making PR requests or opening streams', async () => {
     const { root, requests } = await setup('/runs?repo=../private&pr=-1&run=../../secret&pane=%22%5D&mode=launch');
-    expect(root.querySelector('[data-page="runs"]')).not.toBeNull();
+    expect(root.querySelector('[data-plugin-page="helmsman.runs/page"]')).not.toBeNull();
     expect(window.location.pathname + window.location.search).toBe('/runs');
     expect(requests.some(({ url }) => ['/api/pr', '/api/pr/diff', '/api/agents/launch'].includes(url.pathname))).toBe(false);
     expect(requests.every(({ url, method }) => !url.searchParams.has('repo') && method === 'GET')).toBe(true);
@@ -220,7 +220,7 @@ describe('URL navigation', () => {
 
   it('opens an existing voyage log directly and closes its stream on destroy', async () => {
     const run: RunSummary = { id: 'run-123', ticketId: 'TASK-1', repo: 'org/a', status: 'running', attempt: 1, prNumber: null, startedAt: '2026-09-17T16:00:00Z', costUsd: null };
-    const { root, view } = await setup('/runs?run=run-123&pane=tasks', () => null, [run]);
+    const { root, view } = await setup('/prs?run=run-123&pane=tasks', () => null, [run]);
     expect(streams).toHaveLength(1);
     expect(streams[0]?.url).toBe('/api/agents/run-123/log');
     streams[0]?.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ id: 1, runId: 'run-123', ts: '2026-09-17T16:00:01Z', kind: 'text', text: 'Inspecting changes' }) }));
@@ -232,7 +232,7 @@ describe('URL navigation', () => {
 
   it('keeps the readable verdict directly above success when the drawer repaints', async () => {
     const run: RunSummary = { id: 'review-run', ticketId: 'review', repo: 'org/a', status: 'running', attempt: 1, prNumber: 11, startedAt: '2026-09-17T16:00:00Z', costUsd: null };
-    const { root } = await setup('/runs?run=review-run', () => null, [run]);
+    const { root } = await setup('/prs?run=review-run', () => null, [run]);
     for (const [id, kind, text] of [
       [1, 'review-verdict', 'Verdict: Request changes — Guard <nullable> outcomes.'],
       [2, 'run-complete', 'succeeded'],
@@ -250,7 +250,7 @@ describe('URL navigation', () => {
   it('releases an unfinished drawer PR read when collapsed without accepting its late result', async () => {
     const pending = deferred<Response>();
     const run: RunSummary = { id: 'collapse-run', ticketId: 'review', repo: 'org/a', status: 'running', attempt: 1, prNumber: 11, startedAt: '2026-09-17T16:00:00Z', costUsd: null };
-    const { root } = await setup('/runs?run=collapse-run', url => url.pathname === '/api/pr' ? pending.promise : null, [run]);
+    const { root } = await setup('/prs?run=collapse-run', url => url.pathname === '/api/pr' ? pending.promise : null, [run]);
     const read = vi.mocked(fetch).mock.calls.find(([input]) => new URL(String(input), window.location.origin).pathname === '/api/pr');
     const signal = read?.[1]?.signal; expect(signal?.aborted).toBe(false);
     root.querySelector<HTMLButtonElement>('[data-collapse-id="runs:drawer"]')!.click();
@@ -262,7 +262,7 @@ describe('URL navigation', () => {
     const run: RunSummary = { id: 'review-run', ticketId: 'review', repo: 'org/a', status: 'running', attempt: 1, prNumber: 11, startedAt: '2026-09-17T16:00:00Z', costUsd: null };
     const pending = deferred<Response>();
     let lookups = 0;
-    const { root } = await setup('/runs?run=review-run', url => {
+    const { root } = await setup('/prs?run=review-run', url => {
       if (url.pathname === '/api/pr') {
         lookups++;
         return lookups === 1 ? pending.promise : json(status('org/a', 11));
@@ -283,7 +283,7 @@ describe('URL navigation', () => {
 
   it('retains the updated manual review status when reopening a cached voyage pane', async () => {
     const run: RunSummary = { id: 'review-run', ticketId: 'review', repo: 'org/a', status: 'running', attempt: 1, prNumber: 11, startedAt: '2026-09-17T16:00:00Z', costUsd: null };
-    const { root } = await setup('/runs?run=review-run', () => null, [run]);
+    const { root } = await setup('/prs?run=review-run', () => null, [run]);
     await vi.waitFor(() => expect(root.querySelector('.run-drawer-pr .pr-approve')).not.toBeNull());
     const previousFetch = globalThis.fetch;
     const updated = { ...status('org/a', 11), viewerReview: 'APPROVED' };
@@ -302,14 +302,14 @@ describe('URL navigation', () => {
   });
 
   it('shows an unavailable voyage without opening a stream for an unknown run', async () => {
-    const { root } = await setup('/runs?run=missing-run');
+    const { root } = await setup('/prs?run=missing-run');
     await vi.waitFor(() => expect(root.querySelector('.run-drawer')?.textContent).toContain('This voyage was not found or the server is unavailable.'));
     expect(streams).toHaveLength(0);
   });
 
   it('loads an older voyage absent from the recent runs list', async () => {
     const run: RunSummary = { id: 'older-run', ticketId: 'TASK-2', repo: 'org/a', status: 'succeeded', attempt: 1, prNumber: null, startedAt: '2026-01-01T16:00:00Z', costUsd: null };
-    const { root, requests } = await setup('/runs?run=older-run', (url) => url.pathname === '/api/agents/older-run' ? json(run) : null);
+    const { root, requests } = await setup('/prs?run=older-run', (url) => url.pathname === '/api/agents/older-run' ? json(run) : null);
     expect(requests.some(({ url }) => url.pathname === '/api/agents/older-run')).toBe(true);
     expect(streams[0]?.url).toBe('/api/agents/older-run/log');
     expect(root.querySelector('.run-tab.is-active')?.textContent).toContain('TASK-2');

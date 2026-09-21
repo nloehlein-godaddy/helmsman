@@ -2,7 +2,7 @@
 
 The active objective is to complete every phase in [the architecture plan](plugin-architecture-plan.md), including independent review, fixes, and behavioral verification. A completed increment is not completion of the full objective.
 
-Implementation has resumed at the user's request. The [revised remaining delivery plan](plugin-remaining-delivery-plan.md) replaces repeated intermediate review/build cycles with feature checkpoints, affected checks and phase-level aggregate validation. Existing uncommitted work is preserved and is the first checkpoint to finish.
+Implementation has resumed at the user's request. The [revised remaining delivery plan](plugin-remaining-delivery-plan.md) replaces repeated intermediate review/build cycles with feature checkpoints, affected checks and phase-level aggregate validation. The preserved checkpoint and public clarification recovery package are reviewed and pushed as `3806090` and `ab0757d`; Runs cutover is the active feature.
 
 | Phase | State | Required evidence |
 |---|---|---|
@@ -298,5 +298,16 @@ The preceding checkpoint `380609010bf7f5399532ddc39c5e4505a7f3d7f0` passed one i
 Clarification recovery now owns its renderer, controller, draft storage and scoped styles inside an independently buildable public-SDK package. Root legacy implementations are removed. The original contribution ID, caller journals and raw storage formats remain unchanged. The host supplies immutable optional page contribution identity; missing identity/services fails closed before storage reads, and renamed packages use a separate namespace outside the legacy prefix so another caller cannot clean up original evidence.
 
 TypeScript/app/distribution build passed. Focused host, package and descriptor checks covered 95 cases: the initial run passed 94 with one missing descriptor entry-map failure; the descriptor and a test-only typing error were corrected, then all 21 directly affected descriptor/page tests passed. Both source-denied production scenarios passed (31.9s), covering independent copied-SDK compile/install/reload, original versus copied namespace isolation, original answer/contact request identities, exact retry, newer drafts, storage failure and result-before-acknowledgment. Six changed desktop/mobile screenshots were inspected. No aggregate suite was repeated. READMEs/guides and matching process flows describe the package boundary and preserved recovery data. Exact-commit review and push are next; Runs cutover is the next feature.
+
+_Helmsman · not reported - not reported_
+
+
+## Runs composition cutover
+
+Clarification recovery commit `ab0757dd2328d19eca49c6dcfcec977945d7e0d8` passed one independent exact-commit architectural review and is pushed to `godaddy/master`; the remote SHA was verified.
+
+The active Runs feature replaces shell-owned history and rendering with `helmsman.runs/page`, an independently buildable composition package. It composes authored history and the temporary private PR panel, using the existing shared auxiliary viewer for run selection. Legacy review/relaunch links retain their mode, target and focus; explicit PR/run targets stay separate from header scope. Empty layouts, missing contributions and disabled selected pages do not restore the old page. The retained `/prs` drawer suspends its streams off that surface.
+
+Validation passed: 101 route tests, 47 builtin registration/registry tests, 15 Runs package tests, 169 affected integration tests and 19 directly affected checks after the final stream correction. TypeScript/app/distribution build passed. Four source-denied production scenarios passed (26.6s), including copied Runs installation, legacy draft/request preservation, exact shared viewer/log DOM, paused logs, layout preservation, restart and disabled selections. Eight affected browser tests passed (7.8s), using the same built application without another build. Six changed desktop/mobile screenshots were inspected. All 87 documentation files pass local-target checks; offline Markdown/HTML flow parity and desktop/mobile rendering passed. No aggregate suite was repeated. Exact-commit architectural review and push are next. The next feature is public PR/GitHub extraction; E/F/G remain open.
 
 _Helmsman · not reported - not reported_

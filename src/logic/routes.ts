@@ -1,6 +1,6 @@
 import { parseTaskRepo } from '../plugins/tasks';
 import { LEGACY_PAGE_ALIASES, LEGACY_PAGE_PATHS } from './pagePaths';
-import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_ID } from '../plugins/builtins';
+import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUNS_PAGE_ID, RUNS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_ID } from '../plugins/builtins';
 import { isContributionId } from '../plugins/manifest';
 
 export type PageView = keyof typeof LEGACY_PAGE_PATHS | 'outcomes' | 'plugin';
@@ -87,7 +87,8 @@ export function parseRoute(url: URL): AppRoute {
     : legacy ?? alias ?? 'dashboard';
   const params = url.searchParams;
   const repo = validRepo(params.get('repo'));
-  const supportsPrPanel = view === 'prs' || view === 'runs';
+  const runsPage = plugin?.slotId === RUNS_PAGE_SLOT || plugin?.page?.composition?.id === RUNS_PAGE_SLOT || plugin?.contributionId === RUNS_PAGE_ID;
+  const supportsPrPanel = view === 'prs' || view === 'runs' || runsPage;
   const prRepo = supportsPrPanel ? validRepo(params.get('prRepo')) : null;
   const prTarget = supportsPrPanel && params.has('prRepo') ? prRepo : repo;
   const helm = plugin?.slotId === HELM_PAGE_SLOT || plugin?.page?.composition?.id === HELM_PAGE_SLOT;
@@ -101,6 +102,8 @@ export function parseRoute(url: URL): AppRoute {
   }
   const validRun = run && /^[a-z\d_-]{1,128}$/i.test(run) && !(plugin && params.has('runRepo') && !runRepo) ? run : null;
   const mode = params.get('mode');
+  const selectedMode = supportsPrPanel && (mode === 'review' || mode === 'rerun') ? mode : null;
+  const selectedPr = prTarget ? positiveInteger(params.get('pr')) : null;
   const ticket = params.get('ticket');
   const surface = params.get('surface');
   const validTicket = ticket && /^[a-z][a-z\d_]{0,49}-[1-9]\d{0,14}$/i.test(ticket) ? ticket.toUpperCase() : null;
@@ -111,28 +114,36 @@ export function parseRoute(url: URL): AppRoute {
     ? { contribution: 'helmsman.todos-ui/panel', pane }
     : plugin?.contributionId === TRIAGE_PAGE_ID && pane && panes.triage.includes(pane)
       ? { contribution: 'helmsman.triage/panel', pane } : null;
-  const instance = explicitInstance ?? locatorPane;
+  const runsPanel = runsPage && !explicitInstance ? pane === 'recent' ? { instance: 'run-history', contribution: 'helmsman.run-history/panel' }
+    : pane === 'newrun' || selectedPr && pane !== 'tasks' ? { instance: 'pull-request', contribution: 'helmsman.compat-pr/panel' } : null : null;
+  const instance = explicitInstance ?? runsPanel?.instance ?? locatorPane;
   const savedPanelState = panelState(params.get('panelState'));
   const taskPanelState = taskPane ? panelState(JSON.stringify({
     ...(savedPanelState ? JSON.parse(savedPanelState) as Record<string, unknown> : {}),
     [taskPane.contribution]: { version: 1, value: { pane: taskPane.pane } },
   })) ?? savedPanelState : null;
+  const runsPanelState = runsPage && selectedPr && prTarget ? panelState(JSON.stringify({
+    ...(savedPanelState ? JSON.parse(savedPanelState) as Record<string, unknown> : {}),
+    'helmsman.compat-pr/panel': { version: 1, value: { target: { repo: prTarget, number: selectedPr }, mode: selectedMode } },
+  })) ?? savedPanelState : savedPanelState;
 
   return {
     view,
     repo,
     prRepo,
-    pane: explicitInstance && !validExplicitInstance ? null : locatorPane ?? taskPane?.pane ?? (pane && (plugin?.page?.panes ?? (view === 'outcomes' || view === 'plugin' ? [] : panes[view])).includes(pane) ? pane : null),
-    pr: prTarget ? positiveInteger(params.get('pr')) : null,
+    pane: explicitInstance && !validExplicitInstance ? null : locatorPane ?? taskPane?.pane ?? (pane && (plugin?.page?.panes ?? (runsPage ? panes.runs : view === 'outcomes' || view === 'plugin' ? [] : panes[view])).includes(pane) ? pane : null),
+    pr: selectedPr,
     run: validRun,
     ...(validRun && runRepo ? { runRepo } : {}),
-    mode: (view === 'runs' || view === 'prs') && (mode === 'review' || mode === 'rerun') ? mode : null,
-    ticket: view !== 'plugin' || helm ? validTicket : null,
+    mode: selectedMode,
+    ticket: view !== 'plugin' || helm || runsPage ? validTicket : null,
     surface: view === 'cmux' && isSurfaceRef(surface) ? surface : null,
     ...(instance && /^[a-z\d][a-z\d_.:-]{0,159}$/i.test(instance) ? { panelInstance: instance, panelState: panelState(params.get('panelState')) } : {}),
     ...(plugin && params.has('panelState') ? { panelState: panelState(params.get('panelState')) } : {}),
     ...(helm && locatorPane && !explicitInstance ? { panelContribution: `helmsman.${locatorPane}/panel` } : {}),
     ...(taskPane ? { panelState: taskPanelState, ...(!explicitInstance ? { panelContribution: taskPane.contribution } : {}) } : {}),
+    ...(runsPage && runsPanelState ? { panelState: runsPanelState } : {}),
+    ...(runsPanel ? { panelContribution: runsPanel.contribution } : {}),
     ...(plugin && (plugin.slotId === null || view === 'plugin') ? {
       pluginPage: plugin.contributionId,
       ...(plugin.slotId ? { pluginSlot: plugin.slotId } : {}),
@@ -162,6 +173,16 @@ export function isAppPagePath(pathname: string): boolean {
     || Object.keys(LEGACY_PAGE_ALIASES).includes(path) || appPages.resolvePath(path) !== null;
 }
 
+function hasExplicitPanel(route: Partial<AppRoute>): boolean {
+  if (!route.panelInstance) return false;
+  if (route.panelContribution && route.panelInstance === route.pane) return false;
+  const runsPage = route.pluginSlot === RUNS_PAGE_SLOT || route.pluginPage === RUNS_PAGE_ID
+    || route.pluginPage && appPages.resolvePath(`/plugins/${route.pluginPage}`)?.page?.composition?.id === RUNS_PAGE_SLOT;
+  if (runsPage && (route.panelInstance === 'run-history' && route.panelContribution === 'helmsman.run-history/panel'
+    || route.panelInstance === 'pull-request' && route.panelContribution === 'helmsman.compat-pr/panel')) return false;
+  return true;
+}
+
 export function routeHref(route: Partial<AppRoute> & { view: PageView }): string {
   const url = new URL(routePath(route), 'http://helmsman.local');
   const keys = ['repo', 'prRepo', 'pane', 'pr', 'run', 'runRepo', 'mode', 'ticket', 'surface'] as const;
@@ -169,7 +190,7 @@ export function routeHref(route: Partial<AppRoute> & { view: PageView }): string
     const value = route[key];
     if (value !== null && value !== undefined) url.searchParams.set(key, String(value));
   }
-  if (route.panelInstance && !(route.panelContribution && route.panelInstance === route.pane)) url.searchParams.set('panel', route.panelInstance);
+  if (hasExplicitPanel(route) && route.panelInstance) url.searchParams.set('panel', route.panelInstance);
   if (route.panelState) url.searchParams.set('panelState', route.panelState);
   const normalized = parseRoute(url);
   const params = new URLSearchParams();
@@ -177,7 +198,7 @@ export function routeHref(route: Partial<AppRoute> & { view: PageView }): string
     const value = normalized[key];
     if (value !== null && value !== undefined) params.set(key, String(value));
   }
-  if (normalized.panelInstance && !(normalized.panelContribution && normalized.panelInstance === normalized.pane)) params.set('panel', normalized.panelInstance);
+  if (hasExplicitPanel(normalized) && normalized.panelInstance) params.set('panel', normalized.panelInstance);
   if (normalized.panelState) params.set('panelState', normalized.panelState);
   const query = params.toString();
   return `${routePath(normalized)}${query ? `?${query}` : ''}`;
