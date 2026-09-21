@@ -162,7 +162,9 @@ test('selected Todo page replacement retains its saved layout and draft through 
     await host.installAuthorPackage('plugin-sources/todos-ui', 'example.todos-view'); await host.cli('select', 'helmsman/todos-page', 'example.todos-view/page'); const origin = await host.start();
     await page.goto(`${origin}/todos?repo=org/a`); await expect(page.locator('[data-plugin-page="example.todos-view/page"]')).toBeVisible(); await page.getByRole('button', { name: 'New Todo', exact: true }).click();
     await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Draft owned by installed implementation'); await page.getByRole('button', { name: 'Save drafts', exact: true }).click(); await page.reload(); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Draft owned by installed implementation');
-    await host.cli('disable', 'example.todos-view'); await expect(page.locator('[data-plugin-page]')).toHaveCount(0, { timeout: 15_000 });
+    await host.cli('disable', 'example.todos-view'); await expect(page.locator('[data-plugin-page="example.todos-view/page"]')).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.locator('[data-plugin-page="helmsman.todos-ui/page"]')).toHaveCount(0);
+    await expect(page.getByText('This page is unavailable. Choose another view or restore its plugin.', { exact: true })).toBeVisible();
     await host.cli('enable', 'example.todos-view'); await expect(page.locator('[data-plugin-page="example.todos-view/page"]')).toBeVisible({ timeout: 15_000 }); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Draft owned by installed implementation');
     await host.cli('select', 'helmsman/todos-page', 'default'); await expect(page.locator('[data-plugin-page="helmsman.todos-ui/page"]')).toBeVisible({ timeout: 15_000 }); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Draft owned by installed implementation');
     await expect(page.getByRole('combobox', { name: 'Saved draft' }).locator('option')).toHaveCount(2); await expect(page.getByRole('heading', { name: 'Automatic starts', exact: true })).toBeVisible();

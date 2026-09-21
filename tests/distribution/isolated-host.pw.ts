@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { gitBin } from '../../server/test-support/platform';
 import { contribution, fixture, pluginId, pendingCommandCount, run, seedBacklogLayout, sourceRoot } from './isolated-fixture';
 
 test('isolated production distribution installs an independently compiled SDK page and reloads its route', async ({ page, request }) => {
@@ -295,8 +296,9 @@ test('task source adoption preserves local identity and disabled state through t
     expect(created.ok()).toBe(true);
     const todo = (await created.json()).todo;
     expect((await (await request.post(`${origin}/api/todos?requestId=isolated-create`, { data: input })).json()).todo).toEqual(todo);
-    const dashboard = await (await request.get(`${origin}/api/dashboard?repo=org/a`)).json();
-    expect(dashboard.snapshot.queue).toContainEqual(expect.objectContaining({ id: todo.id, source: { url: null, instanceId: original.id, instanceRevision: original.revision, ref: { sourceId: original.sourceId, externalId: todo.id } } }));
+    const listed = await request.get(`${origin}/api/task-sources/${original.id}/tasks?revision=${original.revision}&repo=org/a`);
+    expect(listed.ok()).toBe(true);
+    expect((await listed.json()).items).toContainEqual(expect.objectContaining({ url: null, repo: 'org/a', displayKey: todo.id, ref: { sourceId: original.sourceId, externalId: todo.id } }));
     const options = await (await request.get(`${origin}/api/task-sources/adoption?sourceId=${original.sourceId}`)).json();
     const candidate = options.candidates.find((item: { providerId: string }) => item.providerId.startsWith(`${descriptor.manifest.id}/`));
     expect(candidate).toBeDefined();
@@ -384,11 +386,20 @@ test('independently compiled Running and Recent panels keep scoped run commands 
   test.setTimeout(90_000);
   await seedBacklogLayout(page);
   const host = await fixture(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER,org/c=RETRY'; host.env.AGENT_MAX_CONCURRENCY = '8';
+  host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER,org/c=RETRY'; host.env.AGENT_MAX_CONCURRENCY = '8'; host.env.AGENT_MAX_ATTEMPTS = '1'; host.env.RUN_HOST = 'detached';
   try {
     await expect(host.script('prove-run-panel-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/sdk.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
     await host.installAuthorPackage('plugin-sources/running', 'example.running');
     const recentPackage = await host.installAuthorPackage('plugin-sources/recent', 'example.recent');
+    await host.cli('select-agent', 'helmsman.agent-claude/claude-code');
+    await host.cli('select-agent-reviewers', 'helmsman.agent-claude/claude-code');
+    const checkout = join(host.cwd, 'c'); const bare = join(host.root, 'retry-remote.git'); const git = gitBin();
+    await mkdir(checkout);
+    for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'Acceptance']]) await run(git, args, checkout, host.env);
+    await writeFile(join(checkout, 'code.txt'), 'initial\n');
+    for (const args of [['add', '.'], ['commit', '-m', 'initial'], ['clone', '--bare', checkout, bare], ['remote', 'add', 'origin', 'https://github.com/org/c.git']]) await run(git, args, checkout, host.env);
+    await writeFile(join(host.root, 'commands/git'), `#!${process.execPath}\nconst {spawnSync}=require('node:child_process'); const args=process.argv.slice(2); if(args[0]==='fetch') args[args.indexOf('origin')]=${JSON.stringify(bare)}; const result=spawnSync(${JSON.stringify(git)},args,{stdio:'inherit'}); process.exit(result.status??1);`, { mode: 0o755 });
+    await writeFile(join(host.root, 'commands/gh'), `#!${process.execPath}\nif(process.argv[2]==='repo'&&process.argv[3]==='view') console.log(JSON.stringify({nameWithOwner:'org/c',defaultBranchRef:{name:'main'}})); else process.exit(1);`, { mode: 0o755 });
     const dbUrl = pathToFileURL(join(host.app, 'server/helmsman/db.js')).href;
     await host.script('seed-run-panels.mjs', `import { openDb } from ${JSON.stringify(dbUrl)};
 const db = openDb(process.env.HELMSMAN_DB);
@@ -400,6 +411,11 @@ for (const [id,repo,status,ticketId] of [['active_a','org/a','running','TASK-1']
 db.appendEvent('review_a','review-verdict','Verdict: Request changes — Add a regression test.',now);
 db.close();`);
     const origin = await host.start();
+    const admitted = await request.post(`${origin}/api/agents/launch`, { data: { mode: 'freeform', repo: 'org/c', task: 'Retain provider bindings for a deliberately failed retry fixture.' } });
+    expect(admitted.ok(), await admitted.text()).toBe(true);
+    const retryableId = (await admitted.json()).runId;
+    expect(typeof retryableId).toBe('string');
+    await expect.poll(async () => (await (await request.get(`${origin}/api/agents/${retryableId}`)).json()).status, { timeout: 25_000 }).toBe('failed');
     await page.goto(`${origin}/helm?repo=org/a`); await expect(page.locator('.plugin-helm')).toBeVisible();
     await page.getByText('Manage panels', { exact: true }).click();
     for (const name of ['running', 'recent']) {
@@ -421,7 +437,10 @@ db.close();`);
     await page.locator('.plugin-running').getByRole('button', { name: /^Stop / }).click();
     await expect(page.locator('.plugin-running').getByText('Stop requested. Worker status is reported separately.', { exact: true })).toBeVisible();
     await expect(page.locator('.plugin-running').getByText('Worker: Underway', { exact: true })).toBeVisible();
-    await page.locator('.plugin-recent').getByRole('button', { name: /^Retry / }).click();
+    const historical = page.locator('.plugin-recent [data-run-id="failed_a"]');
+    await historical.getByRole('button', { name: /^Retry / }).click();
+    await expect(historical.getByText('Request rejected: Legacy agent bindings cannot be migrated by retry. Continue the original retained voyage or start a new voyage.', { exact: true })).toBeVisible();
+    await page.locator(`.plugin-recent [data-run-id="${retryableId}"]`).getByRole('button', { name: /^Retry / }).click();
     await expect(page.locator('.plugin-recent').getByText('Retry accepted. The original worker outcome is unchanged.', { exact: true })).toBeVisible();
     const newRun = page.locator('.plugin-recent').getByRole('link', { name: 'Open new voyage', exact: true });
     const href = await newRun.getAttribute('href'); expect(href).toContain('repo=org%2Fc');
@@ -431,7 +450,7 @@ db.close();`);
     await expect(newRun).toHaveAttribute('href', href!);
     await expect(page.locator('.plugin-recent [data-run-id="failed_a"]').getByText('Worker: failed', { exact: true })).toBeVisible();
     const duplicate = await request.post(`${origin}/api/run-commands`, { headers: { 'X-Helmsman-Contribution': 'helmsman.recent/panel' },
-      data: { version: 1, repo: 'org/c', requestId: '00000000-0000-4000-8000-000000000077', action: 'retry', target: { runId: 'failed_a', expectedAttempt: 3 } } });
+      data: { version: 1, repo: 'org/c', requestId: '00000000-0000-4000-8000-000000000077', action: 'retry', target: { runId: retryableId, expectedAttempt: 1 } } });
     expect(duplicate.ok()).toBe(true); expect(await duplicate.json()).toMatchObject({ status: 'rejected' });
     await host.cli('disable', 'example.recent');
     await expect(page.getByText('This panel is unavailable. Enable or install its plugin to bring it aboard.', { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -488,8 +507,10 @@ test('source-denied New Run and Underway packages preserve typed task identity, 
     await page.locator('.repo-select').selectOption('org/a');
     await expect(newrun.getByLabel('Task instructions', { exact: true })).toHaveValue('A retained draft for org/a');
     await newrun.getByLabel('Launch mode', { exact: true }).selectOption('source');
-    const sourceOption = await newrun.getByLabel('Task source', { exact: true }).locator('option').evaluateAll((options, instanceId) =>
+    const sourceChoice = () => newrun.getByLabel('Task source', { exact: true }).locator('option').evaluateAll((options, instanceId) =>
       options.find(option => { try { return JSON.parse((option as HTMLOptionElement).value)[2] === instanceId; } catch { return false; } })?.getAttribute('value'), local.id);
+    await expect.poll(sourceChoice).toBeTruthy();
+    const sourceOption = await sourceChoice();
     expect(sourceOption).toBeTruthy(); await newrun.getByLabel('Task source', { exact: true }).selectOption(sourceOption!);
     await newrun.getByLabel('Task key', { exact: true }).fill(todo.id); await newrun.getByRole('button', { name: 'Find task', exact: true }).click();
     await expect(newrun.getByLabel('Task', { exact: true })).toHaveValue(JSON.stringify([local.sourceId, todo.id]));

@@ -33,7 +33,7 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
       await expect(page).toHaveURL(`${origin}${path}`);
     };
     const passivePoll = async () => {
-      const refreshed = Promise.all(['/api/agents', '/api/slack', '/api/context'].map(path =>
+      const refreshed = Promise.all(['/api/agents', '/api/context'].map(path =>
         page.waitForResponse(response => new URL(response.url()).pathname === path).then(response => response.finished())));
       await page.clock.fastForward(LOCAL_POLL_MS);
       await refreshed;
