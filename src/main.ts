@@ -502,7 +502,7 @@ export class DashboardView {
     if (scopeChanged || route.view === 'prs') await this.refresh(false);
     if (seq !== this.routeSeq) return;
     let historyLoad: Promise<void> | undefined;
-    if (this.isPluginPage()) await this.pageHost?.refresh();
+    if (this.isPluginPage() && !this.isRunViewerPage()) await this.pageHost?.refresh();
     else if (route.view === 'runs') historyLoad = this.loadRunHistory();
     else if (route.view === 'config') {
       await this.loadUiConfig();
@@ -664,7 +664,7 @@ export class DashboardView {
       const compositionId = appPages.getPage(this.route.pluginPage ?? '')?.composition?.id;
       const managesRefresh = [HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT]
         .some(slot => this.route.pluginSlot === slot || compositionId === slot);
-      if (force || !managesRefresh) void this.pageHost?.refresh();
+      if (force || !managesRefresh) void (this.isRunViewerPage() ? this.auxiliary.refresh() : this.pageHost?.refresh());
     }
     this.paintRunRetries();
   }
@@ -831,7 +831,6 @@ export class DashboardView {
     const reveal = locator !== null && !this.auxiliary.element.contains(document.activeElement);
     this.presentationSelection = locator ? { locator, scopeRepo } : null;
     this.updateAddress({ ...this.route, run: locator?.runId ?? null, runRepo: locator?.kind === 'run' ? locator.repo : null });
-    this.auxiliary.select(locator, scopeRepo);
     this.paintPluginPage();
     if (reveal && !this.isRunViewerPage()) queueMicrotask(() => {
       if (this.destroyed || !this.auxiliary.element.isConnected || this.route.run !== locator?.runId) return;
@@ -847,7 +846,10 @@ export class DashboardView {
       ? appPages.selected(this.route.pluginSlot).page
       : this.route.pluginPage ? appPages.getPage(this.route.pluginPage) : appPages.selected(COSTS_PAGE_SLOT).page;
     const module = page ? appPageModules.get(page.contributionId) : null;
-    if (!page || !module) {
+    if (this.isRunViewerPage()) {
+      if (!this.root.querySelector('[data-plugin-standalone]')) this.mountPage(renderAppShell(this.shellOptions(), '<div data-plugin-standalone></div>'));
+      this.syncShell();
+    } else if (!page || !module) {
       this.mountPage(renderAppShell(this.shellOptions(), `<section class="panel"><h1>${escapeHtml(term('unavailablePluginPage'))}</h1><p class="empty-note" role="status">${escapeHtml(term('unavailablePluginMessage'))}</p></section>`));
     } else {
       if (!this.pageHost) {
@@ -865,7 +867,7 @@ export class DashboardView {
       }
       const state: PluginPageState = {
         ...this.pluginPresentationState(),
-        repo: this.isRunViewerPage() ? this.presentationScopeRepo() : this.selectedRepo,
+        repo: this.selectedRepo,
         pane: this.route.pane,
         panelInstance: this.route.panelInstance ?? null,
         panelContribution: this.route.panelContribution ?? null,
@@ -972,6 +974,7 @@ export class DashboardView {
       this.paintSlack();
     }
     const content = this.root.querySelector<HTMLElement>('#page-content');
+    this.auxiliary.park();
     content?.replaceChildren(...next.childNodes);
     if (content && this.contentView !== this.view) content.scrollTop = 0;
     this.contentView = this.view;
@@ -2239,14 +2242,19 @@ export class DashboardView {
 
   private rehomeRunDrawer(): void {
     const presentation = this.pluginPresentationState();
-    this.auxiliary.update(presentation);
+    const standalone = this.isPluginPage() && this.isRunViewerPage();
     const auxiliarySlot = this.root.querySelector<HTMLElement>('.plugin-auxiliary-slot');
-    const showAuxiliary = presentation.presentation !== null && this.isPluginPage() && !this.isRunViewerPage();
+    const showAuxiliary = presentation.presentation !== null && this.isPluginPage() && !standalone;
     if (auxiliarySlot) auxiliarySlot.hidden = !showAuxiliary;
-    if (presentation.presentation && showAuxiliary) {
-      this.auxiliary.select(presentation.presentation, this.presentationScopeRepo());
-      this.auxiliary.rehome(auxiliarySlot);
-    } else this.auxiliary.rehome(null);
+    this.auxiliary.update({ ...presentation, pane: standalone ? this.route.pane : null,
+      panelInstance: standalone ? this.route.panelInstance ?? null : null,
+      panelContribution: standalone ? this.route.panelContribution ?? null : null,
+      panelRouteState: standalone ? this.panelRouteState() : {},
+    }, standalone || auxiliarySlot ? {
+      contributionId: standalone && !this.route.pluginSlot ? this.route.pluginPage ?? null : null,
+      scopeRepo: this.presentationScopeRepo(),
+    } : undefined);
+    this.auxiliary.rehome(standalone ? this.root.querySelector<HTMLElement>('[data-plugin-standalone]') : showAuxiliary ? auxiliarySlot : null);
     const slot = this.root.querySelector<HTMLElement>('.runs-drawer-slot');
     if (slot && this.runDrawerEl.parentElement !== slot) slot.appendChild(this.runDrawerEl);
     if (this.canRenderRunLog()) this.scheduleRunLogFlush();

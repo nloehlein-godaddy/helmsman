@@ -21,6 +21,10 @@ export class AuxiliaryPageHost {
   private scopeOverride: { repo: string | null } | null = null;
   private disposed = false;
   private connected = false;
+  private mounted = false;
+  private contributionId: string | null = null;
+  private parked = false;
+  private focus: { element: HTMLElement; selection: { start: number | null; end: number | null; direction: 'forward' | 'backward' | 'none' | null } | null } | null = null;
   private readonly options: AuxiliaryPageHostOptions;
 
   constructor(state: PluginPageState, options: AuxiliaryPageHostOptions) {
@@ -39,10 +43,15 @@ export class AuxiliaryPageHost {
     this.render();
   }
 
-  update(state: PluginPageState): void {
+  update(state: PluginPageState, target?: { contributionId: string | null; scopeRepo: string | null }): void {
     if (this.disposed) return;
     if (state.repo !== this.state.repo) { this.scopeOverride = null; this.presentation = null; }
     this.state = { ...state };
+    if (target) {
+      this.contributionId = target.contributionId;
+      this.presentation = scopedPresentationLocatorV1(state.presentation ?? null, target.scopeRepo);
+      this.scopeOverride = target.scopeRepo === state.repo ? null : { repo: target.scopeRepo };
+    }
     this.render();
   }
 
@@ -53,20 +62,39 @@ export class AuxiliaryPageHost {
     this.render();
   }
 
-  rehome(destination: HTMLElement | null): void {
-    if (this.disposed || destination === this.element.parentElement) return;
-    const focused = document.activeElement instanceof HTMLElement && this.element.contains(document.activeElement) ? document.activeElement : null;
-    const selection = focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement
-      ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection } : null;
+  park(): void {
+    if (this.disposed || this.parked) return;
+    this.captureFocus();
+    this.parked = true;
     this.element.remove();
-    this.render();
-    destination?.append(this.element);
-    this.render();
-    if (this.state.visible && this.element.isConnected && focused?.isConnected) {
+    queueMicrotask(() => {
+      if (!this.parked || this.disposed) return;
+      this.parked = false;
+      this.focus = null;
+      this.render();
+    });
+  }
+
+  private captureFocus(): void {
+    const focused = document.activeElement instanceof HTMLElement && this.element.contains(document.activeElement) ? document.activeElement : null;
+    if (focused) this.focus = { element: focused, selection: focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement
+      ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection } : null };
+  }
+
+  rehome(destination: HTMLElement | null): void {
+    if (this.disposed || !this.parked && destination === this.element.parentElement) return;
+    this.captureFocus();
+    if (destination) destination.append(this.element); else this.element.remove();
+    this.parked = false;
+    const focused = this.focus?.element; const selection = this.focus?.selection;
+    if (this.state.visible && this.element.isConnected && focused?.isConnected
+      && (document.activeElement === document.body || document.activeElement === focused)) {
       focused.focus({ preventScroll: true });
       if (selection?.start !== null && selection?.start !== undefined && selection.end !== null
         && (focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement)) focused.setSelectionRange(selection.start, selection.end, selection.direction ?? undefined);
     }
+    this.focus = null;
+    this.render();
   }
 
   refresh(): Promise<void> { return this.host.refresh(); }
@@ -81,9 +109,10 @@ export class AuxiliaryPageHost {
   }
 
   private render(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.parked) return;
     this.connected = this.element.isConnected;
-    const page = this.options.registry.getSlot(this.options.slotId) ? this.options.registry.selected(this.options.slotId).page : null;
+    const page = this.contributionId ? this.options.registry.getPage(this.contributionId)
+      : this.options.registry.getSlot(this.options.slotId) ? this.options.registry.selected(this.options.slotId).page : null;
     const module = page ? this.options.modules.get(page.contributionId) : null;
     if (!page || !module) {
       this.host.clear();
@@ -95,6 +124,8 @@ export class AuxiliaryPageHost {
       }
       return;
     }
+    if (!this.connected && !this.mounted) return;
+    this.mounted = true;
     this.host.show(page.contributionId, module, { ...this.state,
       repo: this.scopeOverride ? this.scopeOverride.repo : this.state.repo,
       visible: this.state.visible && this.element.isConnected,

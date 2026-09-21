@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PluginCompositionHost } from './composition-host';
 import { PluginPanelRegistry } from './panels';
+import { CompositionLayoutConflictError } from './composition-layout';
 import type { CompositionLayoutV1, PluginPanelContext, PluginPanelModule, PluginPanelState } from './composition';
 
 const hosts: PluginCompositionHost[] = [];
@@ -26,7 +27,7 @@ function setup(module: PluginPanelModule) {
   const read = vi.fn(async () => layout);
   const update = vi.fn(async (next: CompositionLayoutV1, expected: number, signal?: AbortSignal) => {
     signal?.throwIfAborted();
-    if (expected !== layout.revision) throw new Error('Conflict');
+    if (expected !== layout.revision) throw new CompositionLayoutConflictError('Conflict');
     layout = { ...next, revision: layout.revision + 1 }; return layout;
   });
   const host = new PluginCompositionHost(page, { definition: { id: 'helmsman/helm-page', version: 1, accepts: [contract] },
@@ -40,6 +41,90 @@ function setup(module: PluginPanelModule) {
 afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); });
 
 describe('page-owned composition', () => {
+  it('delivers current persisted state after a conflict without requiring a broadcast', async () => {
+    let context!: PluginPanelContext;
+    const observed: PluginPanelState[] = [];
+    const { host, first, current, update } = setup({ mount(_element, value) {
+      context = value; return { update(state) { observed.push(state); }, dispose() {} };
+    } });
+    await host.service.mount('first', first);
+    const external = { version: 1, value: { draft: 'Saved by another tab' } };
+    await update({ ...current(), instances: current().instances.map((instance, index) => index ? instance
+      : { ...instance, state: { 'example.backlog/panel': external } }) }, current().revision);
+    await expect(context.compareAndSetState!(null, { version: 1, value: 'Stale replacement' })).rejects.toThrow('Saved panel state changed');
+    expect(observed.at(-1)?.savedState).toEqual(external);
+    expect(current().instances[0]?.state['example.backlog/panel']).toEqual(external);
+    expect(current().revision).toBe(2);
+  });
+
+  it('compares caller state before saving and preserves newer drafts, other panels and opaque owners', async () => {
+    const contexts: PluginPanelContext[] = [];
+    const { host, first, second, current } = setup({ mount(_element, context) {
+      contexts.push(context); return { update() {}, dispose() {} };
+    } });
+    await host.service.mount('first', first); await host.service.mount('second', second);
+    const initial = { version: 1, value: { draft: 'Initial', result: null } };
+    const newer = { version: 1, value: { draft: 'Newer', result: 'Retained receipt' } };
+    await contexts[0]!.compareAndSetState!(null, initial);
+    await contexts[1]!.saveState({ version: 1, value: { draft: 'Other panel' } });
+    await host.service.updateLayout({ ...current(), instances: current().instances.map((instance, index) => index ? instance
+      : { ...instance, state: { ...instance.state, 'example.absent/panel': { version: 7, value: 'Keep opaque state' } } }) }, current().revision);
+    await contexts[0]!.compareAndSetState!({ value: { result: null, draft: 'Initial' }, version: 1 }, newer);
+    await expect(contexts[0]!.compareAndSetState!(initial, null)).rejects.toThrow('Saved panel state changed');
+    expect(current().instances[0]?.state).toEqual({ 'example.backlog/panel': newer, 'example.absent/panel': { version: 7, value: 'Keep opaque state' } });
+    expect(current().instances[1]?.state['example.backlog/panel']).toEqual({ version: 1, value: { draft: 'Other panel' } });
+    await contexts[0]!.compareAndSetState!(newer, null);
+    expect(current().instances[0]?.state).toEqual({ 'example.absent/panel': { version: 7, value: 'Keep opaque state' } });
+  });
+
+  it('admits only one concurrent state replacement from the same baseline', async () => {
+    let context!: PluginPanelContext;
+    const { host, first, current } = setup({ mount(_element, value) {
+      context = value; return { update() {}, dispose() {} };
+    } });
+    await host.service.mount('first', first);
+    const results = await Promise.allSettled(['First', 'Second'].map(draft => context.compareAndSetState!(null, { version: 1, value: { draft } })));
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+    expect(current().revision).toBe(2);
+    expect(current().instances[0]?.state['example.backlog/panel']).toEqual({ version: 1, value: { draft: 'First' } });
+  });
+
+  it('captures state inputs before asynchronous storage and aborts a disposed caller', async () => {
+    let context!: PluginPanelContext;
+    const { host, first, read, current } = setup({ mount(_element, value) {
+      context = value; return { update() {}, dispose() {} };
+    } });
+    await host.service.mount('first', first);
+    const baseline = { version: 1, value: { draft: 'Original' } };
+    await context.saveState(baseline);
+    const next = { version: 1, value: { draft: 'Selected' } };
+    let finish!: (layout: CompositionLayoutV1) => void;
+    read.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const saving = context.compareAndSetState!(baseline, next);
+    baseline.value.draft = 'Mutated expected'; next.value.draft = 'Mutated next';
+    finish(current()); await saving;
+    expect(current().instances[0]?.state['example.backlog/panel']).toEqual({ version: 1, value: { draft: 'Selected' } });
+    read.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const cancelled = context.compareAndSetState!({ version: 1, value: { draft: 'Selected' } }, null);
+    host.dispose(); finish(current());
+    await expect(cancelled).rejects.toThrow();
+    expect(current().instances[0]?.state['example.backlog/panel']).toEqual({ version: 1, value: { draft: 'Selected' } });
+  });
+
+  it('rejects accessor-backed state without executing getters or reading storage', async () => {
+    let context!: PluginPanelContext;
+    const { host, first, read } = setup({ mount(_element, value) {
+      context = value; return { update() {}, dispose() {} };
+    } });
+    await host.service.mount('first', first); read.mockClear();
+    const getter = vi.fn(() => 'Unexpected');
+    const value = { version: 1, value: Object.defineProperty({}, 'draft', { enumerable: true, get: getter }) };
+    await expect(context.compareAndSetState!(null, value)).rejects.toThrow();
+    await expect(context.compareAndSetState!(value, null)).rejects.toThrow();
+    expect(getter).not.toHaveBeenCalled(); expect(read).not.toHaveBeenCalled();
+  });
+
   it('persists explicit panel scope changes without changing the header or other panels and cancels prior reads', async () => {
     const contexts: PluginPanelContext[] = [];
     const { host, first, second, current } = setup({ mount(_element, context) {

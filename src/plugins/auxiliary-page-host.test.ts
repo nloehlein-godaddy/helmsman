@@ -21,7 +21,7 @@ function setup() {
   const first = document.createElement('section'); const second = document.createElement('section'); document.body.append(first, second);
   return { host, registry, modules, contexts, update, dispose, mount, options, first, second, removeModule };
 }
-afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); });
+afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); vi.unstubAllGlobals(); });
 
 describe('auxiliary page lifecycle', () => {
   it('contains a failing page without retrying on unrelated DOM mutations', async () => {
@@ -35,10 +35,10 @@ describe('auxiliary page lifecycle', () => {
 
   it('retains one mounted session when rehomed and revokes activity on detachment', async () => {
     const f = setup(); await settle();
-    expect(f.contexts[0]?.state.visible).toBe(false);
+    expect(f.mount).not.toHaveBeenCalled();
     f.host.rehome(f.first); await settle();
     const element = f.host.element.querySelector('[data-plugin-page]');
-    expect(f.update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }));
+    expect(f.contexts[0]?.state.visible).toBe(true);
     const input = document.createElement('textarea'); input.value = 'preserved draft'; element?.append(input); input.focus(); input.setSelectionRange(2, 7, 'backward');
     f.host.rehome(f.second); await settle();
     expect(document.activeElement).toBe(input); expect([input.selectionStart, input.selectionEnd, input.selectionDirection]).toEqual([2, 7, 'backward']);
@@ -50,6 +50,41 @@ describe('auxiliary page lifecycle', () => {
     expect(f.update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }));
     f.host.update(state({ visible: false })); await settle();
     expect(() => f.contexts[0]?.selectPresentation?.(null)).toThrow('inactive');
+  });
+  it('parks before shell replacement without cancelling active reads or losing focus', async () => {
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn((_url: unknown, options?: RequestInit) => {
+      signal = options?.signal ?? undefined; return new Promise<Response>(() => {});
+    }));
+    const f = setup(); f.host.rehome(f.first); await settle();
+    const pending = f.contexts[0]?.services?.runs?.load({ version: 1, repo: 'org/a', runId: 'run-1' });
+    const cancelled = expect(pending).rejects.toThrow();
+    expect(signal?.aborted).toBe(false);
+    const field = document.createElement('textarea'); field.value = 'retained'; f.host.element.append(field); field.focus(); field.setSelectionRange(1, 5);
+    f.host.park(); f.first.replaceChildren();
+    f.host.update(state({ pane: 'details' })); f.host.rehome(f.second); await settle();
+    expect(signal?.aborted).toBe(false); expect(document.activeElement).toBe(field);
+    expect([field.selectionStart, field.selectionEnd]).toEqual([1, 5]); expect(f.mount).toHaveBeenCalledOnce();
+    f.host.park(); f.second.replaceChildren(); await settle();
+    expect(signal?.aborted).toBe(true); await cancelled;
+    expect(f.dispose).not.toHaveBeenCalled();
+  });
+
+  it('honors explicit canonical contributions independently of the selected slot and never falls back', async () => {
+    const f = setup(); const canonical = vi.fn((_element: HTMLElement, _context: PluginPageContext) => ({ update: vi.fn(), dispose: vi.fn() }));
+    const remove = f.registry.register({ manifestVersion: 1, id: 'example.canonical', version: '1.0.0', sdkVersion: 1,
+      pages: [{ id: 'page', title: 'Canonical', slots: [slot], panes: ['logs'] }] });
+    f.modules.register('example.canonical/page', { mount: canonical });
+    f.host.update(state({ pane: 'logs', panelInstance: 'viewer', presentation: { version: 1, kind: 'run', repo: 'org/b', runId: 'run-1' } }),
+      { contributionId: 'example.canonical/page', scopeRepo: 'org/b' });
+    f.host.rehome(f.first); await settle();
+    expect(canonical).toHaveBeenCalledOnce(); expect(f.mount).not.toHaveBeenCalled();
+    expect(canonical.mock.calls[0]?.[1]).toMatchObject({ state: { repo: 'org/b', pane: 'logs', panelInstance: 'viewer' } });
+    f.registry.restoreSelection(slot, 'example.missing/page'); await settle(); expect(canonical).toHaveBeenCalledOnce();
+    remove(); await settle(); expect(f.host.element.textContent).toBe('Selected viewer unavailable'); expect(f.mount).not.toHaveBeenCalled();
+    f.registry.select(slot, null);
+    f.host.update(state(), { contributionId: null, scopeRepo: 'org/a' }); await settle();
+    expect(f.mount).toHaveBeenCalledOnce();
   });
   it('captures an explicit panel scope without changing the header and resets it when the header changes', async () => {
     const f = setup(); f.host.rehome(f.first); await settle();

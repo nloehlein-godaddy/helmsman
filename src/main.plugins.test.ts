@@ -21,7 +21,7 @@ function register(module: PluginPageModule) {
   return { removeManifest, removeModule };
 }
 
-function sample() {
+function sample(retainContent = false) {
   const contexts: PluginPageContext[] = [];
   const states: PluginPageState[] = [];
   const dispose = vi.fn();
@@ -31,11 +31,21 @@ function sample() {
     states.push(context.state);
     element.textContent = `External summary for ${context.state.repo}`;
     return {
-      update(next: PluginPageState) { states.push(next); element.textContent = `External summary for ${next.repo}`; },
+      update(next: PluginPageState) { states.push(next); if (!retainContent) element.textContent = `External summary for ${next.repo}`; },
       refresh, dispose,
     };
   });
   return { contexts, states, dispose, refresh, mount };
+}
+
+function registerPresentation(id: string, slot: string, module: PluginPageModule) {
+  const contract = builtinPageSlots.find(item => item.id === slot)?.panelContract;
+  const removeManifest = appPages.register({ manifestVersion: 2, sdkVersion: 1, id, version: '1.0.0', panels: [],
+    pages: [{ id: 'page', title: id, slots: [slot], panes: ['logs'],
+      composition: { id: slot, version: 1, accepts: [{ id: contract!, version: 1 }] } }] });
+  const removeModule = appPageModules.register(`${id}/page`, module);
+  disposers.push(removeManifest, removeModule);
+  return { removeManifest, removeModule };
 }
 
 async function start() {
@@ -93,8 +103,7 @@ describe('registered plugin page integration', () => {
     view = new DashboardView(document.querySelector<HTMLElement>('#app')!);
     await view.start();
     await vi.advanceTimersByTimeAsync(0);
-    const mounts = plugin.mount.mock.calls.length;
-    expect(mounts).toBeGreaterThan(0);
+    expect(plugin.mount).toHaveBeenCalledOnce();
     plugin.refresh.mockClear();
     await vi.advanceTimersByTimeAsync(LOCAL_POLL_MS);
     expect(plugin.refresh).toHaveBeenCalledTimes(slot === COSTS_PAGE_SLOT ? 1 : 0);
@@ -102,7 +111,57 @@ describe('registered plugin page integration', () => {
     await view.refresh();
     await vi.advanceTimersByTimeAsync(0);
     expect(plugin.refresh).toHaveBeenCalledOnce();
-    expect(plugin.mount).toHaveBeenCalledTimes(mounts);
+    expect(plugin.mount).toHaveBeenCalledOnce();
+  });
+
+  it('retains one viewer, focus and route state across history, standalone and another plugin page', async () => {
+    const history = sample(); registerPresentation('example.history', RUN_HISTORY_PAGE_SLOT, history);
+    const viewer = sample(true); registerPresentation('example.viewer', RUN_VIEWER_PAGE_SLOT, viewer);
+    const other = sample(); register(other);
+    appPages.select(RUN_HISTORY_PAGE_SLOT, 'example.history/page'); appPages.select(RUN_VIEWER_PAGE_SLOT, 'example.viewer/page');
+    window.history.replaceState(null, '', '/run-history?repo=org/a'); await start();
+    expect(viewer.mount).not.toHaveBeenCalled();
+    history.contexts[0]?.selectPresentation?.({ version: 1, kind: 'run', repo: 'org/a', runId: 'run-1' });
+    await vi.waitFor(() => expect(viewer.mount).toHaveBeenCalledOnce());
+    const element = document.querySelector<HTMLElement>('[data-plugin-page="example.viewer/page"]')!;
+    const field = document.createElement('textarea'); field.value = 'kept draft'; element.append(field); field.focus(); field.setSelectionRange(2, 6);
+    const query = new URLSearchParams({ repo: 'org/a', run: 'run-1', runRepo: 'org/a', pane: 'logs', panel: 'viewer',
+      panelState: JSON.stringify({ 'example.viewer/panel': { version: 1, value: { tab: 'logs' } } }) });
+    history.contexts[0]?.navigate(`/run-viewer?${query}`);
+    await vi.waitFor(() => expect(document.querySelector('[data-plugin-standalone] [data-plugin-page]')).toBe(element));
+    expect(viewer.states.at(-1)).toMatchObject({ visible: true, pane: 'logs', panelInstance: 'viewer', panelRouteState: { 'example.viewer/panel': { version: 1, value: { tab: 'logs' } } } });
+    expect(document.activeElement).toBe(field); expect([field.selectionStart, field.selectionEnd]).toEqual([2, 6]);
+    viewer.contexts[0]?.navigate(`/plugins/example.viewer/page?${query}`);
+    await settle(); expect(viewer.mount).toHaveBeenCalledOnce();
+    viewer.contexts[0]?.navigate(`${path}&run=run-1&runRepo=org/a`);
+    await vi.waitFor(() => expect(document.querySelector('.plugin-auxiliary-slot [data-plugin-page]')).toBe(element));
+    expect(document.activeElement).toBe(field); expect(viewer.states.at(-1)).toMatchObject({ pane: null, panelInstance: null, panelRouteState: {} });
+    expect(viewer.mount).toHaveBeenCalledOnce(); expect(viewer.dispose).not.toHaveBeenCalled(); expect(viewer.refresh).not.toHaveBeenCalled();
+    other.contexts[0]?.navigate('/config?repo=org/a');
+    await vi.waitFor(() => expect(viewer.states.at(-1)?.visible).toBe(false));
+    expect(viewer.dispose).not.toHaveBeenCalled();
+    viewer.contexts[0]?.navigate('/run-viewer?repo=org/a&run=run-1&runRepo=org/a');
+    await vi.waitFor(() => expect(viewer.states.at(-1)?.visible).toBe(true));
+    const scope = document.querySelector<HTMLSelectElement>('.repo-select')!; scope.value = 'org/b'; scope.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(viewer.states.at(-1)).toMatchObject({ repo: 'org/b', presentation: null }));
+    expect(viewer.mount).toHaveBeenCalledOnce();
+  });
+
+  it('opens canonical viewers independently of slot selection and keeps removed contributions unavailable', async () => {
+    const selected = sample(); registerPresentation('example.selected', RUN_VIEWER_PAGE_SLOT, selected);
+    const canonical = sample(); const registered = registerPresentation('example.canonical', RUN_VIEWER_PAGE_SLOT, canonical);
+    appPages.select(RUN_VIEWER_PAGE_SLOT, 'example.selected/page');
+    window.history.replaceState(null, '', '/plugins/example.canonical/page?repo=org/a&run=run-1&runRepo=org/b'); await start();
+    expect(canonical.mount).toHaveBeenCalledOnce(); expect(selected.mount).not.toHaveBeenCalled();
+    expect(canonical.states.at(-1)).toMatchObject({ repo: 'org/b', presentation: { repo: 'org/b', runId: 'run-1' } });
+    expect(document.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/a');
+    appPages.restoreSelection(RUN_VIEWER_PAGE_SLOT, 'example.missing/page'); await settle();
+    expect(canonical.mount).toHaveBeenCalledOnce(); expect(canonical.dispose).not.toHaveBeenCalled();
+    registered.removeManifest(); await vi.waitFor(() => expect(canonical.dispose).toHaveBeenCalledOnce());
+    expect(document.querySelector('#page-content')?.textContent).toContain('unavailable'); expect(selected.mount).not.toHaveBeenCalled();
+    window.history.pushState(null, '', '/run-viewer?repo=org/a'); window.dispatchEvent(new PopStateEvent('popstate')); await settle();
+    expect(document.querySelector('#page-content')?.textContent).toContain('unavailable'); expect(selected.mount).not.toHaveBeenCalled();
+    appPages.select(RUN_VIEWER_PAGE_SLOT, 'example.selected/page'); await vi.waitFor(() => expect(selected.mount).toHaveBeenCalledOnce());
   });
 
   it('opens a selected auxiliary viewer through typed selection while preserving header scope and page session', async () => {

@@ -1,0 +1,97 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.clarifications",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Agent questions",
+        "slots": [],
+        "panes": [],
+        "composition": {
+          "id": "helmsman/clarifications-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/clarifications-panel",
+              "version": 1
+            },
+            {
+              "id": "helmsman/suggested-contacts-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "questions",
+                "contributionId": "helmsman.clarifications/panel"
+              },
+              {
+                "instanceId": "contacts",
+                "contributionId": "helmsman.suggested-contacts/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "questions"
+                  ],
+                  "activeInstanceId": "questions",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "contacts"
+                  ],
+                  "activeInstanceId": "contacts",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        },
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ]
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Agent questions",
+        "contract": {
+          "id": "helmsman/clarifications-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/clarification-read",
+            "version": 1
+          },
+          {
+            "id": "helmsman/clarification-command",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

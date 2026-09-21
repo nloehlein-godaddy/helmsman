@@ -1,4 +1,7 @@
 import compatibilityClarificationsPage from './compat-clarifications/page';
+import clarificationsPage from './clarifications/page';
+import clarificationsPanel from './clarifications/panel';
+import suggestedContactsPanel from './suggested-contacts/panel';
 import runViewerPage from './run-viewer/page';
 import runViewerPanel from './run-viewer/panel';
 import runHistoryPage from './run-history/page';
@@ -49,9 +52,9 @@ export function syncBuiltinFrontend(entries: readonly BuiltinFrontendCatalogEntr
     const cleanups: (() => void)[] = [];
     if (manifest.id === 'helmsman.costs') cleanups.push(appPageModules.register(COSTS_PAGE_ID, costsPage));
     if (manifest.id === 'helmsman.helm') cleanups.push(appPageModules.register(HELM_PAGE_ID, helmPage));
-    const page = { 'helmsman.compat-clarifications': compatibilityClarificationsPage, 'helmsman.run-viewer': runViewerPage, 'helmsman.run-history': runHistoryPage, 'helmsman.todos-ui': todosPage, 'helmsman.triage': triagePage, 'helmsman.bugs': bugsPage, 'helmsman.source-settings': sourceSettingsPage }[manifest.id];
+    const page = { 'helmsman.clarifications': clarificationsPage, 'helmsman.compat-clarifications': compatibilityClarificationsPage, 'helmsman.run-viewer': runViewerPage, 'helmsman.run-history': runHistoryPage, 'helmsman.todos-ui': todosPage, 'helmsman.triage': triagePage, 'helmsman.bugs': bugsPage, 'helmsman.source-settings': sourceSettingsPage }[manifest.id];
     if (page) cleanups.push(appPageModules.register(`${manifest.id}/page`, page));
-    const panel = { 'helmsman.run-viewer': runViewerPanel, 'helmsman.run-history': runHistoryPanel, 'helmsman.todos-ui': todosPanel, 'helmsman.triage': triagePanel, 'helmsman.bugs': bugsPanel, 'helmsman.source-settings': sourceSettingsPanel, 'helmsman.backlog': backlogPanel, 'helmsman.running': runningPanel, 'helmsman.recent': recentPanel,
+    const panel = { 'helmsman.clarifications': clarificationsPanel, 'helmsman.suggested-contacts': suggestedContactsPanel, 'helmsman.run-viewer': runViewerPanel, 'helmsman.run-history': runHistoryPanel, 'helmsman.todos-ui': todosPanel, 'helmsman.triage': triagePanel, 'helmsman.bugs': bugsPanel, 'helmsman.source-settings': sourceSettingsPanel, 'helmsman.backlog': backlogPanel, 'helmsman.running': runningPanel, 'helmsman.recent': recentPanel,
       'helmsman.underway': underwayPanel, 'helmsman.newrun': newRunPanel, 'helmsman.repoprs': repoPrsPanel,
       'helmsman.shipped': shippedPanel, 'helmsman.activity': activityPanel }[manifest.id];
     if (panel) {

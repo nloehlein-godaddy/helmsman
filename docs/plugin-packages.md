@@ -93,6 +93,10 @@ Every page must have exactly one entry mapping. Manifest version 2 additionally 
 
 Static and literal dynamic JavaScript imports must resolve to `.js`/`.mjs` files inside the same archive. Backend-only modules may additionally import Node built-ins with `node:` specifiers. Bare dependencies, private host paths, cross-package imports, missing modules, and computed dynamic imports are rejected. Assets can be addressed relative to `import.meta.url`. Import validation is an authoring boundary, not a sandbox: trusted code can access the shared browser and same-origin APIs. The `helmsman.*` package namespace is reserved for built-ins.
 
+## Authored question and contact packages
+
+The canonical-only [authored question/contact packages](authored-clarifications.md) use separate public panel contracts and conditional instance-state saves. Independently installed copies must rewrite both the question page's own panel reference and its cross-package contact reference to the chosen nonreserved IDs. Keep the shared contracts unchanged. Installing them preserves the legacy Agent Questions alias, compatibility drafts and original caller-owned requests; migration and alias cutover are separate acceptance steps.
+
 ## Storage and startup
 
 The `.hmp` format is versioned UTF-8 JSON containing the descriptor and an array of `{path, base64}` assets. Content hashes cover deterministic canonical encoding of the complete package. Limits are 128 files, 10 MiB decoded content, and 15 MiB serialized data per archive; at most 32 external packages may be installed. Unsafe/duplicate paths, symlinks, special files, malformed base64, missing entries, and incompatible SDK/Node versions are rejected.

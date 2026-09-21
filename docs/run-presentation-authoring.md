@@ -1,6 +1,6 @@
 # Run viewer and history authoring
 
-E4 introduces separate authored viewer and history packages. They remain implementation candidates while the existing run surfaces serve users. Public presentation locators and services are the package boundary; a copied package compiles against the distributed SDK using only type imports. Runtime imports stay inside the package.
+E4 introduces separate authored viewer and history packages. Standalone and auxiliary viewer surfaces share one retained session; the legacy `/runs` surface and its PR workflows remain active pending their separate cutover. Public presentation locators and services are the package boundary; a copied package compiles against the distributed SDK using only type imports. Runtime imports stay inside the package.
 
 | Package | Page slot and composition | Panel contract | Panel services |
 | --- | --- | --- | --- |
@@ -13,14 +13,19 @@ Before building a copied package, rename both `manifest.id` and its self-referen
 
 `PluginPageState.presentation` also reaches panels. The optional `context.selectPresentation(locatorOrNull)` callback returns synchronously and can reject invalid, inactive or out-of-scope selections. Its locator is a canonical `{ version: 1, kind: 'run', repo, runId }`, compatibility `{ version: 1, kind: 'legacy-run', runId }`, or `{ version: 1, kind: 'pull-request', repo, number }`. The host captures effective scope; packages cannot widen a concrete repository scope by emitting another repository. An explicit panel scope may select within that scope without changing the header. A legacy run ID must resolve within the current scope before becoming canonical.
 
-The generic auxiliary host owns attachment and page lifetime. The viewer package owns tabs, selection, focus, scroll, bounded log windows, attempt revalidation and command receipts. Rehoming a visible instance retains that session. PR details, review actions and Slack coupling currently remain in the existing application drawer. A separately tracked legacy PR compatibility panel is required before viewer cutover; that bridge has not yet been extracted. Authored packages do not import private PR clients or renderers.
+The generic auxiliary host owns attachment and page lifetime. `/run-viewer` follows the selected viewer slot; a canonical `/plugins/<plugin>/<page>` viewer route opens that exact contribution independently of the slot selection. Navigation between the same viewer contribution's standalone and auxiliary surfaces moves its existing DOM and preserves route pane/panel state, tabs, focus, scroll, paused log windows and command receipts. A synchronous move between visible destinations preserves active reads; hiding, detachment, scope changes and disposal revoke activity. Replacing or disabling a contribution disposes its session and never falls back to another implementation. The host mounts lazily when first attached, so a direct canonical route does not initialize the selected viewer first.
+
+The viewer package owns tabs, selection, focus, scroll, bounded log windows, attempt revalidation and command receipts. PR details, review actions and Slack coupling currently remain in the existing application drawer. A separately tracked legacy PR compatibility panel is required before legacy `/runs` cutover; that bridge has not yet been extracted. Authored packages do not import private PR clients or renderers.
 
 ```mermaid
 flowchart TD
     History[History panel: 50 runs per page] --> Count[Observation-time total or explicit unknown]
     History --> Selection[Canonical repo/run selection callback]
-    External[Run or legacy run locator] --> Host[Auxiliary page host: effective scope and lifetime]
+    External[Run or legacy run locator] --> Host[Retained page host: effective scope and lifetime]
     Selection --> Host
+    Alias[Standalone alias: selected slot] --> Host
+    Canonical[Canonical viewer route: exact contribution] --> Host
+    Host --> Surface[Move existing DOM between standalone and auxiliary surfaces]
     Host --> Viewer[Authored viewer panel: at most 12 tabs]
     Viewer --> Resolve[Resolve canonical run and current attempt]
     Resolve --> Logs[Run-wide preview: 50 events per request<br/>300 retained; 4,000 characters per event]
@@ -42,6 +47,6 @@ Closing a viewer tab never clears its journal entries. Unknown receipts and reco
 
 Copy uses only the bounded preview. Full download follows [download authoring](download-authoring.md): open the export after destination readiness, retain scope/attempt fences, and distinguish disk-save confirmation from delivery to the browser. Cancellation cannot promise that every browser dismisses its native download UI.
 
-Package state/lifecycle and composition tests cover these behaviors. Both packages compile against a copied distributed SDK under the source-denial loader, pack and install as independent replacements. The package browser gate recompiles those copied sources and verifies canonical selection, paused-window preservation, desktop/mobile rendering and absence of horizontal overflow. One full-shell source-denied production scenario also passes: history selection opens the auxiliary viewer, canonical `runRepo` survives reload independently of header scope, explicit selection reveals/focuses the viewer, hidden/resumed logs remain correct, passive shell polling preserves history pagination and paused standalone logs, disabled selected pages remain unavailable, and logs stay reachable on mobile. Converging standalone and auxiliary viewing onto one retained session, replacing legacy `/runs`, and extracting the PR compatibility boundary remain pending. Track completion in the [E4 implementation plan](plugin-phase-e4-implementation.md) and [implementation ledger](plugin-implementation-progress.md).
+Package state/lifecycle and composition tests cover these behaviors. Both packages compile against a copied distributed SDK under the source-denial loader, pack and install as independent replacements. The package browser gate recompiles those copied sources and verifies canonical selection, paused-window preservation, desktop/mobile rendering and absence of horizontal overflow. The full-shell source-denied production scenario verifies exact viewer/log DOM identity, retained tabs and focused paused logs across history, standalone alias, canonical viewer and Helm navigation, followed by one polling loop. An unresolved retry keeps its original request and attempt without resubmission. A separately installed canonical viewer opens independently of the selected alias. Canonical `runRepo` survives reload independently of header scope, explicit selection reveals/focuses the viewer, hidden/resumed logs remain correct, passive shell polling preserves history pagination and paused standalone logs, disabled selected pages remain unavailable, and logs stay reachable on mobile. Replacing legacy `/runs` and extracting the PR compatibility boundary remain pending. Track completion in the [E4 implementation plan](plugin-phase-e4-implementation.md) and [implementation ledger](plugin-implementation-progress.md).
 
 _Helmsman · not reported - not reported_

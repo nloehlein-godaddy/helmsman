@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { cp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fixture, sourceRoot } from './isolated-fixture';
@@ -12,19 +13,25 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
   try {
     await expect(host.script('prove-presentation-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/main.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
     await host.installAuthorPackage('plugin-sources/run-viewer', 'example.run-viewer');
+    await cp(join(host.app, 'plugin-sources/run-viewer'), join(host.app, 'plugin-sources/alternate-viewer'), { recursive: true });
+    await host.installAuthorPackage('plugin-sources/alternate-viewer', 'example.alternate-viewer');
     await host.installAuthorPackage('plugin-sources/run-history', 'example.run-history');
     await host.cli('select', 'helmsman/run-viewer-page', 'example.run-viewer/page');
     await host.cli('select', 'helmsman/run-history-page', 'example.run-history/page');
     const dbUrl = pathToFileURL(join(host.app, 'server/helmsman/db.js')).href;
     await host.script('seed-presentation.mjs', `import { openDb } from ${JSON.stringify(dbUrl)};
       const db=openDb(process.env.HELMSMAN_DB); try {
-        for(let i=0;i<55;i++) db.insertRun({id:'run-'+i,repo:'org/a',ticketId:'TASK-'+i,adapter:'codex',status:'succeeded',attempt:2,prNumber:null,startedAt:new Date(Date.UTC(2026,8,20,12,0,i)).toISOString(),endedAt:'2026-09-20T13:00:00.000Z',costUsd:null,worktreePath:null});
+        for(let i=0;i<55;i++) db.insertRun({id:'run-'+i,repo:'org/a',ticketId:'TASK-'+i,adapter:'codex',status:i===54?'failed':'succeeded',attempt:2,prNumber:null,startedAt:new Date(Date.UTC(2026,8,20,12,0,i)).toISOString(),endedAt:'2026-09-20T13:00:00.000Z',costUsd:null,worktreePath:null});
         db.insertRun({id:'foreign-run',repo:'org/b',ticketId:'OTHER-1',adapter:'codex',status:'succeeded',attempt:1,prNumber:null,startedAt:'2026-09-20T12:00:00.000Z',endedAt:'2026-09-20T13:00:00.000Z',costUsd:null,worktreePath:null});
         for(let i=0;i<350;i++) db.appendEvent('run-54','log','Visible Unicode 🛟 log '+i,'2026-09-20T12:00:00.000Z');
         db.appendEvent('foreign-run','log','Explicit org/b log','2026-09-20T12:00:00.000Z');
       } finally {db.close();}`);
     const origin = await host.start();
     await page.clock.install();
+    const navigate = async (path: string) => {
+      await page.evaluate(path => { window.history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, path);
+      await expect(page).toHaveURL(`${origin}${path}`);
+    };
     const passivePoll = async () => {
       const refreshed = Promise.all(['/api/agents', '/api/slack', '/api/context'].map(path =>
         page.waitForResponse(response => new URL(response.url()).pathname === path).then(response => response.finished())));
@@ -59,6 +66,39 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
     await expect(viewer.getByRole('button', { name: 'Follow latest', exact: true })).toBeEnabled();
     await expect(viewer.locator('.run-log')).toContainText('log 250');
+    await history.getByRole('button', { name: 'TASK-53', exact: true }).click();
+    await expect(viewer.getByRole('tab', { name: 'TASK-53', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await viewer.getByRole('tab', { name: 'TASK-54', exact: true }).click();
+    await expect(viewer.locator('.run-log')).toContainText('log 250');
+    await expect(viewer.getByRole('button', { name: 'Earlier logs', exact: true })).toBeEnabled();
+    let commandRequests = 0;
+    await page.route('**/api/run-commands', async route => { ++commandRequests; await route.fulfill({ status: 503, body: '{}' }); });
+    await viewer.getByRole('button', { name: 'Retry run', exact: true }).click();
+    await expect(viewer.locator('[data-request-id]')).toHaveCount(1);
+    const requestId = await viewer.locator('[data-request-id]').getAttribute('data-request-id');
+    await expect(viewer.locator('[data-request-id]')).toContainText('Original attempt 2');
+    const retainedViewer = await viewer.elementHandle(); const retainedLog = await viewer.locator('.run-log').elementHandle();
+    const retainedText = await viewer.locator('.run-log').textContent();
+    await viewer.locator('.run-log').focus();
+    for (const path of ['/run-viewer', '/plugins/example.run-viewer/page', '/helm', '/run-history']) {
+      await navigate(`${path}?repo=org/a&run=run-54&runRepo=org/a`);
+      const retained = page.locator('[data-plugin-page="example.run-viewer/page"]');
+      await expect(retained).toBeVisible();
+      expect(await retained.evaluate((element, expected) => element === expected, retainedViewer)).toBe(true);
+      expect(await retained.locator('.run-log').evaluate((element, expected) => element === expected, retainedLog)).toBe(true);
+      await expect(retained.locator('.run-log')).toHaveText(retainedText ?? '');
+      await expect(retained.locator('.run-log')).toBeFocused();
+      await expect(retained.getByRole('tab')).toHaveCount(2);
+      await expect(retained.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible();
+      await expect(retained.locator('[data-request-id]')).toHaveAttribute('data-request-id', requestId ?? '');
+      await expect(retained.locator('[data-request-id]')).toContainText('Outcome unknown');
+    }
+    expect(commandRequests).toBe(1);
+    let polls = 0;
+    page.on('request', request => { const url = new URL(request.url()); if (url.pathname === '/api/run-inspect/resolve' && url.searchParams.get('runId') === 'run-54') ++polls; });
+    const polled = page.waitForResponse(response => { const url = new URL(response.url()); return url.pathname === '/api/run-inspect/resolve' && url.searchParams.get('runId') === 'run-54'; });
+    await page.clock.fastForward(2100); await polled; await page.clock.runFor(250);
+    expect(polls).toBe(1);
     await viewer.evaluate(element => element.scrollIntoView({ block: 'start' }));
     await page.screenshot({ path: testInfo.outputPath('run-presentation-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -90,6 +130,10 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     await passivePoll();
     await expect(standalone.locator('.run-log')).toHaveText(pausedLogs ?? '');
     await expect(standalone.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible();
+    await navigate('/plugins/example.alternate-viewer/page?repo=org/a&run=run-54&runRepo=org/a');
+    await expect(page.locator('[data-plugin-standalone] [data-plugin-page="example.alternate-viewer/page"]')).toBeVisible();
+    await expect(page.locator('[data-plugin-page="example.run-viewer/page"]')).toHaveCount(0);
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await host.cli('disable', 'example.run-viewer');
     await page.goto(`${origin}/run-viewer?repo=org/a&run=run-54&runRepo=org/a`);
     await expect(page.locator('[data-plugin-page="helmsman.run-viewer/page"]')).toHaveCount(0);

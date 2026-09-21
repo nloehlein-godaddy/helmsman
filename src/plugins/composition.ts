@@ -103,6 +103,7 @@ export interface PluginPanelContext {
   readonly navigate: (href: string) => void;
   readonly onDispose: (cleanup: () => void) => void;
   readonly saveState: (state: PanelOpaqueStateV1 | null) => Promise<void>;
+  readonly compareAndSetState?: (expected: PanelOpaqueStateV1 | null, state: PanelOpaqueStateV1 | null) => Promise<void>;
   readonly setScope?: (scope: PanelScopeV1) => Promise<void>;
 }
 

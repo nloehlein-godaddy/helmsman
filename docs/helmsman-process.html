@@ -65,7 +65,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </header>
 <section aria-labelledby="task-plugins-heading">
 <h2 class="section-heading" id="task-plugins-heading">Plugin task presentation and command authority</h2>
-<p class="section-intro">Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads and clarification channels are reviewed and pushed as e788774; replacement presentation and public clarification services are in progress; execution/policy replacement (F) and compatibility retirement (G) remain pending.</p>
+<p class="section-intro">Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads, provisional viewer/history pages and public clarification services are reviewed and pushed as b49c6ca; shared-viewer convergence and fully authored question/contact panels are in progress; execution/policy replacement (F) and compatibility retirement (G) remain pending.</p>
 <div class="flow-step flow-common"><h3>Task alias → selected page → saved composition</h3><p>A disabled or missing selection remains unavailable. Existing layouts and opaque state win, including empty layouts and missing panels. Only an absent composition receives package defaults; Triage imports prior preferences and archives the original values in the same transaction.</p></div>
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="flow-step flow-common"><h3>Header scope → managed task panel</h3><p>Inherit the header galleon or choose an explicit panel override. Bind the exact source instance and revision. The host owns panel lifetime, scope and cancellation.</p></div>
@@ -84,7 +84,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </section>
 <section aria-labelledby="run-inspection-heading">
 <h2 class="section-heading" id="run-inspection-heading">E4 foundation: run inspection and streamed downloads</h2>
-<p class="section-intro">The foundation is reviewed and pushed as e788774. The existing run viewer and history remain active; replacement packages and cutover have not passed their acceptance gates.</p>
+<p class="section-intro">The foundation is reviewed and pushed as e788774. Authored viewer/history packages are available through provisional slots; the legacy Runs page still awaits cutover.</p>
 <div class="flow-step flow-common"><h3>Active panel → canonical run and attempt</h3><p>The public run-inspect service checks the panel’s effective galleon scope and resolves the exact run and expected attempt.</p></div>
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="intake-sources">
@@ -106,7 +106,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <p class="section-intro">Integration is in progress. The existing Runs drawer and PR renderer remain pending cutover; clarification presentation retains a tracked compatibility bridge.</p>
 <div class="flow-step flow-common"><h3>Typed selection → captured scope → selected viewer</h3><p>An active plugin page or panel selects a run identity. Capture its effective galleon scope without changing the header. Resolve the selected viewer slot; a missing or disabled choice stays unavailable. PR selections still open the existing private PR page; the separate compatibility panel awaits cutover.</p></div>
 <div class="host-options">
-<article class="flow-step"><h3>One auxiliary session</h3><p>The authored viewer owns tabs, log windows, commands and downloads. Rehome the same mounted DOM session and restore keyboard focus and text selection.</p></article>
+<article class="flow-step"><h3>One standalone and auxiliary session</h3><p>The standalone alias resolves the selected viewer slot; a canonical route resolves its exact contribution without fallback. The authored viewer owns tabs, log windows, commands and downloads. Rehome the same mounted DOM session and restore keyboard focus and text selection. Synchronous transfer retains active reads and requests.</p></article>
 <article class="flow-step"><h3>Hide → cancel; show → resume</h3><p>Hidden or detached consumers abort scoped work while retaining package state. Showing the session again resumes from that state.</p></article>
 </div>
 <div class="flow-step flow-common"><h3>Draft → durable reservation → exact command</h3><p>Reserve a request identity before sending an answer or global contact command. Keep changed unsent text separate. Require an enabled declared contribution and the effective question scope.</p></div>
@@ -118,6 +118,16 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <div class="flow-step flow-common"><h3>Durably save result → acknowledge browser journal</h3><p>The consumer saves the result and draft state before acknowledgment. A failed save retains the terminal receipt and drafts; after freeing space, retry that result save. Server receipts remain retained. Answer acceptance does not prove worker consumption; saving a contact sends no messages.</p></div>
 <div class="flow-step flow-common"><h3>Explicit cleanup → fresh journals → unchanged draft check</h3><p>Read both current journals successfully before removing an individual scoped draft or saved result. Protect unresolved submissions; a failed read prevents deletion. Recheck the displayed and saved draft after the journal read and reject changed content. Discarding an already-unsaved local edit retains and reloads stored text for review; deleting it requires a separate action. Global contact-draft removal is separate. Cleanup never deletes journal entries. Compatibility local storage does not provide an atomic transaction across tabs for the final comparison and deletion.</p></div>
 <p class="limit-note">Unknown-provenance questions remain read-only and required unanswered obligations still block publication. Disabled contributions preserve journals for reconciliation after reenablement. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 while public services are active. Trusted worker ingestion uses its retained attempt channel. See <a href="clarification-backend.md">backend contracts</a> and <a href="panel-authoring.md">author lifecycle</a>.</p>
+</section>
+<section aria-labelledby="conditional-state-heading">
+<h2 class="section-heading" id="conditional-state-heading">Conditional panel-state saves in development</h2>
+<p class="section-intro">The next E4 slice adds conditional saves for authored question/contact panels. These local changes still require independent package and production acceptance.</p>
+<div class="flow-step flow-common"><h3>Exact baseline + next state → bounded copies → current layout</h3><p>Retain the saved-state baseline that produced the draft or terminal result. Compare only the caller's namespace; other instances and contributions stay intact.</p></div>
+<div class="host-options">
+<article class="flow-step"><h3>Mismatch or concurrent write → conflict</h3><p>Keep stored state and local edits. Refresh observed state and require explicit reconciliation; do not acknowledge the original command.</p></article>
+<article class="flow-step"><h3>Match → atomic revision check → save</h3><p>Only a successful save permits explicit acknowledgment of the original request after the consumer retains its durable result and draft.</p></article>
+</div>
+<p class="limit-note">If the host lacks optional <code>compareAndSetState</code>, disable writes and acknowledgment while retaining original requests.</p>
 </section>
 <section aria-labelledby="intake-heading">
 <h2 class="section-heading" id="intake-heading">Intake and execution preparation</h2>

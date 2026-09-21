@@ -1,5 +1,5 @@
 import { isContributionId, isSlotId } from './manifest';
-import type { CompositionLayoutV1, PanelLayoutInstanceV1, PanelLayoutStackV1, PanelScopeV1 } from './composition';
+import type { CompositionLayoutV1, PanelLayoutInstanceV1, PanelLayoutStackV1, PanelOpaqueStateV1, PanelScopeV1 } from './composition';
 
 export class CompositionLayoutValidationError extends Error {}
 export class CompositionLayoutConflictError extends Error {}
@@ -55,6 +55,20 @@ function states(value: unknown): PanelLayoutInstanceV1['state'] {
     if (!Number.isSafeInteger(state.version) || (state.version as number) < 1) invalid('Invalid panel state version.');
   }
   return input as unknown as PanelLayoutInstanceV1['state'];
+}
+
+export function parsePanelOpaqueState(value: unknown): PanelOpaqueStateV1 | null {
+  if (value === null) return null;
+  const saved = states({ saved: value }).saved;
+  if (!saved) invalid('Missing panel state.');
+  return saved;
+}
+
+export function samePanelOpaqueState(first: PanelOpaqueStateV1 | null, second: PanelOpaqueStateV1 | null): boolean {
+  const encode = (value: PanelOpaqueStateV1 | null) => JSON.stringify(value, (_key, item: unknown) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : item);
+  return encode(first) === encode(second);
 }
 
 export function parseCompositionLayout(value: unknown): CompositionLayoutV1 {

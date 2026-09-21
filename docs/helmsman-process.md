@@ -6,7 +6,7 @@ The flow now includes Moon Units-inspired intake, frozen execution settings, iso
 
 ## Plugin task presentation and command authority
 
-Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads and clarification channels are reviewed and pushed as e788774; replacement presentation and public clarification services are in progress; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
+Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads, provisional viewer/history pages and public clarification services are reviewed and pushed as b49c6ca; shared-viewer convergence and fully authored question/contact panels are in progress; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
 
 ```mermaid
 flowchart TD
@@ -38,7 +38,7 @@ Triage applies provider filters before pagination and preserves independent curs
 
 ## E4 foundation: run inspection and streamed downloads
 
-This flow describes the reviewed and pushed E4 foundation. The existing run viewer and history remain active; the replacement packages and cutover have not passed their acceptance gates.
+This flow describes the reviewed and pushed E4 foundation. Authored viewer/history packages are available through provisional slots; the legacy `/runs` page still awaits cutover.
 
 ```mermaid
 flowchart TD
@@ -73,9 +73,14 @@ flowchart TD
     Selection[Active plugin page or panel selects typed run identity] --> Scope[Capture effective galleon scope<br/>Header stays unchanged]
     Scope --> Slot[Resolve selected run-viewer page slot]
     Slot -->|Missing or disabled| Unavailable[Show unavailable<br/>Keep saved layout and state]
-    Slot -->|Available| Auxiliary[Reuse auxiliary page and composition session]
+    Alias[Standalone viewer alias] --> Slot
+    Canonical[Canonical viewer route] --> Exact[Resolve exact contribution without fallback]
+    Exact -->|Missing or disabled| Unavailable
+    Exact -->|Available| Auxiliary
+    Slot -->|Available| Auxiliary[Reuse shared standalone and auxiliary composition session]
     Auxiliary --> Viewer[Authored viewer owns tabs, log window,<br/>command journals and download controls]
     Auxiliary --> Move[Rehome same DOM session<br/>Restore focus and text selection]
+    Move --> Transfer[Synchronous transfer retains active reads and requests]
     Auxiliary --> Hidden[Hidden or detached<br/>Abort scoped work; retain session]
     Hidden --> Visible[Visible again<br/>Resume from retained package state]
     PR[Typed PR selection] --> LegacyPR[Existing private PR page<br/>Separate compatibility panel awaits cutover]
@@ -117,6 +122,23 @@ flowchart TD
 Saved browser drafts and results remain until explicit cleanup. Fresh successful journal reads protect records associated with unresolved submissions; a read failure prevents deletion. Cleanup checks the displayed and saved draft again after the journal read and rejects changed content. Discarding an already-unsaved local edit retains and reloads persisted text for review; deleting that text requires a separate action. Scoped answer drafts, saved results and the explicitly global contact draft have separate removal actions, and none deletes journal entries. Compatibility local storage does not provide an atomic transaction across tabs for the final comparison and deletion.
 
 Answer acceptance does not prove worker consumption. Contacts are global metadata; saving them sends no messages. Disabled contributions retain browser journals and reconcile after reenablement. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 when the public services are active. Trusted worker ingestion still requires its retained attempt channel. See [backend contracts](clarification-backend.md) and [author lifecycle](panel-authoring.md).
+
+## Conditional panel-state saves in development
+
+The next E4 slice adds conditional panel-state saves for authored question/contact panels. These changes are local until their independent package and production acceptance gates pass:
+
+```mermaid
+flowchart TD
+    Edit[Draft or terminal command result<br/>Retain exact observed saved-state baseline] --> Capture[Copy bounded expected and next state]
+    Capture --> Read[Read current composition]
+    Read --> Compare{Caller-owned state matches baseline?}
+    Compare -->|No| Conflict[Keep stored state and local edits<br/>Refresh observed state; explicit reconciliation]
+    Compare -->|Yes| Commit[Atomic layout revision check and save]
+    Commit -->|Concurrent write| Conflict
+    Commit -->|Saved| Result[Consumer retains durable result and draft]
+    Result --> Ack[Explicit acknowledgment of original journal request]
+    Missing[Host lacks optional compareAndSetState] --> Preserve[Disable writes and acknowledgment<br/>Retain original requests]
+```
 
 ## Intake and execution preparation
 

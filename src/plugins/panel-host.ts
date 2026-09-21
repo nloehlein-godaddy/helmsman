@@ -8,6 +8,7 @@ export interface PanelHostOptions {
   readonly services: (lifetime: AbortSignal, activity: () => PanelActivityV1) => PluginPanelServicesV1;
   readonly navigate: (href: string) => void;
   readonly saveState: (state: PanelOpaqueStateV1 | null, signal: AbortSignal) => Promise<void>;
+  readonly compareAndSetState?: (expected: PanelOpaqueStateV1 | null, state: PanelOpaqueStateV1 | null, signal: AbortSignal) => Promise<void>;
   readonly setScope?: (scope: PanelScopeV1, signal: AbortSignal) => Promise<void>;
   readonly errorMessage: () => string;
 }
@@ -37,6 +38,7 @@ export class PluginPanelHost {
     container.replaceChildren(this.element);
     const host = this;
     const setScope = options.setScope;
+    const compareAndSetState = options.compareAndSetState;
     const context = Object.freeze<PluginPanelContext>({
       state: this.state, signal: this.lifetime.signal,
       ...(options.selectPresentation ? { selectPresentation: (input: PresentationLocatorV1 | null) => {
@@ -51,6 +53,10 @@ export class PluginPanelHost {
         if (this.lifetime.signal.aborted) throw new DOMException('Panel disposed.', 'AbortError');
         await options.saveState(value, this.lifetime.signal);
       },
+      ...(compareAndSetState ? { compareAndSetState: async (expected: PanelOpaqueStateV1 | null, value: PanelOpaqueStateV1 | null) => {
+        if (this.lifetime.signal.aborted) throw new DOMException('Panel disposed.', 'AbortError');
+        await compareAndSetState(expected, value, this.lifetime.signal);
+      } } : {}),
       ...(setScope ? { setScope: async (scope: PanelScopeV1) => {
         if (!this.state.activity.active || this.lifetime.signal.aborted) throw new DOMException('Panel is inactive.', 'AbortError');
         await setScope(scope, this.state.activity.signal);

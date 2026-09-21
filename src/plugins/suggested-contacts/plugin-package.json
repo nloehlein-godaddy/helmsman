@@ -1,0 +1,34 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.suggested-contacts",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Suggested contacts (global)",
+        "contract": {
+          "id": "helmsman/suggested-contacts-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/suggested-contact-admin",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {},
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

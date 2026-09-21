@@ -5,7 +5,7 @@ import { createHostSourceAdminService } from './source-admin-service';
 import { createHostTodoLegacyRecoveryService } from './todo-legacy-recovery-service';
 import type { CompositionLayoutV1, CompositionServiceV1, ManagedPanelInstanceV1, PageCompositionDefinitionV1,
   PanelLayoutInstanceV1, PanelOpaqueStateV1, PanelScopeV1, PluginPanelModule } from './composition';
-import { parseCompositionLayout } from './composition-layout';
+import { CompositionLayoutConflictError, parseCompositionLayout, parsePanelOpaqueState, samePanelOpaqueState } from './composition-layout';
 import type { PluginPageState } from './sdk';
 import type { PresentationLocatorV1 } from './presentation';
 import type { PluginPanelRegistry } from './panels';
@@ -233,16 +233,29 @@ export class PluginCompositionHost {
       selectPresentation: this.options.selectPresentation,
       navigate: href => this.options.navigate(href), errorMessage: () => 'This panel could not load. Reload to try again.',
       saveState: (value, signal) => this.saveState(panel, instance.contributionId, value, signal),
+      compareAndSetState: (expected, value, signal) => this.saveState(panel, instance.contributionId,
+        parsePanelOpaqueState(value), signal, parsePanelOpaqueState(expected)),
       setScope: (scope, signal) => this.setScope(panel, instance.contributionId, scope, signal),
     }, routeState);
   }
 
-  private async saveState(panel: MountedPanel, contributionId: string, value: PanelOpaqueStateV1 | null, signal: AbortSignal): Promise<void> {
-    await this.updateInstance(panel, contributionId, signal, selected => {
-      const state = { ...selected.state };
-      if (value === null) delete state[contributionId]; else state[contributionId] = value;
-      return { ...selected, state };
-    });
+  private async saveState(panel: MountedPanel, contributionId: string, value: PanelOpaqueStateV1 | null, signal: AbortSignal,
+    expected?: PanelOpaqueStateV1 | null): Promise<void> {
+    try {
+      await this.updateInstance(panel, contributionId, signal, selected => {
+        if (expected !== undefined && !samePanelOpaqueState(selected.state[contributionId] ?? null, expected)) {
+          throw new CompositionLayoutConflictError('Saved panel state changed. Reload it before saving.');
+        }
+        const state = { ...selected.state };
+        if (value === null) delete state[contributionId]; else state[contributionId] = value;
+        return { ...selected, state };
+      });
+    } catch (error) {
+      if (expected !== undefined && error instanceof CompositionLayoutConflictError && !this.disposed) {
+        await this.readLayout().catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   private async setScope(panel: MountedPanel, contributionId: string, scope: PanelScopeV1, signal: AbortSignal): Promise<void> {

@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { fixture } from './isolated-fixture';
 
-export async function seedClarificationProof(host: Awaited<ReturnType<typeof fixture>>): Promise<{ channelId: string }> {
+export async function seedClarificationProof(host: Awaited<ReturnType<typeof fixture>>, options: { extraQuestionIds?: readonly string[] } = {}): Promise<{ channelId: string }> {
   const moduleUrl = (name: string) => JSON.stringify(pathToFileURL(join(host.app, `server/helmsman/${name}.js`)).href);
   return JSON.parse(await host.script('seed-clarification-proof.mjs', `
       import { openPersistence, persistedJson } from ${moduleUrl('persistence')};
@@ -24,6 +24,7 @@ export async function seedClarificationProof(host: Awaited<ReturnType<typeof fix
           launchId: 'proof-launch', maxConcurrency: 10, paths: { worktree: null, log: process.env.RUNS_DIR + '/proof.log', exit: process.env.RUNS_DIR + '/proof.exit', spec: process.env.RUNS_DIR + '/proof.spec' } });
         store.protocol.bind(executions.snapshot(attempt.snapshotId));
         store.ingestQuestion('run-proof', { kind: 'question', id: 'question-proof', required: true, prompt: 'Approve the voyage?' }, channel);
+        for (const id of ${JSON.stringify(options.extraQuestionIds ?? [])}) store.ingestQuestion('run-proof', { kind: 'question', id, required: true, prompt: 'Approve question ' + id + '?' }, channel);
         store.ingestQuestion('run-proof', { kind: 'question', id: 'legacy-proof', required: true, prompt: 'Unknown original question' });
         console.log(JSON.stringify({ channelId: channel.channelId }));
       } finally { persistence.close(); }
