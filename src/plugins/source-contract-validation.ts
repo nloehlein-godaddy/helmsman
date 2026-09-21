@@ -47,3 +47,13 @@ export function sourceJson(input: unknown, maximum: number = 256 * 1024): Plugin
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > maximum) invalidSourceContract();
   return value;
 }
+
+
+export function isContributionId(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const [namespace, local, extra] = value.split('/');
+  if (extra !== undefined || !namespace || namespace.length > 128 || !local || local.length > 64) return false;
+  const parts = namespace.split('.');
+  const valid = (part: string) => part.length <= 64 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(part);
+  return parts.length > 1 && parts.every(valid) && valid(local);
+}

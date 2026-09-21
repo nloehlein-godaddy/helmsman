@@ -53,6 +53,7 @@ const input=JSON.parse(process.argv[2]);
 const statePath=${JSON.stringify(statePath)};
 const git=${JSON.stringify(realGit)};
 const state=JSON.parse(readFileSync(statePath,'utf8'));
+(state.prompts??=[]).push(input.prompt.split('\\n')[0]);
 const paths=[...input.prompt.matchAll(/"(\\/[^"\\n]+)"/g)].map(match=>JSON.parse(match[0]));
 const reportPath=paths.at(-1);
 if(!reportPath)throw new Error('Missing report path');
@@ -76,6 +77,7 @@ if(input.stage==='implement'){
  writeFileSync(reportPath,JSON.stringify({...prior,summary:'Material fixture review.'}));
 }else if(input.stage==='review'){
  state.reviews[String(round)]=(state.reviews[String(round)]??0)+1;
+ (state.order??=[]).push(input.testProvider??'legacy');
  const approved=round>1;
  writeFileSync(reportPath,JSON.stringify({baseSha,headSha,verdict:approved?'APPROVE':'REQUEST_CHANGES',summary:approved?'Approved fixture revision.':'x'.repeat(2100),findings:approved?[]:[{title:'Fixture defect',body:'The implementation requires the retained fix.',path:'workflow.txt',line:1}]}));
 }else throw new Error('Unexpected fixture stage');
@@ -124,7 +126,7 @@ export async function runAgentWorkflowFixture(input) {
   const token = 'a'.repeat(64);
   const publication = await publicationServer(token);
   const reviewerIds = selection.reviewers.map(record => record.binding.providerId);
-  const task = { agentSelection: selection, agentRuntime: { pluginsRoot, runtimeArtifactsRoot, artifacts }, ticketId: 'T-1', title: 'Exercise retained agents',
+  const task = { ...(input.workflow ? { workflow: input.workflow, workflowRuntime: { pluginsRoot, runtimeArtifactsRoot, artifacts: input.workflowArtifacts } } : {}), agentSelection: selection, agentRuntime: { pluginsRoot, runtimeArtifactsRoot, artifacts }, ticketId: 'T-1', title: 'Exercise retained agents',
     repo: 'org/repo', jiraBaseUrl: '', task: 'Exercise every retained pre-PR stage and continuation.' };
   const settings = { reviewerCount: reviewerIds.length, maxRounds: 3, stageTimeoutMinutes: 5 };
   const events = [];
@@ -157,6 +159,8 @@ export async function runAgentWorkflowFixture(input) {
     assert.equal(state.reviews['1'], reviewerIds.length);
     assert.equal(state.reviews['2'], reviewerIds.length);
     assert.equal(state.corrections, reviewerIds.length);
+    if (input.expectedPromptMarker) assert.ok(state.prompts.length > 0 && state.prompts.every(prompt => prompt === input.expectedPromptMarker));
+    if (input.expectedReviewOrder) assert.deepEqual(state.order, [...input.expectedReviewOrder, ...input.expectedReviewOrder]);
     assert.equal(await command(realGit, ['status', '--porcelain', '--untracked-files=all'], repo, env), '');
     assert.match(await readFile(join(repo, 'workflow.txt'), 'utf8'), /fixed/);
     assert.ok(events.some(event => event.kind === 'result' && event.outcome === 'failure'));

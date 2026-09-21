@@ -1,5 +1,7 @@
 # Helmsman plugin architecture plan
 
+> Historical planning and milestone text below is retained as written. For current implementation status and validation, use the [delivery ledger](plugin-implementation-progress.md) and [remaining delivery plan](plugin-remaining-delivery-plan.md). Current public contracts are documented in the [author guides](plugin-packages.md).
+
 Delivery update: implementation has resumed under the revised delivery cadence. The [remaining delivery plan](plugin-remaining-delivery-plan.md) supersedes earlier work sequencing and test/review frequency; the original A–G scope and final acceptance gates remain in force.
 
 Date: 2026-09-20  

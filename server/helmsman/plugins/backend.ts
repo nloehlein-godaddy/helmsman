@@ -1,3 +1,5 @@
+import type { WorkflowBackendContextV1, WorkflowProviderV1 } from '../../../src/plugins/workflow';
+import { boundedWorkflowProvider, createWorkflowProviderRegistry } from '../workflow-providers';
 import type { NativeTerminalBackendContextV1, NativeTerminalProviderV1 } from '../../../src/plugins/native-terminal';
 import { boundedNativeTerminalProvider, createNativeTerminalProviderRegistry } from '../native-terminal-providers';
 import type { ExecutionHostBackendContextV1, ExecutionHostProviderV1 } from '../../../src/plugins/execution-host';
@@ -38,6 +40,7 @@ export interface BackendRuntime {
   readonly pullRequests: PullRequestProviderRegistry;
   readonly communications: CommunicationProviderRegistry;
   readonly scheduling: ReturnType<typeof createSchedulingProviderRegistry>;
+  readonly workflows: ReturnType<typeof createWorkflowProviderRegistry>;
   readonly nativeTerminals: ReturnType<typeof createNativeTerminalProviderRegistry>;
   readonly executionHosts: ReturnType<typeof createExecutionHostProviderRegistry>;
   readonly agents: ReturnType<typeof createAgentProviderRegistry>;
@@ -144,6 +147,16 @@ export async function activateBackendPlugins(options: {
     if (purpose === 'obligation') return true;
     try { return executionHostSettings.get(binding.pluginId)?.() === true; } catch { return false; }
   } });
+  const workflowSettings = new Map<string, () => boolean>();
+  const workflows = createWorkflowProviderRegistry({ eligible(binding, purpose) {
+    if (disposed || !activeIds.has(binding.pluginId) || purpose === 'admission' && draining.has(binding.pluginId)) return false;
+    if (options.coordinator && !options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) {
+      const state = options.coordinator.state(binding.pluginId);
+      if (purpose !== 'obligation' || !state?.obligationsOnly || state.artifactHash !== binding.artifactHash) return false;
+    }
+    if (purpose === 'obligation') return true;
+    try { return workflowSettings.get(binding.pluginId)?.() === true; } catch { return false; }
+  } });
   const nativeTerminalSettings = new Map<string, () => boolean>();
   const nativeTerminals = createNativeTerminalProviderRegistry({ eligible(binding, purpose) {
     if (disposed || !activeIds.has(binding.pluginId) || purpose === 'admission' && draining.has(binding.pluginId)) return false;
@@ -169,12 +182,12 @@ export async function activateBackendPlugins(options: {
     const canServeOrdinary = () => !options.coordinator || options.coordinator.canActivate(id, artifactHash);
     const canServeObligations = () => {
       const state = options.coordinator?.state(id);
-      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals);
+      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows);
     };
     if (options.coordinator) {
       const state = options.coordinator.state(id);
       if (!options.coordinator.canActivate(id, artifactHash)
-        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals))) return;
+        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows))) return;
     }
     let data: ReturnType<typeof openPluginData> | undefined;
     const abort = new AbortController();
@@ -184,6 +197,7 @@ export async function activateBackendPlugins(options: {
     const pendingSources = new Map<string, TaskSourceProviderV1>();
     const pendingPullRequests = new Map<string, PullRequestProviderV1>();
     const pendingCommunications = new Map<string, CommunicationProviderV1>();
+    const pendingWorkflows = new Map<string, WorkflowProviderV1>();
     const pendingNativeTerminals = new Map<string, NativeTerminalProviderV1>();
     const pendingExecutionHosts = new Map<string, ExecutionHostProviderV1>();
     const pendingAgents = new Map<string, AgentProviderV1>();
@@ -203,6 +217,7 @@ export async function activateBackendPlugins(options: {
       if (publishedCommunications) communications.removePlugin(id);
       agents.removePlugin(id); agentSettings.delete(id);
       executionHosts.removePlugin(id); executionHostSettings.delete(id);
+      workflows.removePlugin(id); workflowSettings.delete(id);
       nativeTerminals.removePlugin(id); nativeTerminalSettings.delete(id);
       scheduling.removePlugin(id); schedulingSettings.delete(id);
       pluginDrains.delete(id);
@@ -265,6 +280,11 @@ export async function activateBackendPlugins(options: {
           if (pendingExecutionHosts.has(localId)) throw new Error('Duplicate execution host provider registration.');
           pendingExecutionHosts.set(localId, boundedExecutionHostProvider(provider, abort.signal));
         },
+        registerWorkflow: (localId: string, provider: WorkflowProviderV1) => {
+          if (phase !== 'activating' || !pkg.backend?.workflows?.[localId] || !pkg.backend.provides.some(item => item.id === 'helmsman/workflow' && item.localId === localId)) throw new Error('Undeclared workflow provider registration.');
+          if (pendingWorkflows.has(localId)) throw new Error('Duplicate workflow provider registration.');
+          pendingWorkflows.set(localId, boundedWorkflowProvider(provider, abort.signal));
+        },
         registerNativeTerminal: (localId: string, provider: NativeTerminalProviderV1) => {
           if (phase !== 'activating' || !pkg.backend?.nativeTerminals?.[localId] || !pkg.backend.provides.some(item => item.id === 'helmsman/native-terminal' && item.localId === localId)) throw new Error('Undeclared native terminal provider registration.');
           if (pendingNativeTerminals.has(localId)) throw new Error('Duplicate native terminal provider registration.');
@@ -291,13 +311,13 @@ export async function activateBackendPlugins(options: {
         }
         const module = imported && typeof imported === 'object' && 'default' in imported ? imported.default : null;
         if (!module || typeof module !== 'object' || !('activate' in module) || typeof module.activate !== 'function') throw new Error('Backend entry must default-export an activate module.');
-        const activationContext = pkg.backend?.nativeTerminals ? Object.freeze<NativeTerminalBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerNativeTerminal: context.registerNativeTerminal, onDispose: context.onDispose }) : pkg.backend?.executionHosts ? Object.freeze<ExecutionHostBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerExecutionHost: context.registerExecutionHost, onDispose: context.onDispose }) : pkg.backend?.agents ? Object.freeze<AgentBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerAgent: context.registerAgent, onDispose: context.onDispose }) : context;
+        const activationContext = pkg.backend?.workflows ? Object.freeze<WorkflowBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerWorkflow: context.registerWorkflow, onDispose: context.onDispose }) : pkg.backend?.nativeTerminals ? Object.freeze<NativeTerminalBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerNativeTerminal: context.registerNativeTerminal, onDispose: context.onDispose }) : pkg.backend?.executionHosts ? Object.freeze<ExecutionHostBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerExecutionHost: context.registerExecutionHost, onDispose: context.onDispose }) : pkg.backend?.agents ? Object.freeze<AgentBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerAgent: context.registerAgent, onDispose: context.onDispose }) : context;
         await module.activate(activationContext);
       })();
       await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Backend activation timed out.')), timeoutMs); })]);
-      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size + pendingAgents.size + pendingExecutionHosts.size + pendingNativeTerminals.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
+      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size + pendingAgents.size + pendingExecutionHosts.size + pendingNativeTerminals.size + pendingWorkflows.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
       const ordinary = canServeOrdinary();
-      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
+      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
       const sourceRegistrations = [...pendingSources].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Task source registration requires an exact artifact.');
         return taskSources.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, pkg.backend!.taskSources![localId]!, provider);
@@ -335,6 +355,12 @@ export async function activateBackendPlugins(options: {
       });
       executionHostSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
       executionHosts.publish(hostRegistrations);
+      const workflowRegistrations = [...pendingWorkflows].map(([localId, provider]) => {
+        if (!artifactHash) throw new Error('Workflow registration requires an exact artifact.');
+        return workflows.stage({ binding: { providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1 }, provider, package: pkg, settings: data!.settings, origin: id.startsWith('helmsman.') ? 'builtin' : 'external' });
+      });
+      workflowSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
+      workflows.publish(workflowRegistrations);
       const nativeRegistrations = [...pendingNativeTerminals].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Native terminal registration requires an exact artifact.');
         return nativeTerminals.stage({ binding: { providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1 }, provider, package: pkg, settings: data!.settings, origin: id.startsWith('helmsman.') ? 'builtin' : 'external' });
@@ -345,7 +371,7 @@ export async function activateBackendPlugins(options: {
       staged.clear();
       for (const [providerId, provider] of pending) providers.set(providerId, provider);
       phase = 'active'; activeIds.add(id); owners.push(cleanup); pluginCleanups.set(id, cleanup);
-      if (pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
+      if (pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
       if (options.coordinator && artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'active', null);
       if (options.coordinator?.state(id)?.obligationsOnly) pluginDrains.get(id)?.();
     } catch (error) {
@@ -391,6 +417,7 @@ export async function activateBackendPlugins(options: {
     scheduling,
     agents,
     executionHosts,
+    workflows,
     nativeTerminals,
     activePluginIds: () => Object.freeze([...activeIds].sort()),
     providers: () => Object.freeze([...providers.keys()].sort()),

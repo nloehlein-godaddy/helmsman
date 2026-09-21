@@ -1,3 +1,4 @@
+import { isContributionId } from '../../src/plugins/manifest';
 import type Database from 'better-sqlite3';
 import { storeConnection } from './store-connection';
 import { createHash, randomUUID } from 'node:crypto';
@@ -205,7 +206,7 @@ export function openCampaignStore(path: string | Database.Database, options: { n
       const value = object(input);
       only(value, ['name', 'repo', 'workflowRef', 'concurrency']);
       const workflowRef = text(value.workflowRef, 'workflow reference', 200);
-      if (!/^[a-z][a-z\d_.-]*@v?[1-9]\d*$/i.test(workflowRef)) throw new CampaignValidationError('Choose a versioned workflow reference');
+      if (!/^[a-z][a-z\d_.-]*@v?[1-9]\d*$/i.test(workflowRef) && !(workflowRef.endsWith('@1') && isContributionId(workflowRef.slice(0, -2)))) throw new CampaignValidationError('Choose a versioned workflow reference');
       if (typeof value.concurrency !== 'number' || !Number.isInteger(value.concurrency) || value.concurrency < 1 || value.concurrency > 20) throw new CampaignValidationError('Concurrency must be 1–20');
       const item: Campaign = { id: `cp-${randomUUID()}`, name: text(value.name, 'campaign name', 120), repo: repo(value.repo), workflowRef, concurrency: value.concurrency, createdAt: now() };
       sql.prepare('INSERT INTO campaigns (id, repo, payload) VALUES (?, ?, ?)').run(item.id, item.repo, JSON.stringify(item));

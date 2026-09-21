@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { storeConnection } from './store-connection';
+import { isContributionId } from '../../src/plugins/manifest';
+import { parseWorkflowRetainedProviderV1, type WorkflowRetainedProviderV1 } from './workflow-providers';
 
 export type FixedWorkflowId = 'coding' | 'review';
 
@@ -10,14 +12,16 @@ export interface SkillDeclaration {
 }
 
 export interface WorkflowDefinition {
-  id: FixedWorkflowId;
+  id: string;
   version: number;
   promptRevision: string;
   prompt: string;
+  provider?: WorkflowRetainedProviderV1;
 }
 
 export interface WorkflowSnapshotInput {
-  workflowId: FixedWorkflowId;
+  workflowId: string;
+  definition?: WorkflowDefinition;
   version?: number;
   model?: string;
   effort?: string;
@@ -61,11 +65,30 @@ function validSkill(skill: SkillDeclaration): boolean {
 }
 
 function validate(input: WorkflowSnapshotInput): void {
-  if (!input || !['coding', 'review'].includes(input.workflowId) || (input.version !== undefined && (!Number.isSafeInteger(input.version) || input.version < 1))
+  if (!input || (!['coding', 'review'].includes(input.workflowId) && !isContributionId(input.workflowId)) || (input.version !== undefined && (!Number.isSafeInteger(input.version) || input.version < 1))
     || (input.model !== undefined && (!input.model || input.model.length > 128))
     || (input.effort !== undefined && (!input.effort || input.effort.length > 64)) || !/^[a-f\d]{64}$/i.test(input.promptCodeHash)
     || !Array.isArray(input.skills) || input.skills.some(skill => !validSkill(skill))
     || new Set(input.skills.map(skill => skill.name)).size !== input.skills.length) throw new Error('Invalid immutable workflow snapshot');
+}
+
+function validateDefinition(definition: WorkflowDefinition, input: WorkflowSnapshotInput): void {
+  if (!definition || definition.id !== input.workflowId || !Number.isSafeInteger(definition.version) || definition.version < 1
+    || input.version !== undefined && definition.version !== input.version || typeof definition.promptRevision !== 'string'
+    || !definition.promptRevision || definition.promptRevision.length > 256 || typeof definition.prompt !== 'string' || definition.prompt.length > 256 * 1024) throw new Error('Invalid workflow definition');
+  if (isContributionId(definition.id)) {
+    const record = parseWorkflowRetainedProviderV1(definition.provider);
+    if (record.binding.providerId !== definition.id || record.binding.artifactHash !== definition.promptRevision || definition.version !== 1) throw new Error('Invalid retained workflow definition');
+  } else if (definition.provider !== undefined) throw new Error('Legacy workflow cannot acquire a provider binding');
+}
+
+function validSnapshot(snapshot: WorkflowSnapshot, id: string): boolean {
+  try {
+    validate(snapshot); validateDefinition(snapshot.definition, snapshot);
+    const { definition, workflowId, version, model, effort, promptCodeHash, reviewSettings, skills } = snapshot;
+    return snapshot.id === id && snapshot.contentHash === id
+      && hash({ definition, workflowId, version, model, effort, promptCodeHash, reviewSettings, skills }) === id;
+  } catch { return false; }
 }
 
 function row(value: unknown): WorkflowSnapshot | null {
@@ -82,10 +105,10 @@ export function openWorkflowStore(path: string | Database.Database, now: () => s
 
   const getDefinition = (id: FixedWorkflowId, version?: number): WorkflowDefinition | null => {
     const result = version === undefined
-      ? sql.prepare('SELECT json FROM workflow_definitions WHERE id = ? ORDER BY version DESC LIMIT 1').get(id)
-      : sql.prepare('SELECT json FROM workflow_definitions WHERE id = ? AND version = ?').get(id, version);
+      ? sql.prepare('SELECT json, contentHash FROM workflow_definitions WHERE id = ? ORDER BY version DESC LIMIT 1').get(id)
+      : sql.prepare('SELECT json, contentHash FROM workflow_definitions WHERE id = ? AND version = ?').get(id, version);
     const parsed = row(result) as unknown as WorkflowDefinition | null;
-    return parsed?.id === id && Number.isSafeInteger(parsed.version) ? parsed : null;
+    return parsed?.id === id && Number.isSafeInteger(parsed.version) && hash(parsed) === (result as { contentHash?: unknown } | undefined)?.contentHash ? parsed : null;
   };
   const seedFixedWorkflows = () => {
     for (const definition of FIXED) {
@@ -102,14 +125,15 @@ export function openWorkflowStore(path: string | Database.Database, now: () => s
     getDefinition,
     createSnapshot(input) {
       validate(input);
-      const definition = getDefinition(input.workflowId, input.version);
+      const definition = input.definition ?? getDefinition(input.workflowId as FixedWorkflowId, input.version);
+      if (input.definition) validateDefinition(input.definition, input);
       if (!definition) throw new Error('Requested fixed workflow version is unavailable');
       const stableInput = { workflowId: input.workflowId, version: definition.version, model: input.model, effort: input.effort, promptCodeHash: input.promptCodeHash,
         reviewSettings: input.reviewSettings ?? {}, skills: [...input.skills].sort((a, b) => a.name.localeCompare(b.name)) };
       const contentHash = hash({ definition, ...stableInput });
       const snapshot: WorkflowSnapshot = { id: contentHash, ...stableInput, definition, createdAt: now(), contentHash };
       const existing = row(sql.prepare('SELECT json FROM workflow_snapshots WHERE id = ?').get(snapshot.id));
-      if (existing) return existing;
+      if (existing) { if (!validSnapshot(existing, snapshot.id)) throw new Error('Stored workflow snapshot was modified'); return existing; }
       sql.prepare('INSERT INTO workflow_snapshots (id, json, contentHash, createdAt) VALUES (?, ?, ?, ?)')
         .run(snapshot.id, JSON.stringify(snapshot), snapshot.contentHash, snapshot.createdAt);
       return snapshot;
@@ -117,7 +141,7 @@ export function openWorkflowStore(path: string | Database.Database, now: () => s
     resolveSnapshot(id) {
       if (typeof id !== 'string' || !/^[a-f\d]{64}$/i.test(id)) return null;
       const snapshot = row(sql.prepare('SELECT json FROM workflow_snapshots WHERE id = ?').get(id));
-      return snapshot?.id === id && snapshot.contentHash === id ? snapshot : null;
+      return snapshot && validSnapshot(snapshot, id) ? snapshot : null;
     },
     close() { connection.close(); },
   };

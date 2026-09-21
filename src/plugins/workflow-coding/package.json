@@ -1,0 +1,1 @@
+{"name":"helmsman-workflow-coding","private":true,"type":"module","scripts":{"build":"node build.mjs","test":"vitest run provider.test.ts"}}

@@ -502,6 +502,7 @@ export async function handleApi(
       return { status: 400, json: { error: 'key and value required' } };
     }
     if (b.key === 'AGENT_ADAPTER' || b.key === 'AGENT_CMD') return { status: 410, json: { error: 'Use `helmsman plugins configure <plugin-id> …`, then `helmsman plugins select-agent <plugin/id>`.' } };
+    if (b.key.startsWith('PRE_PR_')) return { status: 410, json: { error: 'Configure the selected workflow plugin; select reviewers with helmsman plugins select-agent-reviewers.' } };
     if (b.key === 'AUTO_CLAIM_INTERVAL_MS') return { status: 410, json: { error: 'Configure intervalMs on the selected scheduling plugin.' } };
     if (deps.integrationSettings && /^(?:JIRA_|GITHUB_)/.test(b.key)) return { status: 410, json: { error: 'Use revision-checked integration settings; live Jira source settings belong to Source settings.' } };
     if (deps.communication && b.key.startsWith('SLACK_')) return { status: 410, json: { error: 'Use revision-checked communication settings.' } };

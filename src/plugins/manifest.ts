@@ -1,3 +1,5 @@
+import { isContributionId } from './source-contract-validation';
+export { isContributionId } from './source-contract-validation';
 import type { PluginManifest, PluginPageDefinition } from './sdk';
 import type { InitialCompositionLayoutV1, PageCompositionDefinitionV1, PanelContractV1, PluginPanelDefinition, PluginServiceRequirementV1 } from './composition';
 
@@ -25,11 +27,6 @@ export function isPluginId(value: unknown): value is string {
   return isNamespace(value, true);
 }
 
-export function isContributionId(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  const [namespace, id, extra] = value.split('/');
-  return extra === undefined && isPluginId(namespace) && isLocalId(id);
-}
 
 export function isSlotId(value: unknown): value is string {
   if (typeof value !== 'string') return false;

@@ -1,3 +1,4 @@
+import { isContributionId } from './source-contract-validation';
 import type { ClarificationReadResultV1 } from './clarification-read';
 
 export type CampaignPhaseState = 'draft' | 'running' | 'paused' | 'completed' | 'finished' | 'stopped';
@@ -120,7 +121,7 @@ function count(value: unknown, maximum = Number.MAX_SAFE_INTEGER): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > maximum) invalidClarification(); return value;
 }
 function digest(value: unknown): string { const parsed = sourceText(value, 64); if (!/^[a-f\d]{64}$/.test(parsed)) invalidClarification(); return parsed; }
-function workflow(value: unknown): string { const parsed = sourceText(value, 200); if (!/^[a-z][a-z\d_.-]*@v?[1-9]\d*$/i.test(parsed)) invalidClarification(); return parsed; }
+function workflow(value: unknown): string { const parsed = sourceText(value, 200); if (!/^[a-z][a-z\d_.-]*@v?[1-9]\d*$/i.test(parsed) && !(parsed.endsWith('@1') && isContributionId(parsed.slice(0, -2)))) invalidClarification(); return parsed; }
 export function parseCampaignV1(input: unknown): Campaign {
   const value = clarificationObject(input); clarificationFields(value, ['id', 'name', 'repo', 'workflowRef', 'concurrency', 'createdAt']);
   return { id: clarificationId(value.id), name: text(value.name, 120), repo: parseTaskRepo(value.repo), workflowRef: workflow(value.workflowRef), concurrency: clarificationInteger(value.concurrency, 20), createdAt: clarificationTime(value.createdAt) };

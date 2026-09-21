@@ -8,6 +8,8 @@ import { codexSettings } from './agent-attribution';
 import { hashSkillDirectory, installVerifiedSkills, preflightSkills, type VerifiedSkill } from './skills-preflight';
 import { openWorkflowStore, type FixedWorkflowId, type SkillDeclaration, type WorkflowStore } from './workflow-snapshots';
 import { runtimeModulePath } from './runtime-paths';
+import { parseWorkflowRetainedProviderV1 } from './workflow-providers';
+import { persistenceHash } from './persistence';
 
 export interface PrepareExecutionInput {
   runId: string;
@@ -73,21 +75,26 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Pr
   try {
     const existingSnapshot = existingId ? store.resolveSnapshot(existingId) : null;
     if (existingId && !existingSnapshot) throw new Error('Saved workflow snapshot is unavailable');
+    const workflow = input.task.workflow ? parseWorkflowRetainedProviderV1(input.task.workflow) : null;
+    if (workflow && (!input.task.workflowRuntime || !input.task.workflowRuntime.artifacts.some(artifact => artifact.pluginId === workflow.binding.pluginId && artifact.artifactHash === workflow.binding.artifactHash))) throw new Error('Retained workflow artifacts are unavailable');
+    if (existingSnapshot && persistenceHash(existingSnapshot.definition.provider ?? null) !== persistenceHash(workflow)) throw new Error('Saved workflow binding differs from the task');
+    const codeHash = workflow ? persistenceHash({ provider: workflow, artifacts: input.task.workflowRuntime!.artifacts }) : await promptCodeHash();
+    const workflowSettings = workflow ? { reviewerCount: input.task.agentSelection?.reviewers.length ?? input.reviewSettings.reviewerCount, maxRounds: workflow.metadata.maxRounds, stageTimeoutMinutes: workflow.metadata.stageTimeoutMinutes } : input.reviewSettings;
     const agentRecords = input.task.agentSelection ? [input.task.agentSelection.writer, ...input.task.agentSelection.reviewers] : null;
-    const requiredReviewSkill = !agentRecords && (input.workflow === 'coding' || input.workflow === 'review' || input.task.review || input.task.prePr?.stage === 'review');
-    const requestedSkills = existingSnapshot ? existingSnapshot.skills.map(skill => skill.name) : [...new Set([...(input.skills ?? []), ...(agentRecords?.flatMap(record => [...record.metadata.reviewSkills, ...(record.metadata.reviewDelegation === 'review-agent-skill' ? ['review-agent'] : [])]) ?? []), ...(requiredReviewSkill ? ['review-agent'] : [])])];
+    const requiredReviewSkill = !workflow && !agentRecords && (input.workflow === 'coding' || input.workflow === 'review' || input.task.review || input.task.prePr?.stage === 'review');
+    const requestedSkills = existingSnapshot ? existingSnapshot.skills.map(skill => skill.name) : [...new Set([...(input.skills ?? []), ...(workflow?.metadata.requiredSkills ?? []), ...(agentRecords?.flatMap(record => [...record.metadata.reviewSkills, ...(record.metadata.reviewDelegation === 'review-agent-skill' ? ['review-agent'] : [])]) ?? []), ...(requiredReviewSkill ? ['review-agent'] : [])])];
     const roots = input.skillsRoots ?? defaultSkillsRoots();
     const found = await declarations(requestedSkills, roots);
     const verified: VerifiedSkill[] = [];
     for (const [name, root] of found.roots) verified.push(...await preflightSkills({ declarations: found.declarations.filter(item => item.name === name), trustedNames: new Set(requestedSkills), skillsRoot: root }));
-    if (existingSnapshot && (existingSnapshot.promptCodeHash !== await promptCodeHash()
+    if (existingSnapshot && (existingSnapshot.promptCodeHash !== codeHash
       || JSON.stringify(existingSnapshot.skills) !== JSON.stringify(found.declarations.sort((a, b) => a.name.localeCompare(b.name))))) {
       throw new Error('Required skills do not match the saved workflow snapshot');
     }
     const metadata = input.task.agentSelection?.writer.metadata;
     const defaults = metadata ? { model: input.model ?? input.task.model ?? metadata.defaults.model ?? undefined, effort: input.effort ?? input.task.effort ?? metadata.defaults.effort ?? undefined } : input.provider === 'codex' ? codexSettings({ model: input.model ?? input.task.model, effort: input.effort ?? input.task.effort }) : { model: input.model ?? input.task.model, effort: input.effort ?? input.task.effort };
-    const snapshot = existingSnapshot ?? store.createSnapshot({ workflowId: input.workflow, model: defaults.model ?? input.model, effort: defaults.effort ?? input.effort,
-      promptCodeHash: await promptCodeHash(), reviewSettings: input.reviewSettings as unknown as Record<string, unknown>, skills: found.declarations });
+    const snapshot = existingSnapshot ?? store.createSnapshot({ workflowId: workflow?.binding.providerId ?? input.workflow, ...(workflow ? { definition: { id: workflow.binding.providerId, version: 1, promptRevision: workflow.binding.artifactHash, prompt: '', provider: workflow } } : {}), model: defaults.model ?? input.model, effort: defaults.effort ?? input.effort,
+      promptCodeHash: codeHash, reviewSettings: workflowSettings as unknown as Record<string, unknown>, skills: found.declarations });
     const skillsPath = join(input.runsDir, `${input.runId}.runtime`);
     const installRoot = join(skillsPath, 'skills');
     if (await existing(installRoot)) {
@@ -95,7 +102,7 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Pr
         if (await hashSkillDirectory(join(installRoot, skill.name)) !== skill.contentHash) throw new Error(`Provisioned skill ${skill.name} no longer matches the saved workflow snapshot`);
       }
     } else await installVerifiedSkills(verified, installRoot);
-    const reviewSettings = (existingSnapshot?.reviewSettings ?? input.reviewSettings) as PrePrSettings;
+    const reviewSettings = (existingSnapshot?.reviewSettings ?? workflowSettings) as PrePrSettings;
     const model = snapshot.model;
     const effort = snapshot.effort;
     return { snapshotId: snapshot.id, skills: verified, reviewSettings, model, effort,

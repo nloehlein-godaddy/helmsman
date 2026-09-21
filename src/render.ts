@@ -3,7 +3,7 @@ import { renderThemePreview } from './renderThemePreview';
 import { routeHref, type PageView } from './logic/routes';
 import { appPages, builtinPageSlots, SOURCE_SETTINGS_PAGE_SLOT } from './plugins/builtins';
 import { escapeHtml as esc } from './logic/html';
-import { PRE_PR_CONFIG_KEYS, PRE_PR_SETTING_DEFINITIONS } from './logic/prePrSettings';
+import { PRE_PR_CONFIG_KEYS } from './logic/prePrSettings';
 
 import type { UiConfig } from './data/config';
 import { THEMES } from './data/themes';
@@ -12,9 +12,6 @@ import { THEMES } from './data/themes';
 export const CONFIG_HELP: Record<string, string> = {
   get AGENT_MAX_ATTEMPTS() { return `Total attempts for existing-PR ${term('runs').toLowerCase()}, including the initial attempt. New coding ${term('runs').toLowerCase()} use the separate pre-PR review rounds. Example: 1`; },
   get AGENT_MAX_COST_USD() { return `Per-${term('run').toLowerCase()} spend ceiling in USD; the ${term('run').toLowerCase()} stops once exceeded. Blank means no cap. Example: 5.00`; },
-  PRE_PR_REVIEWER_COUNT: 'Independent reviewer sessions per round: 1 uses the writer\'s CLI; 2 also uses the other supported CLI when installed. An installed reviewer that fails blocks publication. Example: 2',
-  PRE_PR_MAX_ROUNDS: 'Maximum review rounds, including the initial review. Each additional round allows fixes followed by every reviewer reviewing again. Unresolved findings block the PR. Example: 3',
-  PRE_PR_STAGE_TIMEOUT_MINUTES: 'Time limit in minutes for each implementation, fix, or reviewer session. A timed-out session blocks publication and retains the worktree. Example: 45',
   get REPO_PROJECT_MAP() { return `Comma-separated ${term('repository').toLowerCase()}=jiraProject pairs, registering configured ${term('repositories').toLowerCase()} and initial Jira project defaults. Existing Jira sources use Source settings. Example: gdcorp-partners/airo-app-builder=AIROBUILD,gdcorp-enm/conversations-web=LEKA`; },
 };
 
@@ -203,31 +200,6 @@ function configRowsHtml(uiConfig: UiConfig): string {
     .join('');
 }
 
-function prePrConfigPanel(uiConfig: UiConfig): string {
-  const labels = {
-    reviewerCount: 'Reviewers per round',
-    maxRounds: 'Maximum review rounds',
-    stageTimeoutMinutes: 'Session timeout (minutes)',
-  };
-  const rows = PRE_PR_SETTING_DEFINITIONS.map(({ key, envKey, defaultValue, min, max }) => {
-    const value = uiConfig.config?.[envKey] ?? defaultValue;
-    const isOverridden = uiConfig.overridden?.includes(envKey) ?? false;
-    return `
-      <div class="config-row" data-key="${envKey}">
-        <label class="config-key" for="config-${envKey}">${labels[key]}${isOverridden ? ' <span class="config-overridden">(overridden)</span>' : ''}</label>
-        <input id="config-${envKey}" class="config-input" type="number" min="${min}" max="${max}" step="1" required value="${esc(String(value))}" aria-describedby="help-${envKey} error-${envKey}">
-        <button type="button" class="config-save" data-key="${envKey}" aria-label="Save ${labels[key]}">Save</button>
-        <span class="config-error" id="error-${envKey}" role="alert"></span>
-      </div>
-      <div class="config-warning" id="help-${envKey}">${esc(CONFIG_HELP[envKey] ?? '')} Range: ${min}–${max}; default: ${defaultValue}. <span class="mono">${envKey}</span></div>`;
-  }).join('');
-  return `
-      <section class="panel config-panel pre-pr-config-panel" aria-labelledby="pre-pr-config-title">
-        <div class="panel-head"><span class="panel-title" id="pre-pr-config-title">Pre-${term('pr')} ${term('review').toLowerCase()}</span></div>
-        <div class="config-warning">Adversarial ${term('reviews').toLowerCase()} run before a new coding ${term('run').toLowerCase()} publishes its ${term('pr')}. Every reviewer must approve the final commit. Changes apply to newly launched ${term('runs').toLowerCase()}; active ${term('runs').toLowerCase()} keep their settings. The selected agent plugins supply the writer and ordered reviewers. Unavailable selected providers block launch.</div>
-        <div class="config-list">${rows}</div>
-      </section>`;
-}
 
 function configCustomizationPanel(themeId: string): string {
   const themeOptions = THEMES.map(
@@ -270,6 +242,6 @@ export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): stri
           ${configRowsHtml(uiConfig)}
         </div>
       </section>
-      ${prePrConfigPanel(uiConfig)}
+      <section class="panel config-panel"><h2>Workflows and reviewers</h2><p>Configure workflow providers in Plugins and select them with <span class="mono">helmsman plugins select-workflow</span>. Select the ordered reviewers with <span class="mono">helmsman plugins select-agent-reviewers</span>. Active ${term('runs').toLowerCase()} keep their original workflow and reviewers.</p></section>
 `);
 }

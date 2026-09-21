@@ -19,6 +19,14 @@ Legacy running voyages and retained pre-PR checkpoints without historical runtim
 
 Plugin disable removes presentation and denies new work. Retained execution, checkpoint, dependency, and operation pins can keep a provider draining and prevent upgrade, uninstall, or collection. A checkpoint migration requires a registered validator for the retained provider and records append-only provenance. Without that validator, restore the retained provider or explicitly retire a verified checkpoint through Recovery.
 
+## Workflow continuation
+
+The active workflow implementation retains each authored workflow's exact provider, metadata, settings, artifact closure and skill hashes with admission/execution snapshots. Recovery and child stages load that original workflow after selection, settings or enablement changes. Missing or corrupt original artifacts block continuation; selecting a new default cannot repair or migrate an old execution implicitly.
+
+A valid completed-review checkpoint reconstructs the recorded revision and full reviewer state before calling the original provider's pure `next` policy. It does not repeat completed implementation or reviews. Core still checks branch/base/head, artifact manifests, reviewer completeness, cancellation and required answers before publication. Legacy voyages without a workflow binding remain on their original compatibility path. Installed workflow acceptance is pending; see [workflow authoring](workflow-authoring.md).
+
+Workflow and agent selection resets affect future admissions. Old `PRE_PR_*` values seed reviewer lists and workflow package settings once; they do not overwrite an explicit configuration or a later reset on restart.
+
 ## Task command and settings recovery
 
 Opt-in E3 task panels retain original browser intent UUIDs before dispatch. A response timeout, navigation, source disablement or replacement does not mean a create, edit, delete or launch was rejected. Reconcile the saved request and redeliver only through the optional exact-request retry operation using its retained request ID. The host reads the original command from that caller's journal without reserving another identity. Missing or acknowledged requests cannot be retried; older hosts without this method keep receipt checks available and disable redelivery. Never fall back to initial submission to recover a response. Consume a verified terminal result and persist the affected draft before acknowledging it. Recovery links preserve the originating repository even when the header or panel scope changes.

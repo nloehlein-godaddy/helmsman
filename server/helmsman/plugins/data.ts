@@ -1,3 +1,4 @@
+import { parseWorkflowModeV1, type WorkflowModeV1 } from '../../../src/plugins/workflow';
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -451,5 +452,70 @@ export function initializeNativeTerminalSettings(root: string, pkg: PluginPackag
       if (!field) throw new Error('Unknown initial native terminal setting'); validatePluginSetting(field, value);
     }
     for (const [name, value] of Object.entries(values)) sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO NOTHING').run(pkg.manifest.id, name, JSON.stringify(value));
+  }); } finally { sql.close(); }
+}
+
+export interface WorkflowProviderSelection { readonly providerId: string | null; readonly revision: string; }
+function workflowSelectionKey(kind: WorkflowModeV1): string {
+  parseWorkflowModeV1(kind);
+  return `workflow-selection-v1:${kind}`;
+}
+function workflowSelection(sql: Database.Database, kind: WorkflowModeV1): WorkflowProviderSelection {
+  const row = sql.prepare('SELECT value FROM backend_meta WHERE key=?').get(workflowSelectionKey(kind)) as { value: string } | undefined;
+  if (!row) return { providerId: null, revision: 'initial' };
+  const value = pluginJson(JSON.parse(row.value)) as unknown as WorkflowProviderSelection;
+  if (!value || typeof value !== 'object' || Object.keys(value).length !== 2 || value.providerId !== null && !isContributionId(value.providerId)
+    || typeof value.revision !== 'string' || !/^[a-f\d-]{36}$/.test(value.revision)) throw new Error('Invalid workflow provider selection');
+  return value;
+}
+export function readWorkflowProviderSelection(root: string, kind: WorkflowModeV1): WorkflowProviderSelection {
+  const sql = database(root); try { return workflowSelection(sql, kind); } finally { sql.close(); }
+}
+function writeWorkflowSelection(sql: Database.Database, kind: WorkflowModeV1, providerId: string | null): void {
+  sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run(workflowSelectionKey(kind), JSON.stringify({ providerId, revision: randomUUID() }));
+}
+export function selectWorkflowProvider(root: string, kind: WorkflowModeV1, providerId: string | null): void {
+  if (providerId !== null && !isContributionId(providerId)) throw new Error('Invalid workflow provider ID');
+  const sql = database(root); try { immediateTransaction(sql, () => writeWorkflowSelection(sql, kind, providerId)); } finally { sql.close(); }
+}
+export function workflowProviderSelectionInitialized(root: string, kind: WorkflowModeV1): boolean {
+  const key = workflowSelectionKey(kind); const sql = database(root);
+  try { return Boolean(sql.prepare('SELECT 1 FROM backend_meta WHERE key IN (?,?)').get(`${key}:initialized`, key)); } finally { sql.close(); }
+}
+export function initializeWorkflowProviderSelection(root: string, kind: WorkflowModeV1, providerId: string): void {
+  const key = workflowSelectionKey(kind); const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(`${key}:initialized`, '1').changes;
+    if (!first || sql.prepare('SELECT 1 FROM backend_meta WHERE key=?').get(key)) return;
+    if (!isContributionId(providerId)) throw new Error('Invalid initial workflow provider ID');
+    writeWorkflowSelection(sql, kind, providerId);
+  }); } finally { sql.close(); }
+}
+export function initializeWorkflowSettings(root: string, pkg: PluginPackage, input: Readonly<Record<string, PluginJson>>): void {
+  const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(`workflow-settings-initialized-v1:${pkg.manifest.id}`, '1').changes;
+    if (!first) return;
+    const values = pluginJson(input);
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('Workflow settings must be a JSON object');
+    if (!pkg.backend?.workflows) throw new Error('Workflow package declaration is required');
+    for (const [name, value] of Object.entries(values)) {
+      const field = Object.hasOwn(pkg.backend.settings, name) ? pkg.backend.settings[name] : undefined;
+      if (!field) throw new Error('Unknown initial workflow setting'); validatePluginSetting(field, value);
+    }
+    for (const [name, value] of Object.entries(values)) sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO NOTHING').run(pkg.manifest.id, name, JSON.stringify(value));
+  }); } finally { sql.close(); }
+}
+
+export function initializeWorkflowReviewerSelection(root: string, reviewerIds: readonly string[]): void {
+  const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run('workflow-reviewers-initialized-v1', '1').changes;
+    if (!first) return;
+    const current = agentSelection(sql);
+    if (current.reviewers !== null) return;
+    if (!Array.isArray(reviewerIds) || reviewerIds.length < 1 || reviewerIds.length > 8 || reviewerIds.some(id => !isContributionId(id)) || new Set(reviewerIds).size !== reviewerIds.length) throw new Error('Invalid initial workflow reviewer selection');
+    writeAgentSelection(sql, { writer: current.writer, reviewers: reviewerIds });
   }); } finally { sql.close(); }
 }

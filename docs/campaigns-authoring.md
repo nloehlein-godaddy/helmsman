@@ -39,6 +39,8 @@ npm run plugins -- select helmsman/campaigns-page example.campaigns/page
 
 Saved empty layouts and missing or disabled selected contributions remain authoritative. See [plugin packages](plugin-packages.md) and [panel authoring](panel-authoring.md) for installation and lifecycle conventions.
 
-Phase E retains the existing campaign store and dispatcher behind this public service. Durable task claims, stable run IDs, per-galleon writer exclusion, workflow availability, phase ordering and concurrency gates remain in force. Execution-host, workflow and scheduling implementation replacement belongs to Phase F.
+The existing campaign store and dispatcher remain behind this public service. Durable task claims, stable run IDs, per-galleon writer exclusion, workflow availability, phase ordering and concurrency gates remain in force. Scheduling and execution hosts already use public providers; workflow extraction is active and campaign dispatch policy remains Phase F work.
+
+Workflow choices come from available coding contributions, not a hardcoded Coding entry. Versioned contribution references use `<plugin-id>/<local-id>@1`; the old `coding@1` reference remains a compatibility alias for new admission. A selected unavailable workflow blocks launch. Each admitted voyage retains its original workflow rather than following a later campaign/default change. See [workflow authoring](workflow-authoring.md).
 
 Acceptance uses an isolated distribution and mocked execution. Campaign UI checks may create, preview, import and finish draft phases without launching real workers. Current completion and review evidence is recorded in the [implementation ledger](plugin-implementation-progress.md).

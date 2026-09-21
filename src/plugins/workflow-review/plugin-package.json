@@ -1,0 +1,13 @@
+{
+  "packageVersion": 1,
+  "manifest": { "manifestVersion": 1, "id": "helmsman.workflow-review", "version": "0.1.0", "sdkVersion": 1, "pages": [] },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "backend.js",
+    "provides": [{ "id": "helmsman/workflow", "version": 1, "localId": "review" }],
+    "workflows": { "review": { "access": ["workflow-policy"] } },
+    "settings": {},
+    "storageVersion": 1
+  }
+}

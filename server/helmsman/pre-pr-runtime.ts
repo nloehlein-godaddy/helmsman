@@ -19,6 +19,8 @@ import { parseAgentSelectionV1, type AgentRetainedProviderV1 } from './agent-pro
 import { loadRetainedAgentProvider } from './agent-retained-loader';
 import { agentProviderAdapter } from './agents/provider';
 import { persistenceHash } from './persistence';
+import { loadExecutionWorkflow } from './workflow-execution';
+import type { WorkflowProviderV1 } from '../../src/plugins/workflow';
 
 const exec = promisify(execFile);
 const legacyAdapters: Record<string, AgentAdapter> = { codex: codexAdapter, 'claude-code': claudeCodeAdapter };
@@ -206,11 +208,13 @@ export function stageEventEmitter(adapter: AgentAdapter | string, task: AgentTas
 }
 
 async function retainedPrePrAdapters(task: AgentTask, legacyWriterId: 'codex' | 'claude-code' | undefined,
-  reviewerCount: number, signal: AbortSignal): Promise<{ writerId: string; reviewerIds: string[]; adapters: Map<string, AgentAdapter>; dispose(): Promise<void> }> {
+  reviewerCount: number, signal: AbortSignal): Promise<{ writerId: string; reviewerIds: string[]; adapters: Map<string, AgentAdapter>;
+    workflow: WorkflowProviderV1 | undefined; dispose(): Promise<void> }> {
   if (!task.agentSelection) {
+    if (task.workflow) throw new Error('Retained workflow requires a retained agent selection');
     if (!legacyWriterId) throw new Error('Recorded agent selection is required');
     const reviewerIds = reviewerCount === 1 ? [legacyWriterId] : [legacyWriterId, legacyWriterId === 'codex' ? 'claude-code' : 'codex'];
-    return { writerId: legacyWriterId, reviewerIds, adapters: new Map(reviewerIds.map(id => [id, legacyAdapters[id]!])), dispose: async () => undefined };
+    return { writerId: legacyWriterId, reviewerIds, adapters: new Map(reviewerIds.map(id => [id, legacyAdapters[id]!])), workflow: undefined, dispose: async () => undefined };
   }
   const selection = parseAgentSelectionV1(task.agentSelection);
   const runtime = task.agentRuntime;
@@ -218,7 +222,7 @@ async function retainedPrePrAdapters(task: AgentTask, legacyWriterId: 'codex' | 
   const writerId = selection.writer.binding.providerId;
   const reviewerIds = selection.reviewers.map(record => record.binding.providerId);
   const writerReviewer = selection.reviewers.find(record => record.binding.providerId === writerId);
-  if (reviewerIds.length !== reviewerCount || !writerReviewer
+  if (!reviewerIds.length || !task.workflow && reviewerIds.length !== reviewerCount || !writerReviewer
     || persistenceHash(writerReviewer) !== persistenceHash(selection.writer)) {
     throw new PrePrGateError('retained reviewer set must contain the exact writer record and match the retained policy.');
   }
@@ -231,17 +235,32 @@ async function retainedPrePrAdapters(task: AgentTask, legacyWriterId: 'codex' | 
   }
   const handles: Array<{ dispose(): Promise<void> }> = [];
   const adapters = new Map<string, AgentAdapter>();
+  let workflow: Awaited<ReturnType<typeof loadExecutionWorkflow>> = null;
+  let disposed = false;
+  const dispose = async () => {
+    if (disposed) return;
+    disposed = true;
+    for (const handle of handles.splice(0).reverse()) {
+      try { await handle.dispose(); } catch {}
+    }
+    if (workflow) {
+      try { await workflow.dispose(); } catch {}
+    }
+  };
   try {
+    workflow = await loadExecutionWorkflow(task, signal);
+    workflow?.assertMode(task);
     for (const record of records.values()) {
       const loaded = await loadRetainedAgentProvider({ ...runtime, record, signal });
       handles.push(loaded);
-      adapters.set(record.binding.providerId, agentProviderAdapter(record, loaded.provider));
+      adapters.set(record.binding.providerId, agentProviderAdapter(record, loaded.provider,
+        workflow ? renderTask => workflow!.renderPrompt(renderTask, record) : undefined));
     }
   } catch (error) {
-    await Promise.allSettled(handles.map(handle => handle.dispose()));
+    await dispose().catch(() => undefined);
     throw error;
   }
-  return { writerId, reviewerIds, adapters, dispose: async () => { await Promise.allSettled(handles.map(handle => handle.dispose())); } };
+  return { writerId, reviewerIds, adapters, workflow: workflow?.provider, dispose };
 }
 
 export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'codex' | 'claude-code'; runsDir: string; settings?: PrePrSettings; publication?: PrePrPublicationConnection }, emit: (event: AgentEvent) => void): Promise<number> {
@@ -275,8 +294,10 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
   try {
     loaded = await retainedPrePrAdapters(input.task, input.writerId, settings.reviewerCount, abort.signal);
     const { writerId, reviewerIds, adapters } = loaded;
+    const effectiveSettings = loaded.workflow ? { reviewerCount: reviewerIds.length,
+      maxRounds: loaded.workflow.metadata.maxRounds, stageTimeoutMinutes: loaded.workflow.metadata.stageTimeoutMinutes } : settings;
     if (usesIsolatedExecution(input.task)) await sanitizeDockerGit(cwd, input.task.repo);
-    emit({ kind: 'phase', text: `Pre-PR gate: ${reviewerIds.length} reviewer(s), up to ${settings.maxRounds} rounds, ${settings.stageTimeoutMinutes} minutes per session` });
+    emit({ kind: 'phase', text: `Pre-PR gate: ${reviewerIds.length} reviewer(s), up to ${effectiveSettings.maxRounds} rounds, ${effectiveSettings.stageTimeoutMinutes} minutes per session` });
     const initialHead = await git(['rev-parse', 'HEAD']);
     const branch = await git(['symbolic-ref', '--quiet', '--short', 'HEAD']);
     if (await git(['status', '--porcelain', '--untracked-files=all'])) throw new Error('Author worktree must start clean');
@@ -311,7 +332,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
       const forward = stageEventEmitter(adapter, task, emit);
       forward({ kind: 'phase', text: `Starting ${id} ${task.prePr?.stage ?? 'agent'} stage` });
       try {
-        await executePrePrStage(adapter, task, dir, forward, abort.signal, settings.stageTimeoutMinutes * 60_000);
+        await executePrePrStage(adapter, task, dir, forward, abort.signal, effectiveSettings.stageTimeoutMinutes * 60_000);
       } catch (error) {
         forward({ kind: 'error', text: error instanceof Error ? error.message : 'Agent stage failed' });
         throw error;
@@ -383,7 +404,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
     };
     let resume: PrePrResumeCheckpoint | undefined;
     if (checkpoint) {
-      if (!Number.isInteger(checkpoint.round) || checkpoint.round < 1 || checkpoint.round > settings.maxRounds
+      if (!Number.isInteger(checkpoint.round) || checkpoint.round < 1 || checkpoint.round > effectiveSettings.maxRounds
         || !checkpoint.reviewerReports || typeof checkpoint.reviewerReports !== 'object'
         || Object.keys(checkpoint.reviewerReports).length !== reviewerIds.length
         || reviewerIds.some(id => typeof checkpoint.reviewerReports[id] !== 'string')) {
@@ -415,7 +436,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
       resume = { baseSha, headSha: initialHead, branch, round: checkpoint.round, reviews };
     }
     return await runPrePrWorkflow(input.task, {
-      writerId, reviewerIds, maxRounds: settings.maxRounds, resume, snapshot, isStopped: () => abort.signal.aborted,
+      writerId, reviewerIds, maxRounds: effectiveSettings.maxRounds, workflow: loaded.workflow, resume, snapshot, isStopped: () => abort.signal.aborted,
       onPhase: text => emit({ kind: 'phase', text }),
       runAuthor: async (stage, context) => {
         metadataPath = join(artifactDir, prePrArtifactFilename(stage, context.round));

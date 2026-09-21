@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
 import { openWorkflowStore } from './workflow-snapshots';
 
 const roots: string[] = [];
@@ -41,4 +42,15 @@ describe('workflow snapshots', () => {
     expect(workflows.resolveSnapshot('../bad')).toBeNull();
     workflows.close();
   });
+});
+
+it('rejects a modified snapshot even when its stored id and hash labels are unchanged', () => {
+  const database = new Database(':memory:');
+  const workflows = openWorkflowStore(database);
+  try {
+    const snapshot = workflows.createSnapshot({ workflowId: 'coding', promptCodeHash: 'b'.repeat(64), skills: [] });
+    database.prepare('UPDATE workflow_snapshots SET json=? WHERE id=?').run(JSON.stringify({ ...snapshot, reviewSettings: { maxRounds: 1 } }), snapshot.id);
+    expect(workflows.resolveSnapshot(snapshot.id)).toBeNull();
+    expect(() => workflows.createSnapshot({ workflowId: 'coding', promptCodeHash: 'b'.repeat(64), skills: [] })).toThrow('modified');
+  } finally { workflows.close(); database.close(); }
 });

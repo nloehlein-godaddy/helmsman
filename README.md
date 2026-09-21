@@ -24,7 +24,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service with native cmux/WezTerm implementations being extracted into separate providers. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Execution-host extraction is complete, including Docker child stages; workflows, triggers and native terminal implementations remain pending, followed by Phase G compatibility retirement.
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service with independently replaceable native cmux/WezTerm providers. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Execution hosts and native terminal/browser providers are complete, including Docker child stages and retained browser transports. Workflow extraction is in active implementation; triggers follow, then Phase G compatibility retirement.
 
 Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) run inspection, streamed downloads, provisional viewer/history pages and durable clarification services are reviewed and pushed through `3806090`, including exact-request retry, clarification alias selection and public PR inspection. The [run-inspection contract](docs/run-inspect-authoring.md) and [presentation guide](docs/run-presentation-authoring.md) are available. Shared viewer convergence and authored question/contact panels are delivered; `/runs` now selects an authored composition with history, the public PR panel and the shared auxiliary viewer. The `/prs` alias selects the public PR composition.
 
@@ -32,7 +32,7 @@ The [authored question/contact guide](docs/authored-clarifications.md) describes
 
 The [Terminal authoring guide](docs/terminal-authoring.md) covers the selected `/terminal` composition and `/cmux` alias, header and explicit panel scope, revision-bound list/screen/control operations, bounded visible polling, explicit keyboard control, and durable browser/server receipts. Receipt checks never send input, and uncertain controls require inspection before the operator explicitly resumes later controls; the public service has no retry API.
 
-The [Campaign authoring guide](docs/campaigns-authoring.md) covers replaceable campaign presentation, revision-checked mutations, explicit import previews, durable receipts and exact-request recovery. Execution coordination remains core-owned until Phase F.
+The [Campaign authoring guide](docs/campaigns-authoring.md) covers replaceable campaign presentation, revision-checked mutations, explicit import previews, durable receipts and exact-request recovery. Core retains durable execution coordination; replacing campaign dispatch policy remains Phase F work.
 
 The [Local Git authoring guide](docs/local-git-authoring.md) covers scoped branches/worktrees, revision-pinned confirmations and durable command inspection without replay. Existing Config deep links select the replaceable `/local-git` page.
 
@@ -253,15 +253,14 @@ The footer stays outside code and suggestion blocks, and repeated publication do
 not duplicate it. Human-written reviews submitted through the UI keep their own text.
 
 Every new coding voyage implements and commits locally, then passes an adversarial
-review before Helmsman pushes the branch or opens a PR. A fresh reviewer session
-uses the writer's CLI; by default, if the other supported CLI is installed, a second
-session uses it too. **Config → Pre-PR review** controls reviewers per round (1–2),
-maximum rounds (1–5), and the timeout for each session (5–180 minutes). Settings are
-captured when a voyage launches; changes do not affect running voyages. One reviewer
-means a fresh session of the writer's CLI; two adds the other supported CLI when
-installed. With only one installed, one reviewer runs. Currently supported CLIs are
-Codex and Claude Code. Authenticate both when using two reviewers: an installed but
-broken alternate reviewer blocks publication rather than silently reducing the gate.
+review before Helmsman pushes the branch or opens a PR. Select the complete ordered
+reviewer list with `helmsman plugins select-agent-reviewers <plugin/id,...>`. Every
+selected reviewer must be available and complete its review; a failure cannot
+silently reduce the gate. The selected workflow package owns prompt templates and
+guarded stage sequencing. Configure `maxRounds` (1–5) and `stageTimeoutMinutes`
+(5–180) on `helmsman.workflow-coding`. Defaults are three rounds and 45 minutes per
+session. Agent and workflow settings are captured at admission; changes do not
+affect an existing voyage. Workflow extraction is still undergoing acceptance.
 
 Reviewers inspect the same pinned commit in separate detached worktrees and focus
 on material logic, structure, acceptance criteria, UX, and external effects. Codex
@@ -284,7 +283,7 @@ The workflow runs in the existing durable run host and survives server restarts.
 
 This gate applies to new coding voyages, not existing-PR feedback reruns. The generic
 `command` adapter cannot launch a new coding voyage because it cannot provide this
-review contract. `AGENT_MAX_ATTEMPTS` does not multiply `PRE_PR_MAX_ROUNDS`.
+review contract. `AGENT_MAX_ATTEMPTS` does not multiply the captured workflow `maxRounds`.
 Each author, fix, or reviewer session has a 45-minute timeout by default. The existing post-PR review
 and Copilot request still run after successful publication.
 
@@ -489,10 +488,36 @@ values remain readable for legacy recovery. The adapter seeds the initial select
 once; command text is never copied automatically because it may contain credentials.
 Configure a nonsecret `commandTemplate` explicitly; Config cannot edit retired keys.
 
-Core renders prompts, chooses effective model/effort, owns admission, workflow and recovery, and
-validates every provider command and event. A provider-reported result failure makes
+The retained workflow renders authored prompts from a bounded public task projection.
+Core chooses effective model/effort, owns admission, guarded execution and recovery,
+and validates every provider command and event. A provider-reported result failure makes
 the run fail even when its process exits zero; an unknown result does not. Providers
 do not emit core completion events.
+
+### Workflow providers
+
+Workflow extraction is in active implementation. `helmsman/workflow@1` separates
+prompt rendering and pure next-step policy from core stage, revision and publication
+guards. Select each task mode independently:
+
+```sh
+helmsman plugins select-workflow coding helmsman.workflow-coding/coding
+helmsman plugins select-workflow review helmsman.workflow-review/review
+helmsman plugins select-workflow branch helmsman.workflow-coding/branch
+helmsman plugins configure helmsman.workflow-coding '{"maxRounds":3,"stageTimeoutMinutes":45}'
+```
+
+`select-workflow <mode> default` (or `null`) restores that mode's shipped default.
+An explicit unavailable provider blocks new work. New admissions retain the original
+workflow artifact, metadata, settings, prompts/skills identity and checkpoint state;
+restart or a changed default never substitutes a different workflow. Completed
+checkpoint stages are not repeated. `coding@1` and `review@1` remain aliases for new
+admissions; legacy voyages keep their original compatibility workflow.
+
+Old `PRE_PR_*` values are bootstrap inputs only. The old reviewer count initializes
+an explicit ordered agent list once; rounds and timeout initialize coding package
+settings once. Explicit lists, settings and subsequent resets are preserved. See
+[workflow authoring](docs/workflow-authoring.md).
 
 ### Native terminals and browser hosts
 
@@ -512,7 +537,8 @@ Select a host with `helmsman plugins select-execution-host <plugin/id>`. The shi
 providers are `helmsman.host-local/detached`, `helmsman.host-local/cmux`,
 `helmsman.host-local/wezterm` and `helmsman.host-docker/docker`. Configure namespaced
 settings and restart after selection. Docker's `image` setting resolves to a fixed
-image digest for each run; native terminal settings belong to the local package.
+image digest for each run. Local execution-host settings govern launched sessions;
+the separate native terminal packages govern interactive terminal I/O.
 
 Every admitted run retains its provider artifact, settings and run configuration.
 Launch, discovery, stop, recovery and isolated child stages use that retained
@@ -635,11 +661,11 @@ Recovery. See [Communication authoring](docs/communication-authoring.md).
 
 | Value | Default | Where it applies / how to set it | Change |
 | --- | --- | --- | --- |
-| `AGENT_MAX_ATTEMPTS` | `1` | Total attempts for existing-PR voyages, including the initial attempt; `1` means no retry. New coding voyages use one workflow, with review rounds controlled by `PRE_PR_MAX_ROUNDS`. | Live |
+| `AGENT_MAX_ATTEMPTS` | `1` | Total attempts for existing-PR voyages, including the initial attempt; `1` means no retry. New coding voyages use one workflow, with review rounds controlled by its captured `maxRounds` setting. | Live |
 | `AGENT_MAX_COST_USD` | Empty (no cap) | Cost limit in USD across attempts, enforced from validated provider cost events. | Live |
-| `PRE_PR_REVIEWER_COUNT` | `2` | Integer `1`–`2`. Independent reviewer sessions per round: `1` uses the writer's CLI, `2` adds the other supported CLI if installed. Only Codex and Claude Code are supported. One installed CLI means one reviewer; an installed reviewer that fails blocks publication. Set in **Config → Pre-PR review**. | Live; new voyages only |
-| `PRE_PR_MAX_ROUNDS` | `3` | Integer `1`–`5`. Total review rounds, including the initial round. `3` permits up to two fix-and-review cycles; `1` permits none. Every reviewer must approve the final commit; unresolved findings block publication when rounds are exhausted. | Live; new voyages only |
-| `PRE_PR_STAGE_TIMEOUT_MINUTES` | `45` | Integer `5`–`180`. Timeout for each implementation, fix, or reviewer session, not the whole voyage. Timeout blocks publication and preserves the author worktree. | Live; new voyages only |
+| `PRE_PR_REVIEWER_COUNT` | `2` | Legacy count seeds the explicit ordered agent reviewer list once, preserving an existing explicit list. Subsequently use `plugins select-agent-reviewers ID[,ID...]`; `default` resets to shipped defaults without reimporting the old count. | Bootstrap only |
+| `PRE_PR_MAX_ROUNDS` | `3` | One-time seed for `helmsman.workflow-coding` setting `maxRounds` (1–5). Afterwards configure the package; explicit settings and resets are preserved. | Bootstrap only |
+| `PRE_PR_STAGE_TIMEOUT_MINUTES` | `45` | One-time seed for `helmsman.workflow-coding` setting `stageTimeoutMinutes` (5–180). Afterwards configure the package; explicit settings and resets are preserved. | Bootstrap only |
 | `AGENT_MAX_CONCURRENCY` | `3` | Maximum simultaneous runs across repositories. The separate one-run-per-repository limit still applies. | Restart |
 | `AUTO_CLAIM_INTERVAL_MS` | `60000` | One-time migration seed for the shipped scheduling plugin’s `intervalMs`. Does not enable automatic starts or control PR watchers. | Bootstrap only; then configure plugin settings |
 | `AGENTS_ROOT` | Server working directory | Parent directory of target repo checkouts, e.g. `/absolute/path/to/agent-repos`; not the path to a single checkout. | Restart |

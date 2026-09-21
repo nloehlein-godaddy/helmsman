@@ -202,7 +202,7 @@ flowchart TD
     Recovery -->|Missing journal| NoSend[Unavailable; send nothing]
 ```
 
-The cooldown covers callers even when a UUID is reused. Disablement blocks new admission but retains pinned public and legacy operation resolvers. An uncertain send cannot be proved by matching the same or another PR URL in Slack; only its exact retained receipt or an explicit Core Recovery resolution can settle it. Browser primitives remain a core execution adapter for Phase F, while the Slack package owns DOM and policy. See [Communication authoring](communication-authoring.md).
+The cooldown covers callers even when a UUID is reused. Disablement blocks new admission but retains pinned public and legacy operation resolvers. An uncertain send cannot be proved by matching the same or another PR URL in Slack; only its exact retained receipt or an explicit Core Recovery resolution can settle it. Browser primitives come from the separately selected native provider; core guards the session and retains the original transport, while the Slack package owns DOM and policy. See [Communication authoring](communication-authoring.md).
 
 ## Terminal presentation and durable controls
 
@@ -228,7 +228,7 @@ flowchart TD
     Fence --> Resume[Save inspected evidence<br/>Then explicitly resume later controls]
 ```
 
-Hidden, replaced, scope-changed and disposed panels abort polling. A target includes its observed bridge/session and surface revision; stale, ambiguous or foreign targets are unavailable rather than rebound. Titles never establish repository ownership. The public service has no terminal-input retry API: inspection acknowledgment never resends retained input or confirms delivery. Missing or unreadable browser evidence prevents controls and never creates a replacement request. Phase E uses the existing core terminal bridge; extracting cmux, WezTerm or another execution implementation remains Phase F work. Tests use a mock fixture and do not touch a native terminal. See [Terminal authoring](terminal-authoring.md).
+Hidden, replaced, scope-changed and disposed panels abort polling. A target includes its observed bridge/session and surface revision; stale, ambiguous or foreign targets are unavailable rather than rebound. Titles never establish repository ownership. The public service has no terminal-input retry API: inspection acknowledgment never resends retained input or confirms delivery. Missing or unreadable browser evidence prevents controls and never creates a replacement request. The service uses independently replaceable cmux, WezTerm or authored native providers. Tests use a mock fixture and do not touch a native terminal. See [Terminal authoring](terminal-authoring.md).
 
 ## Campaign presentation and atomic commands
 
@@ -249,7 +249,7 @@ flowchart TD
     Preview --> Confirm[Explicit confirmation imports queued tasks<br/>Import alone does not start work]
 ```
 
-A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. Scheduling and execution implementation replacement remains Phase F. See [Campaign authoring](campaigns-authoring.md).
+A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. Campaign dispatch policy remains Phase F work; core retains durable claims and execution gates. See [Campaign authoring](campaigns-authoring.md).
 
 ## Local Git confirmation and recovery
 
@@ -295,7 +295,7 @@ The shipped policy rotates sources; alternatives can choose different ordering a
 ```mermaid
 flowchart TD
     Select[Select immutable writer<br/>ordered immutable reviewers] --> Closure[Retain package/artifact closure<br/>nonsecret settings and metadata]
-    Closure --> Core[Core renders prompt and effective model/effort<br/>owns admission, workflow, recovery and completion]
+    Closure --> Core[Retained workflow renders authored prompt<br/>Core resolves model/effort and guards execution]
     Core --> Provider[Selected SDK-only agent provider]
     Provider --> Events[Validated command and event stream]
     Events --> Failure{Result outcome failure?}
@@ -305,7 +305,30 @@ flowchart TD
     Exit --> Recovery
 ```
 
-Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent extraction has passed focused and installed acceptance checks; execution-host extraction is accepted; workflow, native terminal and trigger extraction remain Phase F work.
+Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent, execution-host and native terminal extraction have passed acceptance; workflow implementation is active and triggers remain Phase F work.
+
+## Workflow selection, guarded stages and continuation
+
+Workflow extraction is in active implementation; installed acceptance passes; independent review is pending. Prompt templates and pure sequencing policy belong to `helmsman/workflow@1`. Core retains admission, exact revision/reviewer checks, stage execution, checkpoints and publication authority.
+
+```mermaid
+flowchart TD
+    Select[Select coding, review or branch contribution] --> Capture[Retain exact artifact, metadata, settings and skills]
+    Capture --> Next[Retained provider next<br/>Deep-frozen current revision and review state]
+    Next --> Guard{Core validates proposed action<br/>Cancellation, rounds and reviewer set}
+    Guard -->|Invalid or policy stop| Block[Stop with evidence; preserve work]
+    Guard -->|Author or review| Stage[Provider renders bounded prompt<br/>Retained agent and host execute stage]
+    Stage --> Checkpoint[Validate reports and revision<br/>Retain completed checkpoint evidence]
+    Checkpoint --> Next
+    Guard -->|Publish requested| Publish[All selected reviews approve same clean revision<br/>Required answers resolved; publish through core]
+    Resume[Restart or continuation] --> Original[Load original workflow and saved checkpoint<br/>Skip completed implementation and reviews]
+    Original --> Next
+    Original -.->|Missing or corrupt original artifact| Block
+```
+
+Use `select-workflow <coding|review|branch> <plugin/id>`; `default` or `null` restores that mode's shipped default. Coding is staged; review and branch are direct. Direct execution uses the retained provider's prompt without the staged policy loop. Changed settings or selections affect new admission only; unavailable explicit selections never fall back.
+
+The old reviewer count seeds the explicit ordered agent reviewer list once; `select-agent-reviewers` controls it afterwards. Old rounds and timeout seed `helmsman.workflow-coding` settings `maxRounds` and `stageTimeoutMinutes` once. Explicit settings/lists and later resets survive restart. Legacy voyages without a workflow binding retain their original compatibility path. See [workflow authoring](workflow-authoring.md).
 
 ## Execution-host selection and recovery
 
@@ -406,14 +429,15 @@ flowchart TD
     Manual[Operator selects a galleon<br/>Jira ticket, custom task, local todo or existing PR] --> Dispatch
     Campaign[Campaign: create phases<br/>CSV/JSONL preview → confirm → start phase<br/>Import and task deduplication] --> Dispatch
     Webhook[GitHub webhook, when configured<br/>Raw-body HMAC + explicit event/action/workflow mapping<br/>Persistent delivery deduplication] --> Dispatch
-    Dispatch[Check scope and capacity<br/>One active writer per galleon<br/>Automated dispatch uses durable claims] --> Snapshot[Freeze workflow version, prompts, skills and settings<br/>Verify required skills and provision private copies<br/>Retry/resume must match the saved snapshot]
+    Dispatch[Check scope and capacity<br/>One active writer per galleon<br/>Automated dispatch uses durable claims] --> Snapshot[Retain selected workflow artifact, metadata and settings<br/>Verify required skills and provision private copies<br/>Retry/resume must match the original snapshot]
     Snapshot --> Host{Pinned execution-host provider}
     Host --> Local[Retained local host package<br/>Detached, cmux, WezTerm or authored provider]
     Host --> Docker[Retained isolated host package<br/>Pinned image; private workspace and runtime<br/>Run-scoped gateway; host keeps upstream credentials]
-    Local --> Workflow{Task workflow}
+    Local --> Workflow{Selected workflow metadata}
     Docker --> Workflow
-    Workflow -->|New coding task| Coding[Implementation and exact-revision review loop below]
-    Workflow -->|Existing PR review| Review[Pin PR head and run standalone review<br/>Host verifies result and required answers before posting]
+    Workflow -->|Coding: staged| Coding[Pure provider policy and guarded stages<br/>Exact-revision review loop below]
+    Workflow -->|Review: direct| Review[Pin PR head and render retained review prompt<br/>Host verifies result and required answers before posting]
+    Workflow -->|Branch: direct| Branch[Retained branch-feedback prompt<br/>Existing PR and source authorization unchanged]
     Snapshot -.->|Missing skills / drift / unavailable host| Block[Fail preflight; no unisolated fallback]
 ```
 
@@ -427,7 +451,7 @@ In Docker mode the host supervises, verifies artifacts, and publishes; only writ
 flowchart TD
     Prepared([Coding workflow prepared]) --> Context[Load task context and prepare workspace<br/>Managed branch; validate base, remote and clean checkout<br/>Writer CLI available in selected execution environment]
     Context --> Writer[Writer implements and runs checks<br/>Commits locally and writes PR metadata]
-    Writer --> Review[Review round: sequential CLI leads<br/>Writer CLI first, then installed alternate<br/>Each lead is prompted to delegate focused sub-agents]
+    Writer --> Review[Review round: captured ordered reviewer set<br/>Workflow policy chooses the next guarded stage<br/>Each lead is prompted to delegate focused sub-agents]
     Review --> Reports{Reports valid for the pinned SHA?}
     Reports -->|Otherwise valid; summary over 2,000 characters| Correction[One summary-only correction attempt per report<br/>Revalidate; preserve verdict and findings<br/>Keep original report]
     Correction -->|Valid| Gate{Every selected reviewer approves<br/>with no findings?}
@@ -472,14 +496,14 @@ flowchart LR
     Usage --> Outcomes[Costs & Outcomes<br/>Reported spend + separate Codex API estimates<br/>Usage coverage, tokens, duration, PR outcomes<br/>Separate task assessment with evidence]
 ```
 
-- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Public answer commands now retain durable receipts; the compatibility renderer uses those services. Authored clarification panels now own the selected Agent Questions alias and canonical page. A page-level recovery link retains access to original compatibility drafts and requests without import or replay. Runs now uses the authored composition and shared viewer; PR extraction remains pending.
+- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Public answer commands now retain durable receipts; the compatibility renderer uses those services. Authored clarification panels now own the selected Agent Questions alias and canonical page. A page-level recovery link retains access to original compatibility drafts and requests without import or replay. Runs uses the authored composition and shared viewer; PR presentation and providers also use public contracts.
 - **Evidence and recovery:** validated reports are recorded with immutable identities and hashes. A checkpoint continuation revalidates saved evidence before reusing it; legacy checkpoints without manifests follow an explicit compatibility path. A fresh retry preserves the original task/provider, workflow snapshot and Docker image pin; changed prompts or skills fail preflight. Restart reattachment and checkpoint continuation are different from restarting an entire failed voyage.
 - **Costs and outcomes:** provider token/cost events and stage timing feed a persistent ledger. Reported spend can be partial; unreported billed costs stay unknown. Eligible unpriced Codex usage receives a separate Standard short-context API baseline estimate, using published rates checked September 19, 2026. The UI exposes estimated/unpriced record coverage and runs without usage records. Missing model/token data remains unknown; service tier, per-request context and cache-write usage are unavailable, and subscription charges may differ. Estimates do not affect budget caps or cost-per-PR metrics, which use fully priced runs. Process success does not itself establish task completion: assessment state (complete/partial/failed/not-assessed) is separate from task outcome (achieved/partial/not-achieved/unknown), with supporting evidence. PR visibility is best-effort with explicit stale/unavailable status.
 
 ## Defaults and boundaries
 
-- **Defaults:** 2 desired reviewer CLIs, 3 review rounds, 45 minutes per agent session. Configuration allows 1–2 reviewers, 1–5 rounds, and 5–180 minutes. These are defaults, not a statement of current live settings.
-- The writer CLI is required in the selected execution environment. An unavailable alternate CLI permits a single reviewer, even when 2 are configured. The writer's review is a fresh session, using a detached worktree locally or an isolated review workspace in Docker.
+- **Defaults:** the shipped selection prefers two reviewers; explicit `select-agent-reviewers` lists determine the complete set. Coding workflow defaults are 3 review rounds and 45 minutes per agent session, bounded to 1–5 rounds and 5–180 minutes. These are defaults, not current live settings.
+- The writer and every captured reviewer must be available in the selected execution environment. A selected reviewer failure cannot silently reduce the gate. Reviewer sessions use detached worktrees locally or isolated review workspaces.
 - Reviewer leads run sequentially. Their prompts request concurrent, bounded sub-agents; the runtime does not verify that delegation happened.
 - Each reviewer examines the same complete committed diff. After a fix commit, every selected reviewer reviews the new revision. A `COMMENT` verdict blocks; it does not enter the fix loop.
 - Summary correction applies only to an otherwise valid report. It gets one additional session per report, with its own timeout, and does not consume another review round. The 2,000-character limit uses JavaScript string length, including whitespace and any byline.

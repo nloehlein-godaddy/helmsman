@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentTask } from './agents/adapter';
+import type { WorkflowProviderV1, WorkflowStepInputV1 } from '../../src/plugins/workflow';
 import { assertReviewSummaryCorrection, parsePrePrReview, PRE_PR_REVIEW_SUMMARY_LIMIT, PrePrGateError, PrePrSummaryTooLongError, runPrePrWorkflow, type PrePrOptions, type PrePrSnapshot } from './pre-pr-workflow';
 
 const baseSha = 'a'.repeat(40);
@@ -395,5 +396,106 @@ describe('pre-PR checkpoint resume', () => {
     options.onPhase = text => { if (text.includes('publishing PR')) state.headSha = repairedHead; };
     await expect(runPrePrWorkflow(task, options)).rejects.toThrow('code changed after review');
     expect(publish).not.toHaveBeenCalled();
+  });
+});
+
+describe('authored pre-PR workflow policy', () => {
+  const writerId = 'helmsman.agent-codex/codex';
+  const alternateId = 'helmsman.agent-claude/claude-code';
+
+  function guardedSetup(next: WorkflowProviderV1['next']) {
+    const fixture = setup();
+    fixture.options.writerId = writerId;
+    fixture.options.reviewerIds = [writerId, alternateId];
+    fixture.options.workflow = {
+      metadata: { version: 1, label: 'Test', modes: ['coding'], execution: 'staged', requiredSkills: [], maxRounds: 3, stageTimeoutMinutes: 45 },
+      renderPrompt: () => 'test',
+      next,
+    };
+    return fixture;
+  }
+
+  it('allows a pure policy to reorder retained reviewers while core preserves every gate', async () => {
+    const seen: WorkflowStepInputV1[] = [];
+    const { options, order } = guardedSetup(input => {
+      seen.push(input);
+      if (!input.implemented) return { kind: 'author', stage: 'implement' };
+      if (!input.reviews.some(value => value.reviewer === alternateId)) return { kind: 'review', reviewerId: alternateId };
+      if (!input.reviews.some(value => value.reviewer === writerId)) return { kind: 'review', reviewerId: writerId };
+      return { kind: 'publish' };
+    });
+    await expect(runPrePrWorkflow(task, options)).resolves.toBe(123);
+    expect(order).toEqual(['implement', `review:${alternateId}`, `review:${writerId}`, 'publish']);
+    expect(seen.every(input => Object.isFrozen(input) && Object.isFrozen(input.reviewerIds)
+      && Object.isFrozen(input.revision) && Object.isFrozen(input.reviews))).toBe(true);
+  });
+
+  it('rejects early publication before all retained reviewers approve', async () => {
+    const { options, publish } = guardedSetup(input => input.implemented ? { kind: 'publish' } : { kind: 'author', stage: 'implement' });
+    await expect(runPrePrWorkflow(task, options)).rejects.toThrow('before every selected reviewer approved');
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['duplicate', writerId],
+    ['outside retained set', 'helmsman.agent-command/command'],
+  ])('rejects a %s reviewer action', async (_label, invalidReviewer) => {
+    const { options, review, publish } = guardedSetup(input => {
+      if (!input.implemented) return { kind: 'author', stage: 'implement' };
+      if (!input.reviews.length) return { kind: 'review', reviewerId: writerId };
+      return { kind: 'review', reviewerId: invalidReviewer };
+    });
+    await expect(runPrePrWorkflow(task, options)).rejects.toThrow('workflow selected');
+    expect(review).toHaveBeenCalledTimes(1);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('rejects remediation before the complete retained reviewer set', async () => {
+    const { options, runAuthor } = guardedSetup(input => input.implemented
+      ? { kind: 'author', stage: 'fix' }
+      : { kind: 'author', stage: 'implement' });
+    await expect(runPrePrWorkflow(task, options)).rejects.toThrow('before every selected reviewer completed');
+    expect(runAuthor).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks COMMENT even when a malicious policy requests publication', async () => {
+    const { options, review, publish } = guardedSetup(input => {
+      if (!input.implemented) return { kind: 'author', stage: 'implement' };
+      if (!input.reviews.length) return { kind: 'review', reviewerId: writerId };
+      return { kind: 'publish' };
+    });
+    review.mockResolvedValue(report(firstHead, 'COMMENT'));
+    await expect(runPrePrWorkflow(task, options)).rejects.toThrow('did not approve or provide actionable');
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('resumes through retained next without replaying completed stages', async () => {
+    const next = vi.fn<WorkflowProviderV1['next']>(() => ({ kind: 'publish' }));
+    const { options, state, runAuthor, review, publish } = guardedSetup(next);
+    state.headSha = firstHead;
+    options.resume = {
+      baseSha, headSha: firstHead, branch: state.branch, round: 1,
+      reviews: [
+        { reviewer: writerId, report: report() },
+        { reviewer: alternateId, report: report() },
+      ],
+    };
+    await expect(runPrePrWorkflow(task, options)).resolves.toBe(123);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(runAuthor).not.toHaveBeenCalled();
+    expect(review).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a policy-requested author pass after full approvals and requires fresh approval', async () => {
+    const { options, review, runAuthor } = guardedSetup(input => {
+      if (!input.implemented) return { kind: 'author', stage: 'implement' };
+      const missing = input.reviewerIds.find(id => !input.reviews.some(value => value.reviewer === id));
+      if (missing) return { kind: 'review', reviewerId: missing };
+      return input.round === 1 ? { kind: 'author', stage: 'fix' } : { kind: 'publish' };
+    });
+    await expect(runPrePrWorkflow(task, options)).resolves.toBe(123);
+    expect(runAuthor.mock.calls.map(([stage]) => stage)).toEqual(['implement', 'fix']);
+    expect(review).toHaveBeenCalledTimes(4);
   });
 });

@@ -1,4 +1,3 @@
-import { term } from './logic/terminology';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CONFIG_HELP, renderConfigView, renderAppShell } from './render';
 import { EDITABLE_KEYS } from '../server/helmsman/config-store';
@@ -72,7 +71,7 @@ describe('application views', () => {
   });
 
   it('has help text with an example for every editable config key', () => {
-    for (const key of EDITABLE_KEYS.filter(key => !/^(?:JIRA_|GITHUB_|SLACK_)/.test(key))) {
+    for (const key of EDITABLE_KEYS.filter(key => !/^(?:JIRA_|GITHUB_|SLACK_|PRE_PR_)/.test(key))) {
       expect(CONFIG_HELP[key]?.length ?? 0, `missing tooltip for ${key}`).toBeGreaterThan(0);
       expect(CONFIG_HELP[key] ?? '', `missing example for ${key}`).toContain('Example:');
     }
@@ -104,47 +103,12 @@ describe('application views', () => {
     expect(el.textContent).toContain('plugins select-agent');
   });
 
-  it('groups pre-PR settings in one panel with bounded numeric inputs and defaults', () => {
+  it('routes workflow configuration to plugins and hides retired settings from stale payloads', () => {
     const el = root();
-    el.innerHTML = renderConfigView({ config: {}, overridden: [] }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
-    const panel = el.querySelector('.pre-pr-config-panel');
-    expect(panel?.textContent).toContain(`active ${term('runs').toLowerCase()} keep their settings`);
-    expect(panel?.textContent).toContain('Unavailable selected providers block launch');
-    for (const [key, value, min, max] of [
-      ['PRE_PR_REVIEWER_COUNT', '2', '1', '2'],
-      ['PRE_PR_MAX_ROUNDS', '3', '1', '5'],
-      ['PRE_PR_STAGE_TIMEOUT_MINUTES', '45', '5', '180'],
-    ]) {
-      const row = panel?.querySelector(`.config-row[data-key="${key}"]`);
-      const input = row?.querySelector<HTMLInputElement>('.config-input');
-      expect(input?.type).toBe('number');
-      expect(input?.value).toBe(value);
-      expect(input?.min).toBe(min);
-      expect(input?.max).toBe(max);
-      expect(input?.step).toBe('1');
-      expect(input?.required).toBe(true);
-      expect(row?.querySelector('label')?.getAttribute('for')).toBe(input?.id);
-      const descriptions = input?.getAttribute('aria-describedby')?.split(/\s+/) ?? [];
-      expect(descriptions.map(id => document.getElementById(id)?.textContent ?? '').join(' ')).toContain(key);
-      expect(descriptions).toContain(`error-${key}`);
-      expect(row?.querySelector('.config-save')?.getAttribute('data-key')).toBe(key);
-    }
-  });
-
-  it('shows persisted pre-PR settings only once and marks overrides', () => {
-    const el = root();
-    el.innerHTML = renderConfigView({
-      config: { PRE_PR_REVIEWER_COUNT: 1, PRE_PR_MAX_ROUNDS: 5, PRE_PR_STAGE_TIMEOUT_MINUTES: 90 },
-      overridden: ['PRE_PR_MAX_ROUNDS'],
-    }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
-    for (const [key, value] of [
-      ['PRE_PR_REVIEWER_COUNT', '1'], ['PRE_PR_MAX_ROUNDS', '5'], ['PRE_PR_STAGE_TIMEOUT_MINUTES', '90'],
-    ]) {
-      expect(el.querySelectorAll(`.config-row[data-key="${key}"]`)).toHaveLength(1);
-      expect(el.querySelector<HTMLInputElement>(`.pre-pr-config-panel [data-key="${key}"] .config-input`)?.value).toBe(value);
-    }
-    expect(el.querySelector('.pre-pr-config-panel [data-key="PRE_PR_MAX_ROUNDS"] .config-overridden')).not.toBeNull();
-    expect(el.querySelector('.pre-pr-config-panel [data-key="PRE_PR_REVIEWER_COUNT"] .config-overridden')).toBeNull();
+    el.innerHTML = renderConfigView({ config: { PRE_PR_REVIEWER_COUNT: 1, PRE_PR_MAX_ROUNDS: 5, PRE_PR_STAGE_TIMEOUT_MINUTES: 90 }, overridden: ['PRE_PR_MAX_ROUNDS'] }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
+    expect(el.querySelector('[data-key^="PRE_PR_"]')).toBeNull();
+    expect(el.textContent).toContain('plugins select-workflow');
+    expect(el.textContent).toContain('plugins select-agent-reviewers');
   });
 
   it.each([false, true])('links independently available integration settings without legacy fields; unavailable=%s', unavailable => {

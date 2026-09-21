@@ -1,5 +1,6 @@
 import type { AgentTask } from './agents/adapter';
 import { isContributionId } from '../../src/plugins/manifest';
+import { parseWorkflowActionV1, type WorkflowProviderV1, type WorkflowStepInputV1 } from '../../src/plugins/workflow';
 
 export type PrePrReviewerId = string;
 
@@ -39,6 +40,7 @@ export interface PrePrOptions {
   writerId: string;
   reviewerIds: string[];
   maxRounds?: number;
+  workflow?: WorkflowProviderV1;
   resume?: PrePrResumeCheckpoint;
   snapshot(): Promise<PrePrSnapshot>;
   runAuthor(stage: 'implement' | 'fix', context: { baseSha: string; feedback?: string; round: number }): Promise<void>;
@@ -139,7 +141,7 @@ function feedbackFor(reviews: Array<{ reviewer: string; report: PrePrReview }>):
   }).join('\n\n');
 }
 
-export async function runPrePrWorkflow(task: AgentTask, options: PrePrOptions): Promise<number> {
+async function runLegacyPrePrWorkflow(task: AgentTask, options: PrePrOptions): Promise<number> {
   const maxRounds = options.maxRounds ?? 3;
   if (task.review) throw new PrePrGateError('review voyages cannot create a PR.');
   if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5) {
@@ -243,4 +245,181 @@ export async function runPrePrWorkflow(task: AgentTask, options: PrePrOptions): 
     revision = repaired;
   }
   throw new PrePrGateError('review did not complete; publication blocked.');
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value;
+  for (const item of Object.values(value)) deepFreeze(item);
+  return Object.freeze(value);
+}
+
+async function runGuardedPrePrWorkflow(task: AgentTask, options: PrePrOptions, workflow: WorkflowProviderV1): Promise<number> {
+  const maxRounds = workflow.metadata?.maxRounds ?? Number.NaN;
+  if (task.review) throw new PrePrGateError('review voyages cannot create a PR.');
+  if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5) {
+    throw new PrePrGateError('review round limit must be between 1 and 5.');
+  }
+  if (!isContributionId(options.writerId) || !Array.isArray(options.reviewerIds)
+    || options.reviewerIds.length < 1 || options.reviewerIds.length > 8
+    || new Set(options.reviewerIds).size !== options.reviewerIds.length
+    || !options.reviewerIds.includes(options.writerId)
+    || options.reviewerIds.some(id => !isContributionId(id))) {
+    throw new PrePrGateError('reviewers must include the writer provider and each selected alternate exactly once.');
+  }
+  const checkStopped = () => {
+    if (options.isStopped?.()) throw new PrePrGateError('voyage stopped; publication blocked.');
+  };
+  const invoke = async <T>(label: string, action: () => Promise<T>): Promise<T> => {
+    checkStopped();
+    try {
+      const result = await action();
+      checkStopped();
+      return result;
+    } catch (error) {
+      if (error instanceof PrePrGateError) throw error;
+      throw new PrePrGateError(`${label} failed; publication blocked. ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+  };
+  const snapshot = async (): Promise<PrePrSnapshot> => {
+    const state = await invoke('revision inspection', () => options.snapshot());
+    if (!state || !validSha(state.baseSha) || !validSha(state.headSha) || !validText(state.branch, 255) || state.clean !== true) {
+      throw new PrePrGateError('worktree must have a clean committed revision on a named branch.');
+    }
+    return state;
+  };
+  const initial = await snapshot();
+  const assertBranch = (state: PrePrSnapshot) => {
+    if (state.baseSha !== initial.baseSha || state.branch !== initial.branch) {
+      throw new PrePrGateError('base revision or branch changed during the voyage; publication blocked.');
+    }
+  };
+  const assertUnchanged = async (expected: PrePrSnapshot) => {
+    const current = await snapshot();
+    assertBranch(current);
+    if (current.headSha !== expected.headSha) throw new PrePrGateError('code changed after review started; publication blocked.');
+  };
+  let revision = initial;
+  let implemented = false;
+  let round = 0;
+  let reviews: Array<{ reviewer: string; report: PrePrReview }> = [];
+  if (options.resume !== undefined) {
+    const checkpoint = options.resume;
+    if (!record(checkpoint) || !validSha(checkpoint.baseSha) || !validSha(checkpoint.headSha)
+      || !validText(checkpoint.branch, 255) || !Number.isInteger(checkpoint.round) || checkpoint.round < 1 || checkpoint.round > maxRounds
+      || !Array.isArray(checkpoint.reviews) || checkpoint.reviews.length !== options.reviewerIds.length
+      || checkpoint.reviews.some(entry => !record(entry) || typeof entry.reviewer !== 'string' || !options.reviewerIds.includes(entry.reviewer))
+      || new Set(checkpoint.reviews.map(entry => entry.reviewer)).size !== options.reviewerIds.length) {
+      throw new PrePrGateError('resume checkpoint is malformed or does not contain every selected reviewer; publication blocked.');
+    }
+    if (checkpoint.baseSha !== initial.baseSha || checkpoint.headSha !== initial.headSha || checkpoint.branch !== initial.branch
+      || checkpoint.headSha === checkpoint.baseSha) {
+      throw new PrePrGateError('resume checkpoint does not match the current committed revision and branch; publication blocked.');
+    }
+    reviews = checkpoint.reviews.map(({ reviewer, report }) => ({ reviewer, report: parsePrePrReview(report, initial) }));
+    revision = initial;
+    implemented = true;
+    round = checkpoint.round;
+    options.onPhase(`Resuming completed adversarial review round ${round}/${maxRounds}`);
+    await assertUnchanged(revision);
+  }
+  const transitionLimit = maxRounds * (options.reviewerIds.length + 1) + 1;
+  for (let transition = 0; transition < transitionLimit; transition++) {
+    const step: WorkflowStepInputV1 = deepFreeze({
+      version: 1,
+      writerId: options.writerId,
+      reviewerIds: [...options.reviewerIds],
+      round,
+      maxRounds,
+      implemented,
+      revision: { baseSha: revision.baseSha, headSha: revision.headSha, branch: revision.branch },
+      reviews: reviews.map(({ reviewer, report }) => ({
+        reviewer,
+        report: {
+          baseSha: report.baseSha,
+          headSha: report.headSha,
+          verdict: report.verdict,
+          summary: report.summary,
+          findings: report.findings.map(finding => ({ ...finding })),
+        },
+      })),
+    });
+    let action;
+    checkStopped();
+    try {
+      action = parseWorkflowActionV1(workflow.next(step));
+    } catch (error) {
+      throw new PrePrGateError(`workflow policy returned an invalid action; publication blocked. ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+    checkStopped();
+    const comment = reviews.find(review => review.report.verdict === 'COMMENT');
+    if (comment) {
+      throw new PrePrGateError(`${comment.reviewer} did not approve or provide actionable change requests; publication blocked. ${comment.report.summary}`);
+    }
+    if (action.kind === 'stop') throw new PrePrGateError(`${action.reason}; publication blocked.`);
+    if (action.kind === 'author') {
+      if (action.stage === 'implement') {
+        if (implemented || round !== 0 || reviews.length > 0) {
+          throw new PrePrGateError('workflow attempted implementation after implementation or review had already started; publication blocked.');
+        }
+        options.onPhase('Implementing changes before adversarial review');
+        await invoke('implementation', () => options.runAuthor('implement', { baseSha: initial.baseSha, round: 0 }));
+        const completed = await snapshot();
+        assertBranch(completed);
+        if (completed.headSha === initial.headSha || completed.headSha === initial.baseSha) {
+          throw new PrePrGateError('implementation produced no new committed changes.');
+        }
+        revision = completed;
+        implemented = true;
+        round = 1;
+        continue;
+      }
+      if (!implemented || round < 1 || round >= maxRounds || reviews.length !== options.reviewerIds.length
+        || new Set(reviews.map(review => review.reviewer)).size !== options.reviewerIds.length) {
+        throw new PrePrGateError('workflow attempted remediation before every selected reviewer completed a round; publication blocked.');
+      }
+      options.onPhase(`Resolving adversarial findings from round ${round}`);
+      await invoke('finding remediation', () => options.runAuthor('fix', { baseSha: initial.baseSha, feedback: feedbackFor(reviews), round }));
+      const repaired = await snapshot();
+      assertBranch(repaired);
+      if (repaired.headSha === revision.headSha || repaired.headSha === initial.baseSha) {
+        throw new PrePrGateError('remediation produced no new committed changes; publication blocked.');
+      }
+      revision = repaired;
+      reviews = [];
+      round++;
+      continue;
+    }
+    if (action.kind === 'review') {
+      if (!implemented || round < 1) throw new PrePrGateError('workflow attempted review before implementation; publication blocked.');
+      if (!options.reviewerIds.includes(action.reviewerId)) {
+        throw new PrePrGateError('workflow selected a reviewer outside the retained reviewer set; publication blocked.');
+      }
+      if (reviews.some(review => review.reviewer === action.reviewerId)) {
+        throw new PrePrGateError('workflow selected the same reviewer more than once in a review round; publication blocked.');
+      }
+      options.onPhase(`Adversarial review ${round}/${maxRounds}: ${action.reviewerId}`);
+      const report = parsePrePrReview(await invoke(`${action.reviewerId} review`, () => options.review(action.reviewerId,
+        { baseSha: initial.baseSha, headSha: revision.headSha, round })), revision);
+      await assertUnchanged(revision);
+      reviews.push({ reviewer: action.reviewerId, report });
+      continue;
+    }
+    if (!implemented || round < 1 || reviews.length !== options.reviewerIds.length
+      || new Set(reviews.map(review => review.reviewer)).size !== options.reviewerIds.length
+      || !reviews.every(({ report }) => report.verdict === 'APPROVE' && report.findings.length === 0)) {
+      throw new PrePrGateError('workflow attempted publication before every selected reviewer approved the current revision; publication blocked.');
+    }
+    options.onPhase('All adversarial reviewers approved; publishing PR');
+    await assertUnchanged(revision);
+    const prNumber = await invoke('PR publication', () => options.publish({ baseSha: initial.baseSha, headSha: revision.headSha, branch: revision.branch }));
+    if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new PrePrGateError('publisher did not return a valid PR number.');
+    return prNumber;
+  }
+  throw new PrePrGateError(`workflow exceeded the ${transitionLimit}-transition limit; publication blocked.`);
+}
+
+export async function runPrePrWorkflow(task: AgentTask, options: PrePrOptions): Promise<number> {
+  return options.workflow
+    ? runGuardedPrePrWorkflow(task, options, options.workflow)
+    : runLegacyPrePrWorkflow(task, options);
 }

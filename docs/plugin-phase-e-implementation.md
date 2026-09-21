@@ -1,5 +1,7 @@
 # Phase E implementation proposal: Helm and feature extraction
 
+> Historical planning and milestone text below is retained as written. For current implementation status and validation, use the [delivery ledger](plugin-implementation-progress.md) and [remaining delivery plan](plugin-remaining-delivery-plan.md). Current public contracts are documented in the [author guides](plugin-packages.md).
+
 Delivery update: implementation has resumed under the revised delivery cadence. The [remaining delivery plan](plugin-remaining-delivery-plan.md) supersedes earlier work sequencing and test/review frequency; the original A–G scope and final acceptance gates remain in force.
 
 Status: E0 design review complete; E1 infrastructure and the first Helm/backlog extraction passed the isolated production gate. E2 run services, all eight Helm panels and the legacy Helm cutover have passed aggregate and isolated production validation. E3 task presentation packages and services passed isolated production validation and are pushed as `bc51ae6`; default task-page cutover is reviewed and pushed as `d21d9cb`. See [E3 implementation detail](plugin-phase-e3-implementation.md) and the in-progress [E4 run-presentation batch](plugin-phase-e4-implementation.md). Phase D is reviewed and pushed as `abae201`. The remainder of E and phases F/G are still pending.

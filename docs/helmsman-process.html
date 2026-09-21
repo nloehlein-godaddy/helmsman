@@ -155,7 +155,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Exact retained receipt</h3><p>Project the retained PR and destination, save the terminal result, then acknowledge the browser journal.</p></article>
 <article class="flow-step"><h3>Uncertain delivery</h3><p>Keep the original request, destination and artifact for exact retry or Core Recovery. Matching the same or another PR URL in Slack cannot prove this send and cannot authorize replay.</p></article>
 </div>
-<p class="limit-note">Backend disablement blocks new admission while pinned public and legacy operation resolvers remain available for obligations. Browser primitives remain a core execution adapter for Phase F; Slack DOM and policy stay in the package. See <a href="communication-authoring.md">Communication authoring</a>.</p>
+<p class="limit-note">Backend disablement blocks new admission while pinned public and legacy operation resolvers remain available for obligations. Browser primitives come from the selected native provider; core guards the session and retains the original transport. Slack DOM and policy stay in the package. See <a href="communication-authoring.md">Communication authoring</a>.</p>
 </section>
 <section aria-labelledby="terminal-heading">
 <h2 class="section-heading" id="terminal-heading">Terminal presentation and durable controls</h2>
@@ -172,7 +172,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Succeeded or rejected</h3><p>Save the terminal result locally before acknowledging the browser journal. Durable server receipts remain inspectable.</p></article>
 <article class="flow-step"><h3>Pending or recovery-required</h3><p>Keep the original request. Inspect the screen and exact receipt, then explicitly record that inspection to resume later controls. When no server receipt exists, inspection records the original command without sending and blocks delayed original delivery. Active dispatch remains pending. Receipt checks and inspection acknowledgment never resend retained input or confirm delivery; there is no retry API.</p></article>
 </div>
-<p class="limit-note">Hidden, replaced, scope-changed and disposed panels abort polling. Missing or unreadable browser evidence prevents controls and never creates a replacement request. Phase E retains the core terminal bridge; replaceable cmux, WezTerm and other execution implementations remain Phase F work. Tests use a mock fixture without touching a native terminal. See <a href="terminal-authoring.md">Terminal authoring</a>.</p>
+<p class="limit-note">Hidden, replaced, scope-changed and disposed panels abort polling. Missing or unreadable browser evidence prevents controls and never creates a replacement request. The service uses independently replaceable cmux, WezTerm or authored native providers. Tests use a mock fixture without touching a native terminal. See <a href="terminal-authoring.md">Terminal authoring</a>.</p>
 </section>
 <section aria-labelledby="campaigns-heading">
 <h2 class="section-heading" id="campaigns-heading">Campaign presentation and atomic commands</h2>
@@ -184,7 +184,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Lost response</h3><p>Inspect the original receipt or explicitly retry the exact retained UUID and input. Recovery cannot reserve another campaign or task attempt.</p></article>
 <article class="flow-step"><h3>Recorded state → existing dispatcher</h3><p>A receipt confirms campaign state, not worker launch or termination. Phase ordering, concurrency, one writer per galleon, durable claims and stable run IDs remain in force. Finish and stop retain explicit confirmation.</p></article>
 </div>
-<p class="limit-note">Missing or disabled selections preserve layouts and command evidence. Scheduling and execution implementation replacement remains Phase F. See <a href="campaigns-authoring.md">Campaign authoring</a>.</p>
+<p class="limit-note">Missing or disabled selections preserve layouts and command evidence. Campaign dispatch policy remains Phase F work; core retains durable claims and execution gates. See <a href="campaigns-authoring.md">Campaign authoring</a>.</p>
 </section>
 <section aria-labelledby="local-git-heading">
 <h2 class="section-heading" id="local-git-heading">Local Git confirmation and recovery</h2>
@@ -210,10 +210,22 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <h2 class="section-heading" id="agent-provider-heading">Agent-provider selection and execution</h2>
 <div class="host-options">
 <article class="flow-step"><h3>Immutable selection → retained closure</h3><p>One writer and ordered reviewers retain exact package artifacts, nonsecret settings and provider metadata. Recovery resolves that retained selection, never a current default.</p></article>
-<article class="flow-step"><h3>Core prompt/workflow → SDK-only provider</h3><p>Core renders prompts and effective model/effort, owns admission, workflow, recovery and completion. Provider metadata declares skills, delegation, Docker and cost semantics.</p></article>
+<article class="flow-step"><h3>Retained workflow prompt → SDK-only agent</h3><p>The retained workflow renders authored prompts. Core resolves effective model/effort and guards admission, execution, recovery and completion. Agent metadata declares skills, delegation, Docker and cost semantics.</p></article>
 <article class="flow-step"><h3>Validated events → explicit failure gate</h3><p>A result failure is persisted as attempt evidence and fails an exit-zero process. Unknown is not failure. Codex uses review-agent metadata; Claude uses native subagents.</p></article>
 </div>
-<p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent extraction has passed focused and installed acceptance checks; execution-host extraction is accepted; workflows, native terminals and triggers remain Phase F work.</p>
+<p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent, execution-host and native terminal extraction have passed acceptance; workflow implementation is active and triggers remain Phase F work.</p>
+</section>
+<section aria-labelledby="workflow-provider-heading">
+<h2 class="section-heading" id="workflow-provider-heading">Workflow selection, guarded stages and continuation</h2>
+<p class="section-intro">Active implementation; installed acceptance passes; independent review is pending. Workflow packages own prompts and pure next-step policy. Core retains execution and publication authority.</p>
+<div class="host-options">
+<article class="flow-step"><h3>Select mode → retain original workflow</h3><p>Capture exact provider artifacts, metadata, settings and skills for coding, review or branch. Coding uses guarded stages; direct review and branch workflows use the retained prompt.</p></article>
+<article class="flow-step"><h3>Provider next → core guard</h3><p>The provider receives a deep-frozen revision and review state. Core validates cancellation, round limits, action order and the selected reviewer set. Invalid actions or policy stop preserve work with evidence.</p></article>
+<article class="flow-step"><h3>Guard → stage → retained checkpoint → next</h3><p>The provider renders a bounded prompt; the retained agent and host execute it. Core validates reports and the exact revision, retains completed checkpoint evidence, then asks the policy for its next action.</p></article>
+<article class="flow-step"><h3>Guard → publication</h3><p>Publication requires every selected reviewer to approve the same clean revision and all required answers to be resolved. Only core performs the guarded publication operation.</p></article>
+<article class="flow-step"><h3>Restart → original checkpoint → next</h3><p>Load the original workflow and reconstruct its state without repeating completed implementation or reviews. Missing or corrupt artifacts block continuation; changed defaults never replace the original.</p></article>
+</div>
+<p class="limit-note">Use <code>select-workflow &lt;coding|review|branch&gt; &lt;plugin/id&gt;</code>; <code>default</code> or <code>null</code> restores the mode default. Old reviewer count seeds an explicit ordered agent list once, then use <code>select-agent-reviewers</code>. Old rounds/timeout seed <code>helmsman.workflow-coding</code> settings once. Explicit lists, settings and later resets survive restart. Legacy voyages retain their original compatibility path. See <a href="workflow-authoring.md">workflow authoring</a>.</p>
 </section>
 <section aria-labelledby="execution-host-heading">
 <h2 class="section-heading" id="execution-host-heading">Execution-host selection and recovery</h2>
@@ -272,7 +284,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Authenticated webhook</h3><p>Verify the raw-body HMAC and configured event/action/workflow mapping. Persist and deduplicate delivery IDs. Disabled until configured.</p></article>
 </div>
 <div class="flow-arrow" aria-hidden="true">↓</div>
-<div class="flow-step flow-common"><h3>Dispatch and freeze execution</h3><ol><li>Check scope and capacity; allow one active writer per galleon. Automated dispatch uses durable claims.</li><li>Freeze workflow version, model/effort, review settings, and prompt/skill hashes.</li><li>Verify required skills and provision private copies. Retries and checkpoint resumes must match the saved snapshot.</li></ol></div>
+<div class="flow-step flow-common"><h3>Dispatch and freeze execution</h3><ol><li>Check scope and capacity; allow one active writer per galleon. Automated dispatch uses durable claims.</li><li>Retain the selected workflow artifact, metadata, settings and skills alongside model/effort and agent/host bindings.</li><li>Verify required skills and provision private copies. Retries and checkpoint resumes must match the saved snapshot.</li></ol></div>
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="host-options">
 <article class="flow-step"><h3>Trusted local host · default</h3><p>Agent stages use the existing local runtime and its host permissions.</p></article>
@@ -281,8 +293,8 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <p class="section-intro" style="margin-top: 14px">The host supervises, verifies evidence, and publishes. Missing skills, snapshot drift, or unavailable Docker requirements fail preflight; isolated execution never falls back silently to the local host.</p>
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="workflow-options">
-<article class="flow-step"><h3>New coding task</h3><p>Continue through implementation and the exact-revision PR review loop below.</p></article>
-<article class="flow-step"><h3>Existing PR review</h3><p>Pin the current PR head and run a standalone review. The host verifies the result and required answers before posting.</p></article>
+<article class="flow-step"><h3>Coding: staged workflow</h3><p>The selected workflow supplies pure next-step policy and prompts; core guards implementation, review, fixes and publication.</p></article>
+<article class="flow-step"><h3>Review or branch: direct workflow</h3><p>The retained provider renders the selected review or branch-feedback prompt. PR review pins the current head; core verifies the result and required answers before posting.</p></article>
 </div>
 </section>
 <section class="review-section" aria-labelledby="review-heading">
@@ -330,7 +342,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </g>
 <g class="node review"><rect x="375" y="735" width="450" height="145" rx="14"/>
 <text x="600.0" y="764" text-anchor="middle" class="node-title">3 · Review the pinned committed diff</text>
-<text x="600.0" y="790" text-anchor="middle" class="node-detail">Sequential leads: writer CLI → alternate</text>
+<text x="600.0" y="790" text-anchor="middle" class="node-detail">Captured reviewers; policy selects next</text>
 <text x="600.0" y="813" text-anchor="middle" class="node-detail">Fresh review workspace for each lead</text>
 <text x="600.0" y="836" text-anchor="middle" class="node-detail">Prompts request focused sub-agents</text>
 <text x="600.0" y="859" text-anchor="middle" class="node-detail">Independent scopes may run concurrently</text>
@@ -414,9 +426,9 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <p class="limit-note"><strong>Current setup and limits:</strong> Docker needs a built image, host provider keys, and pre-provisioned dependencies; agent stages have no unrestricted internet access. Docker branch-update reruns currently fail preflight; select trusted local execution for that mode. Webhook secrets, mappings, and public ingress require configuration. Offline Docker and mocked gateway flows were tested; real provider-backed Docker validation still requires host API keys. No path automatically merges a PR.</p>
 </section>
 <section class="notes" aria-label="Flow boundaries">
-<div><h2>Review selection and concurrency</h2><p>The writer CLI must be available in the selected execution environment. If the alternate CLI is unavailable, one reviewer is allowed even when two are configured. Lead sessions run sequentially; prompts request concurrent focused sub-agents, but runtime does not verify delegation.</p></div>
-<div><h2>Round and session limits</h2><p>Configuration allows 1–2 reviewers, 1–5 rounds, and 5–180 minutes per session. Summary correction gets one separate session per report and does not use another review round. The 2,000-character limit uses JavaScript string length, including whitespace and bylines.</p></div>
-<div><h2>Resume preserved work</h2><p>A valid checkpoint verifies saved artifact hashes and its frozen snapshot, skips implementation, and reuses the original reports for its saved review round. The current branch, base, head, and complete reviewer set must match. Bound agent checkpoints require immutable manifests; legacy checkpoints retain an explicit compatibility path. Accepted corrected summaries resume from their verified corrected artifacts. Oversized saved summaries can use the same correction step.</p></div>
+<div><h2>Review selection and concurrency</h2><p>The writer and every captured reviewer must be available in the selected execution environment. Use select-agent-reviewers for the complete ordered list. Workflow policy chooses sequential lead stages; prompts request focused sub-agents, but runtime does not verify delegation.</p></div>
+<div><h2>Round and session limits</h2><p>Workflow package settings allow 1–5 rounds and 5–180 minutes per session; selected agent identities determine the reviewer set. Summary correction gets one separate session per report and does not use another review round. The 2,000-character limit uses JavaScript string length, including whitespace and bylines.</p></div>
+<div><h2>Resume preserved work</h2><p>A valid checkpoint verifies saved artifact hashes and its frozen snapshot, skips implementation, and reuses the original reports for its saved review round. The current branch, base, head, and complete reviewer set must match. Bound checkpoints retain original workflow, agent and host artifacts/settings with immutable manifests; legacy checkpoints retain an explicit compatibility path. Accepted corrected summaries resume from their verified corrected artifacts. Oversized saved summaries can use the same correction step.</p></div>
 <div><h2>Publication and follow-up boundaries</h2><p>Pre-PR voyages have one outer attempt. Failures preserve work; a push may already have happened if a later publication check fails. Jira transitions apply to eligible Jira tasks, not todos or freeform tasks. The separate Helmsman review waits for availability and may reuse an existing review of the current head.</p></div>
 </section>
 <footer>Static HTML and SVG · No external scripts, fonts, or network dependencies. <a href="moonunit-adoption.md">Adoption evidence</a> · <a href="docker-run-host.md">Docker setup</a> · <a href="webhooks.md">Webhook setup</a></footer>

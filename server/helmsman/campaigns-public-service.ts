@@ -15,6 +15,7 @@ export interface CampaignPublicOptions {
   readonly store: CampaignStore;
   repos(): readonly string[];
   workflows(): readonly CampaignWorkflow[];
+  workflowAvailable?(ref: string): boolean;
   authorize(caller: string): void;
 }
 const DDL = `CREATE TABLE public_campaign_receipts (
@@ -46,7 +47,7 @@ export function createCampaignPublicService(options: CampaignPublicOptions) {
   }
   function mutate(command: CampaignCommandV1): CampaignCommandValueV1 {
     if (command.action === 'create') {
-      if (!options.workflows().some(item => item?.ref === command.workflowRef)) throw new CampaignConflictError('Campaign workflow is unavailable');
+      if (!(options.workflowAvailable?.(command.workflowRef) ?? options.workflows().some(item => item?.ref === command.workflowRef))) throw new CampaignConflictError('Campaign workflow is unavailable');
       return { kind: 'created', campaign: store.create({ repo: command.repo, name: command.name, workflowRef: command.workflowRef, concurrency: command.concurrency }) };
     }
     const current = detail(command.repo, command.target.campaignId);
@@ -69,7 +70,7 @@ export function createCampaignPublicService(options: CampaignPublicOptions) {
         const phase = current.phases.find(item => item.phase.id === command.phaseId);
         if (!phase) throw new CampaignConflictError('Phase does not belong to this campaign');
         if (command.operation === 'start' || command.operation === 'resume') {
-          if (!options.workflows().some(item => item?.ref === current.campaign.workflowRef)) throw new CampaignConflictError('Campaign workflow is unavailable');
+          if (!(options.workflowAvailable?.(current.campaign.workflowRef) ?? options.workflows().some(item => item?.ref === current.campaign.workflowRef))) throw new CampaignConflictError('Campaign workflow is unavailable');
           if (phase.tasks.some(task => !options.repos().includes(task.record.repo))) throw new CampaignConflictError('A task galleon is no longer configured');
         }
         return { kind: 'phase', phase: store.setPhaseState(command.phaseId, command.operation) };

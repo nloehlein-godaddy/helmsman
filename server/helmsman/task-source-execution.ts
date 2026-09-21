@@ -18,8 +18,8 @@ function contacts(input: TaskSnapshotV1['providerData']): AgentTask['contactHint
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
-export function sourceExecutionSettings(config: AppConfig, boundAgents = false) {
-  return legacyExecutionSettings({ ...config, jira: null, botAccountId: null }, boundAgents);
+export function sourceExecutionSettings(config: AppConfig, boundAgents = false, boundWorkflow = false) {
+  return legacyExecutionSettings({ ...config, jira: null, botAccountId: null }, boundAgents, boundWorkflow);
 }
 
 export function sourceExecutionTask(snapshot: StoredTaskSnapshot, claim: WorkClaimRecord): AgentTask {

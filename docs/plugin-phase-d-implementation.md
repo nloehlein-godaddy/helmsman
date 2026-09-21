@@ -1,5 +1,7 @@
 # Phase D: coexisting task sources
 
+> Historical planning and milestone text below is retained as written. For current implementation status and validation, use the [delivery ledger](plugin-implementation-progress.md) and [remaining delivery plan](plugin-remaining-delivery-plan.md). Current public contracts are documented in the [author guides](plugin-packages.md).
+
 Status: implementation and acceptance verification complete; exact-commit review findings fixed, independently reviewed, and pushed as `abae201`. Phase C passed its final tests, distribution checks, and independent reviews and was pushed as `2e9bd57`. This document refines [the architecture plan, sections 2, 3, 5, and 6](plugin-architecture-plan.md) and preserves the [Phase C protocols](plugin-phase-c-implementation.md). The signatures below are proposed interfaces, not APIs already available to plugin authors.
 
 ## Outcome and scope

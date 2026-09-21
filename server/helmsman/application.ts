@@ -1,3 +1,9 @@
+import { builtinWorkflows } from './plugins/builtin-workflows';
+import { initializeWorkflowSettings, initializeWorkflowReviewerSelection, readWorkflowProviderSelection } from './plugins/data';
+import { resolveWorkflowSelection, assertWorkflowSelectionCurrent } from './workflow-selection';
+import { parseWorkflowRetainedProviderV1 } from './workflow-providers';
+import { verifyWorkflowExecution } from './workflow-execution';
+import type { WorkflowModeV1 } from '../../src/plugins/workflow';
 import { createProfileService } from './profile-service';
 import { profileContributionEnabled } from './profile-runtime';
 import { createIntegrationSettingsService } from './integration-settings-service';
@@ -200,6 +206,7 @@ function canonicalAgentId(id: string): string {
   return ({ codex: 'helmsman.agent-codex/codex', 'claude-code': 'helmsman.agent-claude/claude-code', command: 'helmsman.agent-command/command' } as Record<string, string>)[id] ?? id;
 }
 initializeAgentProviderSelection(pluginDirectory(), { writer: canonicalAgentId(configStore.current().agentAdapter), reviewers: null });
+initializeWorkflowReviewerSelection(pluginDirectory(), [...new Set([readAgentProviderSelection(pluginDirectory()).writer ?? agentDefaults.writer, ...agentDefaults.reviewers])].slice(0, configStore.current().prePr.reviewerCount));
 const commandAgentPackage = builtinAgents.find(value => value.package.manifest.id === 'helmsman.agent-command')?.package;
 if (commandAgentPackage && initializeCommandAgentSettings(pluginDirectory(), commandAgentPackage, configStore.current().agentCmd)) {
   process.stderr.write('Legacy command agent requires an explicit nonsecret commandTemplate setting on helmsman.agent-command before new launches.\n');
@@ -232,7 +239,11 @@ for (const plugin of builtinNativeTerminals) {
   const values = Object.fromEntries(Object.entries(mapping).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0));
   initializeNativeTerminalSettings(pluginDirectory(), plugin.package, values);
 }
-const builtinBackends = [...builtinNativeTerminals, ...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
+for (const plugin of builtinWorkflows) {
+  if (plugin.package.manifest.id !== 'helmsman.workflow-coding') continue;
+  initializeWorkflowSettings(pluginDirectory(), plugin.package, { maxRounds: configStore.current().prePr.maxRounds, stageTimeoutMinutes: configStore.current().prePr.stageTimeoutMinutes });
+}
+const builtinBackends = [...builtinWorkflows, ...builtinNativeTerminals, ...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -424,7 +435,8 @@ const publicLocalGit = createLocalGitService({ persistence, agentsRoot: AGENTS_R
 });
 const campaignsStore = openCampaignStore(persistence.sql);
 const publicCampaigns = createCampaignPublicService({ persistence, store: campaignsStore, repos: applicationRepos,
-  workflows: () => [{ ref: 'coding@1', name: 'Coding' }],
+  workflowAvailable: providerId => { try { resolveWorkflowSelection({ root: pluginDirectory(), registry: backendPlugins.workflows, mode: 'coding', providerId }); return true; } catch { return false; } },
+  workflows: () => backendPlugins.workflows.list().filter(value => value.record.metadata.modes.includes('coding')).map(value => ({ ref: `${value.record.binding.providerId}@1`, name: value.record.metadata.label })),
   authorize: caller => {
     if (!campaignContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden');
   },
@@ -771,8 +783,9 @@ function runnerDurability(cfg: AppConfig) {
       if (savedTask.executionHost) verifyHostExecution(savedTask, snapshot);
       else retainedLegacyHostKind(savedRun, snapshot);
       await verifyEffectArtifacts(snapshot.artifacts);
-      verifyAgentExecution(JSON.parse(savedRun.taskJson) as AgentTask, snapshot);
-      const expected = snapshot.bindings.some(binding => binding.capability === 'helmsman/task-source') ? sourceExecutionSettings(cfg, snapshot.settings.agents !== undefined) : legacyExecutionSettings(cfg, snapshot.settings.agents !== undefined);
+      verifyAgentExecution(savedTask, snapshot);
+      verifyWorkflowExecution(savedTask, snapshot);
+      const expected = snapshot.bindings.some(binding => binding.capability === 'helmsman/task-source') ? sourceExecutionSettings(cfg, snapshot.settings.agents !== undefined, snapshot.settings.workflow !== undefined) : legacyExecutionSettings(cfg, snapshot.settings.agents !== undefined, snapshot.settings.workflow !== undefined);
       if (persistenceHash(snapshot.settings.execution) !== persistenceHash(expected)) throw new Error('Execution settings or connection identity changed; restore the retained binding before recovery');
       if (snapshot.workflowSnapshotId && !workflows.resolveSnapshot(snapshot.workflowSnapshotId)) throw new Error('Retained workflow snapshot is unavailable');
     },
@@ -867,6 +880,7 @@ async function retainedRunAgents(row: RunRow) {
   const snapshot = executionSnapshot(row);
   if (persistenceHash(nonsecretExecutionTask(task)) !== persistenceHash(snapshot.task)) throw new Error('Saved task differs from its immutable execution snapshot');
   verifyAgentExecution(task, snapshot);
+  verifyWorkflowExecution(task, snapshot);
   return loadExecutionAgents({ ...task, agentRuntime: { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: snapshot.artifacts } });
 }
 
@@ -992,10 +1006,6 @@ void runRecovery.initial.catch(() => {});
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json' };
 
 function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf?: string; workflowRef?: string; commandBinding?: RunCommandAdmissionBinding }): string {
-  if (body.workflowRef) {
-    const expected = body.mode === 'review' ? 'review@1' : 'coding@1';
-    if (body.workflowRef !== expected) throw new Error('Workflow is unavailable or does not match the task mode');
-  }
   const runId: string = body.runId ?? randomUUID();
   if (db.getRun(runId) || pm.hasRun(runId) || admissions.get(runId)) return runId;
   const capacity = pm.canStart(body.repo);
@@ -1006,6 +1016,16 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const priorTask = priorRun?.taskJson ? JSON.parse(priorRun.taskJson) as AgentTask | null : null;
   if (priorRun && !priorTask?.agentSelection) throw new RetryError('Legacy agent bindings cannot be migrated by retry. Continue the original retained voyage or start a new voyage.');
   if (priorRun && !priorTask?.executionHost) throw new RetryError('Legacy execution hosts cannot be migrated by retry. Continue the retained voyage or start a new voyage.');
+  if (priorRun && !priorTask?.workflow) throw new RetryError('Legacy workflows cannot be migrated by retry. Continue the retained voyage or start a new voyage.');
+  const workflowMode: WorkflowModeV1 = body.mode === 'review' ? 'review' : body.mode === 'rerun' ? 'branch' : 'coding';
+  const workflowOptions = { root: pluginDirectory(), registry: backendPlugins.workflows };
+  const selectedWorkflow = priorTask?.workflow
+    ? { record: parseWorkflowRetainedProviderV1(priorTask.workflow), revision: readWorkflowProviderSelection(pluginDirectory(), workflowMode).revision, mode: workflowMode }
+    : resolveWorkflowSelection({ ...workflowOptions, mode: workflowMode, ...(body.workflowRef ? { providerId: body.workflowRef } : {}) });
+  if (!selectedWorkflow.record.metadata.modes.includes(workflowMode)) throw new Error('Workflow does not support this task mode');
+  if (priorTask && priorRun) verifyWorkflowExecution(priorTask, executionSnapshot(priorRun));
+  const workflowArtifacts = priorTask?.workflowRuntime?.artifacts ?? providerArtifacts(selectedWorkflow.record.binding);
+  const workflowRuntime = { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: workflowArtifacts };
   const selectedExecutionHost = priorTask?.executionHost
     ? { revision: readExecutionHostProviderSelection(pluginDirectory()).revision, record: parseExecutionHostRetainedProviderV1(priorTask.executionHost) }
     : selectExecutionHost();
@@ -1017,7 +1037,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const selectedAgents = priorTask?.agentSelection
     ? { selection: parseAgentSelectionV1(priorTask.agentSelection), revision: readAgentProviderSelection(pluginDirectory()).revision }
     : resolveAgentSelection({ ...agentOptions, ...(adapterId ? { writer: canonicalAgentId(adapterId) } : {}),
-      reviewerCount: body.mode === 'review' || body.mode === 'rerun' ? 0 : cfg.prePr.reviewerCount, defaults: agentDefaults });
+      reviewerCount: selectedWorkflow.record.metadata.execution === 'direct' ? 0 : readAgentProviderSelection(pluginDirectory()).reviewers?.length ?? agentDefaults.reviewers.length, defaults: agentDefaults });
   if (priorTask && priorRun) verifyAgentExecution(priorTask, executionSnapshot(priorRun));
   const agentArtifacts = priorTask?.agentRuntime?.artifacts ?? mergeExecutionArtifacts(...[selectedAgents.selection.writer, ...selectedAgents.selection.reviewers].map(record => providerArtifacts(record.binding)));
   const agentRuntime = { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: agentArtifacts };
@@ -1025,13 +1045,14 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   let sourceSelection = taskSourceRuntime.selection(body, body.retryOf);
   if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
   let launchJson = launchIntentJson(body);
-  const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, hostArtifacts, sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
+  const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, hostArtifacts, workflowArtifacts, sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
   persistence.transaction(() => {
     assertAgentSelectionCurrent(agentOptions, selectedAgents);
     assertExecutionHostSelectionCurrent(executionHostOptions, selectedExecutionHost);
+    if (!priorTask) assertWorkflowSelectionCurrent(workflowOptions, selectedWorkflow);
     const scheduling = taskSourceRuntime.schedule.assertAdmission(body);
-    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, host: selectedExecutionHost.record, ...(scheduling ? { scheduling } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
-      settings: sourceSelection ? sourceExecutionSettings(cfg, true) : legacyExecutionSettings(cfg, true), artifacts: admissionArtifacts }, maxConcurrency); };
+    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, host: selectedExecutionHost.record, workflow: selectedWorkflow.record, ...(scheduling ? { scheduling } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
+      settings: sourceSelection ? sourceExecutionSettings(cfg, true, true) : legacyExecutionSettings(cfg, true, true), artifacts: admissionArtifacts }, maxConcurrency); };
     if (sourceSelection) taskSourceRuntime.reserve(runId, body.repo, sourceSelection, admit, body.retryOf);
     else admit();
   });
@@ -1047,7 +1068,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
     let loadedAgents: Awaited<ReturnType<typeof loadExecutionAgents>> | undefined;
     let loadedHost: Awaited<ReturnType<typeof loadExecutionHost>> | undefined;
     try {
-      loadedAgents = await loadExecutionAgents({ agentSelection: selectedAgents.selection, agentRuntime }, admissionController.signal);
+      loadedAgents = await loadExecutionAgents({ agentSelection: selectedAgents.selection, agentRuntime, workflow: selectedWorkflow.record, workflowRuntime }, admissionController.signal);
       loadedHost = await loadExecutionHost({ executionHost: selectedExecutionHost.record, hostRuntime }, admissionController.signal);
       const hostConfiguration = priorTask?.hostConfiguration !== undefined ? priorTask.hostConfiguration : await loadedHost.provider.prepareRun({ version: 1, runId, repo: body.repo, mode: body.mode === 'review' ? 'review' : body.mode === 'rerun' ? 'branch' : 'coding' });
       const adapter = loadedAgents.writer;
@@ -1116,6 +1137,8 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         const ticketId: string = body.ticketId ?? 'freeform';
         taskObj = { ticketId, title: body.title ?? ticketId, repo: body.repo, jiraBaseUrl: cfg.jira?.baseUrl ?? '', task: body.task };
       }
+      taskObj.workflow = selectedWorkflow.record;
+      taskObj.workflowRuntime = workflowRuntime;
       taskObj.executionHost = selectedExecutionHost.record;
       taskObj.hostRuntime = hostRuntime;
       taskObj.hostConfiguration = hostConfiguration;
@@ -1144,7 +1167,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task: taskObj,
         provider: adapter.id, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort });
       taskObj = prepared.task;
-      const runAdapter = !taskObj.review && !taskObj.prBranch ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.hostIsolation ? dockerReviewAdapter(adapter) : adapter;
+      const runAdapter = selectedWorkflow.record.metadata.execution === 'staged' ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.hostIsolation ? dockerReviewAdapter(adapter) : adapter;
       admissionController.signal.throwIfAborted();
       await startRun(taskObj, {
         ...baseRunnerDeps(cfg, runId, hosting),
@@ -1403,7 +1426,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     }
     if (url.pathname === '/api/workflows' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(['coding', 'review'].map(id => workflows.getDefinition(id as 'coding' | 'review')))); return;
+      res.end(JSON.stringify(backendPlugins.workflows.list().map(({ record }) => ({ id: record.binding.providerId, ref: `${record.binding.providerId}@1`, version: 1, name: record.metadata.label, modes: record.metadata.modes, execution: record.metadata.execution })))); return;
     }
     if (await handleRunInspectExport(req, res, url, runInspect)) return;
     if (await handleRunLog(req, res, url.pathname, db, bus)) return;
@@ -1479,8 +1502,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         return { maxAttempts: c.maxAttempts, maxCostUsd: c.maxCostUsd };
       },
       getConfig: () => ({
-        config: Object.fromEntries(Object.entries(publicConfig(configStore.current())).filter(([key]) => !/^(?:JIRA_|GITHUB_|SLACK_)/.test(key))),
-        overridden: Object.keys(configStore.overrides()).filter(key => !/^(?:JIRA_|GITHUB_|SLACK_)/.test(key)),
+        config: Object.fromEntries(Object.entries(publicConfig(configStore.current())).filter(([key]) => !/^(?:JIRA_|GITHUB_|SLACK_|PRE_PR_)/.test(key))),
+        overridden: Object.keys(configStore.overrides()).filter(key => !/^(?:JIRA_|GITHUB_|SLACK_|PRE_PR_)/.test(key)),
       }),
       setConfig: (key: string, value: string): { ok: true } | { ok: false; error: string } => {
         try {

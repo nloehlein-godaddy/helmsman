@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { WorkflowRetainedProviderV1 } from './workflow-providers';
 import { prepareExecution } from './prepare-run';
 
 const roots: string[] = [];
@@ -42,4 +43,19 @@ describe('prepare execution', () => {
     expect(result.task.model).toBeUndefined(); expect(result.task.effort).toBeUndefined();
   });
 
+});
+
+it('pins authored workflow settings/artifacts and rejects a changed original binding on continuation', async () => {
+  const f = await fixture();
+  const workflow: WorkflowRetainedProviderV1 = { version: 1, origin: 'external', binding: { providerId: 'example.flow/coding', pluginId: 'example.flow', artifactHash: 'c'.repeat(64), contractVersion: 1 }, settings: { marker: 'original' },
+    metadata: { version: 1, label: 'Authored', modes: ['coding'], execution: 'staged', requiredSkills: [], maxRounds: 4, stageTimeoutMinutes: 10 } };
+  const workflowRuntime = { pluginsRoot: f.root, runtimeArtifactsRoot: f.root, artifacts: [{ pluginId: 'example.flow', artifactHash: 'c'.repeat(64), packageVersion: '1.0.0', requires: [] }] };
+  const input = { runId: 'authored', runsDir: join(f.root, 'runs'), workflowDbPath: join(f.root, 'workflow.db'), task: { ...f.task, workflow, workflowRuntime }, workflow: 'coding' as const, reviewSettings: f.settings, skillsRoots: [] };
+  const initial = await prepareExecution(input);
+  expect(initial.task.promptRevision).toBe(workflow.binding.artifactHash);
+  expect(initial.reviewSettings).toMatchObject({ maxRounds: 4, stageTimeoutMinutes: 10 });
+  expect((await prepareExecution({ ...input, task: initial.task, reviewSettings: { ...f.settings, maxRounds: 1 } })).snapshotId).toBe(initial.snapshotId);
+  await expect(prepareExecution({ ...input, task: { ...initial.task, workflow: { ...workflow, settings: { marker: 'changed' } } } })).rejects.toThrow('binding differs');
+  await expect(prepareExecution({ ...input, task: { ...initial.task, workflow: undefined } })).rejects.toThrow('binding differs');
+  await expect(prepareExecution({ ...input, task: { ...initial.task, workflowRuntime: { ...workflowRuntime, artifacts: [] } } })).rejects.toThrow('artifacts');
 });

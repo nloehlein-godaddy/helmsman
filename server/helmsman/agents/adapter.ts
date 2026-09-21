@@ -3,6 +3,7 @@ import type { AgentSelectionV1 } from '../agent-providers';
 import type { ArtifactBinding } from '../execution-store';
 import type { PluginJson } from '../../../src/plugins/backend';
 import type { ExecutionHostRetainedProviderV1 } from '../execution-host-providers';
+import type { WorkflowRetainedProviderV1 } from '../workflow-providers';
 
 export interface AgentTask {
   executionHost?: ExecutionHostRetainedProviderV1;
@@ -11,6 +12,8 @@ export interface AgentTask {
   hostIsolation?: { runId: string; gatewayUrl: string; capability: string; runtimeRoot?: string };
   agentSelection?: AgentSelectionV1;
   agentRuntime?: { pluginsRoot: string; runtimeArtifactsRoot: string; artifacts: readonly ArtifactBinding[] };
+  workflow?: WorkflowRetainedProviderV1;
+  workflowRuntime?: { pluginsRoot: string; runtimeArtifactsRoot: string; artifacts: readonly ArtifactBinding[] };
   source?: { version: 1; taskSnapshotHash: string; claimId: string; instanceId: string };
   contactHints?: { explicitContactId?: string; assigneeId?: string; reporterId?: string };
   ticketId: string;

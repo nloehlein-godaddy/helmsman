@@ -2,6 +2,7 @@ import type { AgentAdapter, AgentTask } from './agents/adapter';
 import { agentProviderAdapter } from './agents/provider';
 import { parseAgentSelectionV1, type AgentSelectionV1 } from './agent-providers';
 import { loadRetainedAgentProvider } from './agent-retained-loader';
+import { loadExecutionWorkflow } from './workflow-execution';
 import type { ArtifactBinding, ExecutionSnapshotInput, ProviderBinding } from './execution-store';
 import { persistedJson, persistenceHash } from './persistence';
 
@@ -41,20 +42,36 @@ export function verifyAgentExecution(task: AgentTask, snapshot: ExecutionSnapsho
   return selection;
 }
 
-export async function loadExecutionAgents(task: Pick<AgentTask, 'agentSelection' | 'agentRuntime'>, signal?: AbortSignal): Promise<{ writer: AgentAdapter; dispose(): Promise<void> }> {
+export async function loadExecutionAgents(task: Pick<AgentTask, 'agentSelection' | 'agentRuntime' | 'workflow' | 'workflowRuntime' | 'review' | 'prBranch' | 'prePr'>,
+  signal?: AbortSignal): Promise<{ writer: AgentAdapter; dispose(): Promise<void> }> {
   const selection = parseAgentSelectionV1(task.agentSelection);
   const runtime = task.agentRuntime;
   if (!runtime) throw new Error('Retained agent runtime is unavailable');
   const loaded: Array<Awaited<ReturnType<typeof loadRetainedAgentProvider>>> = [];
-  const dispose = async () => { for (const value of loaded.splice(0).reverse()) await value.dispose(); };
+  let workflow: Awaited<ReturnType<typeof loadExecutionWorkflow>> = null;
+  let disposed = false;
+  const dispose = async () => {
+    if (disposed) return;
+    disposed = true;
+    const failures: unknown[] = [];
+    for (const value of loaded.splice(0).reverse()) {
+      try { await value.dispose(); } catch (error) { failures.push(error); }
+    }
+    if (workflow) {
+      try { await workflow.dispose(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length) throw new AggregateError(failures, 'Retained agent or workflow cleanup failed');
+  };
   try {
+    workflow = await loadExecutionWorkflow(task, signal);
     let writer: AgentAdapter | undefined;
     for (const record of new Map([selection.writer, ...selection.reviewers].map(record => [record.binding.providerId, record])).values()) {
       const value = await loadRetainedAgentProvider({ ...runtime, record, signal });
       loaded.push(value);
-      if (record.binding.providerId === selection.writer.binding.providerId) writer = agentProviderAdapter(record, value.provider);
+      if (record.binding.providerId === selection.writer.binding.providerId) writer = agentProviderAdapter(record, value.provider,
+        workflow ? renderTask => workflow!.renderPrompt(renderTask, record) : undefined);
     }
     if (!writer) throw new Error('Retained writer is unavailable');
     return { writer, dispose };
-  } catch (error) { await dispose(); throw error; }
+  } catch (error) { await dispose().catch(() => undefined); throw error; }
 }

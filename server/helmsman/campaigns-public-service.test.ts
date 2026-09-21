@@ -116,3 +116,17 @@ it('reopens an on-disk receipt after response loss and never creates a duplicate
     expect(restarted.submit(caller, command, 'org/a')).toEqual(first); expect(store.list()).toHaveLength(1);
   } finally { persistence.close(); rmSync(directory, { recursive: true, force: true }); }
 });
+
+
+it('accepts authored workflow references and delegates legacy alias availability without changing stored identities', () => {
+  const f = setup(); let available = true;
+  const service = createCampaignPublicService({ ...f.options, workflows: () => [{ ref: 'example.flow/coding@1', name: 'Authored coding' }],
+    workflowAvailable: ref => available && ['example.flow/coding@1', 'coding@1'].includes(ref) });
+  for (const workflowRef of ['example.flow/coding@1', 'coding@1']) {
+    const receipt = service.submit(caller, f.command({ version: 1, action: 'create', repo: 'org/a', name: 'Authored', workflowRef, concurrency: 1 }), 'org/a');
+    expect(receipt).toMatchObject({ status: 'succeeded', result: { kind: 'created', campaign: { workflowRef } } });
+  }
+  expect(service.list(caller, { version: 1, repo: 'org/a' }, 'org/a').workflows).toEqual([{ ref: 'example.flow/coding@1', name: 'Authored coding' }]);
+  available = false;
+  expect(service.submit(caller, f.command({ version: 1, action: 'create', repo: 'org/a', name: 'Unavailable', workflowRef: 'coding@1', concurrency: 1 }), 'org/a').status).toBe('rejected');
+});
