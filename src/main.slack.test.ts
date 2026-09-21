@@ -22,6 +22,7 @@ beforeEach(async () => {
   const snapshot = await loadDashboard();
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input), 'http://localhost');
+    if (url.pathname === '/api/context') return json({ repos: ['org/repo', 'org/other'], jiraBaseUrl: null });
     if (url.pathname === '/api/slack') return unavailable ? new Response('', { status: 503 }) : json(state);
     const read = /^\/api\/slack\/notifications\/([a-z\d_-]+)\/read$/i.exec(url.pathname);
     if (read?.[1]) {

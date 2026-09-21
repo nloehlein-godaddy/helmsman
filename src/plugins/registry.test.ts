@@ -137,4 +137,19 @@ describe('plugin page registry', () => {
     expect(() => new PluginPageRegistry([], ['/plugins/acme.costs/page'])).toThrow(PluginManifestError);
     expect(() => new PluginPageRegistry([], new Array(1))).toThrow(PluginManifestError);
   });
+
+  it('keeps root aliases and retained Helm selections unavailable for incompatible composition declarations', () => {
+    const host = new PluginPageRegistry([]);
+    host.registerSlot({ id: 'helmsman/helm-page', alias: '/helm', aliases: ['/'], defaultContributionId: 'example.helm/page' });
+    host.register({ manifestVersion: 2, id: 'example.helm', version: '1.0.0', sdkVersion: 1, panels: [],
+      pages: [{ id: 'page', title: 'Helm', slots: ['helmsman/helm-page'], panes: [],
+        composition: { id: 'example/different-layout', version: 1, accepts: [{ id: 'helmsman/helm-panel', version: 1 }] } }] });
+    expect(() => host.select('helmsman/helm-page', 'example.helm/page')).toThrow(/support/);
+    host.restoreSelection('helmsman/helm-page', 'example.helm/page');
+    expect(host.resolvePath('/')).toEqual(host.resolvePath('/helm'));
+    expect(host.resolvePath('/')?.page).toBeNull();
+    host.unregister('example.helm');
+    expect(host.resolvePath('/')?.contributionId).toBe('example.helm/page');
+    expect(() => host.registerSlot({ id: 'other/page', alias: '/other', aliases: ['/'], defaultContributionId: 'other.page/page' })).toThrow();
+  });
 });

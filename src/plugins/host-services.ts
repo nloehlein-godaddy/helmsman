@@ -1,6 +1,11 @@
 import { fetchOutcomes, saveOutcomeAssessment } from '../data/outcomeClient';
+import { createHostPullRequestReadService } from './pull-request-read-service';
+import { createHostActivityReadService } from './activity-read-service';
+import { createHostRunReadService } from './run-read-service';
+import { createHostRunCommandService } from './run-command-service';
 import type { PluginPageServices } from './services';
 import type { PricingEstimate, UsageQuery, UsageSnapshot } from './usage';
+import { createHostTaskReadService, type TaskReadScopeV1 } from './task-read-service';
 
 const object = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === 'object' && !Array.isArray(value)
   ? value as Record<string, unknown> : null;
@@ -68,7 +73,7 @@ function pricingEstimate(value: unknown): value is PricingEstimate | null {
     && (priced === 0 || Math.abs(sum - Number(data.estimatedUnreportedCostUsd)) <= Math.max(1e-9, sum * 1e-9));
 }
 
-export function createHostPageServices(lifetime: AbortSignal): PluginPageServices {
+export function createHostPageServices(lifetime: AbortSignal, scope?: () => TaskReadScopeV1, caller?: string): PluginPageServices {
   const signalFor = (signal?: AbortSignal) => AbortSignal.any([lifetime, AbortSignal.timeout(10_000), ...(signal ? [signal] : [])]);
   async function request(endpoint: string, input: UsageQuery, signal?: AbortSignal): Promise<unknown> {
     const params = new URLSearchParams({ version: String(input.version), from: input.from, to: input.to });
@@ -80,6 +85,10 @@ export function createHostPageServices(lifetime: AbortSignal): PluginPageService
   }
   return Object.freeze({
     version: 1,
+    ...(scope ? { tasks: createHostTaskReadService(lifetime, { scope }), runs: createHostRunReadService(lifetime, { scope }),
+      pullRequests: createHostPullRequestReadService(lifetime, { scope }),
+      activity: createHostActivityReadService(lifetime, { scope }),
+      ...(caller ? { runCommands: createHostRunCommandService(lifetime, { scope, caller }) } : {}) } : {}),
     usage: Object.freeze({ async query(input: UsageQuery, signal?: AbortSignal) {
       const body = await request('/api/usage/v1', input, signal);
       if (!usageSnapshot(body, input)) throw new Error('Usage response was invalid.');

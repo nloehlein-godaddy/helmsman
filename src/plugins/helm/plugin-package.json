@@ -1,0 +1,44 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.helm",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Helm",
+        "slots": [
+          "helmsman/helm-page"
+        ],
+        "panes": [],
+        "composition": {
+          "id": "helmsman/helm-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/helm-panel",
+              "version": 1
+            }
+          ]
+        },
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ]
+      }
+    ],
+    "panels": []
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {}
+}

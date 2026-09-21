@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { loadDashboard as loadMockSnapshot } from './data/mock';
 import type { DashboardResponse } from './data/live';
+import type { RunSummary } from './data/agents';
 import type { CmuxTabView } from './logic/cmuxPanel';
 import { DEFAULT_THEME_ID } from './data/themes';
 
@@ -10,6 +11,24 @@ function createView(root: HTMLElement): DashboardView {
   const view = new DashboardView(root);
   views.push(view);
   return view;
+}
+
+function prepareRunRoute(runs: RunSummary[], runId: string | null = runs[0]?.id ?? null): void {
+  const fetcher = globalThis.fetch;
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = new URL(String(input), window.location.origin);
+    if (url.pathname === '/api/runs') return Response.json({ runs, total: runs.length, limit: 25, offset: 0 });
+    if (url.pathname === '/api/agents') return Response.json({ runs });
+    const run = runs.find(item => url.pathname === `/api/agents/${item.id}`);
+    if (run) return Response.json(run);
+    return fetcher(input, init);
+  });
+  window.history.replaceState(null, '', runId ? `/runs?run=${encodeURIComponent(runId)}` : '/runs');
+}
+
+function runSummary(id = 'run-1', ticketId = 'TICK-1'): RunSummary {
+  return { id, ticketId, repo: 'acme/widgets', status: 'running', attempt: 1, prNumber: null,
+    startedAt: new Date().toISOString(), costUsd: null };
 }
 
 class FakeEventSource {
@@ -59,6 +78,7 @@ describe('DashboardView drawer survives polling', () => {
     document.documentElement.removeAttribute('style');
     document.documentElement.removeAttribute('data-theme');
     localStorage.clear();
+    window.history.replaceState(null, '', '/helm');
   });
 
   afterEach(() => {
@@ -79,14 +99,12 @@ describe('DashboardView drawer survives polling', () => {
       return { ok: true, status: 200, json: async () => payload } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([runSummary()]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
 
-    await view.refresh();
-    const launchBtn: HTMLButtonElement | null = root.querySelector<HTMLButtonElement>('.launch-btn');
-    expect(launchBtn).not.toBeNull();
+    await view.start();
 
-    launchBtn!.click();
     await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
 
     const drawer: HTMLElement | null = document.body.querySelector<HTMLElement>('.run-drawer');
@@ -101,21 +119,6 @@ describe('DashboardView drawer survives polling', () => {
     expect(FakeEventSource.instances[0].closed).toBe(false);
   });
 
-  it('launches dashboard work by its own source identity while Jira is enabled', async () => {
-    const response = await buildResponse();
-    response.jiraEnabled = true;
-    const source = { instanceId: 'local-instance', instanceRevision: 4, ref: { sourceId: 'local-collection', externalId: 'TODO-1' } };
-    response.snapshot.queue = [{ id: 'TODO-1', title: 'Local work', repo: response.snapshot.repo, priority: 'P1', status: 'backlog', source }];
-    const fetcher = vi.fn(async (input: RequestInfo | URL): Promise<Response> => Response.json(String(input).includes('/api/agents/launch') ? { runId: 'source-run' } : response));
-    globalThis.fetch = fetcher as typeof globalThis.fetch;
-    const root = document.querySelector<HTMLElement>('#app')!;
-    const view = createView(root); await view.refresh();
-    root.querySelector<HTMLButtonElement>('.launch-btn')!.click();
-    await vi.waitFor(() => expect(fetcher.mock.calls.some(([input]) => String(input).includes('/api/agents/launch'))).toBe(true));
-    const call = (fetcher.mock.calls as unknown as [RequestInfo | URL, RequestInit][]).find(([input]) => String(input).includes('/api/agents/launch'))!;
-    expect(JSON.parse(String(call[1]?.body))).toEqual({ mode: 'source', repo: response.snapshot.repo, sourceInstanceId: source.instanceId, sourceInstanceRevision: 4, workRef: source.ref });
-    view.destroy();
-  });
 
   it('renders a PR link and ticket status in the drawer footer when the run reaches the gate', async () => {
     const response: DashboardResponse = await buildResponse();
@@ -131,11 +134,12 @@ describe('DashboardView drawer survives polling', () => {
       return { ok: true, status: 200, json: async () => payload } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([{ ...runSummary(), status: 'succeeded', prNumber: 42 }]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
+    await view.start();
 
-    root.querySelector<HTMLButtonElement>('.launch-btn')!.click();
+
     await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
 
     const stream: FakeEventSource = FakeEventSource.instances[0];
@@ -152,48 +156,8 @@ describe('DashboardView drawer survives polling', () => {
     expect(footer.textContent).toContain('In inspection');
   });
 
-  it('stops a running agent without opening the drawer', async () => {
-    const response: DashboardResponse = await buildResponse();
-    const runningRun = {
-      id: 'run-42',
-      ticketId: 'TICK-42',
-      repo: 'acme/widgets',
-      status: 'running',
-      attempt: 1,
-      prNumber: null,
-      startedAt: new Date().toISOString(),
-      costUsd: null,
-    };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-      const url: string = String(input);
-      if (url.includes('/stop')) return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
-      if (url.includes('/api/agents')) {
-        return { ok: true, status: 200, json: async () => ({ runs: [runningRun] }) } as unknown as Response;
-      }
-      return { ok: true, status: 200, json: async () => response } as unknown as Response;
-    });
-    globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
-    const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = createView(root);
-    await view.refresh();
-
-    const stopBtn: HTMLButtonElement | null = root.querySelector<HTMLButtonElement>('.agent-stop');
-    expect(stopBtn).not.toBeNull();
-    stopBtn!.click();
-
-    await vi.waitFor(() => {
-      expect(fetchMock.mock.calls.some(([requestInput]) => String(requestInput).includes('/run-42/stop'))).toBe(true);
-    });
-
-    const emptyDrawer: HTMLElement = document.body.querySelector<HTMLElement>('.run-drawer')!;
-    expect(emptyDrawer.hidden).toBe(false);
-    expect(emptyDrawer.querySelectorAll('.run-tab').length).toBe(0);
-    expect(emptyDrawer.querySelector('.run-drawer-empty')).not.toBeNull();
-    expect(FakeEventSource.instances).toHaveLength(0);
-  });
-
-  it('opens the drawer and streams logs when a running-agent row is clicked', async () => {
+  it('opens the drawer and streams logs from a running-run deep link', async () => {
     const response: DashboardResponse = await buildResponse();
     const runningRun = {
       id: 'run-77',
@@ -213,13 +177,12 @@ describe('DashboardView drawer survives polling', () => {
       return { ok: true, status: 200, json: async () => response } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([runningRun]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
+    await view.start();
 
-    const row: HTMLElement | null = root.querySelector<HTMLElement>('.agent-row');
-    expect(row).not.toBeNull();
-    row!.click();
+
 
     await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
     expect(FakeEventSource.instances[0].url).toContain('run-77');
@@ -237,11 +200,12 @@ describe('DashboardView drawer survives polling', () => {
       return { ok: true, status: 200, json: async () => payload } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([runSummary()]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
+    await view.start();
 
-    root.querySelector<HTMLButtonElement>('.launch-btn')!.click();
+
     await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
 
     const drawer: HTMLElement = document.body.querySelector<HTMLElement>('.run-drawer')!;
@@ -254,123 +218,12 @@ describe('DashboardView drawer survives polling', () => {
     expect(FakeEventSource.instances[0].closed).toBe(true);
   });
 
-  it('launches a free-form run, posts the expected body, and opens the drawer', async () => {
-    const response: DashboardResponse = await buildResponse();
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
-      const url: string = String(input);
-      if (url.includes('/api/agents/launch')) {
-        return { ok: true, status: 200, json: async () => ({ runId: 'run-99' }) } as unknown as Response;
-      }
-      if (url.includes('/api/config')) {
-        return { ok: true, status: 200, json: async () => ({ config: {}, overridden: [] }) } as unknown as Response;
-      }
-      return { ok: true, status: 200, json: async () => response } as unknown as Response;
-    });
-    globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
-    const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = createView(root);
-    await view.refresh();
 
-    const freeformRadio: HTMLInputElement | null = root.querySelector<HTMLInputElement>(
-      'input.newrun-mode[value="freeform"]',
-    );
-    expect(freeformRadio).not.toBeNull();
-    freeformRadio!.checked = true;
-    freeformRadio!.dispatchEvent(new Event('change'));
 
-    const repoSelect: HTMLSelectElement = root.querySelector<HTMLSelectElement>('.newrun-repo')!;
-    repoSelect.value = response.snapshot.repo;
-    const taskInput: HTMLTextAreaElement = root.querySelector<HTMLTextAreaElement>('.newrun-task')!;
-    taskInput.value = 'Write a changelog';
 
-    root.querySelector<HTMLButtonElement>('.newrun-launch')!.click();
 
-    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
-
-    const launchCall = fetchMock.mock.calls.find(([requestInput]) => String(requestInput).includes('/api/agents/launch'));
-    expect(launchCall).toBeDefined();
-    const launchBody: unknown = JSON.parse((launchCall![1] as RequestInit).body as string);
-    expect(launchBody).toMatchObject({ repo: response.snapshot.repo, task: 'Write a changelog', mode: 'freeform' });
-
-    const drawer: HTMLElement = document.body.querySelector<HTMLElement>('.run-drawer')!;
-    expect(drawer.hidden).toBe(false);
-    expect(FakeEventSource.instances[0].url).toContain('run-99');
-  });
-
-  it('does not launch or open the drawer when the ticket ID is blank in ticket mode', async () => {
-    const response: DashboardResponse = await buildResponse();
-    const fetchMock = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-      const url: string = String(input);
-      if (url.includes('/api/config')) {
-        return { ok: true, status: 200, json: async () => ({ config: {}, overridden: [] }) } as unknown as Response;
-      }
-      return { ok: true, status: 200, json: async () => response } as unknown as Response;
-    });
-    globalThis.fetch = fetchMock as typeof globalThis.fetch;
-
-    const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = createView(root);
-    await view.refresh();
-
-    const repoSelect: HTMLSelectElement = root.querySelector<HTMLSelectElement>('.newrun-repo')!;
-    repoSelect.value = response.snapshot.repo;
-    const ticketInput: HTMLInputElement = root.querySelector<HTMLInputElement>('.newrun-ticket')!;
-    ticketInput.value = '';
-
-    root.querySelector<HTMLButtonElement>('.newrun-launch')!.click();
-    await Promise.resolve();
-
-    expect(fetchMock.mock.calls.some(([requestInput]) => String(requestInput).includes('/api/agents/launch'))).toBe(
-      false,
-    );
-    const emptyDrawer: HTMLElement = document.body.querySelector<HTMLElement>('.run-drawer')!;
-    expect(emptyDrawer.hidden).toBe(false);
-    expect(emptyDrawer.querySelectorAll('.run-tab').length).toBe(0);
-    expect(emptyDrawer.querySelector('.run-drawer-empty')).not.toBeNull();
-    expect(FakeEventSource.instances).toHaveLength(0);
-  });
-
-  it('does not launch or open the drawer when the task is blank in free-form mode', async () => {
-    const response: DashboardResponse = await buildResponse();
-    const fetchMock = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-      const url: string = String(input);
-      if (url.includes('/api/config')) {
-        return { ok: true, status: 200, json: async () => ({ config: {}, overridden: [] }) } as unknown as Response;
-      }
-      return { ok: true, status: 200, json: async () => response } as unknown as Response;
-    });
-    globalThis.fetch = fetchMock as typeof globalThis.fetch;
-
-    const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = createView(root);
-    await view.refresh();
-
-    const freeformRadio: HTMLInputElement = root.querySelector<HTMLInputElement>(
-      'input.newrun-mode[value="freeform"]',
-    )!;
-    freeformRadio.checked = true;
-    freeformRadio.dispatchEvent(new Event('change'));
-
-    const repoSelect: HTMLSelectElement = root.querySelector<HTMLSelectElement>('.newrun-repo')!;
-    repoSelect.value = response.snapshot.repo;
-    const taskInput: HTMLTextAreaElement = root.querySelector<HTMLTextAreaElement>('.newrun-task')!;
-    taskInput.value = '';
-
-    root.querySelector<HTMLButtonElement>('.newrun-launch')!.click();
-    await Promise.resolve();
-
-    expect(fetchMock.mock.calls.some(([requestInput]) => String(requestInput).includes('/api/agents/launch'))).toBe(
-      false,
-    );
-    const emptyDrawer: HTMLElement = document.body.querySelector<HTMLElement>('.run-drawer')!;
-    expect(emptyDrawer.hidden).toBe(false);
-    expect(emptyDrawer.querySelectorAll('.run-tab').length).toBe(0);
-    expect(emptyDrawer.querySelector('.run-drawer-empty')).not.toBeNull();
-    expect(FakeEventSource.instances).toHaveLength(0);
-  });
-
-  it('opens the drawer and streams logs when a recent-run row is clicked', async () => {
+  it('opens the drawer and streams logs from a completed-run deep link', async () => {
     const response: DashboardResponse = await buildResponse();
     const terminalRun = {
       id: 'run-88',
@@ -393,13 +246,12 @@ describe('DashboardView drawer survives polling', () => {
       return { ok: true, status: 200, json: async () => response } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([terminalRun]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
+    await view.start();
 
-    const row: HTMLElement | null = root.querySelector<HTMLElement>('.recent-run');
-    expect(row).not.toBeNull();
-    row!.click();
+
 
     await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
     expect(FakeEventSource.instances[0].url).toContain('run-88');
@@ -889,7 +741,7 @@ describe('DashboardView drawer survives polling', () => {
     });
   });
 
-  it('submits an APPROVE review from the drawer PR panel opened via a recent-run row click', async () => {
+  it('submits an APPROVE review from the drawer PR panel opened via a run deep link', async () => {
     const response: DashboardResponse = await buildResponse();
     const terminalRunWithPr = {
       id: 'run-55',
@@ -931,13 +783,12 @@ describe('DashboardView drawer survives polling', () => {
     });
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
 
+    prepareRunRoute([terminalRunWithPr]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
+    await view.start();
 
-    const row: HTMLElement | null = root.querySelector<HTMLElement>('.recent-run');
-    expect(row).not.toBeNull();
-    row!.click();
+
 
     const drawer: HTMLElement = document.body.querySelector<HTMLElement>('.run-drawer')!;
     await vi.waitFor(() => {
@@ -1583,6 +1434,7 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     document.documentElement.removeAttribute('style');
     document.documentElement.removeAttribute('data-theme');
     localStorage.clear();
+    window.history.replaceState(null, '', '/helm');
   });
 
   afterEach(() => {
@@ -1623,13 +1475,12 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
       return { ok: true, status: 200, json: async () => response } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([runningRun('run-a', 'TICK-A'), runningRun('run-b', 'TICK-B')]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
+    await view.start();
 
-    const rows: NodeListOf<HTMLElement> = root.querySelectorAll<HTMLElement>('.agent-row');
-    expect(rows.length).toBe(2);
-    rows[0].click();
+
     await vi.waitFor(() => expect(root.querySelector('[data-page="runs"]')).not.toBeNull());
     await vi.waitFor(() => expect(root.querySelector('.recent-run[data-runid="run-b"]')).not.toBeNull());
     root.querySelector<HTMLElement>('.recent-run[data-runid="run-b"]')!.click();
@@ -1664,12 +1515,12 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
       return { ok: true, status: 200, json: async () => response } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([runningRun('run-a', 'TICK-A'), runningRun('run-b', 'TICK-B')]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
+    await view.start();
 
-    const rows: NodeListOf<HTMLElement> = root.querySelectorAll<HTMLElement>('.agent-row');
-    rows[0].click();
+
     await vi.waitFor(() => expect(root.querySelector('[data-page="runs"]')).not.toBeNull());
     await vi.waitFor(() => expect(root.querySelector('.recent-run[data-runid="run-b"]')).not.toBeNull());
     root.querySelector<HTMLElement>('.recent-run[data-runid="run-b"]')!.click();
@@ -1687,27 +1538,6 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     expect(FakeEventSource.instances.every((s) => s.closed)).toBe(true);
   });
 
-  it('collapses a rack faceplate and persists the layout', async () => {
-    const response: DashboardResponse = await buildResponse();
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-      const url: string = String(input);
-      if (url.includes('/api/config')) return { ok: true, status: 200, json: async () => ({ config: { A: '1' }, overridden: [] }) } as unknown as Response;
-      if (url.includes('/api/agents')) return { ok: true, status: 200, json: async () => ({ runs: [] }) } as unknown as Response;
-      return { ok: true, status: 200, json: async () => response } as unknown as Response;
-    }) as typeof globalThis.fetch;
-
-    const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = createView(root);
-    await view.refresh();
-
-    const plate = (): HTMLElement | null => root.querySelector<HTMLElement>('.faceplate[data-panel="shipped"]');
-    expect(plate()!.classList.contains('is-collapsed')).toBe(false);
-    plate()!.querySelector<HTMLButtonElement>('.panel-collapse')!.click();
-    expect(plate()!.classList.contains('is-collapsed')).toBe(true);
-    expect(localStorage.getItem('helmsman.rackLayout')).toContain('"collapsed":true');
-    plate()!.querySelector<HTMLButtonElement>('.panel-collapse')!.click();
-    expect(plate()!.classList.contains('is-collapsed')).toBe(false);
-  });
 
   it('keeps successful recent voyages accessible without retry or relaunch actions', async () => {
     const response: DashboardResponse = await buildResponse();
@@ -1719,9 +1549,10 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
       return { ok: true, status: 200, json: async () => response } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([terminalRun], null);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
+    await view.start();
 
     const row = root.querySelector('.recent-run[data-runid="run-9"]');
     expect(row).not.toBeNull();
@@ -1729,42 +1560,6 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     expect(row?.querySelector('.runs-voyage-link')?.getAttribute('href')).toBe('/runs?run=run-9');
   });
 
-  it('launches an underway ticket without a branch using the full selected repo and shows its log', async () => {
-    const response = await buildResponse();
-    response.repos = ['gdcorp-partners/airo-app-builder'];
-    response.selectedRepo = response.repos[0];
-    const triagePayload = {
-      groups: {
-        unassignedBacklog: [], unassignedTodo: [],
-        mineOpen: [{ id: 'AIROBUILD-6319', title: 'Finish in-progress work', priority: 'P2', status: 'in-progress', repo: 'airo-app-builder' }],
-      },
-      degraded: false, selectedRepo: response.selectedRepo, jiraBaseUrl: null,
-    };
-    const launches: unknown[] = [];
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const url = String(input);
-      let payload: unknown = response;
-      if (url.includes('/api/triage')) payload = triagePayload;
-      else if (url.includes('/api/config')) payload = { config: {}, overridden: [] };
-      else if (url === '/api/agents/launch') {
-        launches.push(JSON.parse(String(init?.body)));
-        payload = { runId: 'run-underway' };
-      } else if (url.includes('/api/agents')) payload = { runs: [] };
-      return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } });
-    });
-    const root = document.querySelector<HTMLElement>('#app')!;
-    const view = createView(root);
-    await view.refresh();
-    root.querySelector<HTMLAnchorElement>('[data-view=triage]')!.click();
-    await vi.waitFor(() => expect(root.querySelector('.launch-btn[data-ticket="AIROBUILD-6319"]')).not.toBeNull());
-    root.querySelector<HTMLButtonElement>('.launch-btn[data-ticket="AIROBUILD-6319"]')!.click();
-    await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
-    expect(launches).toEqual([{ ticketId: 'AIROBUILD-6319', title: 'Finish in-progress work', repo: 'gdcorp-partners/airo-app-builder', mode: 'ticket' }]);
-    expect(root.querySelector('.triage-view .runs-drawer-slot .run-tab.is-active')?.textContent).toContain('AIROBUILD-6319');
-    expect(FakeEventSource.instances[0]?.url).toBe('/api/agents/run-underway/log');
-    expect(new URL(window.location.href).searchParams.get('run')).toBe('run-underway');
-    view.destroy();
-  });
 
   it('collapses a triage group, persists it, and survives a repaint', async () => {
     const response: DashboardResponse = await buildResponse();
@@ -1826,10 +1621,11 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
       return { ok: true, status: 200, json: async () => response } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([runningRun('run-a', 'TICK-A')]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
-    root.querySelector<HTMLElement>('.agent-row')!.click();
+    await view.start();
+
     await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
 
     const drawer: HTMLElement = document.body.querySelector<HTMLElement>('.run-drawer')!;
@@ -1841,9 +1637,10 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     expect(reviewLaunches).toBe(1);
   });
 
-  it('persists repo scope and re-requests it on a fresh view', async () => {
+  it('persists galleon scope and restores the header on a fresh view', async () => {
     const response: DashboardResponse = await buildResponse();
     const scoped: string[] = ['acme/widgets', 'acme/other'];
+    response.repos = scoped;
     const fetchMock = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url: string = String(input);
       if (url.includes('/api/dashboard')) {
@@ -1865,11 +1662,13 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     select.dispatchEvent(new Event('change', { bubbles: true }));
     await vi.waitFor(() => expect(localStorage.getItem('runner.repoScope')).toBe('acme/other'));
 
+    view.destroy();
     document.body.innerHTML = '<div id="app"></div>';
     const root2: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view2: DashboardView = createView(root2);
-    await view2.refresh();
-    expect(fetchMock.mock.calls.some(([i]) => String(i).includes('/api/dashboard?repo=acme%2Fother'))).toBe(true);
+    await view2.start();
+    expect(root2.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('acme/other');
+    expect(new URL(window.location.href).searchParams.get('repo')).toBe('acme/other');
   });
 
   it('keeps the log pinned to the bottom across repaints, but honors a user scroll-back', async () => {
@@ -1880,10 +1679,11 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
       return { ok: true, status: 200, json: async () => response } as unknown as Response;
     }) as typeof globalThis.fetch;
 
+    prepareRunRoute([runningRun('run-a', 'TICK-A')]);
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
     const view: DashboardView = createView(root);
-    await view.refresh();
-    root.querySelector<HTMLElement>('.agent-row')!.click();
+    await view.start();
+
     await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
 
     const body: HTMLElement = document.body.querySelector<HTMLElement>('.run-drawer-body')!;

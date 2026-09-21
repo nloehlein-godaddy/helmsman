@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { parseLocalTaskDocumentV1, parseSourceBindingV1, parseSourceMutationPlanV1, parseTaskPageV1, parseTaskSnapshotV1, type TaskSnapshotV1 } from './tasks';
+import { parseLocalTaskDocumentV1, parseSourceBindingV1, parseSourceMutationPlanV1, parseTaskPageV1, parseTaskSnapshotV1, validateTaskSourceProvider, type TaskSnapshotV1 } from './tasks';
 const ref = { sourceId: '00000000-0000-4000-8000-000000000001', externalId: 'TODO-1' };
 const task: TaskSnapshotV1 = { version: 1, ref, revision: '1', displayKey: 'TODO-1', title: 'Work', repo: 'owner/project', url: null, state: 'ready', priority: 2, requirements: { description: 'Do it', acceptanceCriteria: [], links: [] }, providerData: { version: 1 } };
 describe('public task source protocol', () => {
+  it('requires an implemented read view when declared while allowing legacy providers', () => {
+    const provider = Object.fromEntries(['identify', 'list', 'lookup', 'load', 'planClaim', 'planCompletion', 'planAbort', 'validateAdoption'].map(name => [name, () => {}]));
+    const declaration = { identityFormats: ['helmsman.local-task/v1'], effectIds: [], commandIds: [], access: [] };
+    expect(() => validateTaskSourceProvider({ ...provider, effects: {} }, declaration)).not.toThrow();
+    expect(() => validateTaskSourceProvider({ ...provider, effects: {} }, { ...declaration, readViews: ['underway'] })).toThrow();
+    expect(() => validateTaskSourceProvider({ ...provider, effects: {}, listUnderway() {} }, { ...declaration, readViews: ['underway'] })).not.toThrow();
+    expect(() => validateTaskSourceProvider({ ...provider, effects: {} }, { ...declaration, readViews: ['history'] })).toThrow();
+    expect(() => validateTaskSourceProvider({ ...provider, effects: {}, readHistory() {} }, { ...declaration, readViews: ['history'] })).not.toThrow();
+  });
   it('copies and freezes accepted values while rejecting malformed or secret data', () => {
     const parsed = parseTaskSnapshotV1(task); expect(Object.isFrozen(parsed.requirements)).toBe(true); expect(parsed).toEqual(task);
     for (const input of [null, { ...task, ref: null }, { ...task, priority: NaN }, { ...task, providerData: { version: 1, token: 'secret' } }, { ...task, repo: '../escape' }, { ...task, url: 'javascript:alert(1)' }, { ...task, requirements: { ...task.requirements, acceptanceCriteria: new Array(1) } }]) expect(() => parseTaskSnapshotV1(input)).toThrow();

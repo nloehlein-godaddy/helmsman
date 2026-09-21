@@ -147,7 +147,7 @@ async function copyDependencies(staging, dependencies) {
 
 async function buildSdk(destination, version) {
   const sourceRoot = join(root, 'src', 'plugins');
-  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts']);
+  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'run-read.ts', 'run-command.ts', 'pull-request-read.ts', 'activity-read.ts']);
   const queued = new Set([join(sourceRoot, 'sdk.ts')]);
   await mkdir(destination);
   for (const source of queued) {
@@ -218,11 +218,11 @@ export async function buildDistribution(options = {}) {
     }
     await cp(join(root, 'dist'), join(staging, 'dist'), { recursive: true });
     await mkdir(join(staging, 'docs'), { recursive: true });
-    for (const name of ['task-source-authoring.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md']) {
+    for (const name of ['panel-authoring.md', 'task-source-authoring.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md']) {
       if (await exists(join(root, 'docs', name))) await cp(join(root, 'docs', name), join(staging, 'docs', name));
     }
     await cp(join(root, 'examples'), join(staging, 'examples'), { recursive: true });
-    for (const name of ['costs', 'pricing', 'todos', 'jira', 'local-tasks-alternative']) await cp(join(root, 'src', 'plugins', name), join(staging, 'plugin-sources', name), {
+    for (const name of ['costs', 'pricing', 'todos', 'jira', 'local-tasks-alternative', 'helm', 'backlog', 'helm-alternative', 'backlog-alternative', 'running', 'recent', 'underway', 'newrun', 'repoprs', 'shipped', 'activity']) await cp(join(root, 'src', 'plugins', name), join(staging, 'plugin-sources', name), {
       recursive: true, filter: path => !/\.test\.ts$/.test(path) && !relative(join(root, 'src', 'plugins', name), path).split(sep).some(part => ['node_modules', 'dist'].includes(part)),
     });
     await cp(join(root, 'docker'), join(staging, 'docker'), { recursive: true });

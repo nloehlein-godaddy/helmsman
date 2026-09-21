@@ -4,8 +4,24 @@ import { parseRoute, routeHref, type AppRoute, type PageView } from './routes';
 const parse = (href: string) => parseRoute(new URL(href, 'https://helmsman.example'));
 
 describe('routes', () => {
+  it('retains a missing panel locator and namespaced route state across scope changes', () => {
+    const state = JSON.stringify({ 'example.missing/panel': { version: 2, value: { filter: 'mine' } } });
+    const route = parse(`/plugins/example.missing/page?repo=org/a&panel=instance-one&panelState=${encodeURIComponent(state)}`);
+    expect(route).toMatchObject({ view: 'plugin', panelInstance: 'instance-one', panelState: state });
+    expect(parse(routeHref({ ...route, repo: 'org/b' }))).toMatchObject({ repo: 'org/b', panelInstance: 'instance-one', panelState: state });
+  });
+
+  it('rejects malformed or unbounded panel route data without deleting unrelated scope', () => {
+    expect(parse('/plugins/example.missing/page?repo=org/a&panel=../escape')).toMatchObject({ repo: 'org/a' });
+    expect(parse('/plugins/example.missing/page?panel=../escape').panelInstance).toBeUndefined();
+    for (const state of ['[]', '{"invalid":{}}', JSON.stringify({ 'example.panel/panel': { version: 1, value: 'x'.repeat(8192) } })]) {
+      expect(parse(`/plugins/example.missing/page?repo=org/a&panel=instance&panelState=${encodeURIComponent(state)}`))
+        .toMatchObject({ repo: 'org/a', panelInstance: 'instance', panelState: null });
+    }
+  });
+
   it.each([
-    ['/', 'dashboard'], ['/helm', 'dashboard'], ['/triage', 'triage'],
+    ['/', 'plugin'], ['/helm', 'plugin'], ['/triage', 'triage'],
     ['/terminal', 'cmux'], ['/terminal/', 'cmux'], ['/cmux', 'cmux'], ['/bugs', 'bugs'], ['/prs', 'prs'], ['/pr', 'prs'],
     ['/config', 'config'], ['/runs', 'runs'], ['/runs/', 'runs'], ['/unknown', 'dashboard'],
     ['/todos', 'todos'], ['/todos/', 'todos'],
@@ -15,7 +31,7 @@ describe('routes', () => {
 
   it('returns explicit nulls for absent parameters', () => {
     expect(parse('/')).toEqual({
-      view: 'dashboard', repo: null, prRepo: null, pane: null, pr: null, run: null,
+      view: 'plugin', pluginPage: 'helmsman.helm/page', pluginSlot: 'helmsman/helm-page', repo: null, prRepo: null, pane: null, pr: null, run: null,
       mode: null, ticket: null, surface: null,
     });
   });
@@ -150,5 +166,36 @@ describe('routes', () => {
     };
     expect(parse(`${routeHref(route)}&unused=1#other`)).toEqual(route);
     expect(routeHref(parse(`${routeHref(route)}&unused=1#other`))).toBe(routeHref(route));
+  });
+});
+
+describe('Helm legacy panel links', () => {
+  it.each(['underway', 'newrun', 'backlog', 'running', 'repoprs', 'recent', 'activity', 'shipped'])('retains %s with a contribution fallback across serialization', pane => {
+    const route = parse(`/helm?repo=org/a&pane=${pane}`);
+    expect(route).toMatchObject({ view: 'plugin', pane, panelInstance: pane, panelContribution: `helmsman.${pane}/panel` });
+    expect(parse(routeHref(route))).toEqual(route);
+    expect(routeHref(route)).not.toContain('panel=');
+  });
+  it('maps the retired personal PR pane to repository PRs', () => {
+    expect(parse('/helm?pane=myprs')).toMatchObject({ pane: 'repoprs', panelInstance: 'repoprs', panelContribution: 'helmsman.repoprs/panel' });
+  });
+  it('retains a normalized legacy ticket as a launch-panel hint', () => {
+    const route = parse('/helm?ticket=task-42');
+    expect(route).toMatchObject({ ticket: 'TASK-42', pane: 'newrun', panelInstance: 'newrun', panelContribution: 'helmsman.newrun/panel' });
+    expect(parse(routeHref(route))).toEqual(route);
+    expect(parse('/helm?ticket=bad').panelInstance).toBeUndefined();
+  });
+  it('keeps explicit instance selection authoritative', () => {
+    const route = parse('/helm?pane=newrun&ticket=TASK-42&panel=saved-panel');
+    expect(route).toMatchObject({ panelInstance: 'saved-panel', ticket: 'TASK-42' });
+    expect(route.panelContribution).toBeUndefined();
+    expect(parse(routeHref(route))).toEqual(route);
+  });
+  it.each(['/helm', '/plugins/example.unavailable/page'])('preserves namespaced state without an instance locator at %s', path => {
+    const state = JSON.stringify({ 'example.unavailable/panel': { version: 2, value: { draft: 'keep' } } });
+    const route = parse(`${path}?panelState=${encodeURIComponent(state)}`);
+    expect(route.panelState).toBe(state);
+    expect(route.panelInstance).toBeUndefined();
+    expect(parse(routeHref(route))).toEqual(route);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleTaskSourceApi } from './task-source-routes';
-import type { TaskSourceService } from './task-source-service';
+import { TaskSourceViewUnavailableError, type TaskSourceService } from './task-source-service';
 import type { TaskSourceSchedule } from './task-source-schedule';
 import { PersistenceConflictError } from './persistence';
 const instanceId = '00000000-0000-4000-8000-000000000001';
@@ -20,6 +20,16 @@ function setup() {
   return { invoke, list, load, assertLaunch, launch, service, configure, validate, commit, schedule };
 }
 describe('task source HTTP routes', () => {
+  it('routes explicit Underway queries separately and rejects conflicting filters', async () => {
+    const f = setup(); f.service.listUnderway = vi.fn(async () => ({ items: [], nextCursor: null }));
+    const query = new URLSearchParams({ repo: 'owner/project', revision: '1', view: 'underway' });
+    expect((await f.invoke(`/api/task-sources/${instanceId}/tasks`, 'GET', null, query))?.status).toBe(200);
+    expect(f.service.listUnderway).toHaveBeenCalledWith({ instanceId, instanceRevision: 1, repo: 'owner/project', cursor: null, limit: 50 }, expect.any(AbortSignal));
+    expect(f.list).not.toHaveBeenCalled(); query.set('state', 'in_progress');
+    expect((await f.invoke(`/api/task-sources/${instanceId}/tasks`, 'GET', null, query))?.status).toBe(400);
+    query.delete('state'); f.service.listUnderway = vi.fn(async () => { throw new TaskSourceViewUnavailableError('Unavailable view'); });
+    expect((await f.invoke(`/api/task-sources/${instanceId}/tasks`, 'GET', null, query))?.status).toBe(501);
+  });
   it('preserves scope and revisions and passes canonical work references to launch', async () => {
     const f = setup(); await f.invoke(`/api/task-sources/${instanceId}/tasks`);
     expect(f.list).toHaveBeenCalledWith({ instanceId, instanceRevision: 1, repo: 'owner/project', state: null, cursor: null, limit: 50 }, expect.any(AbortSignal));

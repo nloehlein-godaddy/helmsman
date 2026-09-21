@@ -32,7 +32,7 @@ export async function validatePluginImports(archive: PluginArchive): Promise<voi
     for (const path of visited) for (const target of graph.get(path) ?? []) visited.add(target);
     return visited;
   };
-  const browser = reachable(Object.values(archive.package.entries));
+  const browser = reachable([...Object.values(archive.package.entries), ...Object.values(archive.package.panelEntries ?? {})]);
   const backend = reachable(archive.package.backend ? [archive.package.backend.entry] : []);
   for (const path of builtins) if (!backend.has(path) || browser.has(path)) throw new Error(`${path}: Node built-ins are restricted to backend modules.`);
   if (archive.package.backend) {

@@ -15,11 +15,11 @@ let root: string;
 let persistence: Persistence;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'helmsman-source-service-')); persistence = openPersistence(join(root, 'main.sqlite')); });
 afterEach(() => { persistence.close(); rmSync(root, { recursive: true, force: true }); });
-function setup(provider: TaskSourceProviderV1 = todosProvider) {
+function setup(provider: TaskSourceProviderV1 = todosProvider, readViews?: readonly ('underway' | 'history')[]) {
   const store = openTaskSourceStore(persistence);
   const registry = createTaskSourceRegistry({ eligible: () => true });
   const binding = { providerId: 'example.todos/todos', pluginId: 'example.todos', artifactHash: 'a'.repeat(64), contractVersion: 1 as const, connectionId: null, credentialHandle: null };
-  registry.publish([registry.stage(binding, { identityFormats: ['helmsman.local-task/v1'], effectIds: [], commandIds: ['create', 'update', 'delete'], access: ['local-records'] }, provider)]);
+  registry.publish([registry.stage(binding, { identityFormats: ['helmsman.local-task/v1'], effectIds: [], commandIds: ['create', 'update', 'delete'], access: ['local-records'], ...(readViews ? { readViews } : {}) }, provider)]);
   const { source, instance } = store.provision({ provisioningKey: 'local', label: 'Tasks', identityEvidence: { version: 1, level: 'verified', authority: { protocol: 'local', authorityId: 'collection', identityFormat: 'helmsman.local-task/v1' }, verifiedAt: '2026-09-20T00:00:00Z', proof: {} }, storageLayout: 'documents', binding, settings: {}, allowedRepos: ['owner/project'] });
   persistence.transaction(() => writeTaskSource(store, { ...source, conversionReady: true }));
   const service = createTaskSourceService({ store, registry, local: openLocalSourceAdapter(store), http: () => { throw new Error('Undeclared HTTP'); } });
@@ -28,6 +28,21 @@ function setup(provider: TaskSourceProviderV1 = todosProvider) {
 }
 
 describe('core task source services', () => {
+  it('requires explicit Underway declaration instead of falling back to the default list', async () => {
+    const f = setup();
+    await expect(f.service.listUnderway({ ...f.scope, cursor: null, limit: 10 }, f.signal)).rejects.toThrow('does not provide');
+    expect(f.service.instances(f.scope.repo)[0]?.readViews).toEqual([]);
+  });
+  it('dispatches declared Underway views and fences results after source disablement', async () => {
+    let disable: (() => void) | undefined;
+    const view = vi.fn<NonNullable<TaskSourceProviderV1['listUnderway']>>(async () => { disable?.(); return { items: [], nextCursor: null }; });
+    const f = setup({ ...todosProvider, listUnderway: view }, ['underway']);
+    expect(f.service.instances(f.scope.repo)[0]?.readViews).toEqual(['underway']);
+    expect(await f.service.listUnderway({ ...f.scope, cursor: null, limit: 10 }, f.signal)).toEqual({ items: [], nextCursor: null });
+    expect(view).toHaveBeenCalledWith({ repo: f.scope.repo, cursor: null, limit: 10 }, expect.objectContaining({ repo: f.scope.repo }));
+    disable = () => { f.store.configureInstance({ instanceId: f.instance.id, expectedRevision: 1, desiredEnabled: false }); };
+    await expect(f.service.listUnderway({ ...f.scope, cursor: null, limit: 10 }, f.signal)).rejects.toThrow('selection changed');
+  });
   it('runs the public Todo provider through host records, commands and source-scoped discovery', async () => {
     const { service, scope, signal, instance } = setup();
     const created = await service.command({ ...scope, commandId: 'create', requestId: 'create-1', input: { title: 'Task', repo: scope.repo, description: 'Requirements' } }, signal);
@@ -81,4 +96,18 @@ it('validates launch scope and quarantine synchronously without provider calls b
   expect(() => f.service.assertLaunch({ ...input, ref: { ...input.ref, sourceId: '22222222-2222-4222-8222-222222222222' } })).toThrow('another source');
   f.store.quarantine({ sourceId: f.source.id, externalId: input.ref.externalId, displayKey: null, reason: 'Historical ownership', evidence: null });
   expect(() => f.service.assertLaunch(input)).toThrow('quarantined'); expect(load).not.toHaveBeenCalled();
+});
+
+
+it('requires declared source history and fences immutable results after source revision changes', async () => {
+  const query = { from: '2026-09-14T00:00:00.000Z', until: '2026-09-20T12:00:00.000Z', eventLimit: 50 };
+  const legacy = setup(); await expect(legacy.service.readHistory({ ...legacy.scope, ...query }, legacy.signal)).rejects.toThrow('does not provide');
+  let disable: (() => void) | undefined;
+  const provider = { ...todosProvider, readHistory: async (input: Parameters<NonNullable<TaskSourceProviderV1['readHistory']>>[0], context: Parameters<NonNullable<TaskSourceProviderV1['readHistory']>>[1]) => {
+    const result = await todosProvider.readHistory!(input, context); disable?.(); return result;
+  } };
+  const f = setup(provider, ['history']);
+  expect((await f.service.readHistory({ ...f.scope, ...query }, f.signal)).throughputQuality).toBe('complete');
+  disable = () => { f.store.configureInstance({ instanceId: f.instance.id, expectedRevision: 1, desiredEnabled: false }); };
+  await expect(f.service.readHistory({ ...f.scope, ...query }, f.signal)).rejects.toThrow('selection changed');
 });

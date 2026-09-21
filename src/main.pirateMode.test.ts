@@ -45,35 +45,6 @@ const toggle = (enabled: boolean) => {
 };
 
 describe('Pirate mode and greeting', () => {
-  it('preserves an unsaved Helm task, mode, repository override, and tuning when toggled in the footer', async () => {
-    window.history.replaceState(null, '', '/helm?repo=org/app');
-    await start();
-    expect(document.querySelector('.app-footer button[data-pirate-mode]')).not.toBeNull();
-    const values = [
-      ['.newrun-ticket', 'ABC-42'], ['.newrun-title', 'My PR review title'],
-      ['.newrun-task', 'Review the agent output\nKeep this unsent task.'],
-      ['.newrun-repo', 'org/other'], ['.newrun-model', 'gpt-5.6-sol'], ['.newrun-effort', 'xhigh'],
-    ] as const;
-    for (const [selector, value] of values) {
-      const field = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
-      expect(field, selector).not.toBeNull();
-      field!.value = value;
-      field!.dispatchEvent(new Event('input', { bubbles: true }));
-      field!.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    document.querySelector<HTMLInputElement>('.newrun-mode[value=freeform]')!.click();
-    for (const enabled of [false, true]) {
-      toggle(enabled);
-      expect(document.querySelector('button[data-pirate-mode]')?.getAttribute('aria-pressed')).toBe(String(enabled));
-      for (const [selector, value] of values) {
-        expect(document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector)?.value, selector).toBe(value);
-      }
-      expect(document.querySelector<HTMLInputElement>('.newrun-mode[value=freeform]')?.checked).toBe(true);
-      expect(document.querySelector<HTMLInputElement>('.newrun-mode[value=ticket]')?.checked).toBe(false);
-      expect(document.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/app');
-    }
-    expect(vi.mocked(fetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
-  });
 
   it('preserves unsent PR lookup, review, feedback and tuning fields across mode changes', async () => {
     window.history.replaceState(null, '', '/prs?repo=org/app&pr=42');
@@ -139,32 +110,6 @@ describe('Pirate mode and greeting', () => {
     expect(document.querySelector('[data-greeting]')?.textContent).toBe('Hello, Pat <img src=x>!');
   });
 
-  it('blocks mode changes during a pending launch without creating a duplicate voyage', async () => {
-    window.history.replaceState(null, '', '/helm?repo=org/app');
-    await start();
-    document.querySelector<HTMLInputElement>('.newrun-mode[value=freeform]')!.click();
-    document.querySelector<HTMLTextAreaElement>('.newrun-task')!.value = 'Launch this task once.';
-    let finishLaunch!: (response: Response) => void;
-    const pending = new Promise<Response>(resolve => { finishLaunch = resolve; });
-    vi.mocked(fetch).mockImplementationOnce(async () => pending);
-    const launch = document.querySelector<HTMLButtonElement>('.newrun-launch')!;
-    launch.click();
-    expect(launch.disabled).toBe(true);
-    expect(document.querySelector<HTMLButtonElement>('button[data-pirate-mode]')?.disabled).toBe(true);
-    toggle(false);
-    expect(document.querySelector('button[data-pirate-mode]')?.getAttribute('aria-pressed')).toBe('true');
-    expect(document.querySelector('.newrun-launch')).toBe(launch);
-    launch.click();
-    const launches = () => vi.mocked(fetch).mock.calls.filter(([input, options]) => String(input) === '/api/agents/launch' && options?.method === 'POST');
-    expect(launches()).toHaveLength(1);
-    finishLaunch(json({ runId: 'run-42' }));
-    await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('button[data-pirate-mode]')?.disabled).toBe(false));
-    expect(launches()).toHaveLength(1);
-    expect(document.querySelector('[data-tabid="run-42"]')).not.toBeNull();
-    toggle(false);
-    expect(document.querySelector('button[data-pirate-mode]')?.getAttribute('aria-pressed')).toBe('false');
-    expect(launches()).toHaveLength(1);
-  });
 
   it('keeps pending config saves and their failure feedback intact', async () => {
     await start();

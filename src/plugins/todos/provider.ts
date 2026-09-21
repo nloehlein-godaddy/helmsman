@@ -1,6 +1,6 @@
 import type {
-  LocalSourceRecordV1, PluginBackendModule, SourceCallContextV1,
-  SourceMutationPlanV1, TaskSnapshotV1, TaskSourceProviderV1, WorkRefV1,
+  LocalSourceRecordV1, PluginBackendModule, SourceCallContextV1, TaskHistoryQueryV1, TaskHistoryV1, TaskHistoryEventV1,
+  SourceMutationPlanV1, TaskSnapshotV1, TaskPageV1, TaskSourceProviderV1, WorkRefV1,
 } from '@helmsman/plugin-sdk';
 import { document, input, LOCAL_TASK_SCHEMA, object, PRIORITIES, repo, sequence, taskInput, TodoSourceError } from './document.js';
 
@@ -81,21 +81,10 @@ function revision(value: unknown, record: LocalSourceRecordV1): void {
   if (typeof value !== 'string' || value !== record.revision) throw new TodoSourceError('Todo changed; reload before trying again');
 }
 
-export const todosProvider: TaskSourceProviderV1 = {
-  async identify(context) {
-    const collection = await records(context).describeCollection();
-    context.signal.throwIfAborted();
-    if (!collection || collection.sourceId !== context.instance.sourceId || collection.schema !== LOCAL_TASK_SCHEMA
-      || typeof collection.collectionId !== 'string' || !collection.collectionId || typeof collection.evidenceId !== 'string' || !collection.evidenceId
-      || !Number.isSafeInteger(collection.revision) || collection.revision < 0) throw new TodoSourceError('Local collection identity is unavailable');
-    return { version: 1, level: 'verified', verifiedAt: new Date().toISOString(),
-      authority: { protocol: 'helmsman.local-collection/v1', authorityId: collection.collectionId, identityFormat: LOCAL_TASK_SCHEMA },
-      proof: { evidenceId: collection.evidenceId, collectionId: collection.collectionId, revision: collection.revision } };
-  },
-  async list(request, context) {
+async function listLocalTasks(request: { repo: string; state: TaskSnapshotV1['state'] | 'underway' | null; cursor: string | null; limit: number }, context: SourceCallContextV1): Promise<TaskPageV1> {
     const scope = scopedRepo(request?.repo, context);
     if (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 100
-      || request.state !== null && !Object.values(stateMap).includes(request.state)) throw new TodoSourceError('Invalid local task query');
+      || request.state !== null && request.state !== 'underway' && !Object.values(stateMap).includes(request.state)) throw new TodoSourceError('Invalid local task query');
     const local = records(context);
     const before = await local.describeCollection();
     context.signal.throwIfAborted();
@@ -133,8 +122,8 @@ export const todosProvider: TaskSourceProviderV1 = {
     const after = await local.describeCollection();
     context.signal.throwIfAborted();
     if (!after || after.collectionId !== before.collectionId || after.revision !== before.revision) throw new TodoSourceError('Task collection changed; reload the list');
-    const tasks = result.map(snapshot).filter(task => request.state === null || task.state === request.state
-      && (request.state !== 'ready' || Boolean(task.requirements.description.trim())))
+    const tasks = result.map(snapshot).filter(task => request.state === 'underway' ? task.state === 'in_progress' || task.state === 'review'
+      : request.state === null || task.state === request.state && (request.state !== 'ready' || Boolean(task.requirements.description.trim())))
       .sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2) || sequence(a.ref.externalId) - sequence(b.ref.externalId));
     const items: TaskSnapshotV1[] = [];
     let pageBytes = 2048;
@@ -148,7 +137,63 @@ export const todosProvider: TaskSourceProviderV1 = {
     if (offset < tasks.length && items.length === 0) throw new TodoSourceError('Local task exceeds the page size limit');
     const nextCursor = offset + items.length < tasks.length ? JSON.stringify({ revision: before.revision, repo: scope, state: request.state, offset: offset + items.length }) : null;
     return { items, nextCursor };
+}
+
+async function localHistory(request: TaskHistoryQueryV1, context: SourceCallContextV1): Promise<TaskHistoryV1> {
+  const scope = scopedRepo(request?.repo, context); const local = records(context);
+  if (typeof request.from !== 'string' || typeof request.until !== 'string' || !Number.isFinite(Date.parse(request.until))
+    || request.from !== new Date(Date.parse(`${new Date(request.until).toISOString().slice(0, 10)}T00:00:00.000Z`) - 6 * 86_400_000).toISOString()
+    || !Number.isSafeInteger(request.eventLimit) || request.eventLimit < 1 || request.eventLimit > 50) throw new TodoSourceError('Invalid local history query');
+  const before = await local.describeCollection(); context.signal.throwIfAborted();
+  if (!before || before.sourceId !== context.instance.sourceId || before.schema !== LOCAL_TASK_SCHEMA) throw new TodoSourceError('Local collection identity is unavailable');
+  const events: TaskHistoryEventV1[] = []; const days = Array.from({ length: 7 }, (_, index) => ({ date: new Date(Date.parse(request.from) + index * 86_400_000).toISOString().slice(0, 10), completed: 0 }));
+  const seen = new Set<string>(); const cursors = new Set<string>(); let cursor: string | null = null; let complete = true;
+  for (let page = 0; page < 100; page++) {
+    const result = await local.list({ repo: scope, cursor, limit: 100 }); context.signal.throwIfAborted();
+    if (!result || !Array.isArray(result.records) || result.records.length > 100 || result.nextCursor !== null && (typeof result.nextCursor !== 'string' || !result.nextCursor || result.nextCursor.length > 1024)) throw new TodoSourceError('Invalid local history page');
+    for (const raw of result.records) {
+      const record = checkedRecord(raw, context);
+      if (record.repo !== scope || seen.has(record.ref.externalId)) throw new TodoSourceError('Unrelated or duplicate local history item');
+      seen.add(record.ref.externalId); const value = document(record.data); const task = snapshot(record);
+      const event = (kind: TaskHistoryEventV1['kind'], timestamp: string) => {
+        const at = new Date(timestamp).toISOString(); if (at < request.from || at > request.until) return;
+        events.push({ id: `${kind}:${record.ref.externalId}:${at}`, ref: record.ref, displayKey: task.displayKey, title: task.title, url: task.url, at, kind, status: null });
+        if (events.length > request.eventLimit) events.sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id)).pop();
+      };
+      event('created', value.createdAt);
+      if (value.updatedAt !== value.createdAt && value.updatedAt !== value.completedAt) event('updated', value.updatedAt);
+      if (value.state === 'done') {
+        if (!value.completedAt) complete = false;
+        else {
+          const at = new Date(value.completedAt).toISOString(); event('completed', at);
+          if (at >= request.from && at <= request.until) { const day = days.find(day => day.date === at.slice(0, 10)); if (day) day.completed++; }
+        }
+      }
+    }
+    cursor = result.nextCursor; if (cursor === null) break;
+    if (cursors.has(cursor)) throw new TodoSourceError('Local history paging did not advance'); cursors.add(cursor);
+  }
+  if (cursor !== null) throw new TodoSourceError('Local history exceeds its supported quota');
+  const after = await local.describeCollection(); context.signal.throwIfAborted();
+  if (!after || after.collectionId !== before.collectionId || after.revision !== before.revision) throw new TodoSourceError('Local collection changed during history read');
+  return { version: 1, repo: scope, from: request.from, until: request.until, events: events.sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id)).slice(0, request.eventLimit),
+    historyQuality: 'partial', days: days.map(day => ({ ...day, completed: complete ? day.completed : null })), throughputQuality: complete ? 'complete' : 'partial' };
+}
+
+export const todosProvider: TaskSourceProviderV1 = {
+  readHistory: localHistory,
+  async identify(context) {
+    const collection = await records(context).describeCollection();
+    context.signal.throwIfAborted();
+    if (!collection || collection.sourceId !== context.instance.sourceId || collection.schema !== LOCAL_TASK_SCHEMA
+      || typeof collection.collectionId !== 'string' || !collection.collectionId || typeof collection.evidenceId !== 'string' || !collection.evidenceId
+      || !Number.isSafeInteger(collection.revision) || collection.revision < 0) throw new TodoSourceError('Local collection identity is unavailable');
+    return { version: 1, level: 'verified', verifiedAt: new Date().toISOString(),
+      authority: { protocol: 'helmsman.local-collection/v1', authorityId: collection.collectionId, identityFormat: LOCAL_TASK_SCHEMA },
+      proof: { evidenceId: collection.evidenceId, collectionId: collection.collectionId, revision: collection.revision } };
   },
+  list: listLocalTasks,
+  listUnderway(request, context) { return listLocalTasks({ ...request, state: 'underway' }, context); },
   async lookup(request, context) {
     const reference = ref({ sourceId: context.instance.sourceId, externalId: request?.displayKey }, context);
     return await read(reference, context) ? reference : null;

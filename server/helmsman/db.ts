@@ -38,6 +38,14 @@ export interface RunPage {
   total: number;
 }
 
+export interface RunReadRowQuery {
+  repos: readonly string[];
+  kind: 'running' | 'terminal' | 'all';
+  limit: number;
+  ceiling: number | null;
+  after: { startedAt: string; id: string } | null;
+}
+
 export interface Db {
   insertRun(r: RunRow): void;
   updateRun(id: string, patch: Partial<RunRow>): void;
@@ -45,13 +53,14 @@ export interface Db {
   listRuns(limit: number): RunRow[];
   runsInWindow(from: string, to: string, repo?: string | null): RunRow[];
   runPage(limit: number, offset: number, repo?: string | null): RunPage;
+  runReadPage(input: RunReadRowQuery): { runs: RunRow[]; ceiling: number };
   activeRuns(): RunRow[];
   reattachableRuns(): RunRow[];
   appendEvent(runId: string, kind: string, text: string, ts: string): RunEventRow;
   listEvents(runId: string): RunEventRow[];
   latestReviewVerdict(runId: string): string | null;
   recentEvents(runId: string, limit: number, textLimit: number): RunEventRow[];
-  eventPage(runId: string, afterId: number, throughId: number, limit: number): RunEventRow[];
+  eventPage(runId: string, afterId: number, throughId: number, limit: number, textLimit?: number): RunEventRow[];
   getConfigOverrides(): Record<string, string>;
   setConfigOverride(key: string, value: string, ts: string): void;
   close(): void;
@@ -124,6 +133,22 @@ export function openDb(path: string | Database.Database): Db {
         .all({ ...params, limit, offset }) as RunRow[];
       return { runs, total };
     }),
+    runReadPage: sql.transaction((input: RunReadRowQuery) => {
+      if (!input || !Array.isArray(input.repos) || input.repos.length > 1000 || input.repos.some(repo => typeof repo !== 'string' || !repo || repo.length > 512)
+        || !['running', 'terminal', 'all'].includes(input.kind) || !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 101
+        || input.ceiling !== null && (!Number.isSafeInteger(input.ceiling) || input.ceiling < 0)
+        || input.after !== null && (typeof input.after?.startedAt !== 'string' || typeof input.after?.id !== 'string')) throw new RangeError('Invalid run read bounds');
+      const ceiling = input.ceiling ?? (sql.prepare('SELECT COALESCE(MAX(rowid),0) AS value FROM runs').get() as { value: number }).value;
+      if (!input.repos.length) return { runs: [], ceiling };
+      const predicates = [`repo IN (${input.repos.map(() => '?').join(',')})`, 'rowid <= ?'];
+      const params: (string | number)[] = [...input.repos, ceiling];
+      if (input.kind === 'running') predicates.push("status = 'running'");
+      if (input.kind === 'terminal') predicates.push("status IN ('succeeded','failed','stopped')");
+      if (input.after) { predicates.push('(startedAt < ? OR (startedAt = ? AND id < ?))'); params.push(input.after.startedAt, input.after.startedAt, input.after.id); }
+      params.push(input.limit);
+      const runs = sql.prepare(`SELECT * FROM runs WHERE ${predicates.join(' AND ')} ORDER BY startedAt DESC,id DESC LIMIT ?`).all(...params) as RunRow[];
+      return { runs, ceiling };
+    }),
     activeRuns(): RunRow[] {
       return sql.prepare(`SELECT * FROM runs WHERE status = 'running' ORDER BY startedAt DESC, rowid ASC`).all() as RunRow[];
     },
@@ -144,9 +169,11 @@ export function openDb(path: string | Database.Database): Db {
       return (sql.prepare('SELECT id, runId, ts, kind, substr(text, 1, ?) AS text FROM run_events WHERE runId = ? ORDER BY id DESC LIMIT ?')
         .all(Math.max(0, Math.floor(textLimit)), runId, Math.max(0, Math.floor(limit))) as RunEventRow[]).reverse();
     },
-    eventPage(runId: string, afterId: number, throughId: number, limit: number): RunEventRow[] {
-      return sql.prepare('SELECT * FROM run_events WHERE runId = ? AND id > ? AND id <= ? ORDER BY id ASC LIMIT ?')
-        .all(runId, afterId, throughId, Math.max(0, Math.floor(limit))) as RunEventRow[];
+    eventPage(runId: string, afterId: number, throughId: number, limit: number, textLimit?: number): RunEventRow[] {
+      if (textLimit !== undefined && (!Number.isSafeInteger(textLimit) || textLimit < 0 || textLimit > 100_000)) throw new RangeError('Invalid log text bound');
+      const columns = textLimit === undefined ? '*' : 'id,runId,ts,kind,substr(text,1,?) AS text';
+      return sql.prepare(`SELECT ${columns} FROM run_events WHERE runId = ? AND id > ? AND id <= ? ORDER BY id ASC LIMIT ?`)
+        .all(...(textLimit === undefined ? [] : [textLimit]), runId, afterId, throughId, Math.max(0, Math.floor(limit))) as RunEventRow[];
     },
     getConfigOverrides(): Record<string, string> {
       const rows: { key: string; value: string }[] = sql.prepare('SELECT key, value FROM config_overrides').all() as { key: string; value: string }[];

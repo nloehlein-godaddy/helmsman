@@ -6,7 +6,7 @@
   "backend": {
     "entry": "backend.js",
     "provides": [{ "id": "helmsman/task-source", "version": 1, "localId": "issues" }],
-    "taskSources": { "issues": { "identityFormats": ["jira.issue-id/v1"], "effectIds": ["assign", "transition", "retain-claim"], "commandIds": [], "access": ["connection-http"] } },
+    "taskSources": { "issues": { "identityFormats": ["jira.issue-id/v1"], "effectIds": ["assign", "transition", "retain-claim"], "commandIds": [], "access": ["connection-http"], "readViews": ["underway", "history"] } },
     "settings": {},
     "storageVersion": 1
   }

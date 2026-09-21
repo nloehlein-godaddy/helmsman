@@ -1,4 +1,5 @@
 import type { PluginManifest, PluginPageDefinition } from './sdk';
+import type { PageCompositionDefinitionV1, PanelContractV1, PluginPanelDefinition, PluginServiceRequirementV1 } from './composition';
 
 export class PluginManifestError extends Error {
   constructor(message: string) {
@@ -36,12 +37,13 @@ export function isSlotId(value: unknown): value is string {
   return extra === undefined && isNamespace(namespace, false) && isLocalId(id);
 }
 
-function record(value: unknown, fields: readonly string[], label: string): Record<string, unknown> {
+function record(value: unknown, fields: readonly string[], label: string, optional: readonly string[] = []): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) {
     throw new PluginManifestError(`${label} must be an object.`);
   }
-  if (Reflect.ownKeys(value).some(key => typeof key !== 'string' || !fields.includes(key))) {
+  if (Reflect.ownKeys(value).some(key => typeof key !== 'string' || ![...fields, ...optional].includes(key)
+    || !('value' in (Object.getOwnPropertyDescriptor(value, key) ?? {})))) {
     throw new PluginManifestError(`${label} contains unsupported fields.`);
   }
   if (fields.some(key => {
@@ -52,38 +54,87 @@ function record(value: unknown, fields: readonly string[], label: string): Recor
 }
 
 function identifiers(value: unknown, valid: (value: unknown) => value is string, label: string): readonly string[] {
-  if (!Array.isArray(value) || !Array.from(value).every(valid) || new Set(value).size !== value.length) {
+  if (!Array.isArray(value) || value.length > 128 || !Array.from(value).every(valid) || new Set(value).size !== value.length) {
     throw new PluginManifestError(`${label} must contain unique valid identifiers.`);
   }
   return Object.freeze([...value]);
 }
 
-function parsePage(value: unknown): PluginPageDefinition {
-  const page = record(value, ['id', 'title', 'slots', 'panes'], 'Page');
-  if (!isLocalId(page.id)) throw new PluginManifestError('Page ID is invalid.');
-  if (typeof page.title !== 'string' || !page.title.trim() || page.title.length > 128
-    || /[\u0000-\u001f\u007f]/.test(page.title)) {
-    throw new PluginManifestError('Page title must be nonempty text of at most 128 characters.');
+function title(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > 128 || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new PluginManifestError('Contribution title must be nonempty text of at most 128 characters.');
   }
+  return value;
+}
+
+function contract(value: unknown): PanelContractV1 {
+  const input = record(value, ['id', 'version'], 'Panel contract');
+  if (!isSlotId(input.id) || input.version !== 1) throw new PluginManifestError('Unsupported panel contract.');
+  return Object.freeze({ id: input.id, version: 1 });
+}
+
+function requirements(value: unknown): readonly PluginServiceRequirementV1[] {
+  if (!Array.isArray(value) || value.length > 16) throw new PluginManifestError('Invalid required services.');
+  const parsed = Array.from(value, raw => {
+    const item = record(raw, ['id', 'version'], 'Required service');
+    if (item.version !== 1 || typeof item.id !== 'string' || !['helmsman/task-read', 'helmsman/run-read', 'helmsman/pull-request-read', 'helmsman/activity-read', 'helmsman/run-command', 'helmsman/composition'].includes(item.id)) {
+      throw new PluginManifestError('Unsupported required service.');
+    }
+    return Object.freeze({ id: item.id as PluginServiceRequirementV1['id'], version: 1 as const });
+  });
+  if (new Set(parsed.map(item => item.id)).size !== parsed.length) throw new PluginManifestError('Required services must be unique.');
+  return Object.freeze(parsed);
+}
+
+function composition(value: unknown): PageCompositionDefinitionV1 {
+  const input = record(value, ['id', 'version', 'accepts'], 'Composition');
+  if (!isSlotId(input.id) || input.version !== 1 || !Array.isArray(input.accepts)
+    || input.accepts.length < 1 || input.accepts.length > 32) throw new PluginManifestError('Invalid composition.');
+  const accepts = Array.from(input.accepts, contract);
+  if (new Set(accepts.map(item => item.id)).size !== accepts.length) throw new PluginManifestError('Composition contracts must be unique.');
+  return Object.freeze({ id: input.id, version: 1, accepts: Object.freeze(accepts) });
+}
+
+function parsePanel(value: unknown): PluginPanelDefinition {
+  const panel = record(value, ['id', 'title', 'contract', 'requires'], 'Panel');
+  if (!isLocalId(panel.id)) throw new PluginManifestError('Panel ID is invalid.');
+  return Object.freeze({ id: panel.id, title: title(panel.title), contract: contract(panel.contract), requires: requirements(panel.requires) });
+}
+
+function parsePage(value: unknown, version: 1 | 2): PluginPageDefinition {
+  const page = record(value, ['id', 'title', 'slots', 'panes'], 'Page', version === 2 ? ['composition', 'requires'] : []);
+  if (!isLocalId(page.id)) throw new PluginManifestError('Page ID is invalid.');
   return Object.freeze({
     id: page.id,
-    title: page.title,
+    title: title(page.title),
     slots: identifiers(page.slots, isSlotId, 'Page slots'),
     panes: identifiers(page.panes, isLocalId, 'Page panes'),
+    ...(Object.hasOwn(page, 'composition') ? { composition: composition(page.composition) } : {}),
+    ...(Object.hasOwn(page, 'requires') ? { requires: requirements(page.requires) } : {}),
   });
 }
 
 export function parsePluginManifest(value: unknown): PluginManifest {
-  const manifest = record(value, ['manifestVersion', 'id', 'version', 'sdkVersion', 'pages'], 'Manifest');
-  if (manifest.manifestVersion !== 1) throw new PluginManifestError('Unsupported manifest version.');
+  const descriptor = value && typeof value === 'object' ? Object.getOwnPropertyDescriptor(value, 'manifestVersion') : undefined;
+  const version: unknown = descriptor && 'value' in descriptor ? descriptor.value : undefined;
+  if (version !== 1 && version !== 2) throw new PluginManifestError('Unsupported manifest version.');
+  const manifest = record(value, ['manifestVersion', 'id', 'version', 'sdkVersion', 'pages', ...(version === 2 ? ['panels'] : [])], 'Manifest');
   if (manifest.sdkVersion !== 1) throw new PluginManifestError('Unsupported SDK version.');
   if (!isPluginId(manifest.id)) throw new PluginManifestError('Plugin ID must have a publisher namespace.');
   if (typeof manifest.version !== 'string' || manifest.version.length > 128 || !releaseVersion.test(manifest.version)) {
     throw new PluginManifestError('Plugin version must be a semantic package version.');
   }
-  if (!Array.isArray(manifest.pages)) throw new PluginManifestError('Manifest pages must be an array.');
-  const pages = Array.from(manifest.pages, parsePage);
+  if (!Array.isArray(manifest.pages) || manifest.pages.length > 128) throw new PluginManifestError('Manifest pages must be a bounded array.');
+  const pages = Array.from(manifest.pages, page => parsePage(page, version));
   if (new Set(pages.map(page => page.id)).size !== pages.length) throw new PluginManifestError('Page IDs must be unique.');
+  if (version === 2) {
+    if (!Array.isArray(manifest.panels) || manifest.panels.length > 128) throw new PluginManifestError('Manifest panels must be a bounded array.');
+    const panels = Array.from(manifest.panels, parsePanel);
+    const ids = [...pages, ...panels].map(item => item.id);
+    if (new Set(ids).size !== ids.length) throw new PluginManifestError('Contribution IDs must be unique across pages and panels.');
+    return Object.freeze({ manifestVersion: 2, id: manifest.id, version: manifest.version, sdkVersion: 1,
+      pages: Object.freeze(pages), panels: Object.freeze(panels) });
+  }
   return Object.freeze({
     manifestVersion: 1, id: manifest.id, version: manifest.version, sdkVersion: 1,
     pages: Object.freeze(pages),

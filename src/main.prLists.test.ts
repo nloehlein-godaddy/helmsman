@@ -23,6 +23,7 @@ async function setup(extra: (url: URL) => Promise<Response> | Response | null, a
     const custom = extra(url);
     if (custom) return custom;
     if (url.pathname === '/api/dashboard') return json({ snapshot, degraded: [], repos: ['org/a', 'org/b'], selectedRepo: url.searchParams.get('repo'), jiraBaseUrl: null });
+    if (url.pathname === '/api/context') return json({ repos: ['org/a', 'org/b'], jiraBaseUrl: null });
     if (url.pathname === '/api/agents') return json({ runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } });
     if (url.pathname === '/api/config') return json({ config: {}, overridden: [] });
     if (url.pathname === '/api/pr/review-requests' || url.pathname === '/api/pr/open') return json(list([]));
@@ -46,6 +47,7 @@ function chooseRepo(root: HTMLElement, repo: string): void {
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
   localStorage.clear();
+  window.history.replaceState(null, '', '/helm');
 });
 afterEach(() => {
   for (const view of views.splice(0)) view.destroy();
@@ -154,7 +156,6 @@ describe('PR list navigation and refresh', () => {
       return requested.promise;
     });
     expect(root.querySelector('.pr-authored')).toBeNull();
-    expect(root.querySelector('[data-panel="repoprs"]')?.textContent).toContain('Select a galleon');
     root.querySelector<HTMLButtonElement>('[data-view="prs"]')!.click();
     const lookup = root.querySelector<HTMLInputElement>('.pr-lookup-input')!;
     lookup.value = 'Keep my draft input';
@@ -176,41 +177,7 @@ describe('PR list navigation and refresh', () => {
     expect(comment.value).toBe('Keep this unsent review');
   });
 
-  it('ignores stale repository responses and preserves the new-voyage form when a list finishes', async () => {
-    const a = deferred<Response>();
-    const b = deferred<Response>();
-    const requested: string[] = [];
-    const { root, view } = await setup((url) => {
-      if (url.pathname !== '/api/pr/open') return null;
-      const repo = url.searchParams.get('repo')!;
-      requested.push(repo);
-      return repo === 'org/a' ? a.promise : b.promise;
-    });
-    const choose = (repo: string) => {
-      const select = root.querySelector<HTMLSelectElement>('.repo-select')!;
-      select.value = repo;
-      select.dispatchEvent(new Event('change'));
-    };
-    choose('org/a');
-    await vi.waitFor(() => expect(requested).toContain('org/a'));
-    const refreshA = view.refresh();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(requested.filter((repo) => repo === 'org/a')).toHaveLength(1);
-    choose('org/b');
-    await vi.waitFor(() => expect(requested).toContain('org/b'));
-    const task = root.querySelector<HTMLTextAreaElement>('.newrun-task')!;
-    task.value = 'Do not discard this task';
-    b.resolve(json(list([pr('org/b', 202)])));
-    await vi.waitFor(() => expect(root.querySelector('.pr-list-row')?.getAttribute('data-number')).toBe('202'));
-    a.resolve(json(list([pr('org/a', 101)])));
-    await refreshA;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(root.querySelector('.pr-list-row')?.getAttribute('data-number')).toBe('202');
-    expect(root.querySelector('.pr-list-row')?.getAttribute('data-repo')).toBe('org/b');
-    expect(root.querySelector('.newrun-task')).toBe(task);
-    expect(task.value).toBe('Do not discard this task');
-    expect(root.querySelector('.pr-authored')).toBeNull();
-  });
+
   it('keeps the last PR selected when an earlier detail request finishes late', async () => {
     const first = deferred<Response>();
     const { root } = await setup((url) => {

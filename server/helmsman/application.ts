@@ -2,6 +2,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { isAppPagePath } from '../../src/logic/routes';
 import { appPages } from '../../src/plugins/builtins';
 import { createPluginCoordinator, loadPluginSnapshot, pluginDirectory } from './plugins/store';
+import { builtinFrontendArtifacts } from './plugins/builtin-frontend';
+import { createPullRequestReadService, projectLegacyOpenPullRequests, projectLegacyAuthoredPullRequests } from './pull-request-read-service';
+import { createActivityReadService } from './activity-read-service';
+import { createRunReadService } from './run-read-service';
+import { openRunCommandStore } from './run-command-store';
+import { createApplicationRunCommands, type RunCommandAdmissionBinding } from './run-command-application';
+import { createServerPageCatalog } from './plugins/page-catalog';
 import { handlePluginRequest } from './plugins/http';
 import { applicationRoot, isHostCoordinatorCommand, retainedRuntimePath } from './runtime-paths';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -77,7 +84,7 @@ import { dockerReviewAdapter } from './agents/docker-review';
 import { restoreRunAdapter } from './agents/restore';
 import { readReviewArtifact } from './review-artifacts';
 import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeWorktree, removeWorktreeAt, repoBasename, sweepOrphanedWorktrees } from './worktree';
-import { findPrNumberByBranch, fetchPrStatus, fetchPrDiff, type PrStatus } from '../github';
+import { findPrNumberByBranch, fetchPrStatus, fetchPrDiff, fetchAuthoredPrs, type PrStatus } from '../github';
 import { fetchRepoOpenPrs, fetchReviewRequestedPrs } from '../pr-lists';
 import { fetchGithubProfile } from '../github-profile';
 import { getLocalGit, mutateLocalGit } from '../local-git';
@@ -151,26 +158,24 @@ const runTelemetry = openRunTelemetry(persistence.sql, usageStore, createOutcome
 const usageQueries = createUsageQueryService({ db, usage: usageStore });
 const builtinBackends = [builtinPricing, ...builtinTaskSources];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
-  runtimeArtifact: currentRuntime.artifact, builtins: builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })), resetHealth: true });
+  runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
+    ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
 pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator);
 const backendPlugins = await activateBackendPlugins({ root: pluginDirectory(), coordinator: pluginCoordinator,
   snapshot: process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1' ? await loadPluginSnapshot(pluginDirectory(), false, pluginCoordinator) : pluginSnapshot,
   usage: usageQueries, builtins: builtinBackends, defaultPricingProvider: 'helmsman.standard-pricing/standard' });
 for (const error of backendPlugins.errors) process.stderr.write(`${error}\n`);
-pluginSnapshot = retainActivatedPluginPages(pluginSnapshot, backendPlugins.activePluginIds());
-for (const [slot, contribution] of Object.entries(pluginSnapshot.catalog.bindings)) appPages.select(slot, contribution);
-const pageRegistrations = new Map(pluginSnapshot.catalog.plugins.map(plugin => [plugin.package.manifest.id, appPages.register(plugin.package.manifest)]));
+pluginSnapshot = retainActivatedPluginPages(await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator), backendPlugins.activePluginIds());
+const serverPages = createServerPageCatalog(appPages);
+serverPages.apply(pluginSnapshot.catalog);
 pluginCoordinator.subscribe(async () => {
   const next = retainActivatedPluginPages(await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator), backendPlugins.activePluginIds());
-  for (const [id, dispose] of pageRegistrations) if (!next.catalog.plugins.some(plugin => plugin.package.manifest.id === id)) {
-    dispose();
-    pageRegistrations.delete(id);
-    const previous = pluginSnapshot.catalog.plugins.find(plugin => plugin.package.manifest.id === id);
+  for (const previous of pluginSnapshot.catalog.plugins) if (!next.catalog.plugins.some(plugin => plugin.package.manifest.id === previous.package.manifest.id)) {
+    const id = previous.package.manifest.id;
     const state = pluginCoordinator.state(id);
-    if (previous && !previous.package.backend && state?.desiredEnabled === false) lifecycle.recordHealth(id, state.artifactHash, 'inactive', null);
+    if (!previous.package.backend && state?.desiredEnabled === false) lifecycle.recordHealth(id, state.artifactHash, 'inactive', null);
   }
-  for (const plugin of next.catalog.plugins) if (!pageRegistrations.has(plugin.package.manifest.id)) pageRegistrations.set(plugin.package.manifest.id, appPages.register(plugin.package.manifest));
-  for (const [slot, contribution] of Object.entries(next.catalog.bindings)) appPages.select(slot, contribution);
+  serverPages.apply(next.catalog);
   pluginSnapshot = next;
 });
 for (const error of pluginSnapshot.errors) process.stderr.write(`${error}\n`);
@@ -222,6 +227,26 @@ const sourceTodos = taskSourceRuntime.todoApi ?? {
 };
 function presentationEnv() { return { ...configStore.effectiveEnv(), JIRA_ENABLED: taskSourceRuntime.jiraEnabled() ? 'true' : 'false' }; }
 function applicationRepos(cfg = configStore.current()) { return [...new Set([...repositoryScope(cfg, []), ...taskSourceRuntime.repos()])]; }
+const activityRead = createActivityReadService({ sources: taskSourceRuntime.service, repos: applicationRepos });
+
+const pullRequestRead = createPullRequestReadService({ repos: applicationRepos, async read(query, repos, signal) {
+  signal.throwIfAborted();
+  const github = configStore.current().github;
+  if (!github) throw new Error('GitHub reads are unavailable');
+  if (query.kind === 'repo-open') {
+    if (!query.repo) throw new Error('Select a galleon');
+    return projectLegacyOpenPullRequests(await fetchRepoOpenPrs(github, query.repo), `https://github.com/${query.repo}/pulls`);
+  }
+  if (query.kind === 'review-requested') return projectLegacyOpenPullRequests(await fetchReviewRequestedPrs(github, [...repos], query.repo), null);
+  return projectLegacyAuthoredPullRequests(await fetchAuthoredPrs(github, [...repos]), null);
+} });
+const runRead = createRunReadService({ db, repos: applicationRepos, settlement: runId => {
+  const claim = taskSourceRuntime.claimForRun(runId);
+  return claim ? { state: claim.state === 'settled' ? 'settled' : claim.settlement?.disposition === 'retained-for-operator' ? 'operator-required' : 'pending' } : null;
+} });
+const runCommands = createApplicationRunCommands({ store: openRunCommandStore(persistence), db, admissions, executions, controls: executionControls,
+  catalog: () => pluginSnapshot.catalog, repos: applicationRepos, todos: sourceTodos, jiraEnabled: () => taskSourceRuntime.jiraEnabled(),
+  canStart: repo => pm.canStart(repo), launch: input => launch(input), stop: runId => pm.stop(runId) });
 
 // cmux is macOS-only; wezterm is the cross-platform terminal driving the same
 // panel. TERM_BRIDGE forces one, otherwise take whichever suits the platform.
@@ -591,7 +616,7 @@ void recoverRuns(db, { reattach: (row: RunRow) => dispatchReattach(row) })
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json' };
 
-function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf?: string; workflowRef?: string }): string {
+function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf?: string; workflowRef?: string; commandBinding?: RunCommandAdmissionBinding }): string {
   if (body.workflowRef) {
     const expected = body.mode === 'review' ? 'review@1' : 'coding@1';
     if (body.workflowRef !== expected) throw new Error('Workflow is unavailable or does not match the task mode');
@@ -611,7 +636,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   let launchJson = launchIntentJson(body);
   const admissionArtifacts = [currentRuntime.artifact, ...(sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : [])];
   persistence.transaction(() => {
-    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson(JSON.parse(launchJson)),
+    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
       settings: sourceSelection ? sourceExecutionSettings(cfg) : legacyExecutionSettings(cfg), artifacts: admissionArtifacts }, maxConcurrency); };
     if (sourceSelection) taskSourceRuntime.reserve(runId, body.repo, sourceSelection, admit, body.retryOf);
     else admit();
@@ -995,7 +1020,13 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
     }
+    if (url.pathname.startsWith('/api/run-commands') && req.method === 'POST'
+      && (req.headers['content-type']?.split(';')[0] !== 'application/json'
+        || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Run commands require a same-origin JSON request.' })); return;
+    }
     const api = await handleApi(req.method ?? 'GET', url.pathname, url.searchParams, body, {
+      runRead, pullRequestRead, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate: runId => {
         if (db.getRun(runId)?.status !== 'running') return false;
         clarificationRuntime.poll(runId);

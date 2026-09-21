@@ -3,15 +3,12 @@ import { renderLocalGit } from './renderLocalGit';
 import { renderThemePreview } from './renderThemePreview';
 import { emptyLocalGit, type LocalGitState } from './data/localGit';
 import { routeHref, type PageView } from './logic/routes';
-import { appPages, COSTS_PAGE_ID, COSTS_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT } from './plugins/builtins';
 import type { PrInboxState, PrListState } from './data/prLists';
-import type { DashboardSnapshot } from './data/mock';
 import { formatRelativeTime } from './logic/time';
-import { sortByPriority } from './logic/queue';
 import { escapeHtml as esc } from './logic/html';
-import type { BugCard, BugsResponse, PrFileDiff, PrStatus, Priority, OpenPr, Ticket, TicketStatus } from './types';
+import type { BugCard, BugsResponse, PrFileDiff, Priority, OpenPr, Ticket, TicketStatus } from './types';
 import type { TriageGroupsView } from './data/triage';
-import { defaultLayout, type PanelId, type RackLayout, type RackSlot } from './logic/rack';
 import { EFFORT_OPTIONS, MODEL_OPTIONS, type AgentOption } from './logic/agentOptions';
 import { REQUIRED_PR_APPROVALS } from './logic/prReviews';
 import { RUN_LOG_PREVIEW_LIMIT } from './logic/runLog';
@@ -28,12 +25,12 @@ function tuningSelects(prefix: string, defaultModel: string = prefix === 'pr' ? 
       <label class="interface-field">Reasoning effort<select class="${prefix}-effort tuning-select" aria-label="Reasoning effort">${opts(EFFORT_OPTIONS, defaultEffort)}</select></label>
     </div>`;
 }
-import type { AgentCaps, RunSummary } from './data/agents';
+import type { RunSummary } from './data/agents';
 import type { UiConfig } from './data/config';
 import type { PrStatusView } from './data/pr';
 import type { CmuxTabView } from './logic/cmuxPanel';
 import { providerOf } from './logic/cmuxPanel';
-import { DEFAULT_THEME_ID, THEMES } from './data/themes';
+import { THEMES } from './data/themes';
 
 const PRIORITY_CLASS: Record<Priority, string> = { P0: 'pri-p0', P1: 'pri-p1', P2: 'pri-p2', P3: 'pri-p3', P4: 'pri-p4' };
 
@@ -64,13 +61,6 @@ export const CONFIG_HELP: Record<string, string> = {
   get GITHUB_PR_AUTHOR() { return `GitHub username whose authored PRs populate the ${term('shipped')} and ${term('activity')} panels. Example: nloehlein-godaddy`; },
 };
 
-const PR_STATUS: Record<PrStatus, { label: string; chipClass: string }> = {
-  'in-review': { get label() { return term('inReview'); }, chipClass: 'chip-review' },
-  merged: { label: 'Merged', chipClass: 'chip-done' },
-  'changes-requested': { label: 'Changes requested', chipClass: 'chip-blocked' },
-  closed: { label: 'Closed', chipClass: 'chip-closed' },
-}
-
 function reviewChip(decision: string): { cls: string; label: string } {
   if (decision === 'APPROVED') return { cls: 'chip-done', label: 'Approved' };
   if (decision === 'CHANGES_REQUESTED') return { cls: 'chip-blocked', label: 'Changes requested' };
@@ -87,9 +77,6 @@ const ICON_STOP: string =
 
 export const ICON_CLOSE: string =
   '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
-
-const ICON_GRIP: string =
-  '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="4" r="1.15"/><circle cx="10.5" cy="4" r="1.15"/><circle cx="5.5" cy="8" r="1.15"/><circle cx="10.5" cy="8" r="1.15"/><circle cx="5.5" cy="12" r="1.15"/><circle cx="10.5" cy="12" r="1.15"/></svg>'
 
 const ICON_COLLAPSE: string =
   '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>'
@@ -158,7 +145,6 @@ function shortRepo(repo: string): string {
 }
 
 const TICKET_RE = /\b[A-Z][A-Z0-9]+-\d+\b/;
-const TICKET_RE_G = /\b[A-Z][A-Z0-9]+-\d+\b/g;
 
 function jiraHref(baseUrl: string, id: string): string {
   return `${esc(baseUrl.replace(/\/+$/, ''))}/browse/${esc(id)}`;
@@ -184,58 +170,6 @@ function sourceTicketLabel(ticket: Ticket, baseUrl: string | null): string {
   return esc(ticket.id);
 }
 
-function linkifyTickets(html: string, baseUrl: string | null): string {
-  if (!baseUrl) return html;
-  return html.replace(
-    TICKET_RE_G,
-    (id) => `<a class="ticket-link" href="${jiraHref(baseUrl, id)}" target="_blank" rel="noopener">${id}</a>`,
-  );
-}
-
-function laneNo(index: number): string {
-  return String(index + 1).padStart(2, '0');
-}
-
-function laneRail(state: string): string {
-  return `<span class="lane-rail lane-rail--${state}" aria-hidden="true"><span class="lane-ring"></span></span>`;
-}
-
-function buildSparkline(values: number[]): string {
-  const width = 220;
-  const top = 8;
-  const baseline = 44;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = Math.max(max - min, 1);
-  const step = width / (values.length - 1);
-
-  const points = values.map((value, index) => {
-    const x = index * step;
-    const y = baseline - ((value - min) / range) * (baseline - top);
-    return { x, y };
-  });
-
-  const line = points.map((p) => `${p.x},${p.y}`).join(' ');
-  const area = `${line} ${width},54 0,54`;
-  const last = points[points.length - 1];
-
-  return `
-    <svg viewBox="0 0 ${width} 54" width="100%" height="54" preserveAspectRatio="none"
-         role="img" aria-label="Completed items per day, last 7 days">
-      <defs>
-        <linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28"/>
-          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
-        </linearGradient>
-      </defs>
-      <line x1="0" y1="${baseline}" x2="${width}" y2="${baseline}" stroke="var(--line)" stroke-width="1"/>
-      <polygon points="${area}" fill="url(#sparkfill)"/>
-      <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2"
-                stroke-linejoin="round" stroke-linecap="round"/>
-      <circle cx="${last.x}" cy="${last.y}" r="3.2" fill="var(--accent)"/>
-    </svg>`;
-}
-
 export type { PageView } from './logic/routes';
 
 const PAGE_TABS: { view: PageView; label: string }[] = [
@@ -251,23 +185,6 @@ const PAGE_TABS: { view: PageView; label: string }[] = [
   { view: 'config', label: 'Config' },
 ];
 
-const PANEL_TITLE: Record<PanelId, string> = {
-  get newrun() { return term('newRun'); },
-  backlog: 'Backlog queue',
-  get underway() { return term('mineRunning'); },
-  get running() { return term('activeAgents'); },
-  get recent() { return term('recentRuns'); },
-  get repoprs() { return term('openPrs'); },
-  get shipped() { return term('shipped'); },
-  get activity() { return term('activity'); },
-};
-
-interface PanelDef {
-  body: string;
-  count: number | null;
-  lamp: 'live' | 'queued' | 'idle';
-}
-
 export interface HelmHeadOpts {
   greetingName?: string | null;
   active: PageView;
@@ -281,8 +198,10 @@ export interface HelmHeadOpts {
 }
 
 function pageTabs(opts: HelmHeadOpts) {
+  const helm = appPages.getSlot(HELM_PAGE_SLOT) ? appPages.selected(HELM_PAGE_SLOT) : null;
+  const helmActive = opts.pluginSlot === HELM_PAGE_SLOT || !!helm && opts.pluginPage === helm.contributionId;
   const tabs = PAGE_TABS.map(t => ({
-    ...t, id: `page-tab-${t.view}`, active: t.view === opts.active,
+    ...t, id: `page-tab-${t.view}`, active: t.view === opts.active || t.view === 'dashboard' && helmActive,
     href: routeHref({ view: t.view, repo: opts.selectedRepo }),
   }));
   const costs = appPages.selected(COSTS_PAGE_SLOT);
@@ -295,7 +214,7 @@ function pageTabs(opts: HelmHeadOpts) {
   };
   const campaignsIndex = tabs.findIndex(tab => tab.view === 'campaigns');
   tabs.splice(campaignsIndex < 0 ? tabs.length : campaignsIndex, 0, costsTab);
-  if ((opts.active === 'plugin' || opts.active === 'outcomes') && !costsActive) {
+  if ((opts.active === 'plugin' || opts.active === 'outcomes') && !costsActive && !helmActive) {
     const page = opts.pluginPage ? appPages.getPage(opts.pluginPage) : null;
     tabs.push({ id: 'page-tab-plugin', view: opts.active, active: true,
       label: page?.contributionId === COSTS_PAGE_ID ? term('costsOutcomes') : page?.title ?? term('unavailablePluginPage'),
@@ -367,231 +286,6 @@ export function renderAppShell(opts: HelmHeadOpts, content: string): string {
       <button class="pirate-mode-toggle" type="button" data-pirate-mode aria-label="Pirate mode" aria-pressed="${isPirateMode()}" title="Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}">${ICON_PIRATE_FLAG}</button>
     </footer>
   </div>`;
-}
-
-function renderRackSlot(slot: RackSlot, defs: Record<PanelId, PanelDef>, c: number, s: number): string {
-  const active: PanelId = slot.active;
-  const def: PanelDef = defs[active];
-  const header: string =
-    slot.panels.length > 1
-      ? `<div class="slot-tabs" role="tablist" aria-label="Stacked panels">${slot.panels
-          .map(
-            (p) =>
-              `<button class="slot-tab${p === active ? ' is-active' : ''}" type="button" role="tab" id="rack-tab-${c}-${s}-${p}" aria-controls="rack-panel-${c}-${s}" aria-selected="${p === active}" tabindex="${p === active ? 0 : -1}" data-panel-tab="${p}">${esc(PANEL_TITLE[p])}</button>`,
-          )
-          .join('')}</div>`
-      : `<span class="faceplate-title">${esc(PANEL_TITLE[active])}</span>`;
-  const count: string = def.count != null ? `<span class="faceplate-count seg7">${def.count}</span>` : '';
-  return `
-      <section class="faceplate${slot.collapsed ? ' is-collapsed' : ''}" data-col="${c}" data-slot="${s}" data-panel="${active}">
-        <div class="faceplate-head" data-drop="head" data-panel="${active}">
-          <button class="rack-handle" type="button" draggable="true" data-panel="${active}" aria-label="Move ${esc(PANEL_TITLE[active])}" aria-describedby="rack-move-help-${c}-${s}" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight">${ICON_GRIP}</button><span class="sr-only" id="rack-move-help-${c}-${s}">Use arrow keys to move this panel between positions or columns, or drag it.</span>
-          ${header}
-          <span class="faceplate-lamp lamp lamp-${def.lamp}" aria-hidden="true"></span>
-          ${count}
-          <button class="panel-collapse" type="button" data-panel="${active}" aria-expanded="${slot.collapsed ? 'false' : 'true'}" aria-label="${slot.collapsed ? 'Expand' : 'Collapse'} ${esc(PANEL_TITLE[active])}">${slot.collapsed ? ICON_EXPAND : ICON_COLLAPSE}</button>
-        </div>
-        <div class="faceplate-body" id="rack-panel-${c}-${s}"${slot.panels.length > 1 ? ` role="tabpanel" aria-labelledby="rack-tab-${c}-${s}-${active}" tabindex="0"` : ''} data-drop="body" data-col="${c}" data-slot="${s}">${def.body}</div>
-      </section>`;
-}
-
-function renderRack(layout: RackLayout, defs: Record<PanelId, PanelDef>): string {
-  return `<div class="helm-rack" data-rack>${layout
-    .map(
-      (col, c) =>
-        `<div class="rack-col" data-col="${c}">${col
-          .map((slot, s) => renderRackSlot(slot, defs, c, s))
-          .join('')}<div class="rack-endstop" data-drop="end" data-col="${c}" aria-hidden="true"></div></div>`,
-    )
-    .join('')}</div>`;
-}
-
-export function renderDashboard(
-  root: HTMLElement,
-  data: DashboardSnapshot,
-  now: Date,
-  degraded: string[] = [],
-  repos: string[] = [],
-  selectedRepo: string | null = null,
-  runs: RunSummary[] = [],
-  _autoClaimRepos: string[] = [],
-  caps: AgentCaps = { maxAttempts: 1, maxCostUsd: null },
-  themeId: string = DEFAULT_THEME_ID,
-  layout: RackLayout = defaultLayout(),
-  jiraBaseUrl: string | null = null,
-  repoPrs?: PrListState,
-  jiraEnabled: boolean = true,
-): void {
-  const queue = sortByPriority(data.queue);
-  const scopedRuns = (Array.isArray(runs) ? runs : []).filter(run => run && typeof run.id === 'string'
-    && typeof run.repo === 'string' && (!selectedRepo || run.repo === selectedRepo));
-  const activeRuns: RunSummary[] = scopedRuns.filter((r) => r.status === 'running');
-  const terminalRuns: RunSummary[] = scopedRuns.filter((r) => r.status !== 'running' && r.status !== 'queued')
-    .sort((a, b) => (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0)).slice(0, 10);
-  const underway = Array.isArray(data.underway) ? data.underway.filter(ticket => ticket && ticket.status !== 'done') : [];
-  const underwayKnown = data.underwayAvailable !== false && Array.isArray(data.underway);
-  const underwayItems = underwayKnown && underway.length
-    ? sortByPriority(underway).map(ticket => triageStatusRow(ticket, jiraBaseUrl, selectedRepo)).join('')
-    : `<li class="empty-note">${underwayKnown ? jiraEnabled ? 'No unfinished tickets assigned to you.' : 'No todos in progress or review.' : term('unavailableRunningTickets')}</li>`;
-
-  const sortedRepos: string[] = [...repos].sort((a, b) => shortRepo(a).localeCompare(shortRepo(b)));
-
-  const queueItems = queue.length
-    ? queue
-        .map(
-          (ticket, i) => `
-      <li class="lane queue-item">
-        <span class="lane-no mono">${laneNo(i)}</span>
-        <span class="ticket-id">${sourceTicketLabel(ticket, jiraBaseUrl)}</span>
-        <span class="queue-title">${esc(ticket.title)}</span>
-        ${laneRail('queued')}
-        <span class="pri-chip ${PRIORITY_CLASS[ticket.priority]}">${ticket.priority}</span>
-        <button class="launch-btn" data-ticket="${esc(ticket.id)}" data-title="${esc(ticket.title)}" data-repo="${esc(ticket.repo)}" ${taskSourceLaunchAttributes(ticket)} aria-label="${term('launchTicket')} ${esc(ticket.id)}">${term('launchTicket')}</button>
-      </li>`,
-        )
-        .join('')
-    : `<li class="empty-note">${jiraEnabled ? 'No backlog tickets assigned.' : 'No todos ready to launch. Add a description and set the state to To do.'}</li>`;
-
-  const agentRows: string = activeRuns.length
-    ? activeRuns
-        .map(
-          (run, i) => `
-      <li class="lane agent-row" data-runid="${esc(run.id)}">
-        <span class="lane-no mono">${laneNo(i)}</span>
-        <span class="voyage-identity"><span class="ticket-id">${ticketLabel(run.ticketId, jiraBaseUrl)}</span>${renderVoyageId(run.id)}</span>
-        <span class="agent-repo mono">${esc(shortRepo(run.repo))}</span>
-        ${laneRail('live')}
-        <span class="agent-elapsed mono">${formatRelativeTime(run.startedAt, now)}</span>
-        ${caps.maxAttempts > 1 ? `<span class="agent-attempt mono">&times;${run.attempt}/${caps.maxAttempts}</span>` : run.attempt > 1 ? `<span class="agent-attempt mono">&times;${run.attempt}</span>` : ''}
-        ${run.costUsd != null ? `<span class="agent-cost mono">$${run.costUsd.toFixed(2)}${caps.maxCostUsd != null ? `/$${caps.maxCostUsd.toFixed(2)}` : ''}</span>` : ''}
-        <span class="chip chip-progress">Running</span>
-        <button class="agent-stop" data-runid="${esc(run.id)}" aria-label="Stop ${term('run').toLowerCase()} ${esc(run.ticketId)}">${ICON_STOP}</button>
-      </li>`,
-        )
-        .join('')
-    : `<li class="empty-note">${term('noAgentTasks')}</li>`;
-
-  const shippedCards = data.shipped
-    .map((pr) => {
-      const status = PR_STATUS[pr.status];
-      const repoShort: string = pr.repo ? shortRepo(pr.repo) : '';
-      const subParts: string[] = [
-        pr.ticketId !== '—' ? ticketLabel(pr.ticketId, jiraBaseUrl) : '',
-        repoShort ? esc(repoShort) : '',
-        `opened ${formatRelativeTime(pr.openedAt, now)}`,
-      ].filter((part) => part !== '');
-      return `
-      <div class="pr-card">
-        <span class="pr-num mono">#${pr.number}</span>
-        <div class="pr-title-line">
-          <span class="pr-title">${esc(pr.title)}</span>
-          <span class="pr-sub">${subParts.join(' &middot; ')}</span>
-        </div>
-        <span class="chip ${status.chipClass}">${status.label}</span>
-      </div>`;
-    })
-    .join('') || `<div class="empty-note">${term('noRecentPrs')}</div>`;
-
-  const activityLines = data.activity.length
-    ? data.activity
-        .map(
-          (event) => `
-      <div class="feed-line">
-        <span class="feed-time mono">${formatRelativeTime(event.time, now)}</span>
-        <span class="feed-text${event.accent ? ' tag-accent' : ''}">${linkifyTickets(event.text, jiraBaseUrl)}</span>
-      </div>`,
-        )
-        .join('')
-    : '<div class="empty-note">No recent log entries.</div>';
-
-  const sampleSources = degraded.filter(source => source !== 'jira-underway');
-  const banner: string =
-    sampleSources.length > 0
-      ? `<div class="degraded-banner">${jiraEnabled && !selectedRepo ? 'Showing sample data for' : 'Unavailable integrations'}: ${sampleSources.join(', ')} — check server credentials.</div>`
-      : '';
-
-  const newRunRepoOptions: string = sortedRepos
-    .map((repo) => `<option value="${esc(repo)}"${repo === selectedRepo ? ' selected' : ''}>${esc(shortRepo(repo))}</option>`)
-    .join('');
-
-  const recentRunItems: string = terminalRuns.length
-    ? terminalRuns.map(run => renderVoyage(run, now, selectedRepo)).join('')
-    : `<li class="empty-note">${term('noRuns')}</li>`;
-
-  const repoPrCount: number = validListPrs(scopeRepoPrs(selectedRepo, repoPrs)).length;
-
-  const panelDefs: Record<PanelId, PanelDef> = {
-    newrun: {
-      lamp: 'idle',
-      count: null,
-      body: `${jiraEnabled ? '' : `<p class="config-warning"><a class="app-link" href="${esc(routeHref({ view: 'todos', repo: selectedRepo }))}">Create or launch a todo →</a></p>`}
-        <div class="newrun-body">
-          <div class="newrun-mode-toggle">
-            ${jiraEnabled ? `<label class="newrun-mode-label">
-              <input type="radio" class="newrun-mode" name="newrun-mode" value="ticket" checked>
-              <span>Jira ticket</span>
-            </label>` : ''}
-            <label class="newrun-mode-label">
-              <input type="radio" class="newrun-mode" name="newrun-mode" value="freeform"${jiraEnabled ? '' : ' checked'}>
-              <span>Custom task</span>
-            </label>
-          </div>
-          <div class="newrun-fields">
-            ${jiraEnabled ? `<label class="interface-field newrun-ticket-field">Jira ticket ID<input class="newrun-ticket" type="text" placeholder="ABC-123"></label>
-            <label class="interface-field newrun-ticket-field">Title (optional)<input class="newrun-title" type="text" placeholder="Short task title"></label>` : ''}
-            <label class="interface-field newrun-task-field">Custom task instructions<textarea class="newrun-task" placeholder="Describe the desired change, constraints, and how to verify it."></textarea></label>
-            <label class="interface-field">${term('repository')}<select class="newrun-repo" aria-label="${term('repository')} for ${term('newRun').toLowerCase()}">${newRunRepoOptions}</select></label>
-            ${tuningSelects('newrun')}
-            <button class="newrun-launch">${term('launchRun')}</button>
-          </div>
-        </div>`,
-    },
-    backlog: {
-      lamp: queue.length ? 'queued' : 'idle',
-      count: queue.length,
-      body: `<ul class="queue-list lane-list">${queueItems}</ul>`,
-    },
-    running: {
-      lamp: activeRuns.length ? 'live' : 'idle',
-      count: activeRuns.length,
-      body: `<ul class="agent-list lane-list">${agentRows}</ul>`,
-    },
-    underway: {
-      lamp: underwayKnown && underway.length ? 'queued' : 'idle',
-      count: underwayKnown ? underway.length : null,
-      body: `${jiraEnabled && underwayKnown && underway.length && !selectedRepo ? `<div class="triage-hint">${term('launchScopeHint')}</div>` : ''}<ul class="underway-list lane-list">${underwayItems}</ul>`,
-    },
-    recent: {
-      lamp: 'idle',
-      count: terminalRuns.length,
-      body: `<ul class="recent-runs-list lane-list">${recentRunItems}</ul><div class="runs-pagination"><a class="app-link" href="${esc(routeHref({ view: 'runs', repo: selectedRepo, pane: 'recent' }))}">${term('allRuns')} →</a></div>`,
-    },
-    repoprs: {
-      lamp: repoPrCount ? 'queued' : 'idle',
-      count: repoPrCount,
-      body: renderRepoPrs(selectedRepo, repoPrs),
-    },
-    shipped: {
-      lamp: 'idle',
-      count: data.shipped.length,
-      body: `<div class="shipped-grid">${shippedCards}</div>`,
-    },
-    activity: {
-      lamp: 'idle',
-      count: null,
-      body: `
-        <div class="throughput">
-          <span class="throughput-label mono">Completed · last 7 days</span>
-          <div class="spark-wrap">${buildSparkline(data.throughput7d)}</div>
-        </div>
-        <div class="feed">${activityLines}</div>`,
-    },
-  };
-
-  root.innerHTML = renderAppShell({
-    active: 'dashboard', repos, selectedRepo, themeId,
-    readout: { running: activeRuns.length, queued: queue.length, review: data.stats.awaitingReview },
-  }, `<h1 class="sr-only">Helm</h1>${banner}${renderRack(layout, panelDefs)}<div class="runs-drawer-slot"></div>`);
 }
 
 function renderVoyageId(id: unknown): string {

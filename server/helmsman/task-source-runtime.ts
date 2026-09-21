@@ -36,7 +36,7 @@ export function createTaskSourceRuntime(options: {
   const { store, registry, connections, executions, admissions, operations, db } = options;
   const local = openLocalSourceAdapter(store);
   const preparedFinalizations = new Map<string, PreparedSourceSettlement | null>();
-  function claimForRun(runId: string): WorkClaimRecord | null { return store.claims().find(claim => claim.runId === runId && !claim.id.startsWith('legacy-')) ?? null; }
+  function claimForRun(runId: string): WorkClaimRecord | null { return store.claimForRun(runId); }
   function source(id: string | null) {
     const value = id ? store.source(id) : null;
     const instance = value && store.instance(value.currentInstanceId);

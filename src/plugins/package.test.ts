@@ -9,6 +9,22 @@ function descriptor() {
 }
 
 describe('plugin packages', () => {
+  it('requires panel entries to exactly match version 2 declarations separately from pages', () => {
+    const original = descriptor();
+    const input = { ...original, manifest: { ...original.manifest, manifestVersion: 2,
+      panels: [{ id: 'backlog', title: 'Backlog', contract: { id: 'helmsman/helm-panel', version: 1 }, requires: [] }] },
+    panelEntries: { backlog: 'dist/panel.js' } };
+    const parsed = parsePluginPackage(input);
+    expect(parsed.panelEntries).toEqual({ backlog: 'dist/panel.js' });
+    expect(Object.isFrozen(parsed.panelEntries)).toBe(true);
+    expect(() => parsePluginPackage({ ...input, panelEntries: {} })).toThrow();
+    expect(() => parsePluginPackage({ ...input, panelEntries: { backlog: '../panel.js' } })).toThrow();
+    expect(() => parsePluginPackage({ ...input, panelEntries: { backlog: 'panel.js', extra: 'page.js' } })).toThrow();
+    expect(() => parsePluginPackage({ ...original, panelEntries: {} })).toThrow();
+    const { panelEntries: _entries, ...missing } = input;
+    expect(() => parsePluginPackage(missing)).toThrow();
+  });
+
   const backend = () => ({ entry: 'backend.js', storageVersion: 1,
     provides: [{ id: 'helmsman/pricing', version: 1, localId: 'rates' }],
     settings: { rateAmount: { type: 'number', default: 1, minimum: 0, maximum: 5 } } });
@@ -16,6 +32,14 @@ describe('plugin packages', () => {
   const taskSource = () => ({ entry: 'source.js', storageVersion: 1, settings: {},
     provides: [{ id: 'helmsman/task-source', version: 1, localId: 'tasks' }],
     taskSources: { tasks: { identityFormats: ['helmsman.local-task/v1'], effectIds: [], commandIds: ['create'], access: ['local-records'] } } });
+  it('supports optional explicit Underway views without changing legacy source declarations', () => {
+    const source = taskSource();
+    expect(parsePluginPackage({ ...descriptor(), backend: source }).backend?.taskSources?.tasks?.readViews).toBeUndefined();
+    const withViews = (readViews: unknown) => ({ ...descriptor(), backend: { ...source, taskSources: { tasks: { ...source.taskSources.tasks, readViews } } } });
+    expect(parsePluginPackage(withViews(['underway'])).backend?.taskSources?.tasks?.readViews).toEqual(['underway']);
+    expect(parsePluginPackage(withViews(['underway', 'history'])).backend?.taskSources?.tasks?.readViews).toEqual(['history', 'underway']);
+    for (const invalid of [['other'], ['underway', 'underway'], null, 'underway']) expect(() => parsePluginPackage(withViews(invalid))).toThrow();
+  });
 
   it('accepts task source declarations while preserving existing pricing packages', () => {
     const source = taskSource();

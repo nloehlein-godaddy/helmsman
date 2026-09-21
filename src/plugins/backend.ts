@@ -8,6 +8,7 @@ export type PluginSetting =
   | { readonly type: 'boolean'; readonly default: boolean };
 
 export interface TaskSourceDeclaration {
+  readonly readViews?: readonly ('underway' | 'history')[];
   readonly identityFormats: readonly string[];
   readonly effectIds: readonly string[];
   readonly commandIds: readonly string[];

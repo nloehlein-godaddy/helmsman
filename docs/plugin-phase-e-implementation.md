@@ -1,6 +1,6 @@
 # Phase E implementation proposal: Helm and feature extraction
 
-Status: E0 design review complete; the decisions below govern implementation. Code changes start after the Phase D production, restart, review, and distribution gates pass. No E implementation is complete yet.
+Status: E0 design review complete; E1 infrastructure and the first Helm/backlog extraction passed the isolated production gate. E2 run services, all eight Helm panels and the legacy Helm cutover have passed aggregate and isolated production validation. E3 feature extraction is next; see [the implementation detail](plugin-phase-e3-implementation.md). Phase D is reviewed and pushed as `abae201`. The remainder of E and phases F/G are still pending.
 
 ## Outcome and boundaries
 
@@ -90,5 +90,17 @@ Two independent reviews inspected current manifest/package validation, page moun
 Slack integration requires a separate public communication-provider and durable invocation contract before its extraction batch. PR publication remains under core authority. Terminal and settings contributions get narrow domain contracts; a generic arbitrary-endpoint dispatcher is not the replacement protocol. Header status and run drawers receive explicit ownership so optional Helm disablement cannot remove core controls.
 
 Root owns the contract decisions and integration. One agent owns panel registry/package/catalog/layout infrastructure, one owns scoped domain services and their server adapters, and one owns authored Helm/backlog packages and independent replacements after the types are agreed. File ownership will be split further at the actual E1 handoff to avoid concurrent edits.
+
+_Helmsman · not reported - not reported_
+
+## E2 run-service review decisions
+
+Running/Recent now use scoped, bounded run-read queries and host-managed polling. Commands are a fixed domain protocol: source/freeform/review/rerun launch, exact-attempt Stop and exact-attempt Retry. Browser storage reserves a request UUID before transport; a server ledger binds caller, canonical content, assigned run, original retry lineage and receipt. Core launch still owns capacity, source claims, snapshots and execution. Admission retains a hash binding to the command so restart recovery cannot confuse unrelated evidence with acceptance.
+
+A terminal receipt remains in the browser journal until explicit acknowledgment after result/draft consumption. Cancellation during response or storage processing cannot retire an unobserved success. Definite rejected requests can be dismissed; unknown delivery can be checked or explicitly delivered again with the same UUID. Recovery-required delivery remains an operator action. Exact-original-attempt retry uniqueness spans callers and request IDs. A worker result never follows from command acceptance or log text.
+
+Underway has an optional declared task-source read view. Jira's view preserves assigned, non-Done work independently of queue JQL, including assigned Ready/Blocked tasks. Local Todos expose in-progress/review work. Unsupported providers remain unavailable without normal-list substitution. New Run keeps per-galleon drafts and selects canonical work references through public reads. Display-key lookup and backlog launch parity remain follow-up work before Phase E completion.
+
+The next remaining Helm batch covers repository PRs, Shipped and Activity. PR presentation needs a bounded scoped PR-read contract with explicit partial/unavailable evidence, preserving authored-work and review-request semantics independently of run status. Activity needs scoped source/PR activity and completed-throughput evidence; unknown integrations must not become fabricated zeroes or sample events. These ports must project allowlisted public DTOs from existing adapters, then move provider policy behind replaceable capabilities during integration extraction. They must not expose arbitrary endpoint dispatch or private clients. Keep the legacy rack paths until all corresponding package owners are ready for one coordinated cutover; do not claim complete feature parity while placeholders remain.
 
 _Helmsman · not reported - not reported_

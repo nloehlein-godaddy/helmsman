@@ -112,7 +112,7 @@ describe('retrying a failed voyage', () => {
     expect(document.querySelector(`.run-drawer-retry .voyage-retry[data-retry-run-id="${RUNNING}"]`)).not.toBeNull();
   });
 
-  it.each(['/', `/runs?run=${FAILED}`])('exposes retry only for failed voyages on %s', async (path) => {
+  it.each(['/runs', `/runs?run=${FAILED}`])('exposes retry only for failed voyages on %s', async (path) => {
     await setup(path);
     expect(buttons().length).toBeGreaterThan(0);
     for (const id of [SUCCEEDED, RUNNING, STOPPED]) expect(buttons(id)).toHaveLength(0);

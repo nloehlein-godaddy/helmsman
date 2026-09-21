@@ -37,6 +37,49 @@ afterEach(() => {
 });
 
 describe('plugin page host', () => {
+  it('provides required task reads and revokes old scope calls immediately on scope change, suspension and disposal', async () => {
+    const stalled = deferred<Response>();
+    const fetcher = vi.fn<typeof fetch>().mockImplementationOnce(() => stalled.promise).mockImplementation(async path => {
+      return new Response(JSON.stringify(String(path) === '/api/context' ? { repos: ['org/first', 'org/second'] } : { instances: [] }));
+    });
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      const { host } = setup(); let context!: PluginPageContext;
+      const module = { mount(_element: HTMLElement, supplied: PluginPageContext) { context = supplied; return lifecycle(); } };
+      host.show('example.tasks/page', module, state()); await settle();
+      const tasks = context.services?.tasks; expect(tasks).toBeDefined();
+      const pending = tasks!.discover(); const aborted = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      const priorSignal = fetcher.mock.calls[0]?.[1]?.signal;
+      host.show('example.tasks/page', module, state({ repo: 'org/second' }));
+      expect(priorSignal?.aborted).toBe(true); expect(context.signal.aborted).toBe(false); await aborted;
+      expect(await tasks!.discover()).toMatchObject({ status: 'available', value: { repo: 'org/second', galleons: [{ repo: 'org/second' }] } });
+      expect(fetcher.mock.calls.some(([path]) => String(path).includes('repo=org%2Ffirst'))).toBe(false);
+      const calls = fetcher.mock.calls.length;
+      host.show('example.tasks/page', module, state({ repo: 'org/second', visible: false }));
+      await expect(tasks!.discover()).rejects.toMatchObject({ name: 'AbortError' }); expect(fetcher).toHaveBeenCalledTimes(calls);
+      host.dispose(); await expect(tasks!.discover()).rejects.toMatchObject({ name: 'AbortError' });
+      stalled.resolve(new Response('{"repos":["org/first"]}'));
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('delivers route-only changes and retains mounting for equivalent route values', async () => {
+    const { host } = setup();
+    const instance = lifecycle();
+    const module = { mount: vi.fn(() => instance) };
+    const initial = state({ panelInstance: 'first', panelRouteState: {
+      'example.panel/panel': { version: 1, value: { locator: 'A' } },
+    } });
+    host.show('example.page/page', module, initial); await settle();
+    host.show('example.page/page', module, structuredClone(initial)); await settle();
+    expect(instance.update).not.toHaveBeenCalled();
+    const next = state({ panelInstance: 'first', panelRouteState: {
+      'example.panel/panel': { version: 1, value: { locator: 'B' } },
+    } });
+    host.show('example.page/page', module, next); await settle();
+    expect(instance.update).toHaveBeenCalledExactlyOnceWith(next);
+    expect(module.mount).toHaveBeenCalledOnce();
+  });
+
   it('keeps a stable module mounted for equivalent state and updates immutable snapshots', async () => {
     const { host } = setup();
     const instance = lifecycle();

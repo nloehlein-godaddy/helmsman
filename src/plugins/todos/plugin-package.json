@@ -7,7 +7,7 @@
     "entry": "provider.js",
     "provides": [{ "id": "helmsman/task-source", "version": 1, "localId": "todos" }],
     "taskSources": {
-      "todos": { "identityFormats": ["helmsman.local-task/v1"], "effectIds": [], "commandIds": ["create", "update", "delete"], "access": ["local-records"] }
+      "todos": { "identityFormats": ["helmsman.local-task/v1"], "effectIds": [], "commandIds": ["create", "update", "delete"], "access": ["local-records"], "readViews": ["underway", "history"] }
     },
     "settings": {},
     "storageVersion": 1

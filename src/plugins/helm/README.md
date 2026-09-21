@@ -1,0 +1,15 @@
+# Helm
+
+The shipped Helm page composes registered panels through `context.composition`. It never imports a panel implementation or a host module. It edits the shared layout through revision-checked updates, retaining state for unavailable implementations.
+
+Build in an isolated directory with the public SDK and TypeScript installed:
+
+```sh
+npm install --no-save typescript /absolute/path/to/release/sdk
+npm run build
+node /absolute/path/to/release/server/helmsman/plugins/cli.js pack ./dist ./helm.hmp
+```
+
+The entry is `page.ts`; production code imports only public SDK types and its own relative modules. Styles use a package-specific root and supported host theme tokens. The descriptor uses the reserved `helmsman` namespace for the shipped contribution. External authors should choose their own publisher namespace.
+
+Unmounting, hiding or replacing this presentation never alters admitted work. The page retains mounted children while rearranging layout and delegates cancellation, service scope and module resolution to the host. Instance links are revealed once per incoming locator; missing locators do not reset the layout.

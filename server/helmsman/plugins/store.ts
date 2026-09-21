@@ -3,24 +3,27 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFi
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { COSTS_PAGE_ID, COSTS_PAGE_SLOT } from '../../../src/plugins/builtins';
+import { COSTS_PAGE_SLOT, HELM_PAGE_SLOT, supportsPageSlot } from '../../../src/plugins/frontend-manifests';
+import { builtinFrontendPackages } from './builtin-frontend';
 import { isContributionId, isPluginId } from '../../../src/plugins/manifest';
 import { installPluginArtifact, parsePluginArchive, readPluginArtifact, type PluginArchive } from './artifacts';
 import { validatePluginImports } from './imports';
 import { builtinPluginPackage, builtinPluginEnabled, clearPluginSettings, projectPluginData, setBuiltinPluginEnabled, writePluginSettings } from './data';
 import type { PluginPackage } from '../../../src/plugins/package';
 import type { ArtifactBinding, ExecutionStore } from '../execution-store';
-import { acknowledgePersistenceIntent, assertMaintenanceAvailable, immediateTransaction, pendingPersistenceIntents, PersistenceConflictError, stableJson, type Persistence } from '../persistence';
+import { acknowledgePersistenceIntent, assertMaintenanceAvailable, immediateTransaction, pendingPersistenceIntents, PersistenceConflictError, persistenceHash, stableJson, type Persistence } from '../persistence';
 import type { PluginLifecycle, PluginLifecycleRecord } from './lifecycle';
 import { storeConnection } from '../store-connection';
 
 export interface InstalledPlugin { id: string; hash: string; enabled: boolean; }
 export interface PluginInstallationState { plugins: InstalledPlugin[]; bindings: Record<string, string>; }
 export interface PluginSnapshot {
-  catalog: { version: 1; safeMode: boolean; plugins: { package: PluginArchive['package']; hash: string }[]; bindings: Record<string, string> };
+  catalog: { version: 1; safeMode: boolean; builtins?: { id: string; version: string; hash: string; enabled: boolean }[]; plugins: { package: PluginArchive['package']; hash: string }[]; bindings: Record<string, string> };
   artifacts: ReadonlyMap<string, PluginArchive>;
   errors: string[];
 }
+
+const frontendPageSlots: readonly string[] = [COSTS_PAGE_SLOT, HELM_PAGE_SLOT];
 
 export function pluginDirectory(): string {
   return process.env.HELMSMAN_PLUGINS_DIR ?? join(homedir(), '.helmsman', 'plugins');
@@ -55,7 +58,7 @@ export function readPluginState(root: string): PluginInstallationState {
       const rows = db.prepare('SELECT slot, contribution FROM plugin_bindings').all() as { slot: unknown; contribution: unknown }[];
       const bindings: Record<string, string> = {};
       for (const row of rows) {
-        if (row?.slot !== COSTS_PAGE_SLOT || !isContributionId(row.contribution)) throw new Error('Plugin page bindings are invalid.');
+        if (typeof row?.slot !== 'string' || !frontendPageSlots.includes(row.slot) || !isContributionId(row.contribution)) throw new Error('Plugin page bindings are invalid.');
         bindings[row.slot] = row.contribution;
       }
       return { plugins: installed(db), bindings };
@@ -133,13 +136,17 @@ export function resetPluginSettings(root: string, id: string, key?: string): voi
 }
 
 export async function selectPluginPage(root: string, slot: string, contribution: string | null): Promise<void> {
-  if (slot !== COSTS_PAGE_SLOT || contribution !== null && !isContributionId(contribution)) throw new Error('Invalid page slot or contribution.');
-  if (contribution && contribution !== COSTS_PAGE_ID) {
+  if (!frontendPageSlots.includes(slot) || contribution !== null && !isContributionId(contribution)) throw new Error('Invalid page slot or contribution.');
+  if (contribution?.startsWith('helmsman.')) {
+    const pkg = builtinFrontendPackages.find(item => contribution.startsWith(`${item.manifest.id}/`));
+    const page = pkg?.manifest.pages.find(item => `${pkg.manifest.id}/${item.id}` === contribution);
+    if (!page || !supportsPageSlot(page, slot)) throw new Error('The built-in contribution does not support this slot.');
+  } else if (contribution) {
     const plugin = readPluginState(root).plugins.find(plugin => contribution.startsWith(`${plugin.id}/`));
     if (plugin) {
       const artifact = await readPluginArtifact(root, plugin.hash);
       const page = artifact.package.manifest.pages.find(page => `${plugin.id}/${page.id}` === contribution);
-      if (!page?.slots.includes(slot)) throw new Error('The installed contribution does not support this slot.');
+      if (!page || !supportsPageSlot(page, slot)) throw new Error('The installed contribution does not support this slot.');
     }
   }
   const db = database(root);
@@ -150,7 +157,7 @@ export async function selectPluginPage(root: string, slot: string, contribution:
 }
 
 export async function loadPluginSnapshot(root: string, safeMode = false, coordinator?: PluginCoordinator): Promise<PluginSnapshot> {
-  const snapshot: PluginSnapshot = { catalog: { version: 1, safeMode, plugins: [], bindings: {} }, artifacts: new Map(), errors: [] };
+  const snapshot: PluginSnapshot = { catalog: { version: 1, safeMode, builtins: [], plugins: [], bindings: {} }, artifacts: new Map(), errors: [] };
   let state: PluginInstallationState;
   try { state = readPluginState(root); } catch {
     snapshot.catalog.safeMode = true;
@@ -158,6 +165,19 @@ export async function loadPluginSnapshot(root: string, safeMode = false, coordin
     return snapshot;
   }
   snapshot.catalog.bindings = state.bindings;
+  for (const pkg of builtinFrontendPackages) {
+    const id = pkg.manifest.id;
+    const hash = coordinator?.builtinArtifactHash(id) ?? persistenceHash(pkg);
+    let enabled = false;
+    try {
+      const desiredEnabled = builtinPluginEnabled(root, pkg);
+      enabled = !safeMode && (coordinator ? coordinator.canActivate(id, hash) : desiredEnabled);
+      if (coordinator && (enabled || coordinator.state(id)?.health === 'active')) {
+        coordinator.lifecycle.recordHealth(id, hash, enabled ? 'active' : 'inactive', null);
+      }
+    } catch { snapshot.errors.push(`Built-in plugin ${id} state could not be read; its frontend remains unavailable.`); }
+    snapshot.catalog.builtins!.push({ id, version: pkg.manifest.version, hash, enabled });
+  }
   if (safeMode) return snapshot;
   const artifacts = new Map<string, PluginArchive>();
   for (const plugin of state.plugins.filter(plugin => coordinator ? coordinator.canActivate(plugin.id, plugin.hash) || coordinator.state(plugin.id)?.obligationsOnly : plugin.enabled)) {
@@ -249,7 +269,7 @@ export async function createPluginCoordinator(options: {
       requires: pkg.manifest.id.startsWith('helmsman.') ? ['helmsman.legacy-runtime'] : [] }, schemas: [] });
   }
   async function notify(): Promise<void> {
-    const revision = stableJson(lifecycle.list());
+    const revision = stableJson({ lifecycle: lifecycle.list(), bindings: readPluginState(root).bindings });
     if (revision === observed) return;
     observed = revision;
     for (const listener of listeners) {

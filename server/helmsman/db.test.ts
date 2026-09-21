@@ -124,6 +124,25 @@ describe('db', () => {
     db.appendEvent('r1', 'review-verdict', 'x'.repeat(10000), 't6');
     expect(db.latestReviewVerdict('r1')).toBe('x'.repeat(512));
   });
+  it('keeps scoped run read keysets bounded before status filtering and excludes later insertions', () => {
+    db = openDb(':memory:');
+    for (const id of ['a', 'b', 'c']) db.insertRun(run({ id, repo: 'o/r', status: 'running' }));
+    db.insertRun(run({ id: 'z', repo: 'other/r', status: 'running' }));
+    db.insertRun(run({ id: 'y', repo: 'o/r', status: 'failed' }));
+    const query = { repos: ['o/r'], kind: 'running' as const, limit: 2, ceiling: null, after: null };
+    const first = db.runReadPage(query); expect(first.runs.map(value => value.id)).toEqual(['c', 'b']);
+    db.insertRun(run({ id: 'aa', repo: 'o/r' }));
+    const next = db.runReadPage({ ...query, ceiling: first.ceiling, after: { id: 'b', startedAt: first.runs[1]!.startedAt } });
+    expect(next.runs.map(value => value.id)).toEqual(['a']);
+    expect(db.runReadPage({ ...query, repos: [] }).runs).toEqual([]);
+    expect(() => db.runReadPage({ ...query, limit: 102 })).toThrow(RangeError);
+  });
+  it('bounds log text in SQL for public pages without changing full-log reads', () => {
+    db = openDb(':memory:'); const event = db.appendEvent('r1', 'log', 'x'.repeat(10000), '2026-09-20T00:00:00Z');
+    expect(db.eventPage('r1', 0, event.id, 1, 2001)[0]?.text).toHaveLength(2001);
+    expect(db.eventPage('r1', 0, event.id, 1)[0]?.text).toHaveLength(10000);
+    expect(() => db.eventPage('r1', 0, event.id, 1, -1)).toThrow(RangeError);
+  });
 
   it('updateRun with empty patch is a no-op', () => {
     db = openDb(':memory:');

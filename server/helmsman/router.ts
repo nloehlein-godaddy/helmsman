@@ -18,6 +18,14 @@ import { ClarificationValidationError, type ClarificationStore } from './clarifi
 import type { PricingEstimate, UsageQueryService, UsageSnapshot } from '../../src/plugins/usage';
 import { UsageValidationError } from './usage-store';
 import { CapabilityResolutionError } from './plugins/backend';
+import { handleRunCommandApi } from './run-command-routes';
+import type { RunCommandServerService } from './run-command-coordinator';
+import { handlePullRequestReadApi } from './pull-request-read-routes';
+import type { PullRequestReadServerService } from './pull-request-read-service';
+import { handleActivityReadApi } from './activity-read-routes';
+import type { ActivityReadService } from './activity-read-service';
+import { handleRunReadApi } from './run-read-routes';
+import type { RunReadServerService } from './run-read-service';
 import { handleTaskSourceApi } from './task-source-routes';
 import type { TaskSourceService } from './task-source-service';
 import { SourceTodoRejectedError, type TodoApi } from './task-source-todos';
@@ -62,6 +70,11 @@ function toRunSummary(row: RunRow, db: Db): RunSummary {
 }
 
 export interface RouterDeps {
+  runRead?: RunReadServerService;
+  pullRequestRead?: PullRequestReadServerService;
+  activityRead?: ActivityReadService;
+  runCommands?: RunCommandServerService;
+  runCommandCaller?: string;
   taskSources?: TaskSourceService;
   sourceSchedule?: TaskSourceSchedule;
   usage?: UsageQueryService;
@@ -119,6 +132,14 @@ export async function handleApi(
   _body: unknown,
   deps: RouterDeps,
 ): Promise<ApiResult | null> {
+  const commandResult = await handleRunCommandApi({ method, path, query, body: _body, caller: deps.runCommandCaller, service: deps.runCommands });
+  if (commandResult) return commandResult;
+  const pullRequestReadResult = await handlePullRequestReadApi({ method, path, query, service: deps.pullRequestRead });
+  if (pullRequestReadResult) return pullRequestReadResult;
+  const activityReadResult = await handleActivityReadApi({ method, path, query, service: deps.activityRead });
+  if (activityReadResult) return activityReadResult;
+  const runReadResult = handleRunReadApi({ method, path, query, service: deps.runRead });
+  if (runReadResult) return runReadResult;
   const sourceResult = await handleTaskSourceApi({ method, path, query, body: _body, service: deps.taskSources, schedule: deps.sourceSchedule, launch: deps.launch });
   if (sourceResult) return sourceResult;
   if ((path === '/api/usage/v1' || path === '/api/pricing/v1') && method === 'GET') {

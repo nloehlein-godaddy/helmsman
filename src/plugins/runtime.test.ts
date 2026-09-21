@@ -3,6 +3,8 @@ import { COSTS_PAGE_ID, COSTS_PAGE_SLOT, createAppPageRegistry } from './builtin
 import { PluginPageModules } from './modules';
 import { loadPluginCatalog, parsePluginCatalog } from './runtime';
 import type { PluginPageContext, PluginPageInstance } from './sdk';
+import type { PluginPanelContext } from './composition';
+import { PluginPanelRegistry } from './panels';
 
 const hash = 'a'.repeat(64);
 const plugin = (id = 'example.costs') => ({
@@ -26,6 +28,16 @@ function deferred<T>() {
 }
 const fetchCatalog = (value: unknown) => vi.fn<typeof fetch>(async () => new Response(JSON.stringify(value)));
 const setup = () => ({ registry: createAppPageRegistry(), modules: new PluginPageModules() });
+const panelCatalog = () => ({ version: 1, safeMode: false, bindings: {}, plugins: [{ hash, package: {
+  packageVersion: 1, manifest: { manifestVersion: 2, id: 'example.panels', version: '1.0.0', sdkVersion: 1, pages: [],
+    panels: [{ id: 'backlog', title: 'Backlog', contract: { id: 'helmsman/helm-panel', version: 1 }, requires: [] }] },
+  node: { minMajor: 22, maxMajorExclusive: 30 }, entries: {}, panelEntries: { backlog: 'dist/panel.js' },
+} }] });
+function panelContext(signal = new AbortController().signal): PluginPanelContext {
+  const base = context(signal); const activity = { epoch: 0, signal, active: true, repo: base.state.repo };
+  return { ...base, state: { ...base.state, instanceId: 'external-panel', savedState: null, activity }, activity,
+    services: { version: 1 }, saveState: async () => {} };
+}
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -78,6 +90,45 @@ describe('plugin catalog validation', () => {
 });
 
 describe('external plugin catalog loading', () => {
+  it('loads a panel-only version 2 package lazily through its immutable entry and coalesces imports', async () => {
+    const { registry, modules } = setup(); const panels = new PluginPanelRegistry();
+    const imported = deferred<unknown>(); const importer = vi.fn(() => imported.promise);
+    const runtime = await loadPluginCatalog(registry, modules, { panels, fetch: fetchCatalog(panelCatalog()), importModule: importer });
+    try {
+      expect(runtime.errors).toEqual([]);
+      expect(panels.get('example.panels/backlog')?.title).toBe('Backlog');
+      expect(registry.getPage('example.panels/backlog')).toBeNull();
+      expect(importer).not.toHaveBeenCalled();
+      const module = panels.getModule('example.panels/backlog')!;
+      const first = module.mount(document.createElement('div'), panelContext());
+      const second = module.mount(document.createElement('div'), panelContext());
+      expect(importer).toHaveBeenCalledExactlyOnceWith(`/plugin-assets/example.panels/${hash}/dist/panel.js`);
+      const mount = vi.fn(lifecycle); imported.resolve({ default: { mount } });
+      await Promise.all([first, second]); expect(mount).toHaveBeenCalledTimes(2);
+    } finally { runtime.dispose(); }
+    expect(panels.get('example.panels/backlog')).toBeNull(); expect(panels.getModule('example.panels/backlog')).toBeNull();
+  });
+
+  it('does not execute a deferred panel mount after catalog disable retires its registration', async () => {
+    vi.useFakeTimers();
+    const { registry, modules } = setup(); const panels = new PluginPanelRegistry();
+    let value = panelCatalog(); const imported = deferred<unknown>();
+    const runtime = await loadPluginCatalog(registry, modules, { panels, pollIntervalMs: 100,
+      fetch: vi.fn<typeof fetch>(async () => new Response(JSON.stringify(value))), importModule: () => imported.promise });
+    try {
+      const module = panels.getModule('example.panels/backlog')!;
+      const pending = module.mount(document.createElement('div'), panelContext());
+      value = { ...value, plugins: [] }; await vi.advanceTimersByTimeAsync(100);
+      expect(panels.get('example.panels/backlog')).toBeNull(); expect(panels.getModule('example.panels/backlog')).toBeNull();
+      const mount = vi.fn(lifecycle); imported.resolve({ default: { mount } });
+      const retired = await pending;
+      expect(mount).not.toHaveBeenCalled(); expect(() => retired.dispose()).not.toThrow();
+      value = panelCatalog(); await vi.advanceTimersByTimeAsync(100);
+      await panels.getModule('example.panels/backlog')!.mount(document.createElement('div'), panelContext());
+      expect(mount).toHaveBeenCalledOnce();
+    } finally { runtime.dispose(); }
+  });
+
   it('retires disabled pages on catalog refresh while preserving unchanged page modules and selected bindings', async () => {
     vi.useFakeTimers();
     const { registry, modules } = setup();

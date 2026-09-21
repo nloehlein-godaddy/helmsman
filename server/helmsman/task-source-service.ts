@@ -1,3 +1,4 @@
+import { parseTaskHistoryQueryV1, parseTaskHistoryV1, type TaskHistoryQueryV1 } from '../../src/plugins/activity-read';
 import { createTaskSourceRefreshService, type TaskSourceRefreshOptions } from './task-source-refresh';
 import { createTaskSourceAdoptionService } from './task-source-adoption';
 import type { PluginJson } from '../../src/plugins/backend';
@@ -9,6 +10,8 @@ import { PersistenceConflictError, PersistenceValidationError, stableJson } from
 import type { LocalSourceAdapter } from './task-sources/local-records';
 import type { SourceResolutionPurpose, TaskSourceRegistry } from './task-sources/registry';
 import type { TaskSourceStore } from './task-sources/store';
+
+export class TaskSourceViewUnavailableError extends Error {}
 
 export function createTaskSourceService(options: {
   store: TaskSourceStore;
@@ -76,6 +79,7 @@ export function createTaskSourceService(options: {
         const registration = available ? registry.resolve(instance, 'admission') : null;
         return { id: instance.id, sourceId: instance.sourceId, label: instance.label, revision: instance.revision, desiredEnabled: instance.desiredEnabled,
           available, identityLevel: instance.identityLevel, commands: registration?.declaration.commandIds ?? [],
+          readViews: registration?.declaration.readViews ?? [],
           providerId: instance.binding.providerId, allowedRepos: instance.allowedRepos, settings: instance.settings };
       });
     },
@@ -90,6 +94,27 @@ export function createTaskSourceService(options: {
       if (page.items.length > input.limit) throw new PersistenceValidationError('Task source exceeded the requested page size');
       store.persistence.transaction(() => { for (const task of page.items) recordAlias(task, false); });
       return page;
+    },
+    async listUnderway(input: { instanceId: string; instanceRevision: number; repo: string; cursor: string | null; limit: number }, signal: AbortSignal) {
+      if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > TASK_SOURCE_LIMITS.pageItems
+        || input.cursor !== null && (typeof input.cursor !== 'string' || !input.cursor || input.cursor.length > TASK_SOURCE_LIMITS.cursorLength)) throw new PersistenceValidationError('Invalid Underway query');
+      const instance = selected(input.instanceId, input.instanceRevision, input.repo);
+      const registration = registry.resolve(instance, 'admission');
+      if (!registration.declaration.readViews?.includes('underway') || !registration.provider.listUnderway) throw new TaskSourceViewUnavailableError('This source does not provide the Underway view');
+      const result = await registration.provider.listUnderway({ repo: input.repo, cursor: input.cursor, limit: input.limit }, context(instance, input.repo, signal));
+      signal.throwIfAborted(); assertScope(instance, input.repo, 'admission');
+      const page = parseTaskPageV1(result, { sourceId: instance.sourceId, repo: input.repo });
+      if (page.items.length > input.limit || page.items.some(task => task.state === 'done') || page.nextCursor !== null && page.nextCursor === input.cursor) throw new PersistenceValidationError('Source returned an invalid Underway page');
+      store.persistence.transaction(() => { for (const task of page.items) recordAlias(task, false); });
+      return page;
+    },
+    async readHistory(input: TaskHistoryQueryV1 & { instanceId: string; instanceRevision: number }, signal: AbortSignal) {
+      const query = parseTaskHistoryQueryV1(input); const instance = selected(input.instanceId, input.instanceRevision, query.repo);
+      const registration = registry.resolve(instance, 'admission');
+      if (!registration.declaration.readViews?.includes('history') || !registration.provider.readHistory) throw new TaskSourceViewUnavailableError('This source does not provide task history');
+      const result = await registration.provider.readHistory(query, context(instance, query.repo, signal));
+      signal.throwIfAborted(); assertScope(instance, query.repo, 'admission');
+      return parseTaskHistoryV1(result, query, instance.sourceId);
     },
     assertLaunch(input: { instanceId: string; instanceRevision: number; repo: string; ref: WorkRefV1 }): void {
       const instance = selected(input.instanceId, input.instanceRevision, parseTaskRepo(input.repo));

@@ -1,0 +1,38 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.newrun",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "New run",
+        "contract": {
+          "id": "helmsman/helm-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/task-read",
+            "version": 1
+          },
+          {
+            "id": "helmsman/run-command",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {},
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

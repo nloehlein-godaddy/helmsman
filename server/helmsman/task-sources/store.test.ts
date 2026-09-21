@@ -34,4 +34,16 @@ describe('task source persistence', () => {
     store.quarantine({ sourceId: source.id, externalId: null, displayKey: 'ABC-1', reason: 'old run', evidence: {} });
     expect(() => store.assertUnquarantined({ sourceId: source.id, externalId: '123' })).toThrow(/quarantined/);
   });
+  it('looks up nonlegacy claims by indexed run identity even when admission identity differs', () => {
+    const { store, persistence, source, instance } = setup();
+    const reserve = (id: string, runId: string) => store.reserveWork({ ref: { sourceId: source.id, externalId: id }, runId, admissionId: `admission-${id}`, instanceId: instance.id,
+      expectedSourceRevision: source.revision, expectedInstanceRevision: instance.revision });
+    const selected = reserve('one', 'run-one'); const legacy = reserve('old', 'run-old');
+    const retained = { ...legacy, id: `legacy-${legacy.id}` };
+    persistence.sql.prepare('UPDATE work_claims SET id=?,json=? WHERE id=?').run(retained.id, JSON.stringify(retained), legacy.id);
+    expect(store.claimForRun('run-one')?.id).toBe(selected.id); expect(store.claimForRun('run-old')).toBeNull();
+    const plan = persistence.sql.prepare("EXPLAIN QUERY PLAN SELECT id FROM work_claims WHERE json_extract(json,'$.runId')=? AND substr(id,1,7) != 'legacy-' LIMIT 2").all('run-one') as { detail: string }[];
+    expect(plan.some(row => row.detail.includes('work_claims_run_identity'))).toBe(true);
+    reserve('second', 'run-one'); expect(() => store.claimForRun('run-one')).toThrow('ambiguous');
+  });
 });

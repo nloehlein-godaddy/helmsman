@@ -870,3 +870,15 @@ describe('canonical task source launch compatibility route', () => {
     expect(result?.status).toBe(200); expect(get).not.toHaveBeenCalled(); expect(launch).toHaveBeenCalled();
   });
 });
+
+it('returns terminal Todo rejection evidence only for durable source command rejection errors', async () => {
+  const { SourceTodoRejectedError } = await import('./task-source-todos');
+  const query = new URLSearchParams({ requestId: 'stable-request' });
+  const update = vi.fn(async () => { throw new SourceTodoRejectedError('Change was not applied', 'stable-request', 'update'); });
+  const local = { ...deps, todos: { update } as unknown as RouterDeps['todos'] };
+  expect(await handleApi('PUT', '/api/todos/TODO-1', query, { title: 'Wanted' }, local)).toMatchObject({ status: 409,
+    json: { error: 'Change was not applied', rejection: { version: 1, requestId: 'stable-request', commandId: 'update' } } });
+  const { PersistenceConflictError } = await import('./persistence');
+  update.mockImplementationOnce(async () => { throw new PersistenceConflictError('Unknown delivery'); });
+  expect(await handleApi('PUT', '/api/todos/TODO-1', query, { title: 'Wanted' }, local)).toEqual({ status: 409, json: { error: 'Unknown delivery' } });
+});

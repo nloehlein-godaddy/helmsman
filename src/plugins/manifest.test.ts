@@ -9,6 +9,40 @@ function manifest() {
 }
 
 describe('plugin manifest validation', () => {
+  const composed = () => ({ ...manifest(), manifestVersion: 2,
+    pages: [{ ...manifest().pages[0], composition: { id: 'helmsman/helm-page', version: 1,
+      accepts: [{ id: 'helmsman/helm-panel', version: 1 }] }, requires: [{ id: 'helmsman/composition', version: 1 }] }],
+    panels: [{ id: 'backlog', title: 'Backlog', contract: { id: 'helmsman/helm-panel', version: 1 },
+      requires: [{ id: 'helmsman/task-read', version: 1 }] }] });
+
+  it('supports independently declared composition pages and panels in version 2', () => {
+    const input = composed();
+    const parsed = parsePluginManifest(input);
+    expect(parsed.manifestVersion).toBe(2);
+    if (parsed.manifestVersion !== 2) throw new Error('Expected version 2');
+    input.panels[0]!.title = 'Changed';
+    expect(parsed.panels[0]?.title).toBe('Backlog');
+    expect(Object.isFrozen(parsed.panels[0]?.requires)).toBe(true);
+    expect(Object.isFrozen(parsed.pages[0]?.composition?.accepts[0])).toBe(true);
+    expect(() => parsePluginManifest({ ...input, pages: [], panels: [] })).not.toThrow();
+  });
+
+  it('rejects duplicate IDs across contribution kinds and unsupported contract versions', () => {
+    const input = composed();
+    expect(() => parsePluginManifest({ ...input, panels: [{ ...input.panels[0], id: 'summary' }] })).toThrow(/unique/);
+    expect(() => parsePluginManifest({ ...input, panels: [{ ...input.panels[0], contract: { id: 'helmsman/helm-panel', version: 2 } }] })).toThrow();
+    expect(() => parsePluginManifest({ ...input, panels: [{ ...input.panels[0], requires: [{ id: 'private/service', version: 1 }] }] })).toThrow();
+    expect(() => parsePluginManifest({ ...input, panels: [{ ...input.panels[0], requires: [input.panels[0]!.requires[0], input.panels[0]!.requires[0]] }] })).toThrow(/unique/);
+  });
+
+  it('keeps version 1 strict and rejects malformed composition and accessor fields', () => {
+    const input = composed();
+    expect(() => parsePluginManifest({ ...manifest(), pages: input.pages })).toThrow();
+    expect(() => parsePluginManifest({ ...input, pages: [{ ...input.pages[0], composition: null }] })).toThrow();
+    expect(() => parsePluginManifest({ ...input, pages: [{ ...input.pages[0], get composition() { throw new Error('executed'); } }] })).toThrow(PluginManifestError);
+    expect(() => parsePluginManifest({ ...input, panels: new Array(1) })).toThrow();
+  });
+
   it('copies and freezes all manifest records and arrays', () => {
     const input = manifest();
     const parsed = parsePluginManifest(input);

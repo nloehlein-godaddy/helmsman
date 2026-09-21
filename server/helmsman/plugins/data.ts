@@ -169,7 +169,7 @@ export function builtinPluginEnabled(root: string, pkg: PluginPackage): boolean 
   try {
     sql.prepare('INSERT INTO builtin_plugins VALUES(?,1,?) ON CONFLICT(id) DO UPDATE SET package=excluded.package').run(pkg.manifest.id, JSON.stringify(pkg));
     const row = sql.prepare('SELECT enabled FROM builtin_plugins WHERE id=?').get(pkg.manifest.id) as { enabled: unknown };
-    if (row.enabled !== 0 && row.enabled !== 1) throw new Error('Invalid builtin activation state.');
+    if (!row || row.enabled !== 0 && row.enabled !== 1) throw new Error('Invalid builtin activation state.');
     return row.enabled === 1;
   } finally { sql.close(); }
 }
@@ -185,7 +185,9 @@ export function builtinPluginPackage(root: string, id: string): PluginPackage | 
   const sql = database(root);
   try {
     const row = sql.prepare('SELECT package FROM builtin_plugins WHERE id=?').get(id) as { package: string | null } | undefined;
-    return row?.package ? parsePluginPackage(JSON.parse(row.package), { allowBuiltin: true }) : null;
+    const pkg = row?.package ? parsePluginPackage(JSON.parse(row.package), { allowBuiltin: true }) : null;
+    if (pkg && pkg.manifest.id !== id) throw new Error('Built-in plugin package identity differs from its stored owner');
+    return pkg;
   } finally { sql.close(); }
 }
 
@@ -195,7 +197,9 @@ export function readBuiltinPluginStates(root: string): readonly { id: string; en
     const rows = sql.prepare('SELECT * FROM builtin_plugins ORDER BY id').all() as Array<{ id: string; enabled: number; package: string | null }>;
     return rows.map(row => {
       if (!isPluginId(row.id) || !row.id.startsWith('helmsman.') || ![0, 1].includes(row.enabled)) throw new Error('Invalid builtin plugin state');
-      return { id: row.id, enabled: row.enabled === 1, package: row.package ? parsePluginPackage(JSON.parse(row.package), { allowBuiltin: true }) : null };
+      const pkg = row.package ? parsePluginPackage(JSON.parse(row.package), { allowBuiltin: true }) : null;
+      if (pkg && pkg.manifest.id !== row.id) throw new Error('Built-in plugin package identity differs from its stored owner');
+      return { id: row.id, enabled: row.enabled === 1, package: pkg };
     });
   } finally { sql.close(); }
 }

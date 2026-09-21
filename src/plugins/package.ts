@@ -8,6 +8,7 @@ export interface PluginPackage {
   readonly manifest: PluginManifest;
   readonly node: { readonly minMajor: number; readonly maxMajorExclusive: number };
   readonly entries: Readonly<Record<string, string>>;
+  readonly panelEntries?: Readonly<Record<string, string>>;
   readonly backend?: PluginBackendDefinition;
 }
 
@@ -82,14 +83,17 @@ function parseBackend(value: unknown): PluginBackendDefinition {
       return Object.freeze([...value].sort());
     };
     for (const localId of sourceIds) {
-      const declaration = record(declarations[localId], ['identityFormats', 'effectIds', 'commandIds', 'access'], 'Task source declaration');
+      const rawDeclaration = declarations[localId];
+      const hasReadViews = rawDeclaration !== null && typeof rawDeclaration === 'object' && Object.hasOwn(rawDeclaration, 'readViews');
+      const declaration = record(rawDeclaration, ['identityFormats', 'effectIds', 'commandIds', 'access', ...(hasReadViews ? ['readViews'] : [])], 'Task source declaration');
       const identityFormats = strings(declaration.identityFormats, (item): item is string => typeof item === 'string'
         && item.length <= 128 && /^[a-z][a-z0-9.-]*\/[a-z0-9.-]+$/.test(item), 1, 'identity formats');
       const effectIds = strings(declaration.effectIds, isLocalId, 0, 'effect IDs');
       const commandIds = strings(declaration.commandIds, isLocalId, 0, 'command IDs');
       const access = strings(declaration.access, (item): item is 'local-records' | 'connection-http' => item === 'local-records' || item === 'connection-http', 0, 'access') as TaskSourceDeclaration['access'];
       if (effectIds.length && !access.includes('connection-http') || commandIds.length && !access.includes('local-records')) throw new PluginPackageError('Task source handlers require their matching access capability.');
-      taskSources[localId] = Object.freeze({ identityFormats, effectIds, commandIds, access });
+      const readViews = hasReadViews ? strings(declaration.readViews, (item): item is 'underway' | 'history' => item === 'underway' || item === 'history', 0, 'read views') as readonly ('underway' | 'history')[] : undefined;
+      taskSources[localId] = Object.freeze({ identityFormats, effectIds, commandIds, access, ...(readViews ? { readViews } : {}) });
     }
   }
   if (!input.settings || typeof input.settings !== 'object' || Array.isArray(input.settings) || Object.keys(input.settings).length > 64) throw new PluginPackageError('Invalid settings schema.');
@@ -121,9 +125,11 @@ export function validatePluginSetting(schema: PluginSetting, value: unknown): vo
 export function parsePluginPackage(value: unknown, options: { allowBuiltin?: boolean } = {}): PluginPackage {
   const copied = copyData(value);
   const hasBackend = copied && typeof copied === 'object' && Object.hasOwn(copied, 'backend');
-  const input = record(copied, ['packageVersion', 'manifest', 'node', 'entries', ...(hasBackend ? ['backend'] : [])], 'Package');
+  const hasPanels = copied && typeof copied === 'object' && Object.hasOwn(copied, 'panelEntries');
+  const input = record(copied, ['packageVersion', 'manifest', 'node', 'entries', ...(hasPanels ? ['panelEntries'] : []), ...(hasBackend ? ['backend'] : [])], 'Package');
   if (input.packageVersion !== 1) throw new PluginPackageError('Unsupported package version.');
   const manifest = parsePluginManifest(input.manifest);
+  if (hasPanels !== (manifest.manifestVersion === 2)) throw new PluginPackageError('Manifest version 2 requires a separate panel entry map.');
   if (manifest.id.startsWith('helmsman.') && !options.allowBuiltin) throw new PluginPackageError('The helmsman namespace is reserved for builtins.');
   const node = record(input.node, ['minMajor', 'maxMajorExclusive'], 'Node compatibility');
   const minMajor = node.minMajor;
@@ -142,7 +148,17 @@ export function parsePluginPackage(value: unknown, options: { allowBuiltin?: boo
     }
     parsedEntries[id] = path;
   }
+  const panelEntries: Record<string, string> = {};
+  if (manifest.manifestVersion === 2) {
+    const entries = record(input.panelEntries, manifest.panels.map(panel => panel.id), 'Panel entries');
+    for (const id of Object.keys(entries).sort()) {
+      const path = entries[id];
+      if (!isPluginAssetPath(path) || !/\.m?js$/.test(path)) throw new PluginPackageError('Panel entries must reference safe relative .js or .mjs assets.');
+      panelEntries[id] = path;
+    }
+  }
   return Object.freeze({ packageVersion: 1, manifest,
     node: Object.freeze({ minMajor, maxMajorExclusive }), entries: Object.freeze(parsedEntries),
+    ...(hasPanels ? { panelEntries: Object.freeze(panelEntries) } : {}),
     ...(hasBackend ? { backend: parseBackend(input.backend) } : {}) });
 }

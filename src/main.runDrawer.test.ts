@@ -105,8 +105,8 @@ describe('voyage drawer interactions', () => {
     expect(tab(FIRST).querySelector('.voyage-copy-feedback[role="status"]')?.textContent).toBe('Copied');
   });
 
-  it('copies a recent voyage UUID without opening its drawer or leaving Helm', async () => {
-    const { writeText } = await setup('/', [run(FIRST, 'failed')]);
+  it('copies a recent voyage UUID without opening its drawer or leaving Runs', async () => {
+    const { writeText } = await setup('/runs', [run(FIRST, 'failed')]);
     const row = document.querySelector<HTMLElement>(`.recent-run[data-runid="${FIRST}"]`)!;
     const address = window.location.href;
     const button = copy(row, FIRST);

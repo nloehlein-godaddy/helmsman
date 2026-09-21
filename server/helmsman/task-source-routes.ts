@@ -2,7 +2,7 @@ import { parseTaskRepo, parseWorkRefV1, TaskSourceValidationError, type TaskSnap
 import type { PluginJson } from '../../src/plugins/backend';
 import { PersistenceConflictError, PersistenceValidationError } from './persistence';
 import type { ApiResult } from './router';
-import type { TaskSourceService } from './task-source-service';
+import { TaskSourceViewUnavailableError, type TaskSourceService } from './task-source-service';
 import type { LaunchIntent } from './retry';
 import { pluginJson } from './plugins/data';
 import type { TaskSourceSchedule } from './task-source-schedule';
@@ -63,6 +63,11 @@ export async function handleTaskSourceApi(input: { method: string; path: string;
     const instanceId = match[1]!;
     if (input.method === 'GET' && (match[2] === 'tasks' || match[2] === 'lookup')) {
       const scope = { instanceId, instanceRevision: revision(Number(input.query.get('revision'))), repo: parseTaskRepo(input.query.get('repo')) };
+      const view = input.query.get('view');
+      if (view !== null) {
+        if (view !== 'underway' || match[2] !== 'tasks' || ['state', 'sourceId', 'externalId'].some(key => input.query.has(key))) throw new PersistenceValidationError('Invalid source read view');
+        return { status: 200, json: await service.listUnderway({ ...scope, cursor: input.query.get('cursor'), limit: Number(input.query.get('limit') ?? '50') }, signal) };
+      }
       if (match[2] === 'lookup') return { status: 200, json: { ref: await service.lookup({ ...scope, displayKey: text(input.query.get('key'), 'Task key', 512) }, signal) } };
       const sourceId = input.query.get('sourceId');
       const externalId = input.query.get('externalId');
@@ -98,6 +103,7 @@ export async function handleTaskSourceApi(input: { method: string; path: string;
     }
     return { status: 405, json: { error: 'Task source method is unavailable.' } };
   } catch (error) {
+    if (error instanceof TaskSourceViewUnavailableError) return { status: 501, json: { error: error.message } };
     if (error instanceof TaskSourceValidationError || error instanceof PersistenceValidationError) return { status: 400, json: { error: error.message } };
     if (error instanceof PersistenceConflictError) return { status: 409, json: { error: error.message } };
     return { status: 503, json: { error: 'Task source request failed. Check source availability and recovery diagnostics.' } };

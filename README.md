@@ -453,7 +453,7 @@ evidence; it does not relaunch the worker or manufacture an outcome. Safe start
 shows the same diagnostics read-only.
 
 See [task-source authoring](docs/task-source-authoring.md), [recovery](docs/recovery.md),
-[plugin packages](docs/plugin-packages.md), and the [phase completion ledger](docs/plugin-implementation-progress.md).
+[plugin packages](docs/plugin-packages.md), [composable pages and panels](docs/panel-authoring.md), and the [phase completion ledger](docs/plugin-implementation-progress.md).
 
 ### Agent backends
 

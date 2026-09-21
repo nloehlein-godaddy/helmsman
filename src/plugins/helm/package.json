@@ -1,0 +1,8 @@
+{
+  "name": "helmsman-helm-source",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}

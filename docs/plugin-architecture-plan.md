@@ -2,7 +2,7 @@
 
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
-Status: Phases A–C are complete and pushed. Phase D task sources are in implementation and acceptance review; phases E–G remain pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.
+Status: Phases A–D are complete and pushed. Phase E Helm and feature extraction is in implementation and acceptance review; phases F–G remain pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 

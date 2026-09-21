@@ -52,6 +52,7 @@ export interface TaskSourceStore {
   taskSnapshot(hash: string): StoredTaskSnapshot | null;
   reserveWork(input: { ref: WorkRefV1; admissionId: string; runId: string; instanceId: string; expectedSourceRevision: number; expectedInstanceRevision: number; retryOf?: string | null; displayKey?: string }): WorkClaimRecord;
   claim(id: string): WorkClaimRecord | null;
+  claimForRun(runId: string): WorkClaimRecord | null;
   activeClaim(ref: WorkRefV1): WorkClaimRecord | null;
   latestClaim(ref: WorkRefV1): WorkClaimRecord | null;
   claims(): WorkClaimRecord[];
@@ -118,6 +119,11 @@ export function openTaskSourceStore(persistence: Persistence): TaskSourceStore {
     validateLegacy: () => null,
     apply: database => database.exec(schema),
     validateCurrent(database) { for (const table of tables) validateTableColumns(database, table, table === 'source_documents' ? ['sourceId', 'externalId', 'repo', 'revision', 'schema', 'data'] : table === 'source_aliases' ? ['sourceId', 'displayKey', 'externalId', 'revision', 'evidence'] : table === 'source_provisioning' ? ['key', 'sourceId', 'instanceId', 'identityHash'] : ['json']); },
+  });
+  const runIndex = "CREATE INDEX work_claims_run_identity ON work_claims(json_extract(json,'$.runId')) WHERE substr(id,1,7) != 'legacy-'";
+  migrateOwned(sql, { owner: 'core.task-source-run-index', version: 1, checksum: persistenceHash(runIndex), tables: ['work_claims'],
+    validateLegacy(database) { validateTableColumns(database, 'work_claims', ['id', 'json']); return 0; }, apply: database => database.exec(runIndex),
+    validateCurrent(database) { if (!database.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='work_claims_run_identity'").get()) throw new PersistenceValidationError('Source run claim index is missing'); },
   });
   const source = (id: string) => { const found = decode<TaskSourceRecord>(sql.prepare('SELECT json FROM task_sources WHERE id=?').get(id) as { json: string } | undefined); if (!found) return null; const parsed = sourceValue(found); if (parsed.id !== id) throw new PersistenceValidationError('Source identity integrity failed'); return parsed; };
   const instance = (id: string) => { const found = decode<SourceInstanceV1>(sql.prepare('SELECT json FROM task_source_instances WHERE id=?').get(id) as { json: string } | undefined); return found ? parseSourceInstanceV1(found) : null; };
@@ -187,6 +193,12 @@ export function openTaskSourceStore(persistence: Persistence): TaskSourceStore {
     }); },
     activeClaim(ref) { parseWorkRefV1(ref); const row = sql.prepare("SELECT id FROM work_claims WHERE sourceId=? AND externalId=? AND state!='settled'").get(ref.sourceId, ref.externalId) as { id: string } | undefined; return row ? claim(row.id) : null; },
     latestClaim(ref) { parseWorkRefV1(ref); const row = sql.prepare('SELECT id FROM work_claims WHERE sourceId=? AND externalId=? ORDER BY rowid DESC LIMIT 1').get(ref.sourceId, ref.externalId) as { id: string } | undefined; return row ? claim(row.id) : null; },
+    claimForRun(runId) {
+      text(runId, 'run ID');
+      const rows = sql.prepare("SELECT id FROM work_claims WHERE json_extract(json,'$.runId')=? AND substr(id,1,7) != 'legacy-' LIMIT 2").all(runId) as { id: string }[];
+      if (rows.length > 1) throw new PersistenceConflictError('Run has ambiguous source claims');
+      return rows[0] ? claim(rows[0].id) : null;
+    },
     claims() { return (sql.prepare('SELECT json FROM work_claims ORDER BY rowid').all() as { json: string }[]).map(row => claimValue(decode<WorkClaimRecord>(row))); },
     acknowledgeClaim(input) { return persistence.transaction(() => {
       const prior = checkedClaim(input.claimId, input.expectedRevision); const snapshot = store.taskSnapshot(input.taskSnapshotHash);

@@ -60,6 +60,37 @@ function fixture() {
     set transitionOverride(value: PluginJson) { transitionOverride = value; }, set afterGet(value: (path: string) => void) { afterGet = value; } };
 }
 function remote(plan: SourceMutationPlanV1) { expect(plan.kind).toBe('remote-effects'); if (plan.kind !== 'remote-effects') throw new Error('Expected remote effects'); return plan.effects; }
+
+describe('Jira assigned unfinished view', () => {
+  it('ignores queue JQL, includes assigned ready/blocked work, and excludes Done and other assignees', async () => {
+    const f = fixture(); f.subject = { status: 200, body: { accountId: 'mine' } };
+    const context = { ...f.context, instance: { ...f.instance, settings: { ...f.instance.settings, jql: 'status = Backlog ORDER BY updated DESC', assignee: 'currentUser()' } } };
+    const issue = (id: string, name: string, category: string, actor = 'mine') => ({ ...jiraIssue({ assignee: { accountId: actor }, status: { id, name, statusCategory: { key: category } } }), id, key: `TASK-${id}` });
+    f.search = { status: 200, body: { issues: [issue('1', 'To Do', 'new'), issue('2', 'Blocked', 'indeterminate'), issue('3', 'Done', 'done'), issue('4', 'In Progress', 'indeterminate', 'other')] as PluginJson, isLast: true } };
+    const result = await jiraProvider.listUnderway!({ repo, cursor: null, limit: 10 }, context);
+    expect(result.items.map(task => task.state)).toEqual(['ready', 'blocked']);
+    expect(f.calls.at(-1)?.query?.jql).toBe('project = "TASK" AND assignee = currentUser() AND statusCategory != Done ORDER BY status ASC, priority ASC');
+  });
+  it.each([['emailAddress', 'person@example.com'], ['name', 'legacy-name'], ['key', 'legacy-key']])('preserves configured %s identity and fails explicitly when privacy prevents verification', async (field, value) => {
+    const f = fixture(); const context = { ...f.context, instance: { ...f.instance, settings: { ...f.instance.settings, assignee: value } } };
+    f.issue = jiraIssue({ assignee: { accountId: 'cloud-account', [field]: value } });
+    expect((await jiraProvider.listUnderway!({ repo, cursor: null, limit: 10 }, context)).items).toHaveLength(1);
+    f.issue = jiraIssue({ assignee: { accountId: 'cloud-account' } });
+    await expect(jiraProvider.listUnderway!({ repo, cursor: null, limit: 10 }, context)).rejects.toThrow('cannot be verified');
+  });
+  it('binds cursors to the source revision and excludes normal-list tokens', async () => {
+    const f = fixture(); const context = { ...f.context, instance: { ...f.instance, settings: { ...f.instance.settings, assignee: 'mine' } } };
+    f.search = { status: 200, body: { issues: [jiraIssue({ assignee: { accountId: 'mine' } })] as PluginJson, isLast: false, nextPageToken: 'provider-token' } };
+    const page = await jiraProvider.listUnderway!({ repo, cursor: null, limit: 10 }, context);
+    await expect(jiraProvider.listUnderway!({ repo, cursor: 'provider-token', limit: 10 }, context)).rejects.toThrow('cursor');
+    await expect(jiraProvider.listUnderway!({ repo, cursor: page.nextCursor, limit: 10 }, { ...context, instance: { ...context.instance, revision: 2 } })).rejects.toThrow('changed');
+  });
+  it('honors cancellation during actor resolution before searching any tasks', async () => {
+    const f = fixture(); f.afterGet = path => { if (path === '/rest/api/3/myself') f.controller.abort(); };
+    await expect(jiraProvider.listUnderway!({ repo, cursor: null, limit: 10 }, f.context)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(f.calls.some(call => call.path === '/rest/api/3/search/jql')).toBe(false);
+  });
+});
 async function claim(f = fixture()) {
   const task = await jiraProvider.load({ sourceId, externalId: '10001' }, f.context);
   if (!task) throw new Error('Missing fixture task');
@@ -277,5 +308,41 @@ describe('Jira durable source effects', () => {
     await expect(jiraProvider.planCompletion({ ...input, claimReceipt: { ...claimReceipt, operations: [] } }, f.context)).rejects.toThrow('claim');
     f.issue = jiraIssue({ assignee: { accountId: 'human' } });
     await expect(jiraProvider.planCompletion(input, f.context)).rejects.toThrow('assignment');
+  });
+});
+
+describe('Jira history and source completion metrics', () => {
+  const query = { repo, from: '2026-09-14T00:00:00.000Z', until: '2026-09-20T12:00:00.000Z', eventLimit: 50 };
+  function historyFixture() {
+    const f = fixture(); const at = '2026-09-20T10:00:00.000Z';
+    f.issue = { ...jiraIssue({ updated: at, assignee: { accountId: 'bot' }, resolutiondate: at, status: { id: '3', name: 'Done', statusCategory: { key: 'done' } } }),
+      changelog: { startAt: 0, total: 1, histories: [{ id: 'history-1', created: at, items: [{ field: 'status', toString: 'Done' }] }] } } as ReturnType<typeof jiraIssue>;
+    return f;
+  }
+  it('counts source resolutions and uses exact project/assignee history independently of queue policy', async () => {
+    const f = historyFixture(); const context = { ...f.context, instance: { ...f.instance, settings: { ...f.instance.settings, jql: 'status = Backlog', assignee: 'currentUser()' } } };
+    const result = await jiraProvider.readHistory!(query, context);
+    expect(result.throughputQuality).toBe('complete'); expect(result.days.map(day => day.completed)).toEqual([0, 0, 0, 0, 0, 0, 1]);
+    expect(result.historyQuality).toBe('complete'); expect(result.events[0]).toMatchObject({ at: '2026-09-20T10:00:00.000Z', kind: 'status-changed', status: 'Done', ref: { sourceId, externalId: f.issue.id } });
+    const jql = f.calls.find(call => call.path.endsWith('/search/jql'))?.query?.jql;
+    expect(jql).toContain('project = "TASK"'); expect(jql).toContain('assignee = currentUser()'); expect(jql).not.toContain('Backlog');
+  });
+  it('separates truncated status history from complete throughput and missing resolution dates from zero', async () => {
+    const f = historyFixture(); f.issue = { ...f.issue, changelog: { startAt: 0, total: 200, histories: [] } } as ReturnType<typeof jiraIssue>;
+    const result = await jiraProvider.readHistory!(query, f.context); expect(result.historyQuality).toBe('partial'); expect(result.throughputQuality).toBe('complete'); expect(result.days[6]?.completed).toBe(1);
+    f.issue = { ...f.issue, fields: { ...f.issue.fields, resolutiondate: null } } as ReturnType<typeof jiraIssue>;
+    const incomplete = await jiraProvider.readHistory!(query, f.context); expect(incomplete.throughputQuality).toBe('partial'); expect(incomplete.days.every(day => day.completed === null)).toBe(true);
+  });
+  it('does not count another assignee or future completion and does not infer completion from worker status', async () => {
+    const f = historyFixture(); f.issue = { ...f.issue, fields: { ...f.issue.fields, resolutiondate: '2026-09-20T12:00:01.000Z' } } as ReturnType<typeof jiraIssue>;
+    expect((await jiraProvider.readHistory!(query, f.context)).days[6]?.completed).toBe(0);
+    f.issue = { ...f.issue, fields: { ...f.issue.fields, assignee: { accountId: 'another' }, resolutiondate: '2026-09-20T10:00:00.000Z' } } as ReturnType<typeof jiraIssue>;
+    expect((await jiraProvider.readHistory!(query, f.context)).days[6]?.completed).toBe(0);
+  });
+  it('rejects repeated search cursors and honors cancellation before history detail reads', async () => {
+    const f = historyFixture(); f.search = { status: 200, body: { issues: [], isLast: false, nextPageToken: 'repeat' } };
+    await expect(jiraProvider.readHistory!(query, f.context)).rejects.toThrow('pagination');
+    const cancelled = historyFixture(); cancelled.afterGet = path => { if (path.endsWith('/search/jql')) cancelled.controller.abort(); };
+    await expect(jiraProvider.readHistory!(query, cancelled.context)).rejects.toMatchObject({ name: 'AbortError' }); expect(cancelled.calls.some(call => call.query?.expand === 'changelog')).toBe(false);
   });
 });

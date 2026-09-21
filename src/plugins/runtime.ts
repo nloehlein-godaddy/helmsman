@@ -1,16 +1,26 @@
-import { COSTS_PAGE_SLOT } from './builtins';
+import { COSTS_PAGE_SLOT, HELM_PAGE_SLOT, builtinFrontendManifests } from './frontend-manifests';
 import { isContributionId, PluginManifestError } from './manifest';
 import { parsePluginPackage } from './package';
 import type { PluginPackage } from './package';
 import type { PluginPageModules } from './modules';
 import type { PluginPageRegistry } from './registry';
 import type { PluginPageInstance, PluginPageModule } from './sdk';
+import type { PluginPanelModule } from './composition';
+import { appPanels, type PluginPanelRegistry } from './panels';
 
 export interface PluginCatalog {
   readonly version: 1;
   readonly safeMode: boolean;
   readonly plugins: readonly { readonly package: PluginPackage; readonly hash: string }[];
   readonly bindings: Readonly<Record<string, string>>;
+  readonly builtins?: readonly BuiltinFrontendCatalogEntry[];
+}
+
+export interface BuiltinFrontendCatalogEntry {
+  readonly id: string;
+  readonly version: string;
+  readonly hash: string;
+  readonly enabled: boolean;
 }
 
 export interface PluginCatalogOptions {
@@ -18,6 +28,8 @@ export interface PluginCatalogOptions {
   importModule?: (href: string) => Promise<unknown>;
   timeoutMs?: number;
   pollIntervalMs?: number;
+  panels?: PluginPanelRegistry;
+  applyBuiltins?: (entries: readonly BuiltinFrontendCatalogEntry[], safeMode: boolean) => void;
 }
 
 export interface PluginCatalogRuntime {
@@ -41,7 +53,8 @@ function record(value: unknown, fields: readonly string[] | null, label: string)
 }
 
 export function parsePluginCatalog(value: unknown): PluginCatalog {
-  const catalog = record(value, ['version', 'safeMode', 'plugins', 'bindings'], 'Plugin catalog');
+  const hasBuiltins = value !== null && typeof value === 'object' && Object.hasOwn(value, 'builtins');
+  const catalog = record(value, ['version', 'safeMode', 'plugins', 'bindings', ...(hasBuiltins ? ['builtins'] : [])], 'Plugin catalog');
   if (catalog.version !== 1 || typeof catalog.safeMode !== 'boolean') {
     throw new PluginManifestError('Unsupported plugin catalog.');
   }
@@ -70,13 +83,30 @@ export function parsePluginCatalog(value: unknown): PluginCatalog {
   const bindings: Record<string, string> = {};
   for (const slot of Object.getOwnPropertyNames(rawBindings)) {
     const contribution = rawBindings[slot];
-    if (slot !== COSTS_PAGE_SLOT || !isContributionId(contribution)) {
+    if (slot !== COSTS_PAGE_SLOT && slot !== HELM_PAGE_SLOT || !isContributionId(contribution)) {
       throw new PluginManifestError('Invalid plugin page binding.');
     }
     bindings[slot] = contribution;
   }
+  const builtins: BuiltinFrontendCatalogEntry[] = [];
+  if (hasBuiltins) {
+    if (!Array.isArray(catalog.builtins) || catalog.builtins.length > builtinFrontendManifests.length) throw new PluginManifestError('Invalid built-in catalog.');
+    const entries = catalog.builtins;
+    if (Reflect.ownKeys(entries).some(key => key !== 'length'
+      && (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= entries.length))) throw new PluginManifestError('Invalid built-in catalog data.');
+    for (let index = 0; index < entries.length; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(entries, index);
+      if (!descriptor || !('value' in descriptor)) throw new PluginManifestError('Built-in catalog must contain dense data.');
+      const value: unknown = descriptor.value;
+      const item = record(value, ['id', 'version', 'hash', 'enabled'], 'Built-in catalog entry');
+      if (!builtinFrontendManifests.some(manifest => manifest.id === item.id) || builtins.some(entry => entry.id === item.id)
+        || typeof item.id !== 'string' || typeof item.version !== 'string' || item.version.length > 128
+        || typeof item.hash !== 'string' || !/^[a-f0-9]{64}$/.test(item.hash) || typeof item.enabled !== 'boolean') throw new PluginManifestError('Invalid built-in catalog entry.');
+      builtins.push(Object.freeze({ id: item.id, version: item.version, hash: item.hash, enabled: item.enabled }));
+    }
+  }
   return Object.freeze({ version: 1, safeMode: catalog.safeMode,
-    plugins: Object.freeze(plugins), bindings: Object.freeze(bindings) });
+    plugins: Object.freeze(plugins), bindings: Object.freeze(bindings), ...(hasBuiltins ? { builtins: Object.freeze(builtins) } : {}) });
 }
 
 const retiredInstance = (): PluginPageInstance => ({ update() {}, dispose() {} });
@@ -92,6 +122,25 @@ function lazyModule(href: string, importModule: (href: string) => Promise<unknow
           throw new TypeError('Plugin page entry must default-export a page module.');
         }
         return module as PluginPageModule;
+      });
+      const module = await pending;
+      if (!active() || context.signal.aborted) return retiredInstance();
+      return module.mount(container, context);
+    },
+  };
+}
+
+function lazyPanelModule(href: string, importModule: (href: string) => Promise<unknown>, active: () => boolean): PluginPanelModule {
+  let pending: Promise<PluginPanelModule> | null = null;
+  return {
+    async mount(container, context) {
+      if (!active() || context.signal.aborted) return retiredInstance();
+      pending ??= importModule(href).then(value => {
+        const module = value && typeof value === 'object' ? (value as { default?: unknown }).default : null;
+        if (!module || typeof module !== 'object' || typeof (module as Partial<PluginPanelModule>).mount !== 'function') {
+          throw new TypeError('Plugin panel entry must default-export a panel module.');
+        }
+        return module as PluginPanelModule;
       });
       const module = await pending;
       if (!active() || context.signal.aborted) return retiredInstance();
@@ -129,6 +178,7 @@ export async function loadPluginCatalog(
 ): Promise<PluginCatalogRuntime> {
   const errors: string[] = [];
   const disposers = new Map<string, { hash: string; dispose(): void }>();
+  const selectedSlots = new Set<string>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let refreshing = false;
   let disposed = false;
@@ -148,15 +198,20 @@ export async function loadPluginCatalog(
     return { safeMode: true, errors: Object.freeze(['Plugin catalog unavailable; optional pages were not loaded.']), dispose };
   }
   const importModule = options.importModule ?? (href => import(/* @vite-ignore */ href));
+  const panels = options.panels ?? appPanels;
   function apply(next: PluginCatalog): void {
     if (disposed) return;
+    if (next.builtins || next.safeMode) options.applyBuiltins?.(next.builtins ?? [], next.safeMode);
+    for (const slot of selectedSlots) if (!Object.hasOwn(next.bindings, slot)) {
+      registry.select(slot, null); selectedSlots.delete(slot);
+    }
     for (const [id, current] of disposers) {
       if (next.safeMode || !next.plugins.some(entry => entry.package.manifest.id === id && entry.hash === current.hash)) {
         current.dispose(); disposers.delete(id);
       }
     }
     for (const [slot, contribution] of Object.entries(next.bindings)) {
-      try { registry.select(slot, contribution); }
+      try { registry.restoreSelection(slot, contribution); selectedSlots.add(slot); }
       catch { errors.push(`Plugin binding ${slot} could not be selected.`); }
     }
     if (next.safeMode) return;
@@ -174,6 +229,12 @@ export async function loadPluginCatalog(
           packageDisposers.push(modules.register(`${entry.package.manifest.id}/${pageId}`,
             lazyModule(href, importModule, () => active && !disposed)));
         }
+        for (const [panelId, path] of Object.entries(entry.package.panelEntries ?? {})) {
+          const href = `/plugin-assets/${entry.package.manifest.id}/${entry.hash}/${path}`;
+          packageDisposers.push(panels.registerModule(`${entry.package.manifest.id}/${panelId}`,
+            lazyPanelModule(href, importModule, () => active && !disposed)));
+        }
+        if (entry.package.manifest.manifestVersion === 2) packageDisposers.push(panels.register(entry.package.manifest));
         packageDisposers.push(registry.register(entry.package.manifest));
         disposers.set(entry.package.manifest.id, { hash: entry.hash, dispose: retire });
       } catch {

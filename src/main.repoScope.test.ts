@@ -8,7 +8,7 @@ const json = (value: unknown) => new Response(JSON.stringify(value));
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
   localStorage.clear();
-  window.history.replaceState(null, '', '/?repo=org/a');
+  window.history.replaceState(null, '', '/prs?repo=org/a');
   vi.stubGlobal('EventSource', class { onmessage = null; close() {} });
 });
 
@@ -67,9 +67,9 @@ describe('Helm repository scope changes', () => {
     expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/b');
   });
 
-  it('reloads Helm immediately after visiting another repository on a page that does not fetch dashboards', async () => {
+  it('reloads the authored PR inbox immediately after visiting another repository on a page that does not fetch dashboards', async () => {
     const snapshot = await loadDashboard();
-    snapshot.queue = [{ id: 'PROJA-1', title: 'A requirements', repo: 'org/a', priority: 'P1', status: 'backlog' }];
+    snapshot.myOpenPrs = [{ number: 1, title: 'PROJA-1', repo: 'org/a', reviewDecision: '', draft: false, createdAt: new Date().toISOString() }];
     const dashboardRequests: Array<string | null> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), window.location.origin);
@@ -96,7 +96,7 @@ describe('Helm repository scope changes', () => {
     expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/b');
     expect(dashboardRequests).toEqual(['org/a']);
 
-    window.history.pushState(null, '', '/?repo=org/a');
+    window.history.pushState(null, '', '/prs?repo=org/a');
     window.dispatchEvent(new PopStateEvent('popstate'));
     await vi.waitFor(() => expect(dashboardRequests).toEqual(['org/a', 'org/a']));
     await vi.waitFor(() => expect(root.textContent).toContain('PROJA-1'));
@@ -106,7 +106,7 @@ describe('Helm repository scope changes', () => {
 
   it.each([true, false])('removes old repository data during a pending scope fetch and after success=%s', async succeeds => {
     const snapshot = await loadDashboard();
-    snapshot.queue = [{ id: 'PROJA-1', title: 'A requirements', repo: 'org/a', priority: 'P1', status: 'backlog' }];
+    snapshot.myOpenPrs = [{ number: 1, title: 'PROJA-1', repo: 'org/a', reviewDecision: '', draft: false, createdAt: new Date().toISOString() }];
     snapshot.underway = [{ id: 'PROJA-2', title: 'A underway', repo: 'org/a', priority: 'P1', status: 'in-progress' }];
     snapshot.underwayAvailable = true;
     snapshot.shipped = [];
@@ -133,21 +133,20 @@ describe('Helm repository scope changes', () => {
     view = new DashboardView(root);
     await view.start();
     expect(root.textContent).toContain('PROJA-1');
-    expect(root.textContent).toContain('PROJA-2');
     const select = root.querySelector<HTMLSelectElement>('.repo-select')!;
     select.value = 'org/b';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     await vi.waitFor(() => expect(requested).toContain('org/b'));
     expect(root.textContent).not.toContain('PROJA-1');
     expect(root.textContent).not.toContain('PROJA-2');
-    expect(root.textContent).toContain('Loading Helm');
+    expect(root.querySelector('.pr-authored .pr-list-row')).toBeNull();
     expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/b');
     resolveB(succeeds ? json({ snapshot: {
       ...snapshot,
-      queue: [{ id: 'PROJB-1', title: 'B requirements', repo: 'org/b', priority: 'P1', status: 'backlog' }],
+      myOpenPrs: [{ number: 2, title: 'PROJB-1', repo: 'org/b', reviewDecision: '', draft: false, createdAt: new Date().toISOString() }],
       underway: [],
     }, degraded: [], repos: ['org/a', 'org/b'], selectedRepo: 'org/b', jiraBaseUrl: null }) : new Response(null, { status: 503 }));
-    await vi.waitFor(() => expect(root.textContent).toContain(succeeds ? 'PROJB-1' : 'Helm unavailable for this galleon'));
+    await vi.waitFor(() => expect(root.textContent).toContain(succeeds ? 'PROJB-1' : 'unavailable'));
     expect(root.textContent).not.toContain('PROJA-1');
     expect(root.textContent).not.toContain('PROJA-2');
     expect(new URL(window.location.href).searchParams.get('repo')).toBe('org/b');

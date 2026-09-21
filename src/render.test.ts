@@ -1,33 +1,16 @@
 import { term } from './logic/terminology';
 import type { PrInboxState } from './data/prLists';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CONFIG_HELP, renderBugsView, renderCmuxView, renderConfigView, renderDashboard, renderPrPanel, renderPrView, renderRepoPrs, renderRunsDrawer, renderTriageView, renderVoyage, runTabStatus } from './render';
+import { CONFIG_HELP, renderBugsView, renderCmuxView, renderConfigView, renderAppShell, renderPrPanel, renderPrView, renderRepoPrs, renderRunsDrawer, renderTriageView, renderVoyage, runTabStatus } from './render';
 import { EDITABLE_KEYS } from '../server/helmsman/config-store';
 import type { CmuxViewState, RunTabView } from './render';
-import type { DashboardSnapshot } from './data/mock';
-import type { RunSummary } from './data/agents';
 import type { UiConfig } from './data/config';
 import type { PrStatusView } from './data/pr';
 import type { CmuxTabView } from './logic/cmuxPanel';
 import type { BugsResponse } from './types';
 import { DEFAULT_THEME_ID, THEMES } from './data/themes';
-import { defaultLayout, stackOnto } from './logic/rack';
 
 const NOW: Date = new Date('2026-08-17T12:00:00.000Z');
-
-function snapshot(over: Partial<DashboardSnapshot> = {}): DashboardSnapshot {
-  return {
-    repo: 'o/r',
-    queue: [],
-    steps: [],
-    shipped: [],
-    myOpenPrs: [],
-    activity: [],
-    stats: { completedToday: 0, awaitingReview: 0, avgCycleMinutes: 0 },
-    throughput7d: [0, 0, 0, 0, 0, 0, 0],
-    ...over,
-  };
-}
 
 function root(): HTMLDivElement {
   document.body.innerHTML = '<div id="app"></div>';
@@ -36,82 +19,9 @@ function root(): HTMLDivElement {
   return el;
 }
 
-describe('renderDashboard', () => {
+describe('application views', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-  });
-
-  it('does not throw and renders markup on the idle path (steps: [])', () => {
-    const el: HTMLDivElement = root();
-    expect(() => renderDashboard(el, snapshot({ steps: [] }), NOW)).not.toThrow();
-    expect(el.innerHTML.length).toBeGreaterThan(0);
-    expect(el.innerHTML).toContain('Helmsman');
-  });
-
-  it('shows the degraded banner when sources are degraded', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, ['jira', 'github']);
-    expect(el.querySelector('.degraded-banner')).not.toBeNull();
-  });
-
-  it('omits the degraded banner when no sources are degraded', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, []);
-    expect(el.querySelector('.degraded-banner')).toBeNull();
-  });
-
-  it('links ticket IDs to Jira when a base URL is provided', () => {
-    const el: HTMLDivElement = root();
-    const snap: DashboardSnapshot = snapshot({
-      queue: [{ id: 'ABC-12', title: 'thing', priority: 'P1', status: 'in-progress', repo: 'o/r' }],
-      activity: [{ time: NOW.toISOString(), text: '<b>ABC-12</b> &rarr; In Review', accent: true }],
-    });
-    renderDashboard(el, snap, NOW, [], [], null, [], [], undefined, DEFAULT_THEME_ID, undefined, 'https://jira.example.com/');
-    const links: NodeListOf<HTMLAnchorElement> = el.querySelectorAll<HTMLAnchorElement>('a.ticket-link');
-    expect(links.length).toBeGreaterThanOrEqual(2);
-    links.forEach((a) => expect(a.getAttribute('href')).toBe('https://jira.example.com/browse/ABC-12'));
-  });
-
-  it('uses each source display URL and leaves local tasks unlinked while Jira is enabled', () => {
-    const el = root();
-    const source = { instanceId: 'instance', instanceRevision: 1, ref: { sourceId: 'source', externalId: 'TODO-1' } };
-    const task = { id: 'TODO-1', title: 'Local work', priority: 'P1' as const, status: 'backlog' as const, repo: 'o/r', source: { ...source, url: null } };
-    const queue = [task, { ...task, id: 'ALT-2', source: { ...source, url: 'https://tracker.example/items/2' } },
-      { ...task, id: 'BAD-3', source: { ...source, url: 'javascript:alert(1)' } }];
-    renderDashboard(el, snapshot({ queue }), NOW, [], [], null, [], [], undefined, DEFAULT_THEME_ID, undefined, 'https://jira.example.com/');
-    expect(el.querySelectorAll('.queue-item .ticket-link')).toHaveLength(1);
-    expect(el.querySelector('.queue-item .ticket-link')?.getAttribute('href')).toBe('https://tracker.example/items/2');
-    expect(el.querySelector('.queue-item')?.textContent).toContain('TODO-1');
-  });
-
-  it('leaves ticket IDs as plain text when no Jira base URL is set', () => {
-    const el: HTMLDivElement = root();
-    const snap: DashboardSnapshot = snapshot({
-      queue: [{ id: 'ABC-12', title: 'thing', priority: 'P1', status: 'in-progress', repo: 'o/r' }],
-    });
-    renderDashboard(el, snap, NOW, [], [], null, [], [], undefined, DEFAULT_THEME_ID, undefined, null);
-    expect(el.querySelector('a.ticket-link')).toBeNull();
-    expect(el.querySelector('.queue-item .ticket-id')?.textContent).toContain('ABC-12');
-  });
-
-  it('renders the repo options from the provided list and marks the selected one', () => {
-    const el: HTMLDivElement = root();
-    const scoped: DashboardSnapshot = snapshot({
-      repo: 'alpha',
-      shipped: [
-        { number: 1, title: 'a', ticketId: '—', status: 'in-review', openedAt: NOW.toISOString(), repo: 'org/alpha' },
-        { number: 3, title: 'c', ticketId: '—', status: 'in-review', openedAt: NOW.toISOString(), repo: 'org/alpha' },
-      ],
-    });
-
-    renderDashboard(el, scoped, NOW, [], ['org/alpha', 'org/beta'], 'org/alpha');
-    const select: HTMLSelectElement | null = el.querySelector<HTMLSelectElement>('.repo-select');
-    expect(select).not.toBeNull();
-    expect(el.querySelector('.helm-head .nameplate-scope .repo-select')).toBe(select);
-    expect(select?.previousElementSibling?.classList.contains('nameplate-name')).toBe(true);
-    expect(Array.from(select!.options).map((o) => o.value)).toEqual(['', 'org/alpha', 'org/beta']);
-    expect(select!.querySelector<HTMLOptionElement>('option[selected]')?.value).toBe('org/alpha');
-    expect(el.querySelectorAll('.pr-card').length).toBe(2);
   });
 
   it('renders theme selection in its own Config customization panel', () => {
@@ -129,145 +39,8 @@ describe('renderDashboard', () => {
 
   it('omits theme selection from the dashboard', () => {
     const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW);
+    el.innerHTML = renderAppShell({ active: 'plugin', pluginSlot: 'helmsman/helm-page', repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID, readout: null }, '<h1 class="sr-only">Helm</h1>');
     expect(el.querySelector('.theme-select')).toBeNull();
-  });
-
-  it.each(['dashboard', 'config'] as const)('places %s content in the panel controlled by the separate tab row', (page) => {
-    const el = root();
-    if (page === 'dashboard') renderDashboard(el, snapshot(), NOW);
-    else el.innerHTML = renderConfigView({ config: {}, overridden: [] }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
-
-    const header = el.querySelector('.helm-head');
-    const tabs = el.querySelector('[role="tablist"].page-tabs');
-    const panel = el.querySelector('#page-content');
-    const selected = tabs?.querySelector('[aria-selected="true"]');
-    expect(header?.nextElementSibling).toBe(tabs);
-    expect(tabs?.nextElementSibling).toBe(panel);
-    expect(panel?.getAttribute('role')).toBe('tabpanel');
-    expect(panel?.getAttribute('aria-labelledby')).toBe(selected?.id);
-    expect(selected?.getAttribute('data-view')).toBe(page);
-    expect(tabs?.querySelectorAll('[aria-selected="true"]')).toHaveLength(1);
-    expect(tabs?.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
-    for (const tab of tabs?.querySelectorAll('[role="tab"]') ?? []) {
-      expect(tab.getAttribute('aria-controls')).toBe(panel?.id);
-    }
-    expect(panel?.contains(el.querySelector(page === 'dashboard' ? '.helm-rack' : '.ui-customization-panel'))).toBe(true);
-  });
-
-  it('escapes untrusted ticket titles to prevent XSS', () => {
-    const el: HTMLDivElement = root();
-    const payload: string = '<img src=x onerror=alert(1)>';
-    const malicious: DashboardSnapshot = snapshot({
-      queue: [{ id: 'X-1', title: payload, priority: 'P1', status: 'in-progress', repo: 'o/r' }],
-    });
-    renderDashboard(el, malicious, NOW);
-    expect(el.querySelector('img')).toBeNull();
-    expect(el.querySelector('.queue-title')?.textContent).toBe(payload);
-    expect(el.innerHTML).toContain('&lt;img');
-  });
-
-  it('renders an agent-row for each running run and skips non-running ones', () => {
-    const el: HTMLDivElement = root();
-    const runs: RunSummary[] = [
-      {
-        id: 'run-1',
-        ticketId: 'ABC-1',
-        repo: 'org/alpha',
-        status: 'running',
-        attempt: 1,
-        prNumber: null,
-        startedAt: NOW.toISOString(),
-        costUsd: null,
-      },
-      {
-        id: 'run-2',
-        ticketId: 'ABC-2',
-        repo: 'org/beta',
-        status: 'running',
-        attempt: 2,
-        prNumber: null,
-        startedAt: NOW.toISOString(),
-        costUsd: 1.23,
-      },
-      {
-        id: 'run-3',
-        ticketId: 'ABC-3',
-        repo: 'org/gamma',
-        status: 'succeeded',
-        attempt: 1,
-        prNumber: 4,
-        startedAt: NOW.toISOString(),
-        costUsd: 0.5,
-      },
-    ];
-
-    renderDashboard(el, snapshot(), NOW, [], [], null, runs);
-
-    const rows: NodeListOf<HTMLLIElement> = el.querySelectorAll<HTMLLIElement>('.agent-row');
-    expect(rows.length).toBe(2);
-    rows.forEach((rowEl) => {
-      expect(rowEl.dataset.runid).toBeTruthy();
-      expect(rowEl.querySelector('.agent-stop')).not.toBeNull();
-      expect(rowEl.querySelector('.voyage-id')?.textContent).toBe(rowEl.dataset.runid);
-      expect(rowEl.querySelector('.voyage-id')?.getAttribute('title')).toBe(rowEl.dataset.runid);
-    });
-    const agentListHtml: string = el.querySelector('.agent-list')!.innerHTML;
-    expect(agentListHtml).toContain('ABC-1');
-    expect(agentListHtml).toContain('ABC-2');
-    expect(agentListHtml).not.toContain('ABC-3');
-  });
-
-  it('shows the empty note when no agents are running', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, [], [], null, []);
-    const emptyNote: Element | null = el.querySelector('.agent-list .empty-note');
-    expect(emptyNote).not.toBeNull();
-    expect(emptyNote?.textContent).toContain(term('noAgentTasks'));
-  });
-
-  it('scopes running and recent runs to the selected repo', () => {
-    const el: HTMLDivElement = root();
-    const mk = (id: string, ticketId: string, repo: string, status: string): RunSummary => ({
-      id, ticketId, repo, status, attempt: 1, prNumber: null, startedAt: NOW.toISOString(), costUsd: null,
-    });
-    const runs: RunSummary[] = [
-      mk('r1', 'ALPHA-1', 'org/alpha', 'running'),
-      mk('r2', 'BETA-2', 'org/beta', 'running'),
-      mk('r3', 'ALPHA-3', 'org/alpha', 'succeeded'),
-      mk('r4', 'BETA-4', 'org/beta', 'succeeded'),
-    ];
-
-    renderDashboard(el, snapshot(), NOW, [], ['org/alpha', 'org/beta'], 'org/alpha', runs);
-
-    expect(el.querySelectorAll('.agent-row').length).toBe(1);
-    expect(el.querySelectorAll('.recent-run').length).toBe(1);
-    const voyageUrl = new URL(el.querySelector('.recent-run .runs-voyage-link')?.getAttribute('href') ?? '', 'https://helmsman.test');
-    expect(voyageUrl.pathname).toBe('/runs');
-    expect(voyageUrl.searchParams.get('run')).toBe('r3');
-    expect(voyageUrl.searchParams.get('repo')).toBe('org/alpha');
-    const html: string = el.innerHTML;
-    expect(html).toContain('ALPHA-1');
-    expect(html).toContain('ALPHA-3');
-    expect(html).not.toContain('BETA-2');
-    expect(html).not.toContain('BETA-4');
-  });
-
-  it('renders a footer with attribution, version, updated date, and live stats', () => {
-    const el: HTMLDivElement = root();
-    const running: RunSummary = {
-      id: 'r1', ticketId: 'A-1', repo: 'org/alpha', status: 'running',
-      attempt: 1, prNumber: null, startedAt: NOW.toISOString(), costUsd: null,
-    };
-    renderDashboard(el, snapshot(), NOW, [], ['org/alpha', 'org/beta'], null, [running]);
-    const footer: HTMLElement = el.querySelector<HTMLElement>('.app-footer')!;
-    expect(footer).not.toBeNull();
-    const text: string = footer.textContent ?? '';
-    expect(text).toContain('nloehlein@godaddy.com');
-    expect(text).toContain(`Helmsman v${__APP_VERSION__}`);
-    expect(text).toContain(`updated ${__BUILD_DATE__}`);
-    expect(text).toContain('2 galleons tracked');
-    expect(text).toContain('1 underway');
   });
 
   it('adds a help tooltip to each config key', () => {
@@ -285,179 +58,6 @@ describe('renderDashboard', () => {
       expect(CONFIG_HELP[key]?.length ?? 0, `missing tooltip for ${key}`).toBeGreaterThan(0);
       expect(CONFIG_HELP[key] ?? '', `missing example for ${key}`).toContain('Example:');
     }
-  });
-
-  it('lists repo options alphabetically by short name', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, [], ['org/zeta', 'org/alpha', 'other/beta'], null);
-    const labels: string[] = Array.from(el.querySelectorAll<HTMLOptionElement>('.repo-select option'))
-      .map((o) => o.textContent ?? '');
-    expect(labels).toEqual(['All galleons', 'alpha', 'beta', 'zeta']);
-  });
-
-  it('shows the attempt against maxAttempts when caps are provided', () => {
-    const el: HTMLDivElement = root();
-    const runs: RunSummary[] = [
-      {
-        id: 'run-1',
-        ticketId: 'ABC-1',
-        repo: 'org/alpha',
-        status: 'running',
-        attempt: 2,
-        prNumber: null,
-        startedAt: NOW.toISOString(),
-        costUsd: null,
-      },
-    ];
-    renderDashboard(el, snapshot(), NOW, [], [], null, runs, [], { maxAttempts: 3, maxCostUsd: null });
-    expect(el.innerHTML).toContain('2/3');
-  });
-
-  it('shows the cost against maxCostUsd when caps are provided', () => {
-    const el: HTMLDivElement = root();
-    const runs: RunSummary[] = [
-      {
-        id: 'run-1',
-        ticketId: 'ABC-1',
-        repo: 'org/alpha',
-        status: 'running',
-        attempt: 1,
-        prNumber: null,
-        startedAt: NOW.toISOString(),
-        costUsd: 1.25,
-      },
-    ];
-    renderDashboard(el, snapshot(), NOW, [], [], null, runs, [], { maxAttempts: 3, maxCostUsd: 5 });
-    expect(el.innerHTML).toContain('1.25');
-    expect(el.innerHTML).toContain('5');
-  });
-
-  it.each([{ autoClaim: ['org/alpha'] }, { autoClaim: [] }])('omits auto-claim controls regardless of the enabled repos: $autoClaim', ({ autoClaim }) => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, [], ['org/alpha'], 'org/alpha', [], autoClaim);
-    expect(el.querySelector('.auto-claim-toggle')).toBeNull();
-  });
-
-  it('omits the auto-claim toggle when no repo is selected', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, [], ['org/alpha'], null, [], ['org/alpha']);
-    expect(el.querySelector('.auto-claim-toggle')).toBeNull();
-  });
-
-  it('renders both new-run mode controls and a launch button', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, [], ['org/alpha', 'org/beta'], null);
-
-    const modeInputs: NodeListOf<HTMLInputElement> = el.querySelectorAll<HTMLInputElement>('.newrun-mode');
-    expect(modeInputs.length).toBeGreaterThanOrEqual(2);
-    expect(el.querySelector('.newrun-ticket')).not.toBeNull();
-    expect(el.querySelector('.newrun-task')).not.toBeNull();
-    const repoSelect: HTMLSelectElement | null = el.querySelector<HTMLSelectElement>('.newrun-repo');
-    expect(repoSelect).not.toBeNull();
-    expect(Array.from(repoSelect!.options).map((o) => o.value)).toEqual(
-      expect.arrayContaining(['org/alpha', 'org/beta']),
-    );
-    expect(el.querySelector('.newrun-launch')).not.toBeNull();
-  });
-
-  it('defaults the new voyage repository to the selected scope when it is not the first option', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, [], ['org/alpha', 'org/beta'], 'org/beta');
-
-    const repoSelect = el.querySelector<HTMLSelectElement>('.newrun-repo');
-    expect(repoSelect?.options[0]?.value).toBe('org/alpha');
-    expect(repoSelect?.value).toBe('org/beta');
-    expect(repoSelect?.selectedOptions[0]?.getAttribute('selected')).not.toBeNull();
-  });
-
-  it('renders terminal voyages with result icons and links to their details', () => {
-    const el: HTMLDivElement = root();
-    const runs: RunSummary[] = [
-      {
-        id: 'run-1',
-        ticketId: 'ABC-1',
-        repo: 'org/alpha',
-        status: 'running',
-        attempt: 1,
-        prNumber: null,
-        startedAt: NOW.toISOString(),
-        costUsd: null,
-      },
-      {
-        id: 'run-2',
-        ticketId: 'ABC-2',
-        repo: 'org/beta',
-        status: 'succeeded',
-        attempt: 1,
-        prNumber: 42,
-        startedAt: NOW.toISOString(),
-        costUsd: 1.5,
-        reviewOutcome: 'REQUEST_CHANGES',
-      },
-      {
-        id: 'run-3',
-        ticketId: 'ABC-3',
-        repo: 'org/gamma',
-        status: 'failed',
-        attempt: 2,
-        prNumber: null,
-        startedAt: NOW.toISOString(),
-        costUsd: 0.3,
-      },
-    ];
-
-    renderDashboard(el, snapshot(), NOW, [], [], null, runs);
-
-    const rows: NodeListOf<HTMLLIElement> = el.querySelectorAll<HTMLLIElement>('.recent-run');
-    expect(rows.length).toBe(2);
-    const recentRunsHtml: string = el.querySelector('.recent-runs-list')!.innerHTML;
-    expect(recentRunsHtml).not.toContain('ABC-1');
-    expect(el.querySelector('.recent-run[data-runid="run-2"] .voyage-result')?.getAttribute('aria-label')).toBe(`${term('review')} recommendation: Request changes`);
-    expect(el.querySelector('.recent-run[data-runid="run-2"] .voyage-id')?.textContent).toBe('run-2');
-    expect(el.querySelector('.recent-run[data-runid="run-2"] .runs-voyage-link')?.getAttribute('href')).toBe('/runs?run=run-2');
-    expect(el.querySelector('.recent-run[data-runid="run-2"] .voyage-identity')?.textContent).toContain('ABC-2');
-    expect(el.querySelector('.recent-run .chip, .recent-run .agent-cost, .recent-run .lane-no')).toBeNull();
-  });
-
-  it('only offers retry for failed voyages and preserves their original run ID', () => {
-    const el: HTMLDivElement = root();
-    const runs: RunSummary[] = [
-      { id: 'r1', ticketId: 'ABC-2', repo: 'org/beta', status: 'succeeded', attempt: 1, prNumber: 42, startedAt: NOW.toISOString(), costUsd: 1 },
-      { id: 'r2', ticketId: 'freeform', repo: 'org/beta', status: 'failed', attempt: 1, prNumber: null, startedAt: NOW.toISOString(), costUsd: null },
-    ];
-    renderDashboard(el, snapshot(), NOW, [], [], null, runs);
-    const rows = el.querySelectorAll<HTMLElement>('.recent-run');
-    const freeformBtn = rows[1]!.querySelector<HTMLButtonElement>('[data-retry-run-id]');
-    expect(rows[0]?.querySelector('.recent-rerun, [data-retry-run-id]')).toBeNull();
-    expect(freeformBtn?.disabled).toBe(false);
-    expect(freeformBtn?.dataset.retryRunId).toBe('r2');
-    expect(rows[1]?.querySelector('.recent-rerun')).toBeNull();
-    expect(rows[1]?.querySelector('[data-retry-feedback-for="r2"]')?.getAttribute('role')).toBe('status');
-  });
-
-  it('shows the empty note in the recent-runs panel when there are none', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, [], [], null, []);
-    const emptyNote: Element | null = el.querySelector('.recent-runs-list .empty-note');
-    expect(emptyNote).not.toBeNull();
-  });
-
-  it('limits recent finished runs to the newest ten and links to scoped history', () => {
-    const el = root();
-    const runs: RunSummary[] = Array.from({ length: 15 }, (_, index) => ({
-      id: `run-${index}`, ticketId: 'freeform', repo: 'org/alpha', status: 'succeeded', attempt: 1,
-      prNumber: null, startedAt: new Date(NOW.getTime() + index * 1000).toISOString(), costUsd: null,
-    }));
-    runs.push({ ...runs[0]!, id: 'queued', status: 'queued', startedAt: '2099-01-01' },
-      { ...runs[0]!, id: 'other', repo: 'org/beta', startedAt: '2099-01-01' },
-      { ...runs[0]!, id: 'bad-date', startedAt: 'invalid' });
-    renderDashboard(el, snapshot(), NOW, [], ['org/alpha', 'org/beta'], 'org/alpha', runs);
-    expect([...el.querySelectorAll('.recent-run')].map(row => row.getAttribute('data-runid')))
-      .toEqual(Array.from({ length: 10 }, (_, index) => `run-${14 - index}`));
-    const link = el.querySelector('.runs-pagination a');
-    expect(link?.textContent).toBe(`${term('allRuns')} →`);
-    expect(link?.getAttribute('href')).toBe('/runs?repo=org%2Falpha&pane=recent');
-    expect(runs[0]?.id).toBe('run-0');
   });
 
   it('renders a config row per key, marks overridden keys, and never renders a secret value', () => {
@@ -545,7 +145,7 @@ describe('renderDashboard', () => {
 
   it('renders the PR lookup panel in the PR view, not the dashboard', () => {
     const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW);
+    el.innerHTML = renderAppShell({ active: 'plugin', pluginSlot: 'helmsman/helm-page', repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID, readout: null }, '<h1 class="sr-only">Helm</h1>');
     expect(el.querySelector('.pr-lookup-input')).toBeNull();
     el.innerHTML = renderPrView(
       { repo: null, number: null, pr: null, diff: null, loading: false },
@@ -589,7 +189,6 @@ describe('renderTriageView', () => {
     expect(launchTickets).toContain('AB-2');
     expect(launchTickets).toContain('AB-3');
     expect(el.querySelector('.launch-btn[data-ticket="AB-3"]')?.getAttribute('data-repo')).toBe('o/a');
-    expect(el.querySelector('.runs-drawer-slot')).not.toBeNull();
   });
 
   it('hides Launch and shows a scope hint when no repo is scoped', () => {
@@ -1131,90 +730,9 @@ describe('renderRunsDrawer', () => {
   });
 });
 
-describe('renderDashboard helm rack', () => {
+describe('repository PR body', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-  });
-
-  it('renders a runs-drawer slot, the helm nameplate, and the page tabs', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW);
-    expect(el.querySelector('.runs-drawer-slot')).not.toBeNull();
-    expect(el.querySelector('.helm-head .nameplate')).not.toBeNull();
-    expect(el.querySelectorAll('a.page-tab[href]')).toHaveLength(11);
-    expect(el.querySelector('.page-tab[data-view="runs"]')?.getAttribute('href')).toBe('/runs');
-    expect(el.querySelector('.page-tab[data-view="config"]')).not.toBeNull();
-    expect(el.querySelector('.page-tab[data-view="prs"]')).not.toBeNull();
-    expect(el.querySelector('.page-tab.is-active')?.getAttribute('data-view')).toBe('dashboard');
-    expect(el.querySelector('.page-tab[data-view="dashboard"]')?.textContent).toBe('Helm');
-    expect(el.querySelector('.faceplate[data-panel="activity"] .faceplate-title')?.textContent).toBe("Ship's log");
-    expect(el.querySelector('.faceplate[data-panel="running"] .faceplate-title')?.textContent).toBe(term('activeAgents'));
-  });
-
-  it('renders every panel as a draggable faceplate with a collapse control', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW);
-    const panels: string[] = Array.from(el.querySelectorAll<HTMLElement>('.faceplate')).map((f) => f.dataset.panel ?? '');
-    ['newrun', 'backlog', 'running', 'recent', 'shipped', 'activity'].forEach((id) =>
-      expect(panels).toContain(id),
-    );
-    expect(panels).not.toContain('config');
-    expect(panels).not.toContain('pr');
-    expect(el.querySelector('.rack-handle[draggable="true"]')).not.toBeNull();
-    expect(el.querySelector('.panel-collapse')).not.toBeNull();
-  });
-
-  it('renders model + effort selectors in the New voyage panel', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW);
-    expect(el.querySelector('.newrun-model')).not.toBeNull();
-    expect(el.querySelector('.newrun-effort')).not.toBeNull();
-  });
-
-  it('defaults the New voyage tuning selects to astra and medium', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW);
-    const model = el.querySelector<HTMLSelectElement>('.newrun-model')!;
-    const effort = el.querySelector<HTMLSelectElement>('.newrun-effort')!;
-    expect(model.querySelector<HTMLOptionElement>('option[selected]')?.value).toBe('gpt-6-astra');
-    expect(effort.querySelector<HTMLOptionElement>('option[selected]')?.value).toBe('medium');
-  });
-
-  it('renders only the selected repository PRs, independently of personal dashboard PRs', () => {
-    const el: HTMLDivElement = root();
-    const personal = { number: 99, title: 'Personal PR', repo: 'org/alpha', reviewDecision: '', draft: false, createdAt: NOW.toISOString() };
-    const repoPrs = { prs: [
-      { ...personal, number: 42, title: 'Repository PR', reviewDecision: 'CHANGES_REQUESTED' },
-      { ...personal, number: 43, title: 'Repository draft', draft: true },
-      { ...personal, number: 44, repo: 'org/beta', title: 'Other repo PR' },
-    ], loading: false, degraded: false, truncated: false };
-    renderDashboard(el, snapshot({ myOpenPrs: [personal] }), NOW, [], ['org/alpha'], 'org/alpha', [], [], undefined, DEFAULT_THEME_ID, undefined, null, repoPrs);
-    const panel = el.querySelector('.faceplate[data-panel="repoprs"]');
-    expect(panel?.textContent).toContain(term('openPrs'));
-    expect(panel?.textContent).not.toContain('Personal PR');
-    expect(panel?.textContent).not.toContain('Other repo PR');
-    expect(el.querySelector('[data-panel="myprs"]')).toBeNull();
-    const rows = Array.from(panel!.querySelectorAll<HTMLElement>('.pr-list-row'));
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.dataset.repo).toBe('org/alpha');
-    expect(rows[0]?.dataset.number).toBe('42');
-    expect(rows[0]?.getAttribute('tabindex')).toBe('0');
-    expect(rows[1]?.textContent).toContain('Draft');
-    expect(rows[1]?.textContent).not.toContain('Review');
-  });
-
-  it('prompts for a repository instead of showing personal PRs when no repository is selected', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot({ myOpenPrs: [{ number: 99, title: 'Personal PR', repo: 'org/alpha', reviewDecision: '', draft: false, createdAt: NOW.toISOString() }] }), NOW);
-    const panel = el.querySelector('.faceplate[data-panel="repoprs"]');
-    expect(panel?.textContent).toContain(term('selectRepoPrs'));
-    expect(panel?.querySelector('.pr-list-row')).toBeNull();
-  });
-
-  it('shows a repository-specific empty message after loading', () => {
-    const el: HTMLDivElement = root();
-    renderDashboard(el, snapshot(), NOW, [], ['org/alpha'], 'org/alpha', [], [], undefined, DEFAULT_THEME_ID, undefined, null, { prs: [], loading: false, degraded: false, truncated: false });
-    expect(el.querySelector('[data-panel="repoprs"]')?.textContent).toContain(term('noRepoPrs'));
   });
 
   it('renders the same scoped repository body for background panel refreshes', () => {
@@ -1230,17 +748,6 @@ describe('renderDashboard helm rack', () => {
     el.innerHTML = renderRepoPrs(null, state);
     expect(el.querySelector('.pr-list-row')).toBeNull();
     expect(el.textContent).toContain('Select a galleon');
-  });
-
-  it('honors a custom layout: stacked panels share a slot with tabs', () => {
-    const el: HTMLDivElement = root();
-    const layout = stackOnto(defaultLayout(), 'running', 'backlog');
-    renderDashboard(el, snapshot(), NOW, [], [], null, [], [], undefined, DEFAULT_THEME_ID, layout);
-    const tabbed = el.querySelector<HTMLElement>('.faceplate .slot-tabs');
-    expect(tabbed).not.toBeNull();
-    const tabPanels = Array.from(tabbed!.querySelectorAll<HTMLButtonElement>('.slot-tab')).map((b) => b.dataset.panelTab);
-    expect(tabPanels).toContain('backlog');
-    expect(tabPanels).toContain('running');
   });
 });
 
@@ -1562,22 +1069,6 @@ describe('accessible configuration states', () => {
   });
 });
 
-it('associates stacked rack tabs with their active panel and exposes movement instructions', () => {
-  const el = root();
-  renderDashboard(el, snapshot(), NOW, [], [], null, [], [], undefined, DEFAULT_THEME_ID, stackOnto(defaultLayout(), 'backlog', 'newrun'));
-  const tabs = el.querySelector('.slot-tabs');
-  expect(tabs?.getAttribute('aria-label')).toBe('Stacked panels');
-  expect(tabs?.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
-  for (const tab of tabs?.querySelectorAll('[role="tab"]') ?? []) {
-    const panel = document.getElementById(tab.getAttribute('aria-controls') ?? '');
-    expect(panel?.getAttribute('role')).toBe('tabpanel');
-    if (tab.getAttribute('aria-selected') === 'true') expect(panel?.getAttribute('aria-labelledby')).toBe(tab.id);
-  }
-  for (const handle of el.querySelectorAll('.rack-handle')) {
-    expect(document.getElementById(handle.getAttribute('aria-describedby') ?? '')?.textContent).toContain('arrow keys');
-  }
-});
-
 it('describes how keyboard users can release Terminal capture', () => {
   const el = root();
   el.innerHTML = renderCmuxView(cmuxStateFixture({ selectedSurface: 'surface-1', isCapturing: true }));
@@ -1609,8 +1100,31 @@ it('distinguishes Terminal disconnect from a failed connection check', () => {
 
 it('gives Helm and the PR inbox a page heading without changing their visible layout', () => {
   const el = root();
-  renderDashboard(el, snapshot(), NOW);
+  el.innerHTML = renderAppShell({ active: 'plugin', pluginSlot: 'helmsman/helm-page', repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID, readout: null }, '<h1 class="sr-only">Helm</h1>');
   expect(el.querySelector('main h1.sr-only')?.textContent).toBe('Helm');
   el.innerHTML = renderPrView({ repo: null, number: null, pr: null, diff: null, loading: false }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
   expect(el.querySelector('main h1.sr-only')?.textContent).toBe(term('prs'));
+});
+
+describe('plugin page shell', () => {
+  it('keeps the scoped header, active Helm tab and Recovery link available without a page implementation', () => {
+    const el = root();
+    el.innerHTML = renderAppShell({ active: 'plugin', pluginSlot: 'helmsman/helm-page', repos: ['org/zeta', 'org/alpha'], selectedRepo: 'org/alpha', themeId: DEFAULT_THEME_ID, readout: null }, '<p role="status">Page unavailable</p>');
+    const select = el.querySelector<HTMLSelectElement>('.repo-select');
+    expect(select).toBe(el.querySelector('.helm-head .nameplate-scope .repo-select'));
+    expect(Array.from(select?.options ?? []).map(option => option.value)).toEqual(['', 'org/alpha', 'org/zeta']);
+    expect(select?.value).toBe('org/alpha');
+    expect(el.querySelector('[data-recovery-link]')?.getAttribute('href')).toBe('/recovery?repo=org%2Falpha');
+    const tabs = el.querySelector('.page-tabs');
+    const selected = tabs?.querySelector('[aria-selected="true"]');
+    const panel = el.querySelector('#page-content');
+    expect(tabs?.querySelectorAll('[aria-selected="true"]')).toHaveLength(1);
+    expect(selected?.getAttribute('href')).toBe('/helm?repo=org%2Falpha');
+    expect(selected?.id).toBe('page-tab-dashboard');
+    expect(panel?.getAttribute('aria-labelledby')).toBe(selected?.id);
+    expect(panel?.getAttribute('role')).toBe('tabpanel');
+    expect(el.querySelector('.helm-head')?.nextElementSibling).toBe(tabs);
+    expect(tabs?.nextElementSibling).toBe(panel);
+    for (const tab of tabs?.querySelectorAll('[role="tab"]') ?? []) expect(tab.getAttribute('aria-controls')).toBe(panel?.id);
+  });
 });

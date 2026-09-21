@@ -24,7 +24,8 @@ export function createTaskSourceRegistry(options: { eligible(binding: SourceBind
       const parsed = parseSourceBindingV1(binding);
       if (parsed.connectionId !== null || parsed.credentialHandle !== null) throw new PersistenceConflictError('Registrations cannot capture an instance connection');
       validateTaskSourceProvider(provider, declaration);
-      const registration = Object.freeze({ binding: parsed, declaration: Object.freeze({ identityFormats: Object.freeze([...declaration.identityFormats]), effectIds: Object.freeze([...declaration.effectIds]), commandIds: Object.freeze([...declaration.commandIds]), access: Object.freeze([...declaration.access]) }), provider });
+      const registration = Object.freeze({ binding: parsed, declaration: Object.freeze({ identityFormats: Object.freeze([...declaration.identityFormats]), effectIds: Object.freeze([...declaration.effectIds]), commandIds: Object.freeze([...declaration.commandIds]), access: Object.freeze([...declaration.access]),
+        ...(declaration.readViews ? { readViews: Object.freeze([...declaration.readViews]) } : {}) }), provider });
       staged.add(registration); return registration;
     },
     publish(registrations) {

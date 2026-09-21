@@ -1,5 +1,6 @@
 import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from './sdk';
 import { createHostPageServices } from './host-services';
+import type { PluginCompositionHost } from './composition-host';
 
 interface PageSession {
   id: string;
@@ -14,16 +15,22 @@ interface PageSession {
   mounting: Promise<void>;
   updating: Promise<void> | null;
   refreshing: Promise<void> | null;
+  composition: PluginCompositionHost | null;
+  activityController: AbortController;
+  activityEpoch: number;
 }
 
 export interface PluginPageHostOptions {
   navigate(href: string): void;
   loadingMessage(): string;
   errorMessage(): string;
+  createComposition?(id: string, container: HTMLElement, state: PluginPageState): PluginCompositionHost | null;
 }
 
 const sameState = (a: PluginPageState, b: PluginPageState) => a.repo === b.repo && a.themeId === b.themeId
-  && a.pirateMode === b.pirateMode && a.visible === b.visible && a.pane === b.pane;
+  && a.pirateMode === b.pirateMode && a.visible === b.visible && a.pane === b.pane && a.panelInstance === b.panelInstance
+  && a.panelContribution === b.panelContribution
+  && JSON.stringify(a.panelRouteState ?? {}) === JSON.stringify(b.panelRouteState ?? {});
 
 function validInstance(value: unknown): value is PluginPageInstance {
   if (!value || typeof value !== 'object') return false;
@@ -48,8 +55,15 @@ export class PluginPageHost {
     const current = this.session;
     if (current?.id === id && current.module === module && !current.controller.signal.aborted) {
       if (!sameState(current.state, state)) {
+        if (current.state.repo !== state.repo || current.state.visible !== state.visible) {
+          current.activityController.abort();
+          current.activityController = new AbortController();
+          ++current.activityEpoch;
+          if (!state.visible) current.activityController.abort();
+        }
         if (current.state.repo !== state.repo) this.loading();
         current.state = Object.freeze({ ...state });
+        current.composition?.update(current.state);
         ++current.revision;
         void this.update(current);
       }
@@ -60,14 +74,21 @@ export class PluginPageHost {
       id, module, element: document.createElement('div'), controller: new AbortController(), cleanups: new Set(),
       instance: null, state: Object.freeze({ ...state }), revision: 0, applied: 0,
       mounting: Promise.resolve(), updating: null, refreshing: null,
+      composition: null,
+      activityController: new AbortController(), activityEpoch: 0,
     };
+    if (!state.visible) session.activityController.abort();
     session.element.dataset.pluginPage = id;
     this.session = session;
     this.container.replaceChildren(session.element);
+    try { session.composition = this.options.createComposition?.(id, session.element, session.state) ?? null; }
+    catch { this.fail(session); return; }
     const context: PluginPageContext = Object.freeze({
       state: session.state,
       signal: session.controller.signal,
-      services: createHostPageServices(session.controller.signal),
+      services: createHostPageServices(session.controller.signal, () => ({ repo: session.state.repo, active: session.state.visible,
+        epoch: session.activityEpoch, signal: session.activityController.signal }), id),
+      ...(session.composition ? { composition: session.composition.service } : {}),
       navigate: (href: string) => { if (this.active(session)) this.options.navigate(href); },
       onDispose: (cleanup: () => void) => {
         if (typeof cleanup !== 'function') throw new TypeError('Page cleanup must be a function.');
@@ -164,6 +185,8 @@ export class PluginPageHost {
     this.session = null;
     if (!previous) return;
     previous.controller.abort();
+    previous.activityController.abort();
+    previous.composition?.dispose();
     for (const cleanup of [...previous.cleanups].reverse()) this.cleanup(cleanup);
     previous.cleanups.clear();
     if (previous.instance) this.release(previous.instance);

@@ -7,7 +7,7 @@ import type { RunSummary } from './data/agents';
 const json = (data: unknown): Response => new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
 let view: DashboardView | null = null;
 
-async function setup(path = '/helm?repo=org/a', runs: RunSummary[] = [], contextAvailable = true, jiraEnabled = true) {
+async function setup(path = '/prs?repo=org/a', runs: RunSummary[] = [], contextAvailable = true, jiraEnabled = true) {
   window.history.replaceState(null, '', path);
   const snapshot = await loadMockSnapshot();
   const requests: string[] = [];
@@ -59,87 +59,26 @@ describe('view-aware polling', () => {
   it('refreshes local status every 30 seconds and GitHub data only every five minutes', async () => {
     const { count } = await setup();
     expect(count('/api/dashboard')).toBe(1);
-    expect(count('/api/pr/open')).toBe(1);
+    expect(count('/api/pr/review-requests')).toBe(1);
     await vi.advanceTimersByTimeAsync(POLL_MS - LOCAL_POLL_MS);
     expect(count('/api/dashboard')).toBe(1);
-    expect(count('/api/pr/open')).toBe(1);
+    expect(count('/api/pr/review-requests')).toBe(1);
     expect(count('/api/agents')).toBe(10);
     expect(count('/api/config')).toBe(1);
     await vi.advanceTimersByTimeAsync(LOCAL_POLL_MS);
     expect(count('/api/dashboard')).toBe(2);
-    expect(count('/api/pr/open')).toBe(2);
+    expect(count('/api/pr/review-requests')).toBe(2);
   });
 
-  it('updates local run status without refetching GitHub or discarding the task draft', async () => {
+  it('updates shared run counts on Helm without refetching legacy GitHub data', async () => {
     const runs: RunSummary[] = [{ id: 'run-1', ticketId: 'TEST-1', repo: 'org/a', status: 'running',
       attempt: 1, prNumber: null, startedAt: new Date().toISOString(), costUsd: null }];
     const { root, count } = await setup('/helm?repo=org/a', runs);
-    const task = root.querySelector<HTMLTextAreaElement>('.newrun-task')!;
-    task.value = 'Preserve this draft';
-    expect(root.querySelector('[data-panel="running"] [data-runid="run-1"]')).not.toBeNull();
+    expect(root.querySelector('[data-fleet-count="running"]')?.textContent).toBe('1');
     runs[0]!.status = 'succeeded';
     await vi.advanceTimersByTimeAsync(LOCAL_POLL_MS);
-    expect(root.querySelector('[data-panel="running"] [data-runid="run-1"]')).toBeNull();
-    expect(root.querySelector('[data-panel="recent"] [data-runid="run-1"]')).not.toBeNull();
     expect(root.querySelector('.helm-readout .seg7')?.textContent).toBe('0');
-    expect(root.querySelector('.newrun-task')).toBe(task);
-    expect(task.value).toBe('Preserve this draft');
-    expect(count('/api/dashboard')).toBe(1);
-  });
-
-  it.each([true, false])('keeps the new-run draft and caret during full dashboard refresh (Jira %s)', async jiraEnabled => {
-    const { root, count } = await setup('/helm?repo=org/a', [], true, jiraEnabled);
-    const task = root.querySelector<HTMLTextAreaElement>('.newrun-task')!;
-    task.value = 'Keep these task instructions';
-    task.focus();
-    task.setSelectionRange(5, 10);
-    const freeform = root.querySelector<HTMLInputElement>('.newrun-mode[value="freeform"]')!;
-    freeform.checked = true;
-    const model = root.querySelector<HTMLSelectElement>('.newrun-model')!;
-    const modelChoice = model.options[1]?.value ?? '';
-    model.value = modelChoice;
-    await vi.advanceTimersByTimeAsync(jiraEnabled ? POLL_MS : LOCAL_POLL_MS);
-    const updated = root.querySelector<HTMLTextAreaElement>('.newrun-task')!;
-    expect(count('/api/dashboard')).toBe(2);
-    expect(updated.value).toBe('Keep these task instructions');
-    expect(document.activeElement).toBe(updated);
-    expect([updated.selectionStart, updated.selectionEnd]).toEqual([5, 10]);
-    expect(root.querySelector<HTMLInputElement>('.newrun-mode[value="freeform"]')?.checked).toBe(true);
-    expect(root.querySelector<HTMLSelectElement>('.newrun-model')?.value).toBe(modelChoice);
-  });
-
-  it('releases a repainted new-run button after an overlapping backlog launch supersedes its result', async () => {
-    const { root, fetcher } = await setup();
-    const original = fetcher.getMockImplementation()!;
-    let resolveNewRun!: (response: Response) => void;
-    let resolveBacklog!: (response: Response) => void;
-    const pendingNewRun = new Promise<Response>(resolve => { resolveNewRun = resolve; });
-    const pendingBacklog = new Promise<Response>(resolve => { resolveBacklog = resolve; });
-    let launches = 0;
-    fetcher.mockImplementation(async input => {
-      const path = new URL(String(input), window.location.origin).pathname;
-      if (path === '/api/agents/launch') return ++launches === 1 ? pendingNewRun : pendingBacklog;
-      return original(input);
-    });
-    root.querySelector<HTMLInputElement>('.newrun-mode[value="freeform"]')!.checked = true;
-    root.querySelector<HTMLTextAreaElement>('.newrun-task')!.value = 'First task';
-    const originalButton = root.querySelector<HTMLButtonElement>('.newrun-launch')!;
-    originalButton.click();
-    expect(originalButton.disabled).toBe(true);
-    root.querySelector<HTMLButtonElement>('.panel-collapse[data-panel="activity"]')!.click();
-    const replacement = root.querySelector<HTMLButtonElement>('.newrun-launch')!;
-    expect(replacement).not.toBe(originalButton);
-    expect(replacement.disabled).toBe(true);
-    const backlogLaunch = root.querySelector<HTMLButtonElement>('.launch-btn')!;
-    expect(backlogLaunch).not.toBeNull();
-    backlogLaunch.click();
-    resolveNewRun(json({ runId: 'superseded-new-run' }));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(root.querySelector<HTMLButtonElement>('.newrun-launch')?.disabled).toBe(false);
-    expect(root.querySelector('[data-tabid="superseded-new-run"]')).toBeNull();
-    resolveBacklog(json({ runId: 'backlog-run' }));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(root.querySelector('[data-tabid="backlog-run"]')).not.toBeNull();
+    expect(count('/api/dashboard')).toBe(0);
   });
 
   it('stops hidden polling and refreshes only overdue data upon return', async () => {
@@ -175,39 +114,39 @@ describe('view-aware polling', () => {
     expect(count('/api/context')).toBeGreaterThan(2);
   });
 
-  it('loads the dashboard when leaving a metadata-only Config bootstrap', async () => {
+  it('loads the authored PR inbox when leaving a metadata-only Config bootstrap', async () => {
     const { root, count } = await setup('/config?repo=org/a');
     expect(count('/api/dashboard')).toBe(0);
     expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/a');
-    root.querySelector<HTMLAnchorElement>('[data-view="dashboard"]')!.click();
+    root.querySelector<HTMLAnchorElement>('[data-view="prs"]')!.click();
     await vi.advanceTimersByTimeAsync(0);
     expect(count('/api/dashboard')).toBe(1);
-    expect(count('/api/pr/open')).toBe(1);
-    expect(root.querySelector('[data-page="dashboard"]')).not.toBeNull();
+    expect(count('/api/pr/review-requests')).toBe(1);
+    expect(root.querySelector('[data-page="prs"]')).not.toBeNull();
   });
 
-  it('fetches the dashboard after navigating during a local Config refresh', async () => {
+  it('fetches the authored PR inbox after navigating during a local Config refresh', async () => {
     const { root, count, fetcher } = await setup('/config?repo=org/a');
     const original = fetcher.getMockImplementation()!;
     let resolve!: (response: Response) => void;
     const pending = new Promise<Response>(done => { resolve = done; });
     fetcher.mockImplementation(async input => String(input).startsWith('/api/agents') ? pending : original(input));
     const refresh = view!.refresh();
-    root.querySelector<HTMLAnchorElement>('[data-view="dashboard"]')!.click();
+    root.querySelector<HTMLAnchorElement>('[data-view="prs"]')!.click();
     resolve(json({ runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } }));
     await refresh;
     await vi.advanceTimersByTimeAsync(0);
     expect(count('/api/dashboard')).toBe(1);
-    expect(root.querySelector('[data-page="dashboard"]')).not.toBeNull();
+    expect(root.querySelector('[data-page="prs"]')).not.toBeNull();
   });
 
-  it('falls back to the existing dashboard bootstrap if context is unavailable', async () => {
+  it('keeps core pages usable without a legacy dashboard fallback if context is unavailable', async () => {
     const { root, count } = await setup('/runs?repo=org/a', [], false);
     expect(count('/api/context')).toBe(2);
-    expect(count('/api/dashboard')).toBe(1);
+    expect(count('/api/dashboard')).toBe(0);
     expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/a');
     await vi.advanceTimersByTimeAsync(POLL_MS * 2);
-    expect(count('/api/dashboard')).toBe(1);
+    expect(count('/api/dashboard')).toBe(0);
   });
 
   it('loads relevant lists on navigation without refetching fresh dashboard data', async () => {
@@ -231,14 +170,14 @@ describe('view-aware polling', () => {
     const original = fetcher.getMockImplementation()!;
     let resolve!: (response: Response) => void;
     const pending = new Promise<Response>(done => { resolve = done; });
-    fetcher.mockImplementation(async input => String(input).startsWith('/api/pr/open') ? pending : original(input));
+    fetcher.mockImplementation(async input => String(input).startsWith('/api/pr/review-requests') ? pending : original(input));
     const refresh = view!.refresh();
     await vi.advanceTimersByTimeAsync(0);
-    root.querySelector<HTMLAnchorElement>('[data-view="prs"]')!.click();
+    root.querySelector<HTMLAnchorElement>('[data-view="runs"]')!.click();
     resolve(json({ prs: [], degraded: false, truncated: false }));
     await refresh;
     await vi.advanceTimersByTimeAsync(0);
-    expect(root.querySelector('[data-page="prs"]')).not.toBeNull();
+    expect(root.querySelector('[data-page="runs"]')).not.toBeNull();
     expect(count('/api/pr/review-requests')).toBe(1);
   });
 

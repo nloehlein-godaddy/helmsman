@@ -48,6 +48,14 @@ async function completion(context: SourceCallContextV1, outcome: SourceCompletio
 }
 
 describe('independent local Todo provider', () => {
+  it('lists only active local work in the Underway view and binds paging to that view', async () => {
+    const f = fixture(['todo', 'blocked', 'in_progress', 'in_review', 'done'].map((state, index) => record(`TODO-${index + 1}`, { state })));
+    const first = await todosProvider.listUnderway!({ repo: 'org/repo', cursor: null, limit: 1 }, f.context);
+    expect(first.items.map(item => item.state)).toEqual(['in_progress']); expect(first.nextCursor).not.toBeNull();
+    const second = await todosProvider.listUnderway!({ repo: 'org/repo', cursor: first.nextCursor, limit: 1 }, f.context);
+    expect(second.items.map(item => item.state)).toEqual(['review']); expect(second.nextCursor).toBeNull();
+    await expect(todosProvider.list({ repo: 'org/repo', state: null, cursor: first.nextCursor, limit: 1 }, f.context)).rejects.toThrow('changed');
+  });
   it('registers only its declared public source and preserves complete task requirements', async () => {
     const registerTaskSource = vi.fn();
     plugin.activate({ registerTaskSource } as unknown as PluginBackendContext);
@@ -229,5 +237,32 @@ describe('independent local Todo provider', () => {
   it('rejects invalid persisted document timestamps and missing required fields', () => {
     expect(() => document({ ...record().data as object, createdAt: 'invalid' })).toThrow('timestamp');
     expect(() => document(null)).toThrow();
+  });
+});
+
+describe('local task history observations and completion metrics', () => {
+  const query = { repo: 'org/repo', from: '2026-09-14T00:00:00.000Z', until: '2026-09-20T12:00:00.000Z', eventLimit: 50 };
+  it('counts only current source Done records and reports observations without inventing status transitions', async () => {
+    const f = fixture([record('TODO-1', { state: 'done', createdAt: '2026-09-13T00:00:00.000Z', updatedAt: timestamp, completedAt: timestamp }),
+      record('TODO-2', { state: 'in_review', completedAt: timestamp }), record('TODO-3', { state: 'done', completedAt: '2026-09-13T23:59:59.000Z' })]);
+    const result = await todosProvider.readHistory!(query, f.context);
+    expect(result.days.map(day => day.completed)).toEqual([0, 0, 0, 0, 0, 0, 1]); expect(result.throughputQuality).toBe('complete');
+    expect(result.historyQuality).toBe('partial'); expect(result.events.some(event => event.kind === 'status-changed')).toBe(false);
+    expect(result.events.find(event => event.kind === 'completed')).toMatchObject({ ref: reference('TODO-1'), at: timestamp });
+  });
+  it('keeps incomplete completion dates unknown and does not produce fake zeroes', async () => {
+    const f = fixture([record('TODO-1', { state: 'done', completedAt: null })]);
+    const result = await todosProvider.readHistory!(query, f.context); expect(result.throughputQuality).toBe('partial'); expect(result.days.every(day => day.completed === null)).toBe(true);
+  });
+  it('reads beyond the first page and rejects concurrent collection changes', async () => {
+    const f = fixture(Array.from({ length: 101 }, (_, index) => record(`TODO-${index + 1}`, { state: 'done', completedAt: timestamp })));
+    const result = await todosProvider.readHistory!({ ...query, eventLimit: 2 }, f.context); expect(result.days[6]?.completed).toBe(101); expect(result.events).toHaveLength(2);
+    vi.mocked(f.context.local!.list).mockImplementation(async () => { f.changeCollection(); return { records: [], nextCursor: null }; });
+    await expect(todosProvider.readHistory!(query, f.context)).rejects.toThrow('changed');
+  });
+  it('rejects scope widening and cancels local reads', async () => {
+    const f = fixture(); await expect(todosProvider.readHistory!({ ...query, repo: 'other/repo' }, f.context)).rejects.toThrow('scope');
+    vi.mocked(f.context.local!.list).mockImplementation(async () => { f.controller.abort(); return { records: [], nextCursor: null }; });
+    await expect(todosProvider.readHistory!(query, f.context)).rejects.toMatchObject({ name: 'AbortError' });
   });
 });

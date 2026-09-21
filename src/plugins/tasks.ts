@@ -1,3 +1,4 @@
+import type { TaskHistoryQueryV1, TaskHistoryV1 } from './activity-read';
 import type { PluginJson, TaskSourceDeclaration } from './backend';
 
 export type SourceId = string;
@@ -84,6 +85,8 @@ export interface TaskSourceProviderV1 {
     cursor: string | null;
     limit: number;
   }, context: SourceCallContextV1): Promise<TaskPageV1>;
+  readHistory?(input: TaskHistoryQueryV1, context: SourceCallContextV1): Promise<TaskHistoryV1>;
+  listUnderway?(input: { repo: string; cursor: string | null; limit: number }, context: SourceCallContextV1): Promise<TaskPageV1>;
   lookup(input: { displayKey: string }, context: SourceCallContextV1): Promise<WorkRefV1 | null>;
   load(ref: WorkRefV1, context: SourceCallContextV1): Promise<TaskSnapshotV1 | null>;
   planClaim(input: SourceClaimRequestV1, context: SourceCallContextV1): Promise<SourceMutationPlanV1>;
@@ -449,6 +452,11 @@ export function parseSourceEffectResultV1(input: unknown): SourceEffectResultV1 
 }
 export function validateTaskSourceProvider(provider: unknown, declaration: TaskSourceDeclaration): asserts provider is TaskSourceProviderV1 {
   const value = object(provider);
+  if (declaration.readViews !== undefined && (declaration.readViews.length > 2 || new Set(declaration.readViews).size !== declaration.readViews.length || declaration.readViews.some(view => !['underway', 'history'].includes(view)))) invalid('read view declaration');
+  if (declaration.readViews?.includes('underway') && typeof value.listUnderway !== 'function'
+    || value.listUnderway !== undefined && typeof value.listUnderway !== 'function') invalid('provider underway view');
+  if (declaration.readViews?.includes('history') && typeof value.readHistory !== 'function'
+    || value.readHistory !== undefined && typeof value.readHistory !== 'function') invalid('provider history view');
   for (const name of ['identify', 'list', 'lookup', 'load', 'planClaim', 'planCompletion', 'planAbort', 'validateAdoption']) if (typeof value[name] !== 'function') invalid(`provider ${name}`);
   const effects = object(value.effects); const commands = value.commands === undefined ? {} : object(value.commands);
   for (const [record, ids] of [[effects, declaration.effectIds], [commands, declaration.commandIds]] as const) if (Object.keys(record).length !== ids.length || ids.some(id => !Object.hasOwn(record, id))) invalid('handler declaration');
