@@ -1,7 +1,25 @@
 import type Database from 'better-sqlite3';
 import { storeConnection } from '../store-connection';
+import type { ArtifactPin } from '../execution-store';
+
+export interface ReviewNotificationProposal {
+  eventId: string | null;
+  targetId: string;
+  repo: string;
+  number: number;
+  headSha: string;
+  title: string;
+  url: string;
+  status: 'open' | 'closed' | 'merged';
+  draft: boolean;
+  workflowRef: string;
+  sourceUrl: string;
+  author: string;
+  channelName: string;
+}
 
 export interface SlackNotification {
+  sourceKey?: string;
   id: string;
   repo: string;
   prNumber: number;
@@ -15,6 +33,8 @@ export interface SlackNotification {
   updatedAt: string;
   readAt: string | null;
   error: string | null;
+  trigger?: unknown | null;
+  proposal?: ReviewNotificationProposal | null;
 }
 
 export interface SlackHealth {
@@ -37,8 +57,17 @@ export interface SlackStore {
   ensureSource(key: string, activatedAt: string, health: SlackHealth): SlackSourceState;
   saveSource(state: SlackSourceState): void;
   insertNotification(sourceKey: string, notification: SlackNotification): boolean;
+  commitTriggerScan(input: {
+    sourceKey: string;
+    expected: { activatedAt: string; cursor: string | null };
+    state: SlackSourceState;
+    notifications: ReadonlyArray<{ notification: SlackNotification; proposal: ReviewNotificationProposal; trigger: unknown; pins: readonly ArtifactPin[] }>;
+    assertCurrent(): void;
+    retainPins(pins: readonly ArtifactPin[]): void;
+  }): number;
   queuedNotifications(sourceKey: string): SlackNotification[];
   launchedNotifications(sourceKey: string): SlackNotification[];
+  notificationsByStatus(status: 'queued' | 'launched'): SlackNotification[];
   updateNotification(id: string, status: SlackNotification['status'], now: string, error?: string | null): void;
   setNotificationRunId(id: string, runId: string): void;
   getNotification(id: string): SlackNotification | null;
@@ -51,7 +80,8 @@ export interface SlackStore {
   close(): void;
 }
 
-const NOTIFICATION_COLUMNS = 'id, repo, prNumber, prUrl, sourceUrl, author, channelName, status, runId, createdAt, updatedAt, readAt, error';
+const NOTIFICATION_COLUMNS = 'id, repo, prNumber, prUrl, sourceUrl, author, channelName, status, runId, createdAt, updatedAt, readAt, error, proposalJson, triggerJson';
+const NOTIFICATION_SELECT_COLUMNS = `sourceKey, ${NOTIFICATION_COLUMNS}`;
 
 export function openSlackStore(path: string | Database.Database): SlackStore {
   const connection = storeConnection(path);
@@ -64,13 +94,30 @@ export function openSlackStore(path: string | Database.Database): SlackStore {
       id TEXT PRIMARY KEY, sourceKey TEXT NOT NULL, repo TEXT NOT NULL,
       prNumber INTEGER NOT NULL, prUrl TEXT NOT NULL, sourceUrl TEXT NOT NULL,
       author TEXT NOT NULL, channelName TEXT NOT NULL, status TEXT NOT NULL,
-      runId TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, readAt TEXT, error TEXT
+      runId TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, readAt TEXT, error TEXT,
+      proposalJson TEXT, triggerJson TEXT
     );
     CREATE INDEX IF NOT EXISTS slack_notifications_queue ON slack_notifications(sourceKey, status, createdAt);
     CREATE TABLE IF NOT EXISTS slack_dispatch_claims (
       notificationId TEXT PRIMARY KEY, token TEXT NOT NULL, claimedAt TEXT NOT NULL
     );
-  ` });
+  `, optionalLegacyColumns: { slack_notifications: ['proposalJson', 'triggerJson'] }, upgrade(database) {
+    const columns = new Set((database.pragma('table_info(slack_notifications)') as Array<{ name: string }>).map(column => column.name));
+    if (!columns.has('proposalJson')) database.exec('ALTER TABLE slack_notifications ADD COLUMN proposalJson TEXT');
+    if (!columns.has('triggerJson')) database.exec('ALTER TABLE slack_notifications ADD COLUMN triggerJson TEXT');
+  } });
+
+  type NotificationRow = Omit<SlackNotification, 'proposal' | 'trigger'> & { sourceKey: string; proposalJson: string | null; triggerJson: string | null };
+  const decode = (row: NotificationRow): SlackNotification => {
+    try {
+      const { proposalJson, triggerJson, ...notification } = row;
+      return { ...notification, proposal: proposalJson ? JSON.parse(proposalJson) as ReviewNotificationProposal : null,
+        trigger: triggerJson ? JSON.parse(triggerJson) as unknown : null };
+    } catch { throw new Error('Stored review trigger is invalid'); }
+  };
+  const insert = (sourceKey: string, notification: SlackNotification, proposal: ReviewNotificationProposal | null, trigger: unknown | null): boolean => sql.prepare(`INSERT OR IGNORE INTO slack_notifications (sourceKey, ${NOTIFICATION_COLUMNS})
+    VALUES (@sourceKey, @id, @repo, @prNumber, @prUrl, @sourceUrl, @author, @channelName, @status, @runId, @createdAt, @updatedAt, @readAt, @error, @proposalJson, @triggerJson)`)
+    .run({ ...notification, sourceKey, proposalJson: proposal === null ? null : JSON.stringify(proposal), triggerJson: trigger === null ? null : JSON.stringify(trigger) }).changes > 0;
 
   return {
     ensureSource(key, activatedAt, health) {
@@ -84,17 +131,38 @@ export function openSlackStore(path: string | Database.Database): SlackStore {
         .run(state.cursor, JSON.stringify(state.health), state.key);
     },
     insertNotification(sourceKey, notification) {
-      return sql.prepare(`INSERT OR IGNORE INTO slack_notifications (sourceKey, ${NOTIFICATION_COLUMNS})
-        VALUES (@sourceKey, @id, @repo, @prNumber, @prUrl, @sourceUrl, @author, @channelName, @status, @runId, @createdAt, @updatedAt, @readAt, @error)`)
-        .run({ sourceKey, ...notification }).changes > 0;
+      return insert(sourceKey, notification, notification.proposal ?? null, notification.trigger ?? null);
     },
+    commitTriggerScan: sql.transaction((input: {
+      sourceKey: string; expected: { activatedAt: string; cursor: string | null }; state: SlackSourceState;
+      notifications: ReadonlyArray<{ notification: SlackNotification; proposal: ReviewNotificationProposal; trigger: unknown; pins: readonly ArtifactPin[] }>;
+      assertCurrent(): void; retainPins(pins: readonly ArtifactPin[]): void;
+    }): number => {
+      const current = sql.prepare('SELECT activatedAt,cursor FROM slack_sources WHERE key = ?').get(input.sourceKey) as { activatedAt: string; cursor: string | null } | undefined;
+      if (!current || current.activatedAt !== input.expected.activatedAt || current.cursor !== input.expected.cursor || input.state.key !== input.sourceKey
+        || input.state.activatedAt !== current.activatedAt || !Array.isArray(input.notifications)) throw new Error('Review source changed before trigger capture');
+      input.assertCurrent();
+      let inserted = 0;
+      for (const item of input.notifications) {
+        if (!item?.proposal || !item.trigger || !Array.isArray(item.pins)) throw new Error('Invalid review trigger capture');
+        if (!insert(input.sourceKey, item.notification, item.proposal, item.trigger)) continue;
+        input.retainPins(item.pins);
+        inserted++;
+      }
+      sql.prepare('UPDATE slack_sources SET cursor = ?, health = ? WHERE key = ?').run(input.state.cursor, JSON.stringify(input.state.health), input.sourceKey);
+      return inserted;
+    }).immediate,
     queuedNotifications(sourceKey) {
-      return sql.prepare(`SELECT ${NOTIFICATION_COLUMNS} FROM slack_notifications WHERE sourceKey = ? AND status = 'queued' ORDER BY createdAt, id`)
-        .all(sourceKey) as SlackNotification[];
+      return (sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications WHERE sourceKey = ? AND status = 'queued' ORDER BY createdAt, id`)
+        .all(sourceKey) as NotificationRow[]).map(decode);
     },
     launchedNotifications(sourceKey) {
-      return sql.prepare(`SELECT ${NOTIFICATION_COLUMNS} FROM slack_notifications WHERE sourceKey = ? AND status = 'launched'`)
-        .all(sourceKey) as SlackNotification[];
+      return (sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications WHERE sourceKey = ? AND status = 'launched'`)
+        .all(sourceKey) as NotificationRow[]).map(decode);
+    },
+    notificationsByStatus(status) {
+      return (sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications WHERE status = ? ORDER BY createdAt, id`)
+        .all(status) as NotificationRow[]).map(decode);
     },
     updateNotification(id, status, now, error = null) {
       sql.prepare('UPDATE slack_notifications SET status = ?, updatedAt = ?, readAt = NULL, error = ? WHERE id = ?')
@@ -104,12 +172,13 @@ export function openSlackStore(path: string | Database.Database): SlackStore {
       sql.prepare('UPDATE slack_notifications SET runId = ? WHERE id = ?').run(runId, id);
     },
     getNotification(id) {
-      return (sql.prepare(`SELECT ${NOTIFICATION_COLUMNS} FROM slack_notifications WHERE id = ?`).get(id) as SlackNotification | undefined) ?? null;
+      const row = sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications WHERE id = ?`).get(id) as NotificationRow | undefined;
+      return row ? decode(row) : null;
     },
     listNotifications(limit = 100) {
       const count = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 100;
-      return sql.prepare(`SELECT ${NOTIFICATION_COLUMNS} FROM slack_notifications ORDER BY updatedAt DESC, id DESC LIMIT ?`)
-        .all(count) as SlackNotification[];
+      return (sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications ORDER BY updatedAt DESC, id DESC LIMIT ?`)
+        .all(count) as NotificationRow[]).map(decode);
     },
     markRead(id, now) {
       return sql.prepare('UPDATE slack_notifications SET readAt = COALESCE(readAt, ?) WHERE id = ?').run(now, id).changes > 0;

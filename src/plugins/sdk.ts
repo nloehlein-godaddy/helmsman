@@ -127,3 +127,5 @@ export * from './execution-host';
 export * from './native-terminal';
 
 export * from './workflow';
+
+export * from './trigger';

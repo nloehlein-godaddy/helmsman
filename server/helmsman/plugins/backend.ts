@@ -1,3 +1,5 @@
+import type { TriggerBackendContextV1, TriggerProviderV1 } from '../../../src/plugins/trigger';
+import { boundedTriggerProvider, createTriggerProviderRegistry } from '../trigger-providers';
 import type { WorkflowBackendContextV1, WorkflowProviderV1 } from '../../../src/plugins/workflow';
 import { boundedWorkflowProvider, createWorkflowProviderRegistry } from '../workflow-providers';
 import type { NativeTerminalBackendContextV1, NativeTerminalProviderV1 } from '../../../src/plugins/native-terminal';
@@ -40,6 +42,7 @@ export interface BackendRuntime {
   readonly pullRequests: PullRequestProviderRegistry;
   readonly communications: CommunicationProviderRegistry;
   readonly scheduling: ReturnType<typeof createSchedulingProviderRegistry>;
+  readonly triggers: ReturnType<typeof createTriggerProviderRegistry>;
   readonly workflows: ReturnType<typeof createWorkflowProviderRegistry>;
   readonly nativeTerminals: ReturnType<typeof createNativeTerminalProviderRegistry>;
   readonly executionHosts: ReturnType<typeof createExecutionHostProviderRegistry>;
@@ -105,21 +108,25 @@ export async function activateBackendPlugins(options: {
     const state = options.coordinator.state(binding.pluginId);
     return purpose === 'obligation' && state?.artifactHash === binding.artifactHash && state.obligationsOnly;
   } });
+  const pullRequestSettings = new Map<string, () => boolean>();
   const pullRequests = createPullRequestProviderRegistry({ eligible(binding, purpose) {
-    if (disposed || !activeIds.has(binding.pluginId)) return false;
-    if (purpose === 'admission' && draining.has(binding.pluginId)) return false;
-    if (!options.coordinator) return true;
-    if (options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) return true;
-    const state = options.coordinator.state(binding.pluginId);
-    return purpose === 'obligation' && state?.artifactHash === binding.artifactHash && state.obligationsOnly;
+    if (disposed || !activeIds.has(binding.pluginId) || purpose === 'admission' && draining.has(binding.pluginId)) return false;
+    if (options.coordinator && !options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) {
+      const state = options.coordinator.state(binding.pluginId);
+      if (purpose !== 'obligation' || !state?.obligationsOnly || state.artifactHash !== binding.artifactHash) return false;
+    }
+    if (purpose === 'obligation') return true;
+    try { return pullRequestSettings.get(binding.pluginId)?.() === true; } catch { return false; }
   } });
+  const communicationSettings = new Map<string, () => boolean>();
   const communications = createCommunicationProviderRegistry({ eligible(binding, purpose) {
-    if (disposed || !activeIds.has(binding.pluginId)) return false;
-    if (purpose === 'admission' && draining.has(binding.pluginId)) return false;
-    if (!options.coordinator) return true;
-    if (options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) return true;
-    const state = options.coordinator.state(binding.pluginId);
-    return purpose === 'obligation' && state?.artifactHash === binding.artifactHash && state.obligationsOnly;
+    if (disposed || !activeIds.has(binding.pluginId) || purpose === 'admission' && draining.has(binding.pluginId)) return false;
+    if (options.coordinator && !options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) {
+      const state = options.coordinator.state(binding.pluginId);
+      if (purpose !== 'obligation' || !state?.obligationsOnly || state.artifactHash !== binding.artifactHash) return false;
+    }
+    if (purpose === 'obligation') return true;
+    try { return communicationSettings.get(binding.pluginId)?.() === true; } catch { return false; }
   } });
   const schedulingSettings = new Map<string, () => boolean>();
   const scheduling = createSchedulingProviderRegistry({ eligible(binding) {
@@ -146,6 +153,16 @@ export async function activateBackendPlugins(options: {
     }
     if (purpose === 'obligation') return true;
     try { return executionHostSettings.get(binding.pluginId)?.() === true; } catch { return false; }
+  } });
+  const triggerSettings = new Map<string, () => boolean>();
+  const triggers = createTriggerProviderRegistry({ eligible(binding, purpose) {
+    if (disposed || !activeIds.has(binding.pluginId) || purpose === 'admission' && draining.has(binding.pluginId)) return false;
+    if (options.coordinator && !options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) {
+      const state = options.coordinator.state(binding.pluginId);
+      if (purpose !== 'obligation' || !state?.obligationsOnly || state.artifactHash !== binding.artifactHash) return false;
+    }
+    if (purpose === 'obligation') return true;
+    try { return triggerSettings.get(binding.pluginId)?.() === true; } catch { return false; }
   } });
   const workflowSettings = new Map<string, () => boolean>();
   const workflows = createWorkflowProviderRegistry({ eligible(binding, purpose) {
@@ -182,12 +199,12 @@ export async function activateBackendPlugins(options: {
     const canServeOrdinary = () => !options.coordinator || options.coordinator.canActivate(id, artifactHash);
     const canServeObligations = () => {
       const state = options.coordinator?.state(id);
-      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows);
+      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows || pkg.backend?.triggers);
     };
     if (options.coordinator) {
       const state = options.coordinator.state(id);
       if (!options.coordinator.canActivate(id, artifactHash)
-        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows))) return;
+        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows || pkg.backend?.triggers))) return;
     }
     let data: ReturnType<typeof openPluginData> | undefined;
     const abort = new AbortController();
@@ -197,6 +214,7 @@ export async function activateBackendPlugins(options: {
     const pendingSources = new Map<string, TaskSourceProviderV1>();
     const pendingPullRequests = new Map<string, PullRequestProviderV1>();
     const pendingCommunications = new Map<string, CommunicationProviderV1>();
+    const pendingTriggers = new Map<string, TriggerProviderV1>();
     const pendingWorkflows = new Map<string, WorkflowProviderV1>();
     const pendingNativeTerminals = new Map<string, NativeTerminalProviderV1>();
     const pendingExecutionHosts = new Map<string, ExecutionHostProviderV1>();
@@ -214,9 +232,12 @@ export async function activateBackendPlugins(options: {
       phase = 'disposed'; abort.abort();
       if (publishedSources) taskSources.removePlugin(id);
       if (publishedPullRequests) pullRequests.removePlugin(id);
+      pullRequestSettings.delete(id);
       if (publishedCommunications) communications.removePlugin(id);
+      communicationSettings.delete(id);
       agents.removePlugin(id); agentSettings.delete(id);
       executionHosts.removePlugin(id); executionHostSettings.delete(id);
+      triggers.removePlugin(id); triggerSettings.delete(id);
       workflows.removePlugin(id); workflowSettings.delete(id);
       nativeTerminals.removePlugin(id); nativeTerminalSettings.delete(id);
       scheduling.removePlugin(id); schedulingSettings.delete(id);
@@ -280,6 +301,11 @@ export async function activateBackendPlugins(options: {
           if (pendingExecutionHosts.has(localId)) throw new Error('Duplicate execution host provider registration.');
           pendingExecutionHosts.set(localId, boundedExecutionHostProvider(provider, abort.signal));
         },
+        registerTrigger: (localId: string, provider: TriggerProviderV1) => {
+          if (phase !== 'activating' || !pkg.backend?.triggers?.[localId] || !pkg.backend.provides.some(item => item.id === 'helmsman/trigger' && item.localId === localId)) throw new Error('Undeclared trigger provider registration.');
+          if (pendingTriggers.has(localId)) throw new Error('Duplicate trigger provider registration.');
+          pendingTriggers.set(localId, boundedTriggerProvider(provider, abort.signal));
+        },
         registerWorkflow: (localId: string, provider: WorkflowProviderV1) => {
           if (phase !== 'activating' || !pkg.backend?.workflows?.[localId] || !pkg.backend.provides.some(item => item.id === 'helmsman/workflow' && item.localId === localId)) throw new Error('Undeclared workflow provider registration.');
           if (pendingWorkflows.has(localId)) throw new Error('Duplicate workflow provider registration.');
@@ -311,32 +337,34 @@ export async function activateBackendPlugins(options: {
         }
         const module = imported && typeof imported === 'object' && 'default' in imported ? imported.default : null;
         if (!module || typeof module !== 'object' || !('activate' in module) || typeof module.activate !== 'function') throw new Error('Backend entry must default-export an activate module.');
-        const activationContext = pkg.backend?.workflows ? Object.freeze<WorkflowBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerWorkflow: context.registerWorkflow, onDispose: context.onDispose }) : pkg.backend?.nativeTerminals ? Object.freeze<NativeTerminalBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerNativeTerminal: context.registerNativeTerminal, onDispose: context.onDispose }) : pkg.backend?.executionHosts ? Object.freeze<ExecutionHostBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerExecutionHost: context.registerExecutionHost, onDispose: context.onDispose }) : pkg.backend?.agents ? Object.freeze<AgentBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerAgent: context.registerAgent, onDispose: context.onDispose }) : context;
+        const activationContext = pkg.backend?.triggers ? Object.freeze<TriggerBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerTrigger: context.registerTrigger, onDispose: context.onDispose }) : pkg.backend?.workflows ? Object.freeze<WorkflowBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerWorkflow: context.registerWorkflow, onDispose: context.onDispose }) : pkg.backend?.nativeTerminals ? Object.freeze<NativeTerminalBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerNativeTerminal: context.registerNativeTerminal, onDispose: context.onDispose }) : pkg.backend?.executionHosts ? Object.freeze<ExecutionHostBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerExecutionHost: context.registerExecutionHost, onDispose: context.onDispose }) : pkg.backend?.agents ? Object.freeze<AgentBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerAgent: context.registerAgent, onDispose: context.onDispose }) : context;
         await module.activate(activationContext);
       })();
       await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Backend activation timed out.')), timeoutMs); })]);
-      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size + pendingAgents.size + pendingExecutionHosts.size + pendingNativeTerminals.size + pendingWorkflows.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
+      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size + pendingAgents.size + pendingExecutionHosts.size + pendingNativeTerminals.size + pendingWorkflows.size + pendingTriggers.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
       const ordinary = canServeOrdinary();
-      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
+      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size || pendingTriggers.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
       const sourceRegistrations = [...pendingSources].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Task source registration requires an exact artifact.');
         return taskSources.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, pkg.backend!.taskSources![localId]!, provider);
       });
       taskSources.publish(sourceRegistrations);
       publishedSources = sourceRegistrations.length > 0;
+      const settingsHash = persistenceHash(data.settings);
       const pullRequestRegistrations = [...pendingPullRequests].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Pull request registration requires an exact artifact.');
-        return pullRequests.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider);
+        return pullRequests.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider, data!.settings);
       });
+      pullRequestSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
       pullRequests.publish(pullRequestRegistrations);
       publishedPullRequests = pullRequestRegistrations.length > 0;
       const communicationRegistrations = [...pendingCommunications].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Communication provider registration requires an exact artifact.');
-        return communications.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider);
+        return communications.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider, data!.settings);
       });
+      communicationSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
       communications.publish(communicationRegistrations);
       publishedCommunications = communicationRegistrations.length > 0;
-      const settingsHash = persistenceHash(data.settings);
       const schedulingRegistrations = [...pendingScheduling].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Scheduling registration requires an exact artifact.');
         return scheduling.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1 }, provider, settingsHash);
@@ -355,6 +383,12 @@ export async function activateBackendPlugins(options: {
       });
       executionHostSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
       executionHosts.publish(hostRegistrations);
+      const triggerRegistrations = [...pendingTriggers].map(([localId, provider]) => {
+        if (!artifactHash) throw new Error('Trigger registration requires an exact artifact.');
+        return triggers.stage({ binding: { providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1 }, provider, package: pkg, settings: data!.settings, origin: id.startsWith('helmsman.') ? 'builtin' : 'external' });
+      });
+      triggerSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
+      triggers.publish(triggerRegistrations);
       const workflowRegistrations = [...pendingWorkflows].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Workflow registration requires an exact artifact.');
         return workflows.stage({ binding: { providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1 }, provider, package: pkg, settings: data!.settings, origin: id.startsWith('helmsman.') ? 'builtin' : 'external' });
@@ -371,7 +405,7 @@ export async function activateBackendPlugins(options: {
       staged.clear();
       for (const [providerId, provider] of pending) providers.set(providerId, provider);
       phase = 'active'; activeIds.add(id); owners.push(cleanup); pluginCleanups.set(id, cleanup);
-      if (pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
+      if (pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size || pendingTriggers.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
       if (options.coordinator && artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'active', null);
       if (options.coordinator?.state(id)?.obligationsOnly) pluginDrains.get(id)?.();
     } catch (error) {
@@ -417,6 +451,7 @@ export async function activateBackendPlugins(options: {
     scheduling,
     agents,
     executionHosts,
+    triggers,
     workflows,
     nativeTerminals,
     activePluginIds: () => Object.freeze([...activeIds].sort()),

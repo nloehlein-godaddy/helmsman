@@ -41,7 +41,7 @@ class GithubSettingsPanel implements PluginPanelInstance {
   private edit = (event: Event) => {
     const input = event.target; if (!(input instanceof HTMLInputElement || input instanceof HTMLSelectElement) || !this.active() || !this.draft || this.unsupported) return;
     const key = input.dataset.setting; if (key === 'defaultRepo' || key === 'author') this.draft = {...this.draft,values:{...this.draft.values,[key]:input.value}};
-    else if (key === 'reviewWatchEnabled') this.draft = {...this.draft,values:{...this.draft.values,reviewWatchEnabled:input.value === 'true'}}; else return;
+    else return;
     this.persist(); this.draw();
   };
   private click = (event: MouseEvent) => {
@@ -54,7 +54,7 @@ class GithubSettingsPanel implements PluginPanelInstance {
   private submit = (event: Event) => { event.preventDefault(); event.stopPropagation(); void this.save(); };
   private async save() {
     if (!this.active() || this.busy || !this.readReady || !this.draft || this.unsupported || !valuesReady(this.draft.values) || !this.persist()) { this.draw(); return; }
-    const submitted = this.draft; const values = normalized(submitted.values); const generation = ++this.generation; this.readController?.abort(); this.busy = true; this.error = ''; this.saved = false; const controller = new AbortController(); this.saveController = controller; const signal = AbortSignal.any([controller.signal,this.context.signal,this.state.activity.signal]); this.draw();
+    const submitted = this.draft; const values = normalized({...submitted.values,reviewWatchEnabled:this.snapshot?.values.reviewWatchEnabled ?? submitted.values.reviewWatchEnabled}); const generation = ++this.generation; this.readController?.abort(); this.busy = true; this.error = ''; this.saved = false; const controller = new AbortController(); this.saveController = controller; const signal = AbortSignal.any([controller.signal,this.context.signal,this.state.activity.signal]); this.draw();
     try { const result = await this.context.services.githubSettings!.save({version:1,scope:'global',namespace:schema.namespace,expectedRevision:submitted.revision,values},signal); if (!this.active(generation) || signal.aborted) return;
       if (result?.status !== 'available' || !validSnapshot(result.value) || !sameValues(result.value.values,values)) { this.readReady = false; this.error = 'Settings save was not confirmed. Your edits and original revision are kept. Refresh settings before explicitly rebasing or discarding edits.'; return; }
       this.snapshot = result.value; if (this.draft.revision === submitted.revision && sameValues(this.draft.values,submitted.values)) { this.draft = fromSnapshot(result.value); this.persist(); }
@@ -67,16 +67,15 @@ class GithubSettingsPanel implements PluginPanelInstance {
     const repo = this.state.pirateMode ? 'galleon' : 'repository';
     const repos = this.state.pirateMode ? 'galleons' : 'repositories';
     const review = this.state.pirateMode ? 'inspection' : 'review';
-    const runs = this.state.pirateMode ? 'voyages' : 'runs';
     set('[data-global-scope]',`These settings apply across all ${repos}. Saving the default ${repo} does not change the header ${repo}.`);
     set('[data-repo-label]',this.state.pirateMode ? 'Default galleon' : schema.fields.defaultRepo.label);
     set('[data-author-label]',this.state.pirateMode ? 'Bounty author' : schema.fields.author.label);
     set('[data-watch-label]',this.state.pirateMode ? 'Watch GitHub inspection requests' : schema.fields.reviewWatchEnabled.label);
-    set('[data-watch-help]',`Watching ${review} requests may admit automatic ${review} ${runs} through the existing runtime gates.`);
+    set('[data-watch-help]',`Automatic ${review} status is read-only here. Configure the selected github-review trigger in plugin settings; restart after changing its settings.`);
     set('[data-token-status]',this.snapshot ? `GitHub credential: ${this.snapshot.tokenSet ? 'configured' : 'not configured'}. Credentials are managed by the host.` : 'GitHub credential status unavailable.');
     set('[data-conflict]',this.snapshot && this.draft && this.draft.revision !== this.snapshot.revision ? 'Settings changed since these edits began. Their original revision is retained; use the latest revision explicitly to rebase.' : '');
     set('[data-status]',this.saved ? `Global GitHub settings saved. The header ${repo} is unchanged.` : this.error); set('[data-storage-error]',this.storageError);
-    for (const input of this.container.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-setting]')) { const key = input.dataset.setting as keyof GithubSettingsValuesV1; const value = this.draft?.values[key]; const text = value === undefined ? '' : String(value); if (input.value !== text) input.value = text; input.disabled = !this.active() || this.unsupported || !this.draft; }
+    for (const input of this.container.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-setting]')) { const key = input.dataset.setting as keyof GithubSettingsValuesV1; const value = key === 'reviewWatchEnabled' ? this.snapshot?.values.reviewWatchEnabled : this.draft?.values[key]; const text = value === undefined ? '' : String(value); if (input.value !== text) input.value = text; input.disabled = key === 'reviewWatchEnabled' || !this.active() || this.unsupported || !this.draft; }
     const disabled = !this.active() || this.busy; for (const button of this.container.querySelectorAll<HTMLButtonElement>('button')) button.disabled = disabled;
     const save = this.container.querySelector<HTMLButtonElement>('[data-save]'); if (save) save.disabled ||= this.unsupported || !this.readReady || !this.draft || !!this.storageError || !valuesReady(this.draft.values);
     for (const button of this.container.querySelectorAll<HTMLButtonElement>('[data-discard],[data-rebase]')) button.disabled ||= this.unsupported || !this.readReady || !this.snapshot;

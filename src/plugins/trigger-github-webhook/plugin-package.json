@@ -1,0 +1,16 @@
+{
+  "packageVersion": 1,
+  "manifest": { "manifestVersion": 1, "id": "helmsman.trigger-github-webhook", "version": "0.1.0", "sdkVersion": 1, "pages": [] },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "backend.js",
+    "provides": [{ "id": "helmsman/trigger", "version": 1, "localId": "github" }],
+    "triggers": { "github": { "access": ["authenticated-event"] } },
+    "settings": {
+      "enabled": { "type": "boolean", "default": false },
+      "routesJson": { "type": "string", "default": "[]", "maxLength": 4096 }
+    },
+    "storageVersion": 1
+  }
+}

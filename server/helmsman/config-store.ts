@@ -20,7 +20,7 @@ export const EDITABLE_KEYS: readonly string[] = [
   'GITHUB_PR_AUTHOR',
 ];
 
-export const SECRET_KEYS: readonly string[] = ['JIRA_API_TOKEN', 'GITHUB_TOKEN', 'JIRA_EMAIL', 'SLACK_BOT_TOKEN'];
+export const SECRET_KEYS: readonly string[] = ['JIRA_API_TOKEN', 'GITHUB_TOKEN', 'JIRA_EMAIL', 'SLACK_BOT_TOKEN', 'HELMSMAN_WEBHOOK_SECRET'];
 
 export const WRITABLE_SECRET_KEYS: readonly string[] = ['JIRA_API_TOKEN'];
 
@@ -89,6 +89,22 @@ export class ConfigStore {
       throw new Error(`refusing to set empty secret: ${key}`);
     }
     this.db.setConfigOverride(key, value, now());
+  }
+
+  initializeWebhookCredential(now: () => string): void {
+    const overrides = this.db.getConfigOverrides();
+    if (Object.hasOwn(overrides, 'HELMSMAN_WEBHOOK_SECRET')) return;
+    this.db.setConfigOverride('HELMSMAN_WEBHOOK_SECRET', this.baseEnv.HELMSMAN_WEBHOOK_SECRET ?? '', now());
+  }
+
+  setWebhookCredential(secret: string, now: () => string): void {
+    if (typeof secret !== 'string' || secret.length > 4096 || /[\x00-\x1f\x7f]/.test(secret)) throw new Error('Invalid webhook credential');
+    this.db.setConfigOverride('HELMSMAN_WEBHOOK_SECRET', secret, now());
+  }
+
+  webhookCredential(): { handle: 'github-webhook'; secret: string } | null {
+    const secret = this.db.getConfigOverrides().HELMSMAN_WEBHOOK_SECRET;
+    return secret ? { handle: 'github-webhook', secret } : null;
   }
 
   hasJiraToken(): boolean {

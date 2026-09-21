@@ -88,7 +88,7 @@ test('independent global settings preserve scope, reconcile conflicts and redact
     await page.screenshot({ path: '/tmp/helmsman-settings-jira-mobile.png', fullPage: true });
     const legacy = await request.put(`${origin}/api/config`, { headers: { Origin: origin }, data: { key: 'JIRA_API_TOKEN', value: fakeToken } });
     expect(legacy.status()).toBe(410); expect(await legacy.text()).not.toContain(fakeToken);
-    const core = await request.put(`${origin}/api/config`, { headers: { Origin: origin }, data: { key: 'AUTO_CLAIM_INTERVAL_MS', value: '60000' } });
+    const core = await request.put(`${origin}/api/config`, { headers: { Origin: origin }, data: { key: 'AGENT_MAX_ATTEMPTS', value: '3' } });
     expect(core.ok()).toBe(true); expect(await core.json()).toEqual({ ok: true });
     const beforeRestart = await (await request.get(jiraUrl, { headers: jiraHeaders })).json();
     await host.stop(); host.env.HELMSMAN_PORT = new URL(origin).port;

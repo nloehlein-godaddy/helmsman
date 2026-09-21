@@ -9,11 +9,11 @@ Declare `helmsman/jira-settings@1` to use `services.jiraSettings`, or `helmsman/
 | Namespace | Editable values | Redacted status |
 |---|---|---|
 | `helmsman.jira/settings` | Write-only API token through `rotateToken` | Token presence, initial source presence and bootstrap enablement |
-| `helmsman.github/settings` | Default galleon, PR author, review-watch enablement through `save` | Token presence |
+| `helmsman.github/settings` | Default galleon and PR author through `save` | Token presence and review-watch status |
 
 Writes include the namespace and `expectedRevision` from the snapshot used to start editing. Core validates the typed values, compares the revision and writes through the existing configuration store in one application-database transaction. Namespace revisions and a startup generation protect concurrent changes and restart. Public revisions contain no credential values or credential hashes. Effective nonsecret GitHub settings remain readable without credentials.
 
-Keep the original revision and edits on conflict. Refreshing data must not silently rebase an unsaved draft. Saving never retries automatically; after a lost response, refresh and inspect the current settings before explicitly saving again. GitHub review scheduling remains the existing Phase F adapter; its policy is not implemented by the settings panel.
+Keep the original revision and edits on conflict. Refreshing data must not silently rebase an unsaved draft. Saving never retries automatically; after a lost response, refresh and inspect the current settings before explicitly saving again. The watch control is read-only status: configure the selected `github-review` trigger plugin for enablement and interval. `GITHUB_REVIEW_WATCH_ENABLED` seeds enablement once and is no longer a live settings write. Trigger extraction is active, pending final acceptance; see [trigger authoring](trigger-authoring.md).
 
 ## Jira credentials and live sources
 

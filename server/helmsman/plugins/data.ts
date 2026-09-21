@@ -1,3 +1,4 @@
+import type { TriggerSelectionRoleV1 } from '../../../src/plugins/trigger';
 import { parseWorkflowModeV1, type WorkflowModeV1 } from '../../../src/plugins/workflow';
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
@@ -517,5 +518,57 @@ export function initializeWorkflowReviewerSelection(root: string, reviewerIds: r
     if (current.reviewers !== null) return;
     if (!Array.isArray(reviewerIds) || reviewerIds.length < 1 || reviewerIds.length > 8 || reviewerIds.some(id => !isContributionId(id)) || new Set(reviewerIds).size !== reviewerIds.length) throw new Error('Invalid initial workflow reviewer selection');
     writeAgentSelection(sql, { writer: current.writer, reviewers: reviewerIds });
+  }); } finally { sql.close(); }
+}
+
+export interface TriggerProviderSelection { readonly providerId: string | null; readonly revision: string; }
+function triggerSelectionKey(kind: TriggerSelectionRoleV1): string {
+  if (!['campaign', 'slack-review', 'github-review', 'github-webhook'].includes(kind)) throw new Error('Invalid trigger selection role');
+  return `trigger-selection-v1:${kind}`;
+}
+function triggerSelection(sql: Database.Database, kind: TriggerSelectionRoleV1): TriggerProviderSelection {
+  const row = sql.prepare('SELECT value FROM backend_meta WHERE key=?').get(triggerSelectionKey(kind)) as { value: string } | undefined;
+  if (!row) return { providerId: 'default', revision: 'initial' };
+  const value = pluginJson(JSON.parse(row.value)) as unknown as TriggerProviderSelection;
+  if (!value || typeof value !== 'object' || Object.keys(value).length !== 2 || value.providerId !== null && value.providerId !== 'default' && !isContributionId(value.providerId)
+    || typeof value.revision !== 'string' || !/^[a-f\d-]{36}$/.test(value.revision)) throw new Error('Invalid trigger provider selection');
+  return value;
+}
+export function readTriggerProviderSelection(root: string, kind: TriggerSelectionRoleV1): TriggerProviderSelection {
+  const sql = database(root); try { return triggerSelection(sql, kind); } finally { sql.close(); }
+}
+function writeTriggerSelection(sql: Database.Database, kind: TriggerSelectionRoleV1, providerId: string | null): void {
+  if (providerId !== null && providerId !== 'default' && !isContributionId(providerId)) throw new Error('Invalid trigger provider ID');
+  sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run(triggerSelectionKey(kind), JSON.stringify({ providerId, revision: randomUUID() }));
+}
+export function selectTriggerProvider(root: string, kind: TriggerSelectionRoleV1, providerId: string | null): void {
+  const sql = database(root); try { immediateTransaction(sql, () => writeTriggerSelection(sql, kind, providerId)); } finally { sql.close(); }
+}
+export function triggerProviderSelectionInitialized(root: string, kind: TriggerSelectionRoleV1): boolean {
+  const key = triggerSelectionKey(kind); const sql = database(root);
+  try { return Boolean(sql.prepare('SELECT 1 FROM backend_meta WHERE key IN (?,?)').get(`${key}:initialized`, key)); } finally { sql.close(); }
+}
+export function initializeTriggerProviderSelection(root: string, kind: TriggerSelectionRoleV1, providerId: string | null): void {
+  const key = triggerSelectionKey(kind); const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(`${key}:initialized`, '1').changes;
+    if (!first || sql.prepare('SELECT 1 FROM backend_meta WHERE key=?').get(key)) return;
+    writeTriggerSelection(sql, kind, providerId);
+  }); } finally { sql.close(); }
+}
+export function initializeTriggerSettings(root: string, pkg: PluginPackage, input: Readonly<Record<string, PluginJson>>): void {
+  const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(`trigger-settings-initialized-v1:${pkg.manifest.id}`, '1').changes;
+    if (!first) return;
+    const values = pluginJson(input);
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('Trigger settings must be a JSON object');
+    if (!pkg.backend?.triggers) throw new Error('Trigger package declaration is required');
+    for (const [name, value] of Object.entries(values)) {
+      const field = Object.hasOwn(pkg.backend.settings, name) ? pkg.backend.settings[name] : undefined;
+      if (!field) throw new Error('Unknown initial trigger setting'); validatePluginSetting(field, value);
+    }
+    for (const [name, value] of Object.entries(values)) sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO NOTHING').run(pkg.manifest.id, name, JSON.stringify(value));
   }); } finally { sql.close(); }
 }

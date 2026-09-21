@@ -1,3 +1,4 @@
+import type { TriggerDeclarationV1 } from './trigger';
 import type { WorkflowDeclarationV1 } from './workflow';
 import type { NativeTerminalDeclarationV1 } from './native-terminal';
 import type { ExecutionHostDeclarationV1 } from './execution-host';
@@ -71,19 +72,20 @@ function record(value: unknown, fields: readonly string[], label: string): Recor
 function parseBackend(value: unknown): PluginBackendDefinition {
   const hasSources = value !== null && typeof value === 'object' && Object.hasOwn(value, 'taskSources');
   const hasPullRequests = value !== null && typeof value === 'object' && Object.hasOwn(value, 'pullRequests');
+  const hasTriggers = value !== null && typeof value === 'object' && Object.hasOwn(value, 'triggers');
   const hasWorkflows = value !== null && typeof value === 'object' && Object.hasOwn(value, 'workflows');
   const hasNativeTerminals = value !== null && typeof value === 'object' && Object.hasOwn(value, 'nativeTerminals');
   const hasExecutionHosts = value !== null && typeof value === 'object' && Object.hasOwn(value, 'executionHosts');
   const hasAgents = value !== null && typeof value === 'object' && Object.hasOwn(value, 'agents');
   const hasScheduling = value !== null && typeof value === 'object' && Object.hasOwn(value, 'scheduling');
   const hasCommunications = value !== null && typeof value === 'object' && Object.hasOwn(value, 'communications');
-  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : []), ...(hasCommunications ? ['communications'] : []), ...(hasScheduling ? ['scheduling'] : []), ...(hasAgents ? ['agents'] : []), ...(hasExecutionHosts ? ['executionHosts'] : []), ...(hasNativeTerminals ? ['nativeTerminals'] : []), ...(hasWorkflows ? ['workflows'] : [])], 'Backend');
+  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : []), ...(hasCommunications ? ['communications'] : []), ...(hasScheduling ? ['scheduling'] : []), ...(hasAgents ? ['agents'] : []), ...(hasExecutionHosts ? ['executionHosts'] : []), ...(hasNativeTerminals ? ['nativeTerminals'] : []), ...(hasWorkflows ? ['workflows'] : []), ...(hasTriggers ? ['triggers'] : [])], 'Backend');
   if (!isPluginAssetPath(input.entry) || !/\.m?js$/.test(input.entry) || input.storageVersion !== 1) throw new PluginPackageError('Invalid backend entry or storage version.');
   if (!Array.isArray(input.provides) || input.provides.length > 16) throw new PluginPackageError('Invalid backend capabilities.');
   const provides = input.provides.map(value => {
     const item = record(value, ['id', 'version', 'localId'], 'Capability');
-    if (!['helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request', 'helmsman/communication', 'helmsman/scheduling', 'helmsman/agent', 'helmsman/execution-host', 'helmsman/native-terminal', 'helmsman/workflow'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
-    return Object.freeze({ id: item.id as 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent' | 'helmsman/execution-host' | 'helmsman/native-terminal' | 'helmsman/workflow', version: 1 as const, localId: item.localId });
+    if (!['helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request', 'helmsman/communication', 'helmsman/scheduling', 'helmsman/agent', 'helmsman/execution-host', 'helmsman/native-terminal', 'helmsman/workflow', 'helmsman/trigger'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
+    return Object.freeze({ id: item.id as 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent' | 'helmsman/execution-host' | 'helmsman/native-terminal' | 'helmsman/workflow' | 'helmsman/trigger', version: 1 as const, localId: item.localId });
   });
   if (new Set(provides.map(item => item.localId)).size !== provides.length) throw new PluginPackageError('Duplicate backend capability.');
   const sourceIds = provides.filter(item => item.id === 'helmsman/task-source').map(item => item.localId);
@@ -92,6 +94,17 @@ function parseBackend(value: unknown): PluginBackendDefinition {
   if (hasPullRequests !== (pullRequestIds.length > 0)) throw new PluginPackageError('Pull request providers require matching access declarations.');
   const communicationIds = provides.filter(item => item.id === 'helmsman/communication').map(item => item.localId);
   if (hasCommunications !== (communicationIds.length > 0)) throw new PluginPackageError('Communication providers require matching access declarations.');
+  const triggerIds = provides.filter(item => item.id === 'helmsman/trigger').map(item => item.localId);
+  if (hasTriggers !== (triggerIds.length > 0) || hasTriggers && triggerIds.length !== provides.length) throw new PluginPackageError('Triggers require a trigger-only package with matching trigger policy declarations.');
+  const triggers: Record<string, TriggerDeclarationV1> = Object.create(null);
+  if (hasTriggers) {
+    const declarations = record(input.triggers, triggerIds, 'Trigger providers');
+    for (const localId of triggerIds) {
+      const declaration = record(declarations[localId], ['access'], 'Trigger declaration');
+      if (!Array.isArray(declaration.access) || declaration.access.length !== 1 || !['campaign-candidates', 'review-discovery', 'authenticated-event'].includes(String(declaration.access[0]))) throw new PluginPackageError('Triggers require trigger policy access.');
+      triggers[localId] = Object.freeze({ access: Object.freeze([...declaration.access]) as TriggerDeclarationV1['access'] });
+    }
+  }
   const workflowIds = provides.filter(item => item.id === 'helmsman/workflow').map(item => item.localId);
   if (hasWorkflows !== (workflowIds.length > 0) || hasWorkflows && workflowIds.length !== provides.length) throw new PluginPackageError('Workflows require a workflow-only package with matching workflow policy declarations.');
   const workflows: Record<string, WorkflowDeclarationV1> = Object.create(null);
@@ -220,6 +233,7 @@ function parseBackend(value: unknown): PluginBackendDefinition {
     settings[key] = parsed;
   }
   return Object.freeze({ entry: input.entry, provides: Object.freeze(provides), settings: Object.freeze(settings), storageVersion: 1,
+    ...(hasTriggers ? { triggers: Object.freeze(triggers) } : {}),
     ...(hasWorkflows ? { workflows: Object.freeze(workflows) } : {}),
     ...(hasNativeTerminals ? { nativeTerminals: Object.freeze(nativeTerminals) } : {}),
     ...(hasExecutionHosts ? { executionHosts: Object.freeze(executionHosts) } : {}),

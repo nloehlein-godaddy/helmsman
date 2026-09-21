@@ -1,11 +1,14 @@
+import type { TriggerProvenanceV1 } from '../trigger-provenance';
 import type { AgentProviderMetadataV1 } from '../../../src/plugins/agent-provider';
 import type { AgentSelectionV1 } from '../agent-providers';
-import type { ArtifactBinding } from '../execution-store';
+import type { ArtifactBinding, ProviderBinding } from '../execution-store';
 import type { PluginJson } from '../../../src/plugins/backend';
 import type { ExecutionHostRetainedProviderV1 } from '../execution-host-providers';
 import type { WorkflowRetainedProviderV1 } from '../workflow-providers';
 
 export interface AgentTask {
+  trigger?: TriggerProvenanceV1;
+  triggerReviewSource?: { binding: ProviderBinding; revision: string; artifacts: readonly ArtifactBinding[] };
   executionHost?: ExecutionHostRetainedProviderV1;
   hostRuntime?: { pluginsRoot: string; runtimeArtifactsRoot: string; artifacts: readonly ArtifactBinding[] };
   hostConfiguration?: PluginJson;

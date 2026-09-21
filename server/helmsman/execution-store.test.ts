@@ -81,6 +81,27 @@ describe('durable execution admission and recovery', () => {
     store.releasePins('admission', 'run-1'); expect(store.pins()).toEqual([]);
   });
 
+  it('releases trigger dependency pins only after terminal queue evidence or completed admission handoff', () => {
+    persistence.sql.exec(`CREATE TABLE execution_admissions(runId TEXT PRIMARY KEY,state TEXT);
+      CREATE TABLE campaign_tasks(id TEXT PRIMARY KEY,state TEXT,runId TEXT,triggerJson TEXT);
+      CREATE TABLE slack_notifications(id TEXT PRIMARY KEY,status TEXT,runId TEXT,triggerJson TEXT);
+      CREATE TABLE webhook_deliveries(delivery TEXT PRIMARY KEY,state TEXT,runId TEXT,triggerJson TEXT)`);
+    persistence.sql.prepare('INSERT INTO campaign_tasks VALUES (?,?,?,?)').run('task-1', 'claiming', 'run-campaign', '{}');
+    persistence.sql.prepare('INSERT INTO slack_notifications VALUES (?,?,?,?)').run('review-1', 'launched', 'run-review', '{}');
+    persistence.sql.prepare('INSERT INTO webhook_deliveries VALUES (?,?,?,?)').run('delivery-1', 'ignored', null, '{}');
+    for (const ownerId of ['trigger:campaign:task-1', 'trigger:review:review-1', 'trigger:webhook:delivery-1']) {
+      store.retainPins([{ kind: 'dependency', ownerId, pluginId: 'example.host', artifactHash: hash }]);
+    }
+    expect(() => store.releaseTriggerPins({ store: 'campaign', rowId: 'task-1' })).toThrow('Unsettled');
+    expect(() => store.releaseTriggerPins({ store: 'review', rowId: 'review-1' })).toThrow('Unsettled');
+    store.releaseTriggerPins({ store: 'webhook', rowId: 'delivery-1' });
+    persistence.sql.prepare('INSERT INTO execution_admissions VALUES (?,?)').run('run-review', 'started');
+    store.releaseTriggerPins({ store: 'review', rowId: 'review-1' });
+    persistence.sql.prepare("UPDATE campaign_tasks SET state='cancelled' WHERE id='task-1'").run();
+    store.releaseTriggerPins({ store: 'campaign', rowId: 'task-1' });
+    expect(store.pins()).toEqual([]);
+  });
+
   it('atomically persists exact closure, prepared attempt and durable reservation before launch', () => {
     const prepared = prepare();
     expect(prepared).toMatchObject({ preparation: 'prepared', hostRef: null, outcome: null });

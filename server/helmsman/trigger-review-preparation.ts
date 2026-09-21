@@ -1,0 +1,20 @@
+import { parsePullRequestInspectDetailV1, parsePullRequestInspectDiffV1 } from '../../src/plugins/pull-request-inspect';
+import type { TriggerPullRequestReadCapture } from './trigger-read-source';
+import type { ReviewScope } from './review-policy';
+
+export async function prepareTriggerReview(input: { repo: string; number: number; headSha?: string }, capture: TriggerPullRequestReadCapture) {
+  capture.assertCurrent();
+  const query = { version: 1 as const, repo: input.repo, number: input.number };
+  const detail = parsePullRequestInspectDetailV1(await capture.provider.detail(query, capture.context), query);
+  capture.assertCurrent();
+  if (detail.status !== 'open' || detail.draft) throw new Error('Triggered review target is no longer open for review');
+  if (input.headSha && detail.target.headSha !== input.headSha) throw new Error('PR changed before triggered review preparation');
+  const diffQuery = { version: 1 as const, target: detail.target };
+  const diff = parsePullRequestInspectDiffV1(await capture.provider.diff(diffQuery, capture.context), diffQuery);
+  capture.assertCurrent();
+  const files = diff.files.map(file => ({ filename: file.filename, changes: file.additions + file.deletions, patch: file.patch }));
+  const scope: ReviewScope = { files, changedFiles: files.length, changedLines: files.reduce((sum, file) => sum + file.changes, 0),
+    complete: diff.quality === 'complete' && !diff.truncated, headSha: detail.target.headSha };
+  return { pr: { number: detail.target.number, headSha: detail.target.headSha, headRefName: detail.headRefName,
+    state: 'open' as const, draft: false, merged: false }, scope };
+}

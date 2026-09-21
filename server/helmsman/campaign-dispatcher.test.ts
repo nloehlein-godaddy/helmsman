@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openCampaignStore, type CampaignStore } from './campaigns';
 import { createCampaignDispatcher, type CampaignDispatcherOptions, type CampaignLaunch } from './campaign-dispatcher';
+import type { CampaignTriggerProviderV1 } from '../../src/plugins/trigger';
+import type { SelectedTriggerCapture } from './trigger-runtime';
+import { captureTriggerProvenanceV1 } from './trigger-provenance';
 
 const stores: CampaignStore[] = [];
 afterEach(() => { for (const store of stores.splice(0)) store.close(); });
@@ -22,6 +25,41 @@ function setup(concurrency = 2) {
 }
 
 describe('campaign dispatcher', () => {
+  it('captures an alternative trigger choice before claiming and launches the retained proposal', async () => {
+    const f = setup(1);
+    const artifact = { pluginId: 'example.trigger', artifactHash: 'a'.repeat(64), packageVersion: '1.0.0', requires: [] };
+    const provider: CampaignTriggerProviderV1 = { metadata: { version: 1, label: 'Last first', kind: 'campaign', intervalMs: 1000 },
+      select: input => input.candidates.at(-1) ? { candidateId: input.candidates.at(-1)!.candidateId } : null };
+    const capture: SelectedTriggerCapture<CampaignTriggerProviderV1> = { instanceId: 'campaign', selectionRevision: 'revision-1', provider,
+      artifacts: [artifact], record: { version: 1, binding: { providerId: 'example.trigger/watch', pluginId: 'example.trigger', artifactHash: artifact.artifactHash, contractVersion: 1 },
+        origin: 'external', settings: {}, metadata: provider.metadata }, assertCurrent() {} };
+    const retainPins = vi.fn();
+    const dispatcher = createCampaignDispatcher({ ...f.options, captureTrigger: () => capture, retainPins, releaseTriggerPins: vi.fn() });
+    await dispatcher.poll();
+    expect(f.launch).toHaveBeenCalledTimes(1);
+    expect(f.launch.mock.calls[0]?.[0]).toMatchObject({ runId: f.tasks.at(-1)?.runId, trigger: { instanceId: 'campaign', proposalHash: expect.any(String) } });
+    expect(f.store.trigger(f.tasks.at(-1)!.id)).toMatchObject({ selectionRevision: 'revision-1' });
+    expect(retainPins).toHaveBeenCalledWith([expect.objectContaining({ ownerId: `trigger:campaign:${f.tasks.at(-1)!.id}` })]);
+  });
+
+  it('reconciles receipts but does not reclaim captured work while its trigger is disabled', async () => {
+    const f = setup(1);
+    const artifact = { pluginId: 'example.trigger', artifactHash: 'b'.repeat(64), packageVersion: '1.0.0', requires: [] };
+    const provider: CampaignTriggerProviderV1 = { metadata: { version: 1, label: 'Campaign', kind: 'campaign', intervalMs: 1000 }, select: input => ({ candidateId: input.candidates[0]!.candidateId }) };
+    const capture: SelectedTriggerCapture<CampaignTriggerProviderV1> = { instanceId: 'campaign', selectionRevision: 'revision-1', provider,
+      artifacts: [artifact], record: { version: 1, binding: { providerId: 'example.trigger/watch', pluginId: 'example.trigger', artifactHash: artifact.artifactHash, contractVersion: 1 },
+        origin: 'external', settings: {}, metadata: provider.metadata }, assertCurrent() {} };
+    const first = createCampaignDispatcher({ ...f.options, canStart: () => false, captureTrigger: () => capture, retainPins: vi.fn() });
+    await first.poll();
+    expect(f.launch).not.toHaveBeenCalled();
+    const trigger = captureTriggerProvenanceV1({ instanceId: capture.instanceId, selectionRevision: capture.selectionRevision,
+      provider: capture.record, artifacts: capture.artifacts, source: { sourceKey: `campaign:${f.tasks[0]!.id}`, revision: 'source-1', bindings: [] },
+      input: { candidates: [f.tasks[0]!.id] }, proposal: { taskId: f.tasks[0]!.id }, capturedAt: '2026-09-18T00:00:00.000Z' });
+    const captured = f.store.claimTriggered({ id: f.tasks[0]!.id, attempt: 1, trigger, pins: [], assertCurrent() {}, retainPins() {} });
+    if (captured?.claimToken) f.store.releaseClaim(captured.id, captured.claimToken);
+    await createCampaignDispatcher({ ...f.options, captureTrigger: () => null, retainPins: vi.fn() }).poll();
+    expect(f.launch).not.toHaveBeenCalled();
+  });
   it('starts bounded work with stable IDs and pinned workflow, then fills freed capacity', async () => {
     const f = setup();
     await f.dispatcher.poll();

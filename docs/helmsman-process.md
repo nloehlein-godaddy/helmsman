@@ -249,7 +249,7 @@ flowchart TD
     Preview --> Confirm[Explicit confirmation imports queued tasks<br/>Import alone does not start work]
 ```
 
-A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. Campaign dispatch policy remains Phase F work; core retains durable claims and execution gates. See [Campaign authoring](campaigns-authoring.md).
+A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. The active trigger implementation moves candidate ordering into the selected campaign policy; core retains durable claims and execution gates. Final trigger acceptance is pending. See [Campaign authoring](campaigns-authoring.md).
 
 ## Local Git confirmation and recovery
 
@@ -305,11 +305,11 @@ flowchart TD
     Exit --> Recovery
 ```
 
-Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent, execution-host and native terminal extraction have passed acceptance; workflow implementation is active and triggers remain Phase F work.
+Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent, execution-host and native terminal extraction have passed acceptance; workflow extraction is accepted and pushed through eb8ad1a; trigger extraction is active, pending final acceptance.
 
 ## Workflow selection, guarded stages and continuation
 
-Workflow extraction is in active implementation; installed acceptance passes; independent review is pending. Prompt templates and pure sequencing policy belong to `helmsman/workflow@1`. Core retains admission, exact revision/reviewer checks, stage execution, checkpoints and publication authority.
+Workflow extraction has passed installed acceptance and independent review and is pushed through `eb8ad1a`. Prompt templates and pure sequencing policy belong to `helmsman/workflow@1`. Core retains admission, exact revision/reviewer checks, stage execution, checkpoints and publication authority.
 
 ```mermaid
 flowchart TD
@@ -403,7 +403,7 @@ flowchart TD
     Rebase --> Draft
 ```
 
-These forms are global and leave the header galleon unchanged. Jira token rotation neither provisions nor enables a source; live project, query and source enablement remain in Source settings. Generic Config rejects migrated integration writes and never echoes submitted values. GitHub review scheduling remains a Phase F adapter. See [integration settings authoring](integration-settings-authoring.md).
+These forms are global and leave the header galleon unchanged. Jira token rotation neither provisions nor enables a source; live project, query and source enablement remain in Source settings. Generic Config rejects migrated integration writes and never echoes submitted values. GitHub watch status is read-only; enablement and interval belong to the selected review trigger settings. Legacy watch flags seed once. See [integration settings authoring](integration-settings-authoring.md).
 
 ## Conditional panel-state saves
 
@@ -422,13 +422,40 @@ flowchart TD
     Missing[Host lacks optional compareAndSetState] --> Preserve[Disable writes and acknowledgment<br/>Retain original requests]
 ```
 
+## Trigger selection, capture and guarded dispatch
+
+Trigger extraction is active, pending final acceptance. The roles `campaign`, `slack-review`, `github-review` and `github-webhook` have independent selections. `default` restores a shipped role; `disabled` or `null` disables it. Polling intervals come from selected trigger metadata.
+
+```mermaid
+flowchart TD
+    Select[Selected trigger + immutable settings] --> Input{Trigger kind}
+    Input -->|Campaign| Candidates[Bounded eligible candidate handles]
+    Input -->|Review| Reads[Selected communication / browser / PR providers<br/>Capture source revisions and observed event / target handles]
+    Input -->|Webhook| Auth[Core credential + raw-body HMAC<br/>Authenticate before duplicate lookup]
+    Candidates --> Policy[Bounded plugin choice, scan or parse]
+    Reads --> Policy
+    Auth --> Policy
+    Policy --> Fence{Selection, settings, source and handles current?}
+    Fence -->|No or disabled| Block[Discard stale result<br/>No cursor advance or new admission]
+    Fence -->|Yes| Store[Existing claim / enqueue transaction<br/>Normalized proposal + provenance + dependency pins<br/>Stable event dedupe and complete-scan cursor]
+    Store --> Guard{Original proposal, source, exact head,<br/>workflow, capacity and existing-run checks}
+    Guard -->|Allowed| Admit[Guarded admission with original run ID<br/>Verified dependency-pin handoff]
+    Guard -->|Blocked| Retain[Keep original queued identity and evidence]
+    Admit --> Reconcile[Existing-run receipts and reconciliation<br/>Continue after policy disablement]
+    Legacy[Legacy rows without trigger provenance] --> Original[Preserve original payload and run identity<br/>Explicit legacy reconciliation path]
+```
+
+Campaign capture occurs at claim, not import; an unclaimed imported intent may receive its first policy decision after cutover. Already claimed legacy tasks reconcile the original run. Watch proposals and complete-scan cursor updates are atomic. Partial or stale scans never advance the cursor. Dedupe keys exclude policy versions, settings and selections; accepted proposals never run through replacement policy. Authenticated ignored webhook events also retain their digest, so later routes cannot reinterpret duplicates.
+
+Legacy watch flags and webhook routes seed settings once. Slack/GitHub watch forms expose read-only status and direct operators to the selected trigger plugin. `HELMSMAN_WEBHOOK_SECRET` seeds a core slot once; rotate or clear through `PUT /api/webhooks/github/credential` with `{secret:string}`. Empty clears intake credentials; secrets never enter plugin settings. See [trigger authoring](trigger-authoring.md) and [webhook setup](webhooks.md).
+
 ## Intake and execution preparation
 
 ```mermaid
 flowchart TD
     Manual[Operator selects a galleon<br/>Jira ticket, custom task, local todo or existing PR] --> Dispatch
-    Campaign[Campaign: create phases<br/>CSV/JSONL preview → confirm → start phase<br/>Import and task deduplication] --> Dispatch
-    Webhook[GitHub webhook, when configured<br/>Raw-body HMAC + explicit event/action/workflow mapping<br/>Persistent delivery deduplication] --> Dispatch
+    Campaign[Campaign: create phases<br/>CSV/JSONL preview → confirm → start phase<br/>Selected trigger chooses eligible candidate] --> Dispatch
+    Webhook[GitHub webhook, when configured<br/>Core raw-body HMAC + selected parser mapping<br/>Durable normalized proposal and delivery deduplication] --> Dispatch
     Dispatch[Check scope and capacity<br/>One active writer per galleon<br/>Automated dispatch uses durable claims] --> Snapshot[Retain selected workflow artifact, metadata and settings<br/>Verify required skills and provision private copies<br/>Retry/resume must match the original snapshot]
     Snapshot --> Host{Pinned execution-host provider}
     Host --> Local[Retained local host package<br/>Detached, cmux, WezTerm or authored provider]

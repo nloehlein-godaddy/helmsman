@@ -1,0 +1,16 @@
+{
+  "packageVersion": 1,
+  "manifest": { "manifestVersion": 1, "id": "helmsman.trigger-campaign", "version": "0.1.0", "sdkVersion": 1, "pages": [] },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "backend.js",
+    "provides": [{ "id": "helmsman/trigger", "version": 1, "localId": "dispatch" }],
+    "triggers": { "dispatch": { "access": ["campaign-candidates"] } },
+    "settings": {
+      "enabled": { "type": "boolean", "default": true },
+      "intervalMs": { "type": "number", "default": 5000, "minimum": 1000, "maximum": 3600000 }
+    },
+    "storageVersion": 1
+  }
+}

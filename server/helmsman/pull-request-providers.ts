@@ -1,3 +1,5 @@
+import type { PluginJson } from '../../src/plugins/backend';
+import { sourceJson, sourceObject } from '../../src/plugins/source-contract-validation';
 import type { PullRequestProviderV1 } from '../../src/plugins/pull-request-provider';
 import type { ProviderBinding } from './execution-store';
 import { initializePullRequestProviderDefault, readPullRequestProviderBinding } from './plugins/data';
@@ -16,6 +18,7 @@ export type PullRequestProviderPurpose = 'admission' | 'obligation';
 export interface PullRequestProviderRegistration {
   readonly binding: PullRequestProviderBinding;
   readonly provider: PullRequestProviderV1;
+  readonly settings?: Readonly<Record<string, PluginJson>>;
 }
 
 function validBinding(value: PullRequestProviderBinding): boolean {
@@ -34,10 +37,10 @@ export function validatePullRequestProvider(provider: PullRequestProviderV1): vo
 export function createPullRequestProviderRegistry(options: { eligible(binding: PullRequestProviderBinding, purpose: PullRequestProviderPurpose): boolean }) {
   const registrations = new Map<string, PullRequestProviderRegistration>();
   const key = (binding: PullRequestProviderBinding) => JSON.stringify([binding.providerId, binding.pluginId, binding.artifactHash, binding.contractVersion]);
-  function stage(binding: PullRequestProviderBinding, provider: PullRequestProviderV1): PullRequestProviderRegistration {
+  function stage(binding: PullRequestProviderBinding, provider: PullRequestProviderV1, settings: Readonly<Record<string, PluginJson>> = {}): PullRequestProviderRegistration {
     if (!validBinding(binding)) throw new Error('Invalid pull request provider binding.');
     validatePullRequestProvider(provider);
-    return Object.freeze({ binding: Object.freeze({ ...binding }), provider });
+    return Object.freeze({ binding: Object.freeze({ ...binding }), provider, settings: sourceObject(sourceJson(settings)) as Readonly<Record<string, PluginJson>> });
   }
   function publish(input: readonly PullRequestProviderRegistration[]): void {
     const seen = new Set<string>();

@@ -1,6 +1,6 @@
 # Experimental usage and pricing plugins
 
-This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [agent providers](agent-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Execution hosts and native terminal/browser providers are extracted. [Workflow providers](workflow-authoring.md) are in active implementation; remaining triggers and broader compatibility retirement are still pending.
+This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [agent providers](agent-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Execution hosts and native terminal/browser providers are extracted. [Workflow providers](workflow-authoring.md) are accepted and pushed through `eb8ad1a`. [Trigger providers](trigger-authoring.md) are in active implementation, pending final acceptance; broader compatibility retirement remains pending.
 
 ## Build an independent package
 
@@ -59,7 +59,7 @@ The selected page preserves header scope; explicit panel `All` includes configur
 
 ## Campaign coordination boundary
 
-Campaign presentation uses `helmsman/campaigns@1`. Core commits each validated campaign mutation and its exact-request receipt atomically in the existing campaign database. Revision, preview-digest, task-attempt and configured-galleon checks preserve user intent. The existing dispatcher retains phase ordering, durable claims, stable run IDs and concurrency gates; a command receipt confirms recorded state, not worker execution. Campaign dispatch policy replacement remains Phase F work; scheduling and execution hosts already use public providers. See [Campaign authoring](campaigns-authoring.md).
+Campaign presentation uses `helmsman/campaigns@1`. Core commits each validated campaign mutation and its exact-request receipt atomically in the existing campaign database. Revision, preview-digest, task-attempt and configured-galleon checks preserve user intent. The existing dispatcher retains phase ordering, durable claims, stable run IDs and concurrency gates; a command receipt confirms recorded state, not worker execution. The active trigger implementation moves candidate ordering into a selected campaign policy, pending final acceptance; core keeps those coordination gates. See [Campaign authoring](campaigns-authoring.md).
 
 ## Measured usage and estimates
 
@@ -102,3 +102,12 @@ Agent-only packages declare `helmsman/agent@1` and use `AgentBackendModuleV1`. T
 The active workflow implementation adds `helmsman/workflow@1` with `workflows` declarations granting only `workflow-policy` access. `WorkflowBackendModuleV1` receives captured settings, registration, cancellation and disposal. A provider renders bounded prompts and returns a pure next action from immutable stage state. Metadata declares supported task modes, staged/direct execution, required skills, round limit and stage timeout. Core validates the action, runs the retained agents/host, checks the complete reviewer set against the exact clean revision, and controls publication and checkpoints.
 
 Select coding, review and branch independently with `select-workflow <mode> <plugin/id>`; `default` or `null` restores the shipped mode default. Selection changes cannot rebind existing work. Admission retains the original provider/settings/artifact closure; continuation loads that exact workflow and reuses completed checkpoint stages. Old reviewer-count configuration initializes an explicit ordered agent list once; old rounds/timeout initialize coding package settings once. Explicit configuration and later resets survive restart. See [workflow authoring](workflow-authoring.md). Installed acceptance and independent review of `568cd82` pass.
+
+
+## Trigger providers
+
+Trigger extraction is active, pending final acceptance. Backend-only packages declare `helmsman/trigger@1` and matching `triggers` access: `campaign-candidates`, `review-discovery` or `authenticated-event`. A trigger package contains only trigger capabilities. `TriggerBackendContextV1` exposes `pluginId`, immutable nonsecret `settings`, `signal`, `registerTrigger` and `onDispose`; it supplies no launch, queue, credential or storage authority.
+
+Campaign decisions are synchronous choices over eligible candidate handles. Review scans are bounded, read-only invocations using selected communication/native-browser/PR providers; core validates observed handles and exact target heads. Webhook parsers receive authenticated JSON only. Core owns polling from selected provider metadata, cancellation, revision fences, durable claims, admission and publication.
+
+`select-trigger <campaign|slack-review|github-review|github-webhook> ID|default|disabled` persists independent selections. `default` restores the role's shipped provider; `disabled` and `null` explicitly disable the role. Unavailable explicit selections never fall back. Captured normalized proposals and source/provider/settings provenance live in existing campaign, notification and delivery stores with dependency pins. Queued proposals are never reinterpreted by a later policy. Explicit legacy rows retain their original identities and reconciliation paths. See [trigger authoring](trigger-authoring.md), [package operations](plugin-packages.md#trigger-selection-and-settings) and [webhook credentials](webhooks.md).

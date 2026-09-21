@@ -6,7 +6,7 @@ Delivery update: implementation has resumed under the revised delivery cadence. 
 
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
-Status: Phases A–E are complete and pushed. Phase F scheduling is complete through `dd98bf9`; SDK-only agent extraction is accepted and pushed through `c5576ed`; execution-host extraction is accepted through `5849a30`. Native terminal adapters, workflows, triggers, and Phase G remain pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.
+Status: Phases A–E are complete and pushed. Phase F scheduling is complete through `dd98bf9`; SDK-only agent extraction is accepted and pushed through `c5576ed`; execution-host extraction is accepted through `5849a30`. Native terminal/browser providers and workflows are reviewed and pushed through `c594605` and `eb8ad1a`. Trigger extraction is active, pending final acceptance; the Phase F aggregate gate and Phase G remain pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 
@@ -176,7 +176,7 @@ A and B form one narrow architectural milestone. Do not wrap every page before d
 
 ### F agent-provider extraction (complete)
 
-`helmsman/agent@1` packages register only a process-description provider. Admission retains an immutable writer plus ordered reviewers, exact package/artifact closure, compatible non-secret settings and validated metadata; recovery resolves that retained record rather than a current default. Metadata owns provider defaults, review model/effort policy, skills/delegation, Docker transport and delta-versus-cumulative cost reporting. Core retains prompt rendering, effective settings, workflow/host lifecycle, budget enforcement, recovery and completion authority.
+`helmsman/agent@1` packages register only a process-description provider. Admission retains an immutable writer plus ordered reviewers, exact package/artifact closure, compatible non-secret settings and validated metadata; recovery resolves that retained record rather than a current default. Metadata owns provider defaults, review model/effort policy, skills/delegation, Docker transport and delta-versus-cumulative cost reporting. Selected workflow packages own prompt rendering. Core retains effective execution settings, workflow/host lifecycle guards, budget enforcement, recovery and completion authority.
 
 The shipped Codex, Claude Code and command providers are SDK-only packages. Codex declares its review-agent skill; Claude declares native subagents; command has no pre-PR capability and receives only its namespaced template setting. Legacy command text is never copied automatically because it may contain credentials; configure a nonsecret commandTemplate explicitly. Legacy adapter values remain readable for compatibility, but selection has no implicit Codex fallback. A normalized provider result failure is durable attempt evidence and forces failure even after exit zero; unknown remains non-failing. Focused and installed acceptance evidence is recorded in the implementation ledger; this does not complete Phase F.
 
@@ -186,7 +186,11 @@ For each extraction, preserve behavior through one active implementation path. V
 
 `helmsman/execution-host@1` captures one exact provider, its settings and immutable nonsecret run configuration. Local detached/cmux/WezTerm and Docker packages implement launch, native ownership discovery, stop and optional isolated stages through the same public contract. Node receipt helpers are exported only from the SDK's `/node` entry. Core retains reservations, receipt verification, workspace protection and publication authority. Missing ownership or retained artifacts blocks recovery; changes to defaults and enablement cannot substitute another host.
 
-The current increment includes Docker child stages, not just top-level selection. Native terminal/browser providers and workflow definitions are now accepted through `c594605` and `568cd82`; triggers remain. Execution-host acceptance and independent correction review are complete through `5849a30`; this is not a Phase F completion claim.
+The current increment includes Docker child stages, not just top-level selection. Native terminal/browser providers and workflow definitions are reviewed and pushed through `c594605` and `eb8ad1a`; trigger implementation is active, pending final acceptance. Execution-host acceptance and independent correction review are complete through `5849a30`; this is not a Phase F completion claim.
+
+### F trigger extraction (active; final acceptance pending)
+
+Four independently selected roles use the backend-only `helmsman/trigger@1` contract: campaign candidate selection, Slack review discovery, GitHub review discovery and authenticated webhook parsing. Core supplies bounded immutable observations, owns polling from selected metadata and rechecks source/selection/head revisions. Existing campaign, notification and delivery stores retain normalized proposals, provenance and dependency pins; settings changes never reinterpret an accepted event. Explicit legacy rows preserve original identities. Credentials, durable claims, capacity, dedupe, admission and publication remain core-owned. See [trigger authoring](trigger-authoring.md) and [webhook setup](webhooks.md).
 
 ## 6. Define lifecycle, persistence, and recovery protocols
 

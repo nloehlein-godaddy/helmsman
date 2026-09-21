@@ -76,6 +76,7 @@ export interface ExecutionStore {
   pins(pluginId?: string): readonly ArtifactPin[];
   retainPins(pins: readonly ArtifactPin[]): void;
   releasePins(kind: ArtifactPin['kind'], ownerId: string): void;
+  releaseTriggerPins(input: { store: 'campaign' | 'review' | 'webhook'; rowId: string }): void;
   releaseSourceClaimPins(claimId: string): void;
   cleanupEligibility(runId: string): { allowed: true } | { allowed: false; reasons: readonly string[] };
   releaseReservation(runId: string, evidence: PluginJson): void;
@@ -499,6 +500,35 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
         }
         if (kind === 'dependency') throw new PersistenceConflictError('Dependency pins must be released by their owning obligation');
         sql.prepare('DELETE FROM artifact_pins WHERE kind=? AND ownerId=?').run(kind, ownerId);
+      });
+    },
+    releaseTriggerPins(input) {
+      transaction(() => {
+        if (!input || !['campaign', 'review', 'webhook'].includes(input.store) || !nonempty(input.rowId)) {
+          throw new PersistenceValidationError('Trigger queue identity is required');
+        }
+        const admissionCompleted = (runId: string | null): boolean => {
+          if (!runId) return false;
+          const exists = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='execution_admissions'").get();
+          const row = exists ? sql.prepare('SELECT state FROM execution_admissions WHERE runId=?').get(runId) as { state: string } | undefined : undefined;
+          return !!row && ['started', 'failed'].includes(row.state);
+        };
+        let releasable = false;
+        if (input.store === 'campaign') {
+          const exists = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='campaign_tasks'").get();
+          const row = exists ? sql.prepare('SELECT state,runId,triggerJson FROM campaign_tasks WHERE id=?').get(input.rowId) as { state: string; runId: string; triggerJson: string | null } | undefined : undefined;
+          releasable = !!row?.triggerJson && (['succeeded', 'failed', 'cancelled'].includes(row.state) || admissionCompleted(row.runId));
+        } else if (input.store === 'review') {
+          const exists = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='slack_notifications'").get();
+          const row = exists ? sql.prepare('SELECT status,runId,triggerJson FROM slack_notifications WHERE id=?').get(input.rowId) as { status: string; runId: string | null; triggerJson: string | null } | undefined : undefined;
+          releasable = !!row?.triggerJson && (['failed', 'blocked'].includes(row.status) || admissionCompleted(row.runId));
+        } else {
+          const exists = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='webhook_deliveries'").get();
+          const row = exists ? sql.prepare('SELECT state,runId,triggerJson FROM webhook_deliveries WHERE delivery=?').get(input.rowId) as { state: string; runId: string | null; triggerJson: string | null } | undefined : undefined;
+          releasable = !!row?.triggerJson && (['rejected', 'ignored'].includes(row.state) || admissionCompleted(row.runId));
+        }
+        if (!releasable) throw new PersistenceConflictError('Unsettled trigger queue pins must be retained');
+        sql.prepare("DELETE FROM artifact_pins WHERE kind='dependency' AND ownerId=?").run(`trigger:${input.store}:${input.rowId}`);
       });
     },
     releaseSourceClaimPins(claimId) {

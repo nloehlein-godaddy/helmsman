@@ -1,3 +1,4 @@
+import type { TriggerDeclarationV1, TriggerProviderV1 } from './trigger';
 import type { WorkflowDeclarationV1, WorkflowProviderV1 } from './workflow';
 import type { NativeTerminalDeclarationV1, NativeTerminalProviderV1 } from './native-terminal';
 import type { ExecutionHostDeclarationV1, ExecutionHostProviderV1 } from './execution-host';
@@ -36,9 +37,10 @@ export interface CommunicationDeclaration {
 
 export interface PluginBackendDefinition {
   readonly entry: string;
-  readonly provides: readonly { readonly id: 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent' | 'helmsman/execution-host' | 'helmsman/native-terminal' | 'helmsman/workflow'; readonly version: 1; readonly localId: string }[];
+  readonly provides: readonly { readonly id: 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent' | 'helmsman/execution-host' | 'helmsman/native-terminal' | 'helmsman/workflow' | 'helmsman/trigger'; readonly version: 1; readonly localId: string }[];
   readonly taskSources?: Readonly<Record<string, TaskSourceDeclaration>>;
   readonly pullRequests?: Readonly<Record<string, PullRequestDeclaration>>;
+  readonly triggers?: Readonly<Record<string, TriggerDeclarationV1>>;
   readonly workflows?: Readonly<Record<string, WorkflowDeclarationV1>>;
   readonly nativeTerminals?: Readonly<Record<string, NativeTerminalDeclarationV1>>;
   readonly executionHosts?: Readonly<Record<string, ExecutionHostDeclarationV1>>;
@@ -69,6 +71,7 @@ export interface PluginBackendContext {
   registerPricing(localId: string, provider: PricingProvider): void;
   registerTaskSource(localId: string, provider: TaskSourceProviderV1): void;
   registerPullRequest(localId: string, provider: PullRequestProviderV1): void;
+  registerTrigger(localId: string, provider: TriggerProviderV1): void;
   registerWorkflow(localId: string, provider: WorkflowProviderV1): void;
   registerNativeTerminal(localId: string, provider: NativeTerminalProviderV1): void;
   registerExecutionHost(localId: string, provider: ExecutionHostProviderV1): void;

@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openSlackStore, type SlackStore } from './store';
 import { createSlackWatcher, parsePullRequestUrl, type SlackMessage, type SlackWatcherOptions } from './watcher';
+import type { CommunicationReviewTriggerProviderV1 } from '../../../src/plugins/trigger';
+import type { CommunicationReviewSourceCapture, SelectedTriggerCapture } from '../trigger-runtime';
 
 const activation = '2026-09-17T12:00:00.000Z';
 const activationTs = Date.parse(activation) / 1000;
@@ -53,6 +55,56 @@ describe('Slack PR URL validation', () => {
 });
 
 describe('Slack watcher', () => {
+  it('persists observed trigger proposal and provenance before launching it', async () => {
+    const f = setup();
+    const artifact = { pluginId: 'example.slack-trigger', artifactHash: 'c'.repeat(64), packageVersion: '1.0.0', requires: [] };
+    const provider: CommunicationReviewTriggerProviderV1 = { metadata: { version: 1, label: 'Slack reviews', kind: 'review-watch', source: 'communication', intervalMs: 1000 },
+      async scan(input, context) {
+        const batch = await context.messages({ since: input.cursor });
+        const target = await context.detail({ repo: 'org/repo', number: 42 });
+        return { proposals: target ? [{ eventId: batch.items[0]!.eventId, targetId: target.targetId, workflowRef: input.defaultWorkflowRef,
+          sourceUrl: batch.items[0]!.permalink, author: batch.items[0]!.author, channelName: batch.items[0]!.channelId }] : [],
+          nextCursor: batch.items[0]!.ts, complete: batch.complete };
+      } };
+    const capture: SelectedTriggerCapture<CommunicationReviewTriggerProviderV1> = { instanceId: 'slack-review', selectionRevision: 'revision-1', provider,
+      artifacts: [artifact], record: { version: 1, binding: { providerId: 'example.slack-trigger/watch', pluginId: 'example.slack-trigger', artifactHash: artifact.artifactHash, contractVersion: 1 },
+        origin: 'external', settings: {}, metadata: provider.metadata }, assertCurrent() {} };
+    const source: CommunicationReviewSourceCapture = { kind: 'communication', channelId: 'C123', channelName: 'airo-editing',
+      source: { sourceKey: JSON.stringify(['T123', 'C123']), revision: 'source-1', bindings: [] }, artifacts: [], assertCurrent() {},
+      async messages() { return { items: [message(1)], complete: true }; },
+      async detail() { return { repo: 'org/repo', number: 42, headSha: 'a'.repeat(40), title: 'Update', url: 'https://github.com/org/repo/pull/42', status: 'open', draft: false }; } };
+    const retainPins = vi.fn();
+    const watcher = createSlackWatcher({ ...f.options, captureTrigger: () => capture, captureSource: () => source,
+      defaultWorkflowRef: () => 'review@1', verifyProposal: vi.fn(), retainPins, releaseTriggerPins: vi.fn() });
+    await watcher.poll();
+    expect(f.launch).toHaveBeenCalledWith(expect.objectContaining({ headSha: 'a'.repeat(40), workflowRef: 'review@1', trigger: expect.objectContaining({ instanceId: 'slack-review' }) }));
+    expect(f.store.listNotifications()[0]).toMatchObject({ channelName: 'airo-editing', proposal: { targetId: expect.any(String), headSha: 'a'.repeat(40) },
+      trigger: { selectionRevision: 'revision-1' } });
+    expect(retainPins).toHaveBeenCalledWith([expect.objectContaining({ ownerId: expect.stringMatching(/^trigger:review:/) })]);
+  });
+
+  it('discards a stale asynchronous trigger scan without moving its cursor', async () => {
+    const f = setup();
+    let current = true;
+    let stale = true;
+    const artifact = { pluginId: 'example.slack-trigger', artifactHash: 'd'.repeat(64), packageVersion: '1.0.0', requires: [] };
+    const provider: CommunicationReviewTriggerProviderV1 = { metadata: { version: 1, label: 'Slack reviews', kind: 'review-watch', source: 'communication', intervalMs: 1000 },
+      async scan(input, context) { const batch = await context.messages({ since: input.cursor }); return { proposals: [], nextCursor: batch.items[0]?.ts ?? input.cursor, complete: true }; } };
+    const capture: SelectedTriggerCapture<CommunicationReviewTriggerProviderV1> = { instanceId: 'slack-review', selectionRevision: 'revision-1', provider,
+      artifacts: [artifact], record: { version: 1, binding: { providerId: 'example.slack-trigger/watch', pluginId: 'example.slack-trigger', artifactHash: artifact.artifactHash, contractVersion: 1 },
+        origin: 'external', settings: {}, metadata: provider.metadata }, assertCurrent() { if (!current) throw new Error('selection changed'); } };
+    const source: CommunicationReviewSourceCapture = { kind: 'communication', channelId: 'C123', channelName: 'airo-editing',
+      source: { sourceKey: JSON.stringify(['T123', 'C123']), revision: 'source-1', bindings: [] }, artifacts: [], assertCurrent() {},
+      async messages() { if (stale) { stale = false; current = false; return { items: [message(900)], complete: true }; } return { items: [], complete: true }; }, async detail() { return null; } };
+    const watcher = createSlackWatcher({ ...f.options, captureTrigger: () => capture, captureSource: () => source,
+      defaultWorkflowRef: () => 'review@1', verifyProposal: vi.fn(), retainPins: vi.fn() });
+    await watcher.poll();
+    expect(watcher.health()).toMatchObject({ status: 'unavailable', error: 'selection changed' });
+    current = true;
+    await watcher.poll();
+    expect(f.scan).not.toHaveBeenCalled();
+    expect(watcher.health().status).toBe('healthy');
+  });
   it('uses activation as the baseline and captures posts arriving during the first scan', async () => {
     const { watcher, scan, launch, store } = setup();
     scan.mockResolvedValue({ messages: [message(-60), message(1)], complete: true });

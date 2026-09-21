@@ -1,3 +1,5 @@
+import type { PluginJson } from '../../src/plugins/backend';
+import { sourceJson, sourceObject } from '../../src/plugins/source-contract-validation';
 import type { CommunicationProviderV1 } from '../../src/plugins/communication-provider';
 import type { ProviderBinding } from './execution-store';
 import { initializeCommunicationProviderDefault, readCommunicationProviderBinding } from './plugins/data';
@@ -16,6 +18,7 @@ export type CommunicationProviderPurpose = 'admission' | 'obligation';
 export interface CommunicationProviderRegistration {
   readonly binding: CommunicationProviderBinding;
   readonly provider: CommunicationProviderV1;
+  readonly settings?: Readonly<Record<string, PluginJson>>;
 }
 
 function validBinding(value: CommunicationProviderBinding): boolean {
@@ -33,10 +36,10 @@ export function validateCommunicationProvider(provider: CommunicationProviderV1)
 export function createCommunicationProviderRegistry(options: { eligible(binding: CommunicationProviderBinding, purpose: CommunicationProviderPurpose): boolean }) {
   const registrations = new Map<string, CommunicationProviderRegistration>();
   const key = (binding: CommunicationProviderBinding) => JSON.stringify([binding.providerId, binding.pluginId, binding.artifactHash, binding.contractVersion]);
-  function stage(binding: CommunicationProviderBinding, provider: CommunicationProviderV1): CommunicationProviderRegistration {
+  function stage(binding: CommunicationProviderBinding, provider: CommunicationProviderV1, settings: Readonly<Record<string, PluginJson>> = {}): CommunicationProviderRegistration {
     if (!validBinding(binding)) throw new Error('Invalid communication provider binding.');
     validateCommunicationProvider(provider);
-    return Object.freeze({ binding: Object.freeze({ ...binding }), provider });
+    return Object.freeze({ binding: Object.freeze({ ...binding }), provider, settings: sourceObject(sourceJson(settings)) as Readonly<Record<string, PluginJson>> });
   }
   function publish(input: readonly CommunicationProviderRegistration[]): void {
     const seen = new Set<string>();

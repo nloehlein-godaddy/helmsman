@@ -185,3 +185,23 @@ it('persists and validates the Slack master switch independently of watching', (
   expect(() => store.setOverride('SLACK_ENABLED', 'yes', () => '')).toThrow();
   expect(new ConfigStore({}, db).effectiveEnv().SLACK_ENABLED).toBe('false');
 });
+
+it('seeds the webhook credential once without exposing or rebinding it on restart', () => {
+  db = openDb(':memory:');
+  const first = new ConfigStore({ HELMSMAN_WEBHOOK_SECRET: 'original-secret' }, db);
+  first.initializeWebhookCredential(() => '2026-09-21T00:00:00Z');
+  const restarted = new ConfigStore({ HELMSMAN_WEBHOOK_SECRET: 'replacement-secret' }, db);
+  restarted.initializeWebhookCredential(() => '2026-09-22T00:00:00Z');
+  expect(restarted.webhookCredential()).toEqual({ handle: 'github-webhook', secret: 'original-secret' });
+  expect(publicConfig(restarted.current())).not.toHaveProperty('HELMSMAN_WEBHOOK_SECRET');
+  expect(() => restarted.setOverride('HELMSMAN_WEBHOOK_SECRET', 'new', () => 'now')).toThrow();
+});
+
+it('preserves explicitly empty webhook credentials instead of restoring an environment secret', () => {
+  db = openDb(':memory:');
+  const first = new ConfigStore({}, db);
+  first.initializeWebhookCredential(() => '2026-09-21T00:00:00Z');
+  const restarted = new ConfigStore({ HELMSMAN_WEBHOOK_SECRET: 'must-not-activate' }, db);
+  restarted.initializeWebhookCredential(() => '2026-09-22T00:00:00Z');
+  expect(restarted.webhookCredential()).toBeNull();
+});

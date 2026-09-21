@@ -39,8 +39,11 @@ npm run plugins -- select helmsman/campaigns-page example.campaigns/page
 
 Saved empty layouts and missing or disabled selected contributions remain authoritative. See [plugin packages](plugin-packages.md) and [panel authoring](panel-authoring.md) for installation and lifecycle conventions.
 
-The existing campaign store and dispatcher remain behind this public service. Durable task claims, stable run IDs, per-galleon writer exclusion, workflow availability, phase ordering and concurrency gates remain in force. Scheduling and execution hosts already use public providers; workflow extraction is active and campaign dispatch policy remains Phase F work.
+The existing campaign store and dispatcher remain behind this public service. Durable task claims, stable run IDs, per-galleon writer exclusion, workflow availability, phase ordering and concurrency gates remain in force. Scheduling, execution hosts and workflows are accepted. The active trigger implementation supplies campaign candidate ordering through `helmsman/trigger@1`, pending final acceptance.
 
 Workflow choices come from available coding contributions, not a hardcoded Coding entry. Versioned contribution references use `<plugin-id>/<local-id>@1`; the old `coding@1` reference remains a compatibility alias for new admission. A selected unavailable workflow blocks launch. Each admitted voyage retains its original workflow rather than following a later campaign/default change. See [workflow authoring](workflow-authoring.md).
 
 Acceptance uses an isolated distribution and mocked execution. Campaign UI checks may create, preview, import and finish draft phases without launching real workers. Current completion and review evidence is recorded in the [implementation ledger](plugin-implementation-progress.md).
+
+
+The selected `campaign` trigger receives only bounded eligible candidate handles and chooses one or defers. It cannot rewrite a task, workflow, attempt or launch identity. Core rechecks the selected candidate and captures policy/settings/source provenance plus dependency pins atomically with its durable claim. Importing a task does not capture a policy decision. Previously unclaimed intents can receive their first capture on claim; already claimed legacy rows remain explicitly legacy and reconcile their original run IDs. Disablement blocks new decisions and admissions while existing-run reconciliation continues. See [trigger authoring](trigger-authoring.md).

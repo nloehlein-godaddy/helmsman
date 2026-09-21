@@ -1,0 +1,18 @@
+{
+  "packageVersion": 1,
+  "manifest": { "manifestVersion": 1, "id": "helmsman.trigger-slack-review", "version": "0.1.0", "sdkVersion": 1, "pages": [] },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "backend.js",
+    "provides": [{ "id": "helmsman/trigger", "version": 1, "localId": "watch" }],
+    "triggers": { "watch": { "access": ["review-discovery"] } },
+    "settings": {
+      "enabled": { "type": "boolean", "default": true },
+      "intervalMs": { "type": "number", "default": 300000, "minimum": 1000, "maximum": 3600000 },
+      "overlapSeconds": { "type": "number", "default": 300, "minimum": 0, "maximum": 3600 },
+      "repoFilterJson": { "type": "string", "default": "[]", "maxLength": 4096 }
+    },
+    "storageVersion": 1
+  }
+}

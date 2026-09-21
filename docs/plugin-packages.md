@@ -139,12 +139,37 @@ Jira and GitHub settings have independent authored page/panel packages with name
 
 Scheduling backends declare `helmsman/scheduling@1`, matching `scheduling` access metadata and an SDK-only `registerScheduling` implementation. Select independently through `select-scheduling`; provider absence blocks automatic decisions without changing existing run bindings. See [scheduling authoring](scheduling-authoring.md).
 
-Agent backends declare `helmsman/agent@1` with only process-description access and register an SDK-only provider. A selection retains its exact writer, ordered reviewers, settings, artifact closure and metadata for recovery. Use `select-agent` and `select-agent-reviewers`; package configuration is namespaced. The shipped Codex, Claude Code and command packages are extracted and have passed focused and installed acceptance checks, execution hosts and native terminal/browser providers are accepted, workflow extraction is active, and triggers remain Phase F work.
+Agent backends declare `helmsman/agent@1` with only process-description access and register an SDK-only provider. A selection retains its exact writer, ordered reviewers, settings, artifact closure and metadata for recovery. Use `select-agent` and `select-agent-reviewers`; package configuration is namespaced. The shipped Codex, Claude Code and command packages are extracted and have passed focused and installed acceptance checks, execution hosts and native terminal/browser providers are accepted, workflow extraction is accepted and pushed through `eb8ad1a`, and trigger extraction is active, pending final acceptance.
 
 Execution-host packages declare `helmsman/execution-host@1` with `executionHosts` execution access and register through the restricted `ExecutionHostBackendModuleV1` context. Use `select-execution-host`; missing or disabled selections block new work without fallback. Captured bindings, settings and run configuration govern recovery and isolated stages. The local and Docker author packages bundle the public Node receipt helpers separately from the browser SDK. See [execution host authoring](execution-host-authoring.md).
 
 Native implementations declare `helmsman/native-terminal@1` and register through `NativeTerminalBackendModuleV1`. The independent cmux and WezTerm packages provide terminal I/O; cmux also provides browser primitives. Use `select-native-terminal` for terminal controls and `select-browser-host` for communication browsing. The frontend Terminal package remains independently selectable. See [native terminal authoring](native-terminal-authoring.md).
 
-Workflow packages declare `helmsman/workflow@1` and `workflows: { localId: { access: ['workflow-policy'] } }`, then register through the restricted `WorkflowBackendModuleV1`. The active implementation ships `helmsman.workflow-coding/coding` (staged coding), `helmsman.workflow-coding/branch` (direct branch feedback), and `helmsman.workflow-review/review` (direct PR review). Use `select-workflow coding|review|branch <plugin/id>` and `configure` on the owning package; `default` or `null` restores the shipped default for that mode. Explicit unavailable selections block admission. Original prompts/policy, settings and artifacts remain bound to a running or resumed voyage, including after disablement.
+Workflow packages declare `helmsman/workflow@1` and `workflows: { localId: { access: ['workflow-policy'] } }`, then register through the restricted `WorkflowBackendModuleV1`. The accepted implementation ships `helmsman.workflow-coding/coding` (staged coding), `helmsman.workflow-coding/branch` (direct branch feedback), and `helmsman.workflow-review/review` (direct PR review). Use `select-workflow coding|review|branch <plugin/id>` and `configure` on the owning package; `default` or `null` restores the shipped default for that mode. Explicit unavailable selections block admission. Original prompts/policy, settings and artifacts remain bound to a running or resumed voyage, including after disablement.
 
 Use `select-agent-reviewers ID[,ID...]` for the complete ordered reviewer list. Legacy reviewer count migrates into that list once; legacy rounds and stage timeout migrate into coding workflow settings once. Explicit values and subsequent resets are preserved. Workflow implementation, installed acceptance and independent review are complete; see [workflow authoring](workflow-authoring.md).
+
+
+## Trigger selection and settings
+
+Trigger extraction is active, pending final acceptance. Each role has an independent persisted selection:
+
+| Role | Shipped contribution | Policy settings |
+|---|---|---|
+| `campaign` | `helmsman.trigger-campaign/dispatch` | `enabled`, `intervalMs` (default 5,000) |
+| `slack-review` | `helmsman.trigger-slack-review/watch` | `enabled`, `intervalMs` (default 300,000), `overlapSeconds` (default 300), `repoFilterJson` (default `[]`) |
+| `github-review` | `helmsman.trigger-github-review/watch` | `enabled`, `intervalMs` (default 300,000) |
+| `github-webhook` | `helmsman.trigger-github-webhook/github` | `enabled`, `routesJson` (default `[]`) |
+
+```sh
+helmsman plugins select-trigger campaign helmsman.trigger-campaign/dispatch
+helmsman plugins configure helmsman.trigger-campaign '{"intervalMs":5000}'
+helmsman plugins select-trigger slack-review disabled
+helmsman plugins select-trigger github-review default
+```
+
+`default` restores the shipped role selection; `disabled` or `null` explicitly disables it. These are distinct persisted states. An explicit unavailable selection blocks new work without fallback. Package activation and its `enabled` setting also gate decisions. Follow the CLI restart instruction after changing settings or activation.
+
+Legacy Slack/GitHub watch flags initialize their trigger enablement once; an unconfigured installation retains disabled watches. Later selections, explicit settings and resets survive restart. The old watch forms show read-only status and direct operators to the selected plugin. Webhook route environment configuration likewise seeds once; credentials stay in core and never enter plugin settings. See [webhook setup](webhooks.md) for credential rotation and [trigger authoring](trigger-authoring.md) for the public contract.
+
+Disablement stops new scans, proposals and admissions while receipts and existing-run reconciliation continue. Event dedupe identities exclude policy versions and settings. Persisted proposals retain original settings, source bindings and dependency pins; replacing a policy does not re-run it over queued work. Rows predating capture stay explicitly legacy.

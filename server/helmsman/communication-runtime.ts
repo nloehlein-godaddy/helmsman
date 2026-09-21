@@ -53,7 +53,9 @@ export function createCommunicationRuntime(options: {
   }
   const selected = () => resolveSelectedCommunicationProvider({ root: options.root, registry: options.registry, connection });
   function scanIdentity(binding = selected(), settings = slackSettings(options.env()), browser = browserSelection().resolved) {
-    return stableJson({ binding, settings: { ...settings, surface: settings.surface ?? null }, browser });
+    const providerSettings = binding ? options.registry.resolve({ providerId: binding.contributionId, pluginId: binding.pluginId,
+      artifactHash: binding.artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, 'admission').settings ?? {} : null;
+    return stableJson({ binding, providerSettings, settings: { ...settings, surface: settings.surface ?? null }, browser });
   }
   function destination(binding: ProviderBinding): CommunicationDestinationV1 | null {
     const env = options.env(); const browser = slackSettings(env); const review = slackReviewSettings(env);
@@ -109,7 +111,22 @@ export function createCommunicationRuntime(options: {
         return stableJson({ binding: null, settings: { ...settings, surface: settings.surface ?? null }, browser: null, unavailable: true });
       }
     },
-    async scan(input: { since: string | null }) {
+    captureScan() {
+      const browser = browserSelection(); const binding = selected(); const settings = slackSettings(options.env());
+      if (!binding || !settings.enabled || settings.error) throw new Error('Selected communication scanner is unavailable.');
+      const identity = scanIdentity(binding, settings, browser.resolved);
+      const browserBinding: ProviderBinding = { role: 'host', capability: 'helmsman/native-terminal',
+        contributionId: browser.resolved.record.binding.providerId, pluginId: browser.resolved.record.binding.pluginId,
+        artifactHash: browser.resolved.record.binding.artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null };
+      return { sourceKey: JSON.stringify([settings.clientId, settings.channelId]), revision: persistenceHash(identity),
+        bindings: [binding, browserBinding], artifacts: [...options.artifacts(binding), ...options.artifacts(browserBinding)],
+        channelId: settings.channelId, channelName: settings.channelName,
+        assertCurrent() {
+          assertNativeTerminalSelectionCurrent(browserSelectionOptions, browser.resolved);
+          if (scanIdentity() !== identity) throw new Error('Communication scanner changed during read.');
+        } };
+    },
+    async scan(input: { since: string | null }, signal?: AbortSignal) {
       const selectedBrowser = browserSelection(); const binding = selected(); const settings = slackSettings(options.env());
       if (!binding || !settings.enabled || settings.error) throw new Error('Selected communication scanner is unavailable.');
       const target = destination(binding);
@@ -119,12 +136,15 @@ export function createCommunicationRuntime(options: {
       const registration = options.registry.resolve({ providerId: binding.contributionId, pluginId: binding.pluginId, artifactHash: binding.artifactHash,
         contractVersion: 1, connectionId: null, credentialHandle: null }, 'admission');
       const controller = new AbortController();
-      const context: CommunicationProviderContextV1 = { signal: controller.signal, destination: target,
+      const readSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+      readSignal.throwIfAborted();
+      const context: CommunicationProviderContextV1 = { signal: readSignal, destination: target,
         surface: settings.surface ?? null, watchedChannel: { id: settings.channelId, name: settings.channelName },
-        browser: createCommunicationBrowserSession({ workspace: target.workspace, surface: settings.surface ?? null, signal: controller.signal,
+        browser: createCommunicationBrowserSession({ workspace: target.workspace, surface: settings.surface ?? null, signal: readSignal,
           browser: selectedBrowser.browser, sessionIdentity: selectedBrowser.sessionIdentity }),
         beforeSend: async () => { throw new Error('Communication scans cannot send.'); } };
       const result = await withSlackBrowserLock(() => registration.provider.scanReviewRequests(input, context));
+      readSignal.throwIfAborted();
       assertNativeTerminalSelectionCurrent(browserSelectionOptions, selectedBrowser.resolved);
       if (scanIdentity() !== initial) throw new Error('Communication scanner changed during read.');
       if (!result || typeof result.complete !== 'boolean' || !Array.isArray(result.messages) || result.messages.length > 10_000) throw new Error('Invalid communication scan response.');

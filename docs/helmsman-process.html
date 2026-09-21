@@ -184,7 +184,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Lost response</h3><p>Inspect the original receipt or explicitly retry the exact retained UUID and input. Recovery cannot reserve another campaign or task attempt.</p></article>
 <article class="flow-step"><h3>Recorded state → existing dispatcher</h3><p>A receipt confirms campaign state, not worker launch or termination. Phase ordering, concurrency, one writer per galleon, durable claims and stable run IDs remain in force. Finish and stop retain explicit confirmation.</p></article>
 </div>
-<p class="limit-note">Missing or disabled selections preserve layouts and command evidence. Campaign dispatch policy remains Phase F work; core retains durable claims and execution gates. See <a href="campaigns-authoring.md">Campaign authoring</a>.</p>
+<p class="limit-note">Missing or disabled selections preserve layouts and command evidence. The active trigger implementation moves candidate ordering into the selected campaign policy; core retains durable claims and execution gates. Final trigger acceptance is pending. See <a href="campaigns-authoring.md">Campaign authoring</a>.</p>
 </section>
 <section aria-labelledby="local-git-heading">
 <h2 class="section-heading" id="local-git-heading">Local Git confirmation and recovery</h2>
@@ -213,7 +213,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Retained workflow prompt → SDK-only agent</h3><p>The retained workflow renders authored prompts. Core resolves effective model/effort and guards admission, execution, recovery and completion. Agent metadata declares skills, delegation, Docker and cost semantics.</p></article>
 <article class="flow-step"><h3>Validated events → explicit failure gate</h3><p>A result failure is persisted as attempt evidence and fails an exit-zero process. Unknown is not failure. Codex uses review-agent metadata; Claude uses native subagents.</p></article>
 </div>
-<p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent, execution-host and native terminal extraction have passed acceptance; workflow implementation is active and triggers remain Phase F work.</p>
+<p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent, execution-host and native terminal extraction have passed acceptance; workflow extraction is accepted and pushed through eb8ad1a; trigger extraction is active, pending final acceptance.</p>
 </section>
 <section aria-labelledby="workflow-provider-heading">
 <h2 class="section-heading" id="workflow-provider-heading">Workflow selection, guarded stages and continuation</h2>
@@ -260,7 +260,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <p class="section-intro">Core Config links to selected Jira and GitHub compositions. Their replaceable panels read namespaced global snapshots with redacted credential presence; the header galleon stays unchanged.</p>
 <div class="flow-step flow-common"><h3>Snapshot → draft → explicit save → revision check</h3><p>Keep the original revision while editing. Jira tokens stay in memory only and are never written to browser storage or command journals.</p></div>
 <div class="host-options">
-<article class="flow-step"><h3>Match → atomic settings and revision → redacted result</h3><p>Jira token rotation does not provision or enable a source. Live source fields belong to Source settings. GitHub review scheduling remains a Phase F adapter.</p></article>
+<article class="flow-step"><h3>Match → atomic settings and revision → redacted result</h3><p>Jira token rotation does not provision or enable a source. Live source fields belong to Source settings. GitHub watch status is read-only; enablement and interval belong to the selected review trigger settings. Legacy watch flags seed once.</p></article>
 <article class="flow-step"><h3>Conflict or response loss → refresh → explicit reconciliation</h3><p>Preserve edits and their original revision. Refresh before another explicit attempt, then rebase or discard. Never automatically resend credentials.</p></article>
 </div>
 <p class="limit-note">Generic Config rejects migrated integration writes and never echoes submitted values. See <a href="integration-settings-authoring.md">integration settings authoring</a>.</p>
@@ -275,13 +275,29 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <p class="limit-note">If the host lacks optional <code>compareAndSetState</code>, disable writes and acknowledgment while retaining original requests.</p>
 </section>
+<section aria-labelledby="trigger-heading">
+<h2 class="section-heading" id="trigger-heading">Trigger selection, capture and guarded dispatch</h2>
+<p class="section-intro">Trigger extraction is active, pending final acceptance. Campaign, Slack review, GitHub review and GitHub webhook roles have independent selections. Default restores a shipped role; disabled or null disables it. Selected metadata supplies polling intervals.</p>
+<div class="host-options">
+<article class="flow-step"><h3>Selected policy → bounded observations</h3><p>Campaign policies choose eligible candidate handles. Review policies read through selected communication, browser and PR providers with captured source revisions and observed event/target handles.</p></article>
+<article class="flow-step"><h3>Core credential → raw-body HMAC → selected parser</h3><p>Authenticate before duplicate lookup. The parser sees authenticated JSON only and returns one normalized intent or an ignored result. Ignored events also retain their digest.</p></article>
+</div>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<div class="flow-step flow-common"><h3>Bounded policy result → revision and handle checks → atomic capture</h3><p>Recheck selection, settings and source. Discard stale or disabled results without cursor advance or new admission. Existing claim/enqueue transactions persist normalized proposals, provenance and dependency pins; complete scans alone advance the review cursor.</p></div>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<div class="host-options">
+<article class="flow-step"><h3>Original proposal → core guards → admission</h3><p>Recheck source authority, exact PR head, workflow, capacity and existing-run identity. Preserve the original run ID and verify the dependency-pin handoff. Blocked or uncertain work keeps its original evidence.</p></article>
+<article class="flow-step"><h3>Retained identity → existing-run reconciliation</h3><p>Receipts and existing-run reconciliation continue after policy disablement. Dedupe excludes policy versions and settings; replacing a policy never reinterprets an accepted event. Legacy rows keep explicit original payloads and run identities.</p></article>
+</div>
+<p class="limit-note">Campaign capture occurs at claim, not import. Unclaimed intents may receive their first policy capture; already claimed legacy tasks only reconcile. Watch flags and webhook routes seed once; old watch forms show read-only status. HELMSMAN_WEBHOOK_SECRET seeds a core slot once; rotate or clear through PUT /api/webhooks/github/credential with {secret:string}. Empty clears the credential; secrets never enter plugin settings. See <a href="trigger-authoring.md">trigger authoring</a> and <a href="webhooks.md">webhook setup</a>.</p>
+</section>
 <section aria-labelledby="intake-heading">
 <h2 class="section-heading" id="intake-heading">Intake and execution preparation</h2>
 <p class="section-intro">Each source resolves a task, galleon, and workflow before execution. The same publication safeguards apply to automated work.</p>
 <div class="intake-sources">
 <article class="flow-step"><h3>Manual launch</h3><p>Select a galleon, then a Jira ticket, custom task, local todo, or existing PR. A panel can explicitly override the header target.</p></article>
-<article class="flow-step"><h3>Campaign</h3><p>Create phases → preview CSV/JSONL → confirm tasks → start a phase. Imports are deduplicated; explicit galleon overrides appear in the preview.</p></article>
-<article class="flow-step"><h3>Authenticated webhook</h3><p>Verify the raw-body HMAC and configured event/action/workflow mapping. Persist and deduplicate delivery IDs. Disabled until configured.</p></article>
+<article class="flow-step"><h3>Campaign</h3><p>Create phases → preview CSV/JSONL → confirm tasks → start a phase. Imports are deduplicated; explicit galleon overrides appear in the preview. The selected trigger chooses an eligible candidate; core captures provenance with the claim.</p></article>
+<article class="flow-step"><h3>Authenticated webhook</h3><p>Core verifies the raw-body HMAC; the selected parser maps event/action/workflow policy. Persist normalized proposals and deduplicate accepted or ignored delivery IDs. Disabled until configured.</p></article>
 </div>
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="flow-step flow-common"><h3>Dispatch and freeze execution</h3><ol><li>Check scope and capacity; allow one active writer per galleon. Automated dispatch uses durable claims.</li><li>Retain the selected workflow artifact, metadata, settings and skills alongside model/effort and agent/host bindings.</li><li>Verify required skills and provision private copies. Retries and checkpoint resumes must match the saved snapshot.</li></ol></div>

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openSlackStore, type SlackStore } from './slack/store';
 import { createGithubReviewWatcher, type GithubReviewWatcherOptions } from './github-review-watcher';
+import type { PullRequestReviewTriggerProviderV1 } from '../../src/plugins/trigger';
+import type { PullRequestReviewSourceCapture, SelectedTriggerCapture } from './trigger-runtime';
 
 const stores: SlackStore[] = [];
 afterEach(() => { for (const store of stores.splice(0)) store.close(); });
@@ -23,6 +25,31 @@ function setup(overrides: Partial<GithubReviewWatcherOptions> = {}) {
 }
 
 describe('GitHub requested review watcher', () => {
+  it('persists a source-bound requested-review proposal and launches its exact head', async () => {
+    const f = setup();
+    const artifact = { pluginId: 'example.github-trigger', artifactHash: 'e'.repeat(64), packageVersion: '1.0.0', requires: [] };
+    const provider: PullRequestReviewTriggerProviderV1 = { metadata: { version: 1, label: 'Requested reviews', kind: 'review-watch', source: 'pull-request', intervalMs: 1000 },
+      async scan(input, context) {
+        const batch = await context.requested();
+        const target = await context.detail(batch.items[0]!);
+        return { proposals: target ? [{ eventId: null, targetId: target.targetId, workflowRef: input.defaultWorkflowRef,
+          sourceUrl: target.url, author: 'GitHub', channelName: 'GitHub requested reviews' }] : [], nextCursor: null,
+          complete: batch.quality === 'complete' && !batch.truncated };
+      } };
+    const capture: SelectedTriggerCapture<PullRequestReviewTriggerProviderV1> = { instanceId: 'github-review', selectionRevision: 'revision-1', provider,
+      artifacts: [artifact], record: { version: 1, binding: { providerId: 'example.github-trigger/watch', pluginId: 'example.github-trigger', artifactHash: artifact.artifactHash, contractVersion: 1 },
+        origin: 'external', settings: {}, metadata: provider.metadata }, assertCurrent() {} };
+    const source: PullRequestReviewSourceCapture = { kind: 'pull-request', source: { sourceKey: 'github-review-requests', revision: 'source-1', bindings: [] }, artifacts: [], assertCurrent() {},
+      async requested() { return { items: [{ repo: 'org/repo', number: 42 }], quality: 'complete', truncated: false }; },
+      async detail() { return { repo: 'org/repo', number: 42, headSha: head, title: 'Update', url: 'https://github.com/org/repo/pull/42', status: 'open', draft: false }; } };
+    const retainPins = vi.fn();
+    const watcher = createGithubReviewWatcher({ ...f.options, captureTrigger: () => capture, captureSource: () => source,
+      defaultWorkflowRef: () => 'review@1', verifyProposal: vi.fn(), retainPins, releaseTriggerPins: vi.fn() });
+    await watcher.poll();
+    expect(f.launch).toHaveBeenCalledWith(expect.objectContaining({ headSha: head, workflowRef: 'review@1', trigger: expect.objectContaining({ instanceId: 'github-review' }) }));
+    expect(f.store.listNotifications()[0]).toMatchObject({ proposal: { repo: 'org/repo', number: 42, headSha: head }, trigger: { selectionRevision: 'revision-1' } });
+    expect(retainPins).toHaveBeenCalledWith([expect.objectContaining({ ownerId: expect.stringMatching(/^trigger:review:/) })]);
+  });
   it('launches currently pending reviews on the initial poll once per revision', async () => {
     const { watcher, launch, store } = setup();
     await watcher.poll();

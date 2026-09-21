@@ -24,7 +24,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service with independently replaceable native cmux/WezTerm providers. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Execution hosts and native terminal/browser providers are complete, including Docker child stages and retained browser transports. Workflow extraction is in active implementation; triggers follow, then Phase G compatibility retirement.
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service with independently replaceable native cmux/WezTerm providers. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Execution hosts and native terminal/browser providers are complete, including Docker child stages and retained browser transports. Workflow extraction is reviewed and pushed through `eb8ad1a`. Trigger extraction is active, pending final acceptance; the Phase F aggregate gate and Phase G compatibility retirement follow.
 
 Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) run inspection, streamed downloads, provisional viewer/history pages and durable clarification services are reviewed and pushed through `3806090`, including exact-request retry, clarification alias selection and public PR inspection. The [run-inspection contract](docs/run-inspect-authoring.md) and [presentation guide](docs/run-presentation-authoring.md) are available. Shared viewer convergence and authored question/contact panels are delivered; `/runs` now selects an authored composition with history, the public PR panel and the shared auxiliary viewer. The `/prs` alias selects the public PR composition.
 
@@ -32,7 +32,7 @@ The [authored question/contact guide](docs/authored-clarifications.md) describes
 
 The [Terminal authoring guide](docs/terminal-authoring.md) covers the selected `/terminal` composition and `/cmux` alias, header and explicit panel scope, revision-bound list/screen/control operations, bounded visible polling, explicit keyboard control, and durable browser/server receipts. Receipt checks never send input, and uncertain controls require inspection before the operator explicitly resumes later controls; the public service has no retry API.
 
-The [Campaign authoring guide](docs/campaigns-authoring.md) covers replaceable campaign presentation, revision-checked mutations, explicit import previews, durable receipts and exact-request recovery. Core retains durable execution coordination; replacing campaign dispatch policy remains Phase F work.
+The [Campaign authoring guide](docs/campaigns-authoring.md) covers replaceable campaign presentation, revision-checked mutations, explicit import previews, durable receipts and exact-request recovery. Core retains durable execution coordination; the active [trigger extraction](docs/trigger-authoring.md) moves candidate ordering into a separately selected policy, pending final acceptance.
 
 The [Local Git authoring guide](docs/local-git-authoring.md) covers scoped branches/worktrees, revision-pinned confirmations and durable command inspection without replay. Existing Config deep links select the replaceable `/local-git` page.
 
@@ -219,9 +219,10 @@ Paging preserves the PR lookup draft and any open voyage logs.
 The server shares GitHub list and review-history reads across tabs for five minutes,
 coalesces concurrent requests, and pauses rate-limited reads until GitHub's reset.
 Review preflight, PR details, diffs, and publication checks always use fresh requests.
-Enabled Slack and GitHub requested-review watchers run every five minutes independently
-of browser visibility. These polling/cache periods are fixed in code, not `.env`
-settings. The selected scheduling plugin owns the separate opt-in ticket scheduler interval; see [scheduling plugins](docs/scheduling-authoring.md).
+Enabled Slack and GitHub requested-review watchers run independently of browser
+visibility. Their selected trigger metadata supplies the interval; shipped packages
+default to five minutes and expose `intervalMs` in plugin settings. The read-cache
+periods above remain fixed in code. The selected scheduling plugin owns the separate opt-in ticket scheduler interval; see [scheduling plugins](docs/scheduling-authoring.md).
 
 ## Running agents
 
@@ -496,7 +497,7 @@ do not emit core completion events.
 
 ### Workflow providers
 
-Workflow extraction is in active implementation. `helmsman/workflow@1` separates
+Workflow extraction is accepted and pushed through `eb8ad1a`. `helmsman/workflow@1` separates
 prompt rendering and pure next-step policy from core stage, revision and publication
 guards. Select each task mode independently:
 
@@ -582,8 +583,10 @@ requests, launches, or watcher scans. Existing runs keep their launch configurat
 **Restart** means configure in `.env` or the parent environment and restart the
 server; restart Vite too when changing `HELMSMAN_PORT`. Even Live keys changed in
 `.env` require a restart to be loaded. The auto-claim interval is UI-editable, but its
-timer length changes only after restart. Watcher enable changes saved in Config
-request an immediate poll, followed by the normal five-minute interval.
+timer length changes only after restart. Legacy watcher flags seed trigger settings
+once; they are not live controls. Slack and GitHub settings show read-only watcher
+status and direct configuration to the selected trigger plugin. Follow the plugin
+CLI restart instruction after changing trigger settings.
 
 ### Jira
 
@@ -614,13 +617,13 @@ Changing `JIRA_STATUS_*` does not rewrite those dashboard queries.
 | `GITHUB_PR_AUTHOR` | Empty | GitHub login used for authored PRs and review requests. Both this and `GITHUB_TOKEN` must be nonempty for GitHub to be configured. | Live |
 | `GITHUB_REPO` | Empty | Optional `owner/name` repository added to tracked repositories and automatic-review eligibility; also supplies the default repository label. With no repo, the label falls back to `@<author>`. | Live |
 | `REPO_PROJECT_MAP` | Empty | Comma-separated `owner/name=PROJECT` pairs. Populates the repo selector, maps dashboard/auto-claim Jira scope, and permits automatic reviews for those repos. | Live |
-| `GITHUB_REVIEW_WATCH_ENABLED` | `false` | Set exactly `true` to poll pending review requests for `GITHUB_PR_AUTHOR`. Existing requests can launch immediately when enabled. Requires GitHub access, configured repositories, local checkouts, and an authenticated agent CLI. | Live |
+| `GITHUB_REVIEW_WATCH_ENABLED` | `false` | Seeds GitHub review trigger enablement once. Subsequently configure the selected `github-review` trigger. Existing pending requests can launch when enabled. | Initial conversion |
 
 ### Slack browser reader
 
 | Value | Default | Where it applies / how to set it | Change |
 | --- | --- | --- | --- |
-| `SLACK_WATCH_ENABLED` | `false` | Set exactly `true` after filling the channel fields and opening signed-in Slack in cmux. No Slack app/token or Slack MCP is used. | Live |
+| `SLACK_WATCH_ENABLED` | `false` | Seeds Slack review trigger enablement once. Subsequently configure the selected `slack-review` trigger. The communication source and signed-in browser must also be available. | Initial conversion |
 | `SLACK_CLIENT_ID` | Empty | First identifier after `/client/` in the open Slack URL. This is the browser client/workspace identifier, not an OAuth app client ID. | Live |
 | `SLACK_CHANNEL_ID` | Empty | Channel identifier beginning with `C`, from the Slack channel URL. Must match the channel being watched. | Live |
 | `SLACK_CHANNEL_NAME` | Empty | Channel name without `#`, using lowercase letters, digits, `_`, or `-`; used to scope Slack search. | Live |
@@ -758,7 +761,7 @@ review-agent/model traffic are separate and are not counted by this endpoint.
 
 ## Automatic PR reviews
 
-Helmsman can discover PRs every five minutes from two sources:
+Helmsman can discover PRs through two independently selected trigger plugins, each defaulting to a five-minute interval:
 
 - Slack: full GitHub PR URLs posted in one configured channel, including thread replies. No mention or review wording is required. Each source message/PR pair runs once; posting the URL again is a new trigger. History before activation is ignored.
 - GitHub: pending requests for `GITHUB_PR_AUTHOR`, once per repository/PR/head SHA. Existing pending requests are eligible when enabled; a new revision can trigger another review. A running or successful review of that revision can satisfy the request.
@@ -790,13 +793,28 @@ SLACK_BROWSER_SURFACE=
 GITHUB_REVIEW_WATCH_ENABLED=false
 ```
 
-After checking the channel values, GitHub configuration, and local checkout, set
-`SLACK_WATCH_ENABLED=true` in Config and check the notification bell's source health.
-Only new Slack history after activation is eligible; a full URL such as
-`https://github.com/your-org/your-repo/pull/123` is a trigger. For GitHub-only discovery,
-set `GITHUB_REVIEW_WATCH_ENABLED=true`; no Slack fields or browser are needed. This
-can immediately launch reviews for existing pending requests. Automatic reviews
-publish their findings to GitHub, so enable a source only when ready for that behavior.
+After checking the channel values, GitHub configuration and local checkout, configure
+the selected trigger package and follow the CLI restart instruction. For the shipped
+selections:
+
+```sh
+helmsman plugins configure helmsman.trigger-slack-review '{"enabled":true}'
+helmsman plugins configure helmsman.trigger-github-review '{"enabled":true}'
+```
+
+Enable only the sources you want. Slack and GitHub settings display watcher status;
+the old environment flags initialize settings once and do not override later changes.
+Check the notification bell's source health. Only new Slack history after activation
+is eligible; a full URL such as `https://github.com/your-org/your-repo/pull/123` is a
+trigger. GitHub-only discovery needs no Slack fields or browser and can immediately
+launch reviews for existing pending requests. Automatic reviews publish to GitHub.
+
+Use `helmsman plugins select-trigger <role> <plugin/id>` to replace a policy, with
+roles `campaign`, `slack-review`, `github-review` and `github-webhook`. `default`
+restores that role's shipped selection; `disabled` or `null` disables it. Explicit
+unavailable selections do not fall back. See [trigger authoring](docs/trigger-authoring.md)
+and [webhook setup](docs/webhooks.md) for route settings and core credential rotation.
+Trigger extraction is active, pending final acceptance.
 
 Keep one signed-in Slack browser tab open in cmux for the configured channel/client. The reader discovers that tab on each scan; set `SLACK_BROWSER_SURFACE` only when multiple matching tabs exist. It briefly selects its Slack browser tab and restores the previous tab and focus unless the user changes them during the scan. It uses browser UI searches and rendered message anchors, without Slack MCP or extracted session tokens. Browser closure, sign-out, or incomplete search results appear in source health. Catch-up resumes from the last successful scan with an overlapping search window. Five minutes is a target while the machine, browser, and server are running; Slack search indexing may add delay. Reading Slack views can affect unread state.
 

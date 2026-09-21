@@ -1,3 +1,14 @@
+import type { CampaignTriggerProviderV1, CommunicationReviewTriggerProviderV1, PullRequestReviewTriggerProviderV1, WebhookTriggerProviderV1 } from '../../src/plugins/trigger';
+import type { SelectedTriggerCapture } from './trigger-runtime';
+import type { ReviewNotificationProposal } from './slack/store';
+import { prepareTriggerReview } from './trigger-review-preparation';
+import { parseTriggerProvenanceV1, type TriggerProvenanceV1 } from './trigger-provenance';
+import { verifyTriggerExecution } from './trigger-execution';
+import { builtinTriggers } from './plugins/builtin-triggers';
+import { initializeTriggerSettings } from './plugins/data';
+import { resolveTriggerSelection, assertTriggerSelectionCurrent } from './trigger-selection';
+import type { TriggerSelectionRoleV1 } from '../../src/plugins/trigger';
+import { captureTriggerReviewSource } from './trigger-read-source';
 import { builtinWorkflows } from './plugins/builtin-workflows';
 import { initializeWorkflowSettings, initializeWorkflowReviewerSelection, readWorkflowProviderSelection } from './plugins/data';
 import { resolveWorkflowSelection, assertWorkflowSelectionCurrent } from './workflow-selection';
@@ -105,7 +116,7 @@ import { activateBackendPlugins } from './plugins/backend';
 import { retainActivatedPluginPages } from './plugins/activation';
 import { openRunTelemetry } from './run-telemetry';
 import { prepareExecution } from './prepare-run';
-import { openWebhookIntake, parseWebhookRoutes, WebhookError } from './webhooks';
+import { openWebhookIntake, WebhookError } from './webhooks';
 import { openWorkflowStore } from './workflow-snapshots';
 import { openCampaignStore } from './campaigns';
 import { createCampaignDispatcher } from './campaign-dispatcher';
@@ -196,6 +207,7 @@ const currentRuntime = await retainLegacyRuntime(applicationRoot(), runtimeArtif
 
 const WRAPPER = join(currentRuntime.root, 'server', 'helmsman', 'run-wrapper.mjs');
 const configStore: ConfigStore = new ConfigStore(process.env, db);
+configStore.initializeWebhookCredential(() => new Date().toISOString());
 const usageStore = openUsageStore(persistence.sql);
 const outcomeStore = openOutcomeStore(persistence.sql, undefined, usageStore);
 const runTelemetry = openRunTelemetry(persistence.sql, usageStore, createOutcomeTelemetrySink(outcomeStore));
@@ -243,7 +255,14 @@ for (const plugin of builtinWorkflows) {
   if (plugin.package.manifest.id !== 'helmsman.workflow-coding') continue;
   initializeWorkflowSettings(pluginDirectory(), plugin.package, { maxRounds: configStore.current().prePr.maxRounds, stageTimeoutMinutes: configStore.current().prePr.stageTimeoutMinutes });
 }
-const builtinBackends = [...builtinWorkflows, ...builtinNativeTerminals, ...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
+for (const plugin of builtinTriggers) {
+  const env = configStore.effectiveEnv();
+  const values: Record<string, string | boolean> = plugin.package.manifest.id === 'helmsman.trigger-slack-review' ? { enabled: env.SLACK_WATCH_ENABLED === 'true' }
+    : plugin.package.manifest.id === 'helmsman.trigger-github-review' ? { enabled: env.GITHUB_REVIEW_WATCH_ENABLED === 'true' }
+    : plugin.package.manifest.id === 'helmsman.trigger-github-webhook' ? { enabled: Boolean(configStore.webhookCredential() && env.HELMSMAN_WEBHOOK_ROUTES), routesJson: env.HELMSMAN_WEBHOOK_ROUTES ?? '[]' } : {};
+  initializeTriggerSettings(pluginDirectory(), plugin.package, values);
+}
+const builtinBackends = [...builtinTriggers, ...builtinWorkflows, ...builtinNativeTerminals, ...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -412,9 +431,10 @@ const gateway = createScopedGateway({ path: persistence.sql, openaiKey: () => pr
   clarificationReady, clarificationGate,
 });
 const integrationSettings = createIntegrationSettingsService({ persistence,
-  githubValues: () => { const env = configStore.effectiveEnv(); return { defaultRepo: env.GITHUB_REPO ?? '', author: env.GITHUB_PR_AUTHOR ?? '', reviewWatchEnabled: env.GITHUB_REVIEW_WATCH_ENABLED === 'true' }; },
+  githubValues: () => { const env = configStore.effectiveEnv(); return { defaultRepo: env.GITHUB_REPO ?? '', author: env.GITHUB_PR_AUTHOR ?? '', reviewWatchEnabled: triggerEnabled('github-review') }; },
   writeGithub: values => {
-    for (const [key, value] of Object.entries({ GITHUB_REPO: values.defaultRepo, GITHUB_PR_AUTHOR: values.author, GITHUB_REVIEW_WATCH_ENABLED: String(values.reviewWatchEnabled) })) configStore.setOverride(key, value, () => new Date().toISOString());
+    if (values.reviewWatchEnabled !== triggerEnabled('github-review')) throw new Error('Configure the selected GitHub review trigger to change automatic reviews.');
+    for (const [key, value] of Object.entries({ GITHUB_REPO: values.defaultRepo, GITHUB_PR_AUTHOR: values.author })) configStore.setOverride(key, value, () => new Date().toISOString());
   },
   afterGithubSave: () => { queueMicrotask(() => { void pollGithubReviews(); }); },
   githubTokenSet: () => Boolean(configStore.effectiveEnv().GITHUB_TOKEN?.trim()),
@@ -442,10 +462,13 @@ const publicCampaigns = createCampaignPublicService({ persistence, store: campai
   },
 });
 const webhooks = openWebhookIntake(persistence.sql, {
-  secret: () => process.env.HELMSMAN_WEBHOOK_SECRET,
-  routes: () => parseWebhookRoutes(process.env.HELMSMAN_WEBHOOK_ROUTES),
+  secret: () => configStore.webhookCredential()?.secret, credentialHandle: () => configStore.webhookCredential()?.handle ?? null,
+  captureTrigger: () => captureTrigger<WebhookTriggerProviderV1>('github-webhook'),
+  retainPins: executions.retainPins, releaseTriggerPins: executions.releaseTriggerPins,
+  assertWorkflow: input => { resolveWorkflowSelection({ root: pluginDirectory(), registry: backendPlugins.workflows, mode: input.mode === 'review' ? 'review' : 'coding', providerId: input.workflowRef }); },
+  verifyLaunch: input => { resolveWorkflowSelection({ root: pluginDirectory(), registry: backendPlugins.workflows, mode: input.mode === 'review' ? 'review' : 'coding', providerId: input.workflowRef }); },
   allowedRepos: () => { const cfg = configStore.current(); return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])]; },
-  canStart: repo => pm.canStart(repo).ok, getRun: id => db.getRun(id), isRunActive: id => pm.hasRun(id), launch,
+  canStart: repo => pm.canStart(repo).ok, getRun: triggerRun, isRunActive: id => pm.hasRun(id), launch,
 });
 await taskSourceRuntime.recoverAdmissions();
 applicationStartup.ready();
@@ -626,6 +649,60 @@ function pullRequestReadContext(binding: ProviderBinding, signal: AbortSignal) {
     if (!samePullRequestBinding(binding, selectedPullRequestProvider()) || current?.token !== initial.token || current.author !== initial.author) throw pullRequestSelectionChanged();
   } };
 }
+function selectedTrigger(kind: TriggerSelectionRoleV1) {
+  const options = { root: pluginDirectory(), registry: backendPlugins.triggers };
+  const selection = resolveTriggerSelection({ ...options, kind });
+  if (!selection.record || selection.record.settings.enabled === false) return null;
+  const registration = backendPlugins.triggers.resolve(selection.record.binding);
+  return { instanceId: kind, selectionRevision: selection.revision, record: selection.record,
+    provider: registration.provider, artifacts: providerArtifacts(selection.record.binding),
+    assertCurrent() { assertTriggerSelectionCurrent(options, selection); } };
+}
+function captureTrigger<T>(kind: TriggerSelectionRoleV1): SelectedTriggerCapture<T> | null {
+  return selectedTrigger(kind) as SelectedTriggerCapture<T> | null;
+}
+function triggerRun(id: string) {
+  const run = db.getRun(id); if (run) return run;
+  const admission = admissions.get(id);
+  return admission ? { status: admission.state === 'failed' ? 'failed' as const : 'running' as const } : null;
+}
+function defaultReviewWorkflow(): string {
+  return `${resolveWorkflowSelection({ root: pluginDirectory(), registry: backendPlugins.workflows, mode: 'review' }).record.binding.providerId}@1`;
+}
+async function verifyReviewProposal(proposal: ReviewNotificationProposal, trigger: TriggerProvenanceV1): Promise<void> {
+  if (trigger.instanceId !== 'slack-review' && trigger.instanceId !== 'github-review') throw new Error('Invalid review trigger instance');
+  const source = captureReviewSource(trigger.instanceId, AbortSignal.timeout(30_000));
+  if (persistenceHash(source.source) !== persistenceHash(trigger.source)) throw new Error('Recorded review source changed');
+  const target = await source.detail({ repo: proposal.repo, number: proposal.number });
+  source.assertCurrent();
+  if (!target || target.headSha !== proposal.headSha || target.status !== 'open' || target.draft) throw new Error('Recorded PR target changed');
+  resolveWorkflowSelection({ root: pluginDirectory(), registry: backendPlugins.workflows, mode: 'review', providerId: proposal.workflowRef });
+}
+function scheduleTriggerPoll(kind: TriggerSelectionRoleV1, poll: () => Promise<unknown>, fallback: number): void {
+  let interval = fallback;
+  try { const selected = selectedTrigger(kind); if (selected?.record.metadata.kind !== 'webhook') interval = selected?.record.metadata.intervalMs ?? fallback; } catch {}
+  setTimeout(() => { void poll().finally(() => scheduleTriggerPoll(kind, poll, fallback)); }, interval);
+}
+function triggerEnabled(kind: TriggerSelectionRoleV1): boolean {
+  try { return selectedTrigger(kind) !== null; } catch { return false; }
+}
+function triggerEnvironment(): Record<string, string | undefined> {
+  return { ...configStore.effectiveEnv(), SLACK_WATCH_ENABLED: String(triggerEnabled('slack-review')) };
+}
+function captureTriggerPullRequest(signal: AbortSignal) {
+  const binding = selectedPullRequestProvider();
+  if (!binding) throw new Error('Selected pull request source is unavailable');
+  const read = pullRequestReadContext(binding, signal); const registration = pullRequestRegistration(binding, 'admission');
+  return { binding, provider: registration.provider, context: read.context, artifacts: providerArtifacts(binding),
+    revision: persistenceHash({ binding, settings: registration.settings ?? {} }),
+    assertCurrent() { read.assertCurrent(); if (pullRequestRegistration(binding, 'admission') !== registration) throw new Error('Pull request source changed'); } };
+}
+function captureReviewSource(role: 'slack-review' | 'github-review', signal: AbortSignal) {
+  const pullRequest = captureTriggerPullRequest(signal);
+  const communication = role === 'slack-review' ? communicationRuntime.captureScan() : undefined;
+  return captureTriggerReviewSource({ role, signal, repos: applicationRepos, pullRequest,
+    ...(communication ? { communication: { ...communication, messages: (input: { since: string | null }) => communicationRuntime.scan(input, signal) } } : {}) });
+}
 function assertPullRequestAdmission(): void {
   const binding = selectedPullRequestProvider();
   if (!binding) throw new Error('Selected pull request provider is unavailable.');
@@ -692,7 +769,7 @@ const pullRequestCommands = createPullRequestCommandService({ persistence, opera
 const communicationRuntime = createCommunicationRuntime({ root: pluginDirectory(), registry: backendPlugins.communications, operations,
   nativeTerminals: backendPlugins.nativeTerminals, defaultBrowserProviderId: 'helmsman.terminal-cmux/cmux',
   browserRuntime: { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot) },
-  env: () => configStore.effectiveEnv(), artifacts: providerArtifacts, verifyArtifacts: verifyEffectArtifacts, assertReviewable: assertCommunicationReviewable });
+  env: triggerEnvironment, artifacts: providerArtifacts, verifyArtifacts: verifyEffectArtifacts, assertReviewable: assertCommunicationReviewable });
 async function assertCommunicationReviewable(repo: string, number: number): Promise<void> {
   const github = configStore.current().github;
   const pr = github ? await fetchPrStatus(github, repo, number) : null;
@@ -720,13 +797,14 @@ const communication = createCommunicationReadService({ persistence, repos: appli
   markRead: (id, now) => id.startsWith('voyage-') ? voyageNotifications.markRead(id, now) : slackStore.markRead(id, now),
   values: () => {
     const env = configStore.effectiveEnv(); const browser = slackSettings(env); const review = slackReviewSettings(env);
-    return { enabled: review.enabled, watchEnabled: env.SLACK_WATCH_ENABLED === 'true', clientId: browser.clientId,
+    return { enabled: review.enabled, watchEnabled: triggerEnabled('slack-review'), clientId: browser.clientId,
       channelId: browser.channelId, channelName: browser.channelName, browserSurface: browser.surface ?? '',
       reviewChannel: review.channel, reviewMention: review.mention };
   },
   destination: communicationRuntime.destination,
   write: values => {
-    const mapping = { SLACK_ENABLED: String(values.enabled), SLACK_WATCH_ENABLED: String(values.watchEnabled),
+    if (values.watchEnabled !== triggerEnabled('slack-review')) throw new Error('Configure the selected Slack review trigger to change automatic reviews.');
+    const mapping = { SLACK_ENABLED: String(values.enabled),
       SLACK_CLIENT_ID: values.clientId, SLACK_CHANNEL_ID: values.channelId, SLACK_CHANNEL_NAME: values.channelName,
       SLACK_BROWSER_SURFACE: values.browserSurface, SLACK_REVIEW_CHANNEL: values.reviewChannel, SLACK_REVIEW_MENTION: values.reviewMention };
     for (const [key, value] of Object.entries(mapping)) configStore.setOverride(key, value, () => new Date().toISOString());
@@ -756,6 +834,7 @@ function executionSnapshot(row: RunRow) {
   const attempt = executions.attempt({ runId: row.id, attempt: row.attempt });
   const snapshot = attempt && executions.snapshot(attempt.snapshotId);
   if (!snapshot) throw new Error('Retained execution bindings are unavailable');
+  if (row.taskJson) verifyTriggerExecution(JSON.parse(row.taskJson) as AgentTask, snapshot);
   return snapshot;
 }
 
@@ -1005,7 +1084,7 @@ void runRecovery.initial.catch(() => {});
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json' };
 
-function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf?: string; workflowRef?: string; commandBinding?: RunCommandAdmissionBinding }): string {
+function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf?: string; workflowRef?: string; trigger?: TriggerProvenanceV1; commandBinding?: RunCommandAdmissionBinding }): string {
   const runId: string = body.runId ?? randomUUID();
   if (db.getRun(runId) || pm.hasRun(runId) || admissions.get(runId)) return runId;
   const capacity = pm.canStart(body.repo);
@@ -1017,6 +1096,10 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   if (priorRun && !priorTask?.agentSelection) throw new RetryError('Legacy agent bindings cannot be migrated by retry. Continue the original retained voyage or start a new voyage.');
   if (priorRun && !priorTask?.executionHost) throw new RetryError('Legacy execution hosts cannot be migrated by retry. Continue the retained voyage or start a new voyage.');
   if (priorRun && !priorTask?.workflow) throw new RetryError('Legacy workflows cannot be migrated by retry. Continue the retained voyage or start a new voyage.');
+  const trigger = body.trigger ? parseTriggerProvenanceV1(body.trigger) : priorTask?.trigger ? parseTriggerProvenanceV1(priorTask.trigger) : undefined;
+  const triggerReviewSource = trigger && body.mode === 'review' ? captureTriggerPullRequest(AbortSignal.timeout(30_000)) : null;
+  const recordedPullRequest = trigger?.source.bindings.find(binding => binding.capability === 'helmsman/pull-request');
+  if (recordedPullRequest && triggerReviewSource && !samePullRequestBinding(recordedPullRequest, triggerReviewSource.binding)) throw new Error('Recorded trigger PR source changed');
   const workflowMode: WorkflowModeV1 = body.mode === 'review' ? 'review' : body.mode === 'rerun' ? 'branch' : 'coding';
   const workflowOptions = { root: pluginDirectory(), registry: backendPlugins.workflows };
   const selectedWorkflow = priorTask?.workflow
@@ -1045,13 +1128,23 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   let sourceSelection = taskSourceRuntime.selection(body, body.retryOf);
   if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
   let launchJson = launchIntentJson(body);
-  const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, hostArtifacts, workflowArtifacts, sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
+  const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, hostArtifacts, workflowArtifacts, trigger?.artifacts ?? [], triggerReviewSource?.artifacts ?? [], sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
   persistence.transaction(() => {
     assertAgentSelectionCurrent(agentOptions, selectedAgents);
     assertExecutionHostSelectionCurrent(executionHostOptions, selectedExecutionHost);
     if (!priorTask) assertWorkflowSelectionCurrent(workflowOptions, selectedWorkflow);
+    if (body.trigger) {
+      const selected = selectedTrigger(body.trigger.instanceId as TriggerSelectionRoleV1);
+      if (!selected) throw new Error('Trigger is disabled'); selected.assertCurrent();
+      if (body.trigger.instanceId === 'slack-review' || body.trigger.instanceId === 'github-review') {
+        const source = captureReviewSource(body.trigger.instanceId, AbortSignal.timeout(30_000));
+        if (persistenceHash(source.source) !== persistenceHash(body.trigger.source)) throw new Error('Recorded trigger source changed before admission');
+        source.assertCurrent();
+      }
+    }
+    triggerReviewSource?.assertCurrent();
     const scheduling = taskSourceRuntime.schedule.assertAdmission(body);
-    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, host: selectedExecutionHost.record, workflow: selectedWorkflow.record, ...(scheduling ? { scheduling } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
+    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, host: selectedExecutionHost.record, workflow: selectedWorkflow.record, ...(scheduling ? { scheduling } : {}), ...(trigger ? { trigger } : {}), ...(triggerReviewSource ? { triggerReviewSource: { binding: triggerReviewSource.binding, revision: triggerReviewSource.revision } } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
       settings: sourceSelection ? sourceExecutionSettings(cfg, true, true) : legacyExecutionSettings(cfg, true, true), artifacts: admissionArtifacts }, maxConcurrency); };
     if (sourceSelection) taskSourceRuntime.reserve(runId, body.repo, sourceSelection, admit, body.retryOf);
     else admit();
@@ -1106,7 +1199,8 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
           prBranch: pr.headRefName, prNumber: pr.number,
         };
       } else if (body.mode === 'review') {
-        const pr = cfg.github && body.prNumber ? await fetchReviewHead(cfg.github, body.repo, body.prNumber) : null;
+        const triggered = triggerReviewSource && body.prNumber ? await prepareTriggerReview({ repo: body.repo, number: body.prNumber, headSha: body.headSha }, triggerReviewSource) : null;
+        const pr = triggered?.pr ?? (triggerReviewSource ? null : cfg.github && body.prNumber ? await fetchReviewHead(cfg.github, body.repo, body.prNumber) : null);
         if (!pr) {
           const ts: string = new Date().toISOString();
           const failedRow: RunRow = {
@@ -1123,7 +1217,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
           return;
         }
         if (body.headSha && pr.headSha !== body.headSha) throw new Error('PR changed before review launch; a new review is needed for the latest revision');
-        const scope = cfg.github ? await fetchReviewScope(cfg.github, body.repo, pr.number) : null;
+        const scope = triggered?.scope ?? (triggerReviewSource ? null : cfg.github ? await fetchReviewScope(cfg.github, body.repo, pr.number) : null);
         if (body.headSha && scope?.headSha && scope.headSha !== body.headSha) throw new Error('PR changed during review preparation; a new review is needed for the latest revision');
         const choice = selectReviewModel(scope?.headSha === pr.headSha ? scope : null, adapter.metadata ?? adapter.id, body);
         taskObj = {
@@ -1137,6 +1231,8 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         const ticketId: string = body.ticketId ?? 'freeform';
         taskObj = { ticketId, title: body.title ?? ticketId, repo: body.repo, jiraBaseUrl: cfg.jira?.baseUrl ?? '', task: body.task };
       }
+      if (trigger) taskObj.trigger = trigger;
+      if (triggerReviewSource) taskObj.triggerReviewSource = { binding: triggerReviewSource.binding, revision: triggerReviewSource.revision, artifacts: triggerReviewSource.artifacts };
       taskObj.workflow = selectedWorkflow.record;
       taskObj.workflowRuntime = workflowRuntime;
       taskObj.executionHost = selectedExecutionHost.record;
@@ -1239,26 +1335,29 @@ let slackSettingsKey = '';
 let slackTick: Promise<void> | null = null;
 
 function configuredSlackWatcher(): SlackWatcher | null {
-  const settings = slackSettings(configStore.effectiveEnv());
-  const key = communicationRuntime.scanKey();
+  const settings = slackSettings(triggerEnvironment());
+  const key = JSON.stringify([settings.clientId, settings.channelId]);
   if (key === slackSettingsKey) return slackWatcher;
   slackSettingsKey = key;
-  slackWatcher = settings.enabled && !settings.error && communicationRuntime.selected() ? createSlackWatcher({
+  slackWatcher = settings.clientId && settings.channelId ? createSlackWatcher({
     ...settings, store: slackStore, source: { scan: input => communicationRuntime.scan(input) },
     allowedRepos: () => {
       const cfg = configStore.current();
       return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])];
     },
-    canLaunch: (repo) => communicationRuntime.scanKey() === key
-      && Boolean(configStore.current().github) && pm.canStart(repo).ok,
-    getRun: (id) => db.getRun(id), isRunActive: (id) => pm.hasRun(id), launch,
+    canLaunch: (repo) => triggerEnabled('slack-review') && pm.canStart(repo).ok,
+    getRun: triggerRun, isRunActive: (id) => pm.hasRun(id), launch,
+    captureTrigger: () => captureTrigger<CommunicationReviewTriggerProviderV1>('slack-review'),
+    captureSource: signal => { const source = captureReviewSource('slack-review', signal); if (source.kind !== 'communication') throw new Error('Invalid Slack trigger source'); return source; },
+    defaultWorkflowRef: defaultReviewWorkflow, verifyProposal: verifyReviewProposal,
+    retainPins: executions.retainPins, releaseTriggerPins: executions.releaseTriggerPins,
     intervalMs: SLACK_INTERVAL_MS,
   }) : null;
   return slackWatcher;
 }
 
 function slackSnapshot(): SlackState {
-  const settings = slackSettings(configStore.effectiveEnv());
+  const settings = slackSettings(triggerEnvironment());
   const watcher = configuredSlackWatcher();
   return {
     health: watcher?.health() ?? {
@@ -1280,17 +1379,31 @@ function slackSnapshot(): SlackState {
   };
 }
 
+function reconcileTriggerReviewReceipts(): void {
+  for (const notification of [...slackStore.notificationsByStatus('queued'), ...slackStore.notificationsByStatus('launched')]) {
+    if (!notification.trigger || !notification.runId) continue;
+    const run = triggerRun(notification.runId);
+    if (!run) continue;
+    const status = run.status === 'failed' ? 'failed' : 'launched';
+    if (notification.status !== status) slackStore.updateNotification(notification.id, status, new Date().toISOString(), status === 'failed' ? 'PR run failed; open the run for details' : null);
+  }
+  for (const pin of executions.pins()) {
+    if (pin.kind !== 'dependency' || !pin.ownerId.startsWith('trigger:review:')) continue;
+    try { executions.releaseTriggerPins({ store: 'review', rowId: pin.ownerId.slice('trigger:review:'.length) }); } catch {}
+  }
+}
 function pollSlack(): Promise<void> {
   slackTick ??= Promise.resolve().then(async () => {
+    reconcileTriggerReviewReceipts();
     await configuredSlackWatcher()?.poll();
   }).catch((error: unknown) => process.stderr.write(`Slack watcher failed: ${String(error)}\n`))
     .then(() => undefined).finally(() => { slackTick = null; });
   return slackTick;
 }
 
-setInterval(() => void pollSlack(), SLACK_INTERVAL_MS);
+scheduleTriggerPoll('slack-review', pollSlack, SLACK_INTERVAL_MS);
 
-const githubReviewEnabled = () => configStore.effectiveEnv().GITHUB_REVIEW_WATCH_ENABLED === 'true';
+const githubReviewEnabled = () => triggerEnabled('github-review');
 const githubReviewWatcher = createGithubReviewWatcher({
   store: slackStore,
   enabled: githubReviewEnabled,
@@ -1307,28 +1420,31 @@ const githubReviewWatcher = createGithubReviewWatcher({
     return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])];
   },
   canLaunch: (repo) => githubReviewEnabled() && pm.canStart(repo).ok,
-  getRun: (id) => db.getRun(id), isRunActive: (id) => pm.hasRun(id), launch,
+  getRun: triggerRun, isRunActive: (id) => pm.hasRun(id), launch,
+  captureTrigger: () => captureTrigger<PullRequestReviewTriggerProviderV1>('github-review'),
+  captureSource: signal => { const source = captureReviewSource('github-review', signal); if (source.kind !== 'pull-request') throw new Error('Invalid requested-review trigger source'); return source; },
+  defaultWorkflowRef: defaultReviewWorkflow, verifyProposal: verifyReviewProposal,
+  retainPins: executions.retainPins, releaseTriggerPins: executions.releaseTriggerPins,
   findExistingReview,
   intervalMs: SLACK_INTERVAL_MS,
 });
 
 const pollGithubReviews = () => githubReviewWatcher.poll().catch((error: unknown) => process.stderr.write(`GitHub review watcher failed: ${String(error)}\n`));
-setInterval(() => {
-  void pollCreatedPrReviews();
-  void pollGithubReviews();
-}, SLACK_INTERVAL_MS);
+setInterval(() => { void pollCreatedPrReviews(); }, SLACK_INTERVAL_MS);
+scheduleTriggerPoll('github-review', pollGithubReviews, SLACK_INTERVAL_MS);
 void pollCreatedPrReviews();
 void pollSlack();
 void pollGithubReviews();
 
-const campaignDispatcher = createCampaignDispatcher({ store: campaignsStore, canStart: repo => pm.canStart(repo).ok,
-  getRun: id => db.getRun(id), stop: id => pm.stop(id),
-  launch: input => launch({ repo: input.repo, mode: input.mode, runId: input.runId, workflowRef: input.workflowRef,
+const campaignDispatcher = createCampaignDispatcher({ store: campaignsStore, canStart: repo => applicationRepos().some(allowed => allowed.toLowerCase() === repo.toLowerCase()) && pm.canStart(repo).ok,
+  getRun: triggerRun, stop: id => pm.stop(id),
+  captureTrigger: () => captureTrigger<CampaignTriggerProviderV1>('campaign'), retainPins: executions.retainPins, releaseTriggerPins: executions.releaseTriggerPins,
+  launch: input => launch({ repo: input.repo, mode: input.mode, runId: input.runId, workflowRef: input.workflowRef, trigger: input.trigger,
     ...(input.task === null ? {} : { task: input.task }), ...(input.ticketId === null ? {} : { ticketId: input.ticketId }),
     ...(input.title === null ? {} : { title: input.title }), ...(input.retryOf ? { retryOf: input.retryOf } : {}) }),
 });
 
-setInterval(() => { void campaignDispatcher.poll().catch(error => process.stderr.write(`Campaign dispatch failed: ${String(error)}\n`)); }, 5000);
+scheduleTriggerPoll('campaign', () => campaignDispatcher.poll().catch(error => process.stderr.write(`Campaign dispatch failed: ${String(error)}\n`)), 5000);
 
 setInterval(() => { void webhooks.poll().catch(error => process.stderr.write(`Webhook dispatch failed: ${String(error)}\n`)); }, 5000);
 
@@ -1412,10 +1528,29 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(req.method === 'HEAD' ? undefined : recoveryPage()); return;
     }
+    if (url.pathname === '/api/webhooks/github/credential' && req.method === 'PUT') {
+      if (req.headers['content-type']?.split(';')[0] !== 'application/json'
+        || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) {
+        res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Credential changes require same-origin JSON.' })); return;
+      }
+      const input = await readBody(req, 8192);
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1
+        || !('secret' in input) || typeof input.secret !== 'string') {
+        res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Invalid credential input.' })); return;
+      }
+      try {
+        configStore.setWebhookCredential(input.secret, () => new Date().toISOString());
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ configured: Boolean(configStore.webhookCredential()) }));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Invalid credential input.' }));
+      }
+      return;
+    }
     if (url.pathname === '/api/webhooks/github' && req.method === 'POST') {
       try {
-        const header = (name: string) => { const value = req.headers[name]; return typeof value === 'string' ? value : undefined; };
-        const result = webhooks.receive(await readRawBody(req), { signature: header('x-hub-signature-256'), delivery: header('x-github-delivery'), event: header('x-github-event') });
+        const headers = Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+        const result = webhooks.receive(await readRawBody(req, 1_000_000), { values: headers });
         res.writeHead(202, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(result));
         void webhooks.poll().catch(error => process.stderr.write(`Webhook dispatch failed: ${String(error)}\n`));
       } catch (error) {
@@ -1502,8 +1637,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         return { maxAttempts: c.maxAttempts, maxCostUsd: c.maxCostUsd };
       },
       getConfig: () => ({
-        config: Object.fromEntries(Object.entries(publicConfig(configStore.current())).filter(([key]) => !/^(?:JIRA_|GITHUB_|SLACK_|PRE_PR_)/.test(key))),
-        overridden: Object.keys(configStore.overrides()).filter(key => !/^(?:JIRA_|GITHUB_|SLACK_|PRE_PR_)/.test(key)),
+        config: Object.fromEntries(Object.entries(publicConfig(configStore.current())).filter(([key]) => !/^(?:JIRA_|GITHUB_|SLACK_|PRE_PR_|HELMSMAN_WEBHOOK_)/.test(key))),
+        overridden: Object.keys(configStore.overrides()).filter(key => !/^(?:JIRA_|GITHUB_|SLACK_|PRE_PR_|HELMSMAN_WEBHOOK_)/.test(key)),
       }),
       setConfig: (key: string, value: string): { ok: true } | { ok: false; error: string } => {
         try {
