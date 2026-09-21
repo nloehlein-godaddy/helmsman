@@ -65,7 +65,7 @@ export interface CommunicationCommandServerService {
   ): CommunicationCommandReceiptV1 | null;
   retry(
     caller: string,
-    query: CommunicationCommandReceiptQueryV1,
+    command: CommunicationCommandV1,
     scope: string | null,
   ): Promise<CommunicationCommandReceiptV1>;
   readonly resolve: OperationResolver;
@@ -323,11 +323,12 @@ export function createCommunicationCommandService(
       const operation = find(caller, query);
       return operation ? project(operation) : null;
     },
-    async retry(caller, q, scope) {
-      const query = parseCommunicationCommandReceiptQueryV1(q);
+    async retry(caller, raw, scope) {
+      const query = parseCommunicationCommandV1(raw);
       access(caller, query.repo, scope);
       const operation = find(caller, query);
       if (!operation) throw new ClarificationServiceError(404, "not-found");
+      if (!same(record(operation).command, query)) throw new PersistenceConflictError('Communication request content changed');
       if (operation.status === 'blocked' && !operation.requiresReconciliation && operation.diagnostic?.code === 'delivery-blocked') {
         options.operations.retry(operation.id, { actor: caller, reason: 'Explicit retry of original communication request', evidence: { requestId: query.requestId } });
       }

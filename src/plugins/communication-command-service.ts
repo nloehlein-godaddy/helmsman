@@ -64,15 +64,15 @@ export function createHostCommunicationCommandService(
   async function send(
     command: Awaited<ReturnType<typeof journal.reserve>>,
     call: ReturnType<typeof operation>,
+    retry = false,
   ): Promise<ClarificationReadResultV1<CommunicationCommandReceiptV1>> {
-    const result = await record(
-      await call.request(
-        "/api/communication-command",
-        (value) => parseCommunicationCommandReceiptV1(value, command),
-        { command, scopeRepo: call.scope.repo },
-      ),
-      call,
+    const response = await call.request(
+      retry ? "/api/communication-command/retry" : "/api/communication-command",
+      (value) => parseCommunicationCommandReceiptV1(value, command),
+      { command, scopeRepo: call.scope.repo },
     );
+    if (retry && response.status === 'unavailable' && response.reason === 'not-found') return send(command, call);
+    const result = await record(response, call);
     if (result.status === "unavailable") return result;
     return result.value === null
       ? clarificationUnavailable("invalid-response")
@@ -125,7 +125,7 @@ export function createHostCommunicationCommandService(
       }
       call.check();
       if (!command) return clarificationUnavailable("not-found");
-      return send(command, call);
+      return send(command, call, true);
     },
     async receipt(value, signal) {
       const input = parseCommunicationCommandReceiptQueryV1(value);

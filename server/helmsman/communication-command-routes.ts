@@ -22,9 +22,9 @@ export async function handleCommunicationCommandApi(input: {
       requireMethod('POST');
       if (input.query.size) throw new ClarificationServiceError(400, 'invalid-response');
       const body = clarificationObject(input.body); const retry = input.path.endsWith('/retry');
-      clarificationFields(body, [retry ? 'query' : 'command', 'scopeRepo']);
+      clarificationFields(body, ['command', 'scopeRepo']);
       const scope = body.scopeRepo === null ? null : parseTaskRepo(body.scopeRepo);
-      const result = retry ? await service.retry(input.caller, parseCommunicationCommandReceiptQueryV1(body.query), scope)
+      const result = retry ? await service.retry(input.caller, parseCommunicationCommandV1(body.command), scope)
         : await service.submit(input.caller, parseCommunicationCommandV1(body.command), scope);
       return { status: 200, json: result };
     }

@@ -36,7 +36,8 @@ it('retains a communication request when the browser loses its response and retr
   expect(await f.service.submit(input)).toEqual({ status: 'unavailable', reason: 'connection-failed' });
   expect(await f.journal.pending()).toEqual([{ command: sent, receipt: null }]);
 
-  f.fetcher.mockImplementationOnce(async (_url, init) => {
+  f.fetcher.mockImplementationOnce(async (url, init) => {
+    expect(url).toBe('/api/communication-command/retry');
     expect(JSON.parse(String(init?.body)).command).toEqual(sent);
     return Response.json(receipt(sent));
   });
@@ -64,4 +65,24 @@ it('rejects commands outside the active galleon without sending them', async () 
   const f = setup();
   expect(await f.service.submit({ ...input, repo: 'other/project' })).toEqual({ status: 'unavailable', reason: 'forbidden' });
   expect(f.fetcher).not.toHaveBeenCalled();
+});
+
+
+it('redelivers an unadmitted original only after an explicit retry reports it missing', async () => {
+  const f = setup(); const retained = await f.journal.reserve(input);
+  f.fetcher.mockResolvedValueOnce(Response.json({ reason: 'not-found' }, { status: 404 }));
+  f.fetcher.mockImplementationOnce(async (url, init) => {
+    expect(url).toBe('/api/communication-command'); expect(JSON.parse(String(init?.body)).command).toEqual(retained);
+    return Response.json(receipt(retained));
+  });
+  expect(await f.service.retry({ repo: retained.repo, requestId: retained.requestId })).toMatchObject({ status: 'available', value: { requestId: retained.requestId } });
+  expect(f.fetcher).toHaveBeenCalledTimes(2);
+});
+
+it('does not redeliver on a failed explicit retry transport', async () => {
+  const f = setup(); const retained = await f.journal.reserve(input);
+  f.fetcher.mockRejectedValueOnce(new Error('Connection lost'));
+  expect(await f.service.retry({ repo: retained.repo, requestId: retained.requestId })).toMatchObject({ status: 'unavailable' });
+  expect(f.fetcher).toHaveBeenCalledTimes(1);
+  expect((await f.journal.pending())[0]?.command).toEqual(retained);
 });

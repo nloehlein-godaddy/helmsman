@@ -1,5 +1,9 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { IDBFactory } from 'fake-indexeddb';
+import { createCommunicationCommandJournal } from '../../src/plugins/communication-command-journal';
+import { createHostCommunicationCommandService } from '../../src/plugins/communication-command-service';
+import { handleCommunicationCommandApi } from './communication-command-routes';
 import type { CommunicationCommandInputV1, CommunicationCommandV1, CommunicationDestinationV1 } from '../../src/plugins/communication-command';
 import { openExecutionStore, type ProviderBinding } from './execution-store';
 import { openOperationStore, type DurableOperation, type OperationResult } from './operations';
@@ -69,7 +73,9 @@ describe('durable public communication commands', () => {
     await restarted.drainPending();
     await restarted.submit(caller, command, null);
     expect(f.invoke).toHaveBeenCalledTimes(1);
-    const result = await restarted.retry(caller, { repo: command.repo, requestId: command.requestId }, null);
+    await expect(restarted.retry(caller, { ...command, number: command.number + 1 }, null)).rejects.toThrow('content changed');
+    expect(f.invoke).toHaveBeenCalledTimes(1);
+    const result = await restarted.retry(caller, command, null);
     expect(result).toMatchObject({ status: 'succeeded', requestId: command.requestId });
     expect(f.invoke).toHaveBeenCalledTimes(2);
     expect(f.operations.list()).toHaveLength(1);
@@ -83,8 +89,28 @@ describe('durable public communication commands', () => {
     expect((await service.submit(caller, command, null)).status).toBe('recovery-required');
     await service.drainPending(); await service.drainPending();
     expect(f.invoke).toHaveBeenCalledTimes(1);
-    expect((await service.retry(caller, { repo: command.repo, requestId: command.requestId }, null)).status).toBe('succeeded');
+    expect((await service.retry(caller, command, null)).status).toBe('succeeded');
     expect(f.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('routes browser exact retry through server reopening without allocating another command', async () => {
+    const f = fixture();
+    f.invoke.mockResolvedValueOnce({ status: 'definitely-not-applied', retryable: true, reason: 'Existing draft', evidence: {} });
+    const journal = createCommunicationCommandJournal(caller, { indexedDB: new IDBFactory() });
+    const scope = { repo: command.repo, epoch: 1, active: true, signal: new AbortController().signal };
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = new URL(String(input), 'http://localhost');
+      const response = await handleCommunicationCommandApi({ method: init?.method ?? 'GET', path: url.pathname, query: url.searchParams,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined, caller, service: f.service });
+      return Response.json(response?.json ?? null, { status: response?.status ?? 404 });
+    };
+    const browser = createHostCommunicationCommandService(new AbortController().signal, { caller, journal, scope: () => scope, fetch: fetcher });
+    const { requestId: _id, ...input } = command;
+    expect(await browser.submit(input)).toMatchObject({ status: 'available', value: { status: 'recovery-required' } });
+    const original = (await journal.pending())[0]!.command;
+    await f.service.drainPending(); expect(f.invoke).toHaveBeenCalledTimes(1);
+    expect(await browser.retry({ repo: original.repo, requestId: original.requestId })).toMatchObject({ status: 'available', value: { status: 'succeeded', requestId: original.requestId } });
+    expect(f.invoke).toHaveBeenCalledTimes(2); expect(f.operations.list()).toHaveLength(1);
   });
 
   it('retains the original destination and provider after settings change', async () => {
@@ -95,7 +121,7 @@ describe('durable public communication commands', () => {
     const replacementDestination = { ...destination, channel: 'C999', artifactHash: 'b'.repeat(64), connectionId: 'connection-2' };
     const replacementBinding = { ...binding, artifactHash: replacementDestination.artifactHash, connectionId: replacementDestination.connectionId };
     f.changeSettings(replacementDestination, replacementBinding);
-    const retried = await f.service.retry(caller, { repo: command.repo, requestId: command.requestId }, null);
+    const retried = await f.service.retry(caller, command, null);
     expect(retried).toMatchObject({ status: 'recovery-required', input: { expectedDestination: destination } });
     expect(f.operations.list()[0]).toMatchObject({ binding, target: { repo: command.repo, number: command.number, destination },
       payload: { caller, requestId: command.requestId, command, manual: true, expectedDestination: destination } });
