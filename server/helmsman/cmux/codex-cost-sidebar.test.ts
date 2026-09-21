@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, appendFile, rm, rename, stat, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -51,6 +52,14 @@ afterEach(async () => {
 });
 
 describe('native cmux Codex sidebar', () => {
+  it('loads the automation CLI with native Node', () => {
+    const script = join(process.cwd(), 'scripts/cmux-codex-cost.mjs');
+    const output = execFileSync(process.execPath, [script, '--help'], {
+      encoding: 'utf8', timeout: 5_000, env: { ...process.env, NODE_OPTIONS: '' },
+    });
+    expect(output).toContain('Refresh native cmux sidebar Codex API estimates.');
+  });
+
   it('publishes the explicit live surface estimate and clears only owned stale status keys', async () => {
     const f = await fixture();
     const report = await refreshCodexCostSidebar(f.options);
