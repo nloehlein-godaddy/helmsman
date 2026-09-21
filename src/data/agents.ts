@@ -40,7 +40,7 @@ export async function launchAgent(ticketId: string, title: string, repo: string)
 
 export async function retryRun(runId: string): Promise<LaunchResult> {
   if (typeof runId !== 'string' || !/^[a-z\d_-]{1,128}$/i.test(runId)) throw new Error(term('invalidRunId'));
-  const response = await fetch(`/api/agents/${encodeURIComponent(runId)}/retry`, { method: 'POST' });
+  const response = await fetch(`/api/agents/${encodeURIComponent(runId)}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   const result: unknown = await response.json().catch(() => null);
   const body = result && typeof result === 'object' ? result as Record<string, unknown> : null;
   if (!response.ok) throw new Error(typeof body?.error === 'string' ? body.error : `Retry failed (${response.status}).`);
@@ -123,7 +123,7 @@ export async function fetchAgents(): Promise<{ runs: RunSummary[]; autoClaim: st
 
 export async function stopAgent(runId: string): Promise<void> {
   try {
-    await fetch(`/api/agents/${encodeURIComponent(runId)}/stop`, { method: 'POST' });
+    await fetch(`/api/agents/${encodeURIComponent(runId)}/stop`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   } catch {
     return;
   }

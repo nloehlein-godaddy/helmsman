@@ -54,9 +54,10 @@ async function request(context: PullRequestProviderContextV1, method: 'GET' | 'P
   return response;
 }
 
-async function collection(context: PullRequestProviderContextV1, path: string, query: Readonly<Record<string, string>>, key?: string, expectedSha?: string): Promise<{ quality: 'complete' | 'partial'; items: unknown[] }> {
+async function collection(context: PullRequestProviderContextV1, path: string, query: Readonly<Record<string, string>>, options: { key?: string; expectedSha?: string; pages?: number } = {}): Promise<{ quality: 'complete' | 'partial'; items: unknown[] }> {
+  const { key, expectedSha, pages = PULL_REQUEST_INSPECT_LIMITS.pages } = options;
   const items: unknown[] = []; let total: number | null = null;
-  for (let page = 1; page <= PULL_REQUEST_INSPECT_LIMITS.pages; page++) {
+  for (let page = 1; page <= pages; page++) {
     const response = await request(context, 'GET', path, { ...query, per_page: String(PULL_REQUEST_INSPECT_LIMITS.page), page: String(page) });
     if (response.status !== 200) throw new Error('GitHub collection is unavailable');
     const data = key ? object(response.body) : null;
@@ -75,7 +76,7 @@ async function collection(context: PullRequestProviderContextV1, path: string, q
     if (!next) {
       if (total !== null && total !== items.length) return { quality: 'partial', items: [] };
       if (values.length < PULL_REQUEST_INSPECT_LIMITS.page || total !== null) return { quality: 'complete', items };
-      if (page === PULL_REQUEST_INSPECT_LIMITS.pages) return { quality: 'partial', items: [] };
+      if (page === pages) return { quality: 'partial', items: [] };
       continue;
     }
     if (!values.length) throw new Error('Invalid GitHub pagination');
@@ -101,8 +102,8 @@ async function metadata(query: { repo: string; number: number }, context: PullRe
 async function checks(target: PullRequestInspectTargetV1, context: PullRequestProviderContextV1): Promise<PullRequestInspectDetailV1['checks']> {
   try {
     const [runs, statuses] = await Promise.all([
-      collection(context, `/repos/${target.repo}/commits/${target.headSha}/check-runs`, {}, 'check_runs'),
-      collection(context, `/repos/${target.repo}/commits/${target.headSha}/status`, {}, 'statuses', target.headSha),
+      collection(context, `/repos/${target.repo}/commits/${target.headSha}/check-runs`, {}, { key: 'check_runs' }),
+      collection(context, `/repos/${target.repo}/commits/${target.headSha}/status`, {}, { key: 'statuses', expectedSha: target.headSha }),
     ]);
     if (runs.quality !== 'complete' || statuses.quality !== 'complete') return unknownChecks('partial');
     let passed = 0; let failed = 0; let pending = 0; const ids = new Set<number>();
@@ -205,10 +206,10 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
     try {
       if (query.kind === 'repo-open') sources = await Promise.all(repoPaths.map(async ({ repo }) => ({ repo, result: await direct(repo), reviewRequested: false })));
       else if (query.kind === 'authored-recent') {
-        const result = await collection(context, '/search/issues', { q: `is:pr author:${author}${query.repo ? ` repo:${query.repo}` : ''}`, sort: 'created', order: 'desc' }, 'items');
+        const result = await collection(context, '/search/issues', { q: `is:pr author:${author}${query.repo ? ` repo:${query.repo}` : ''}`, sort: 'created', order: 'desc' }, { key: 'items' });
         sources = [{ repo: '', result, reviewRequested: false }];
       } else {
-        const search = collection(context, '/search/issues', { q: `is:pr is:open review-requested:${author}${query.repo ? ` repo:${query.repo}` : ''}`, sort: 'created', order: 'desc' }, 'items');
+        const search = collection(context, '/search/issues', { q: `is:pr is:open review-requested:${author}${query.repo ? ` repo:${query.repo}` : ''}`, sort: 'created', order: 'desc' }, { key: 'items' });
         const local = Promise.all(repoPaths.map(async ({ repo }) => ({ repo, result: await direct(repo), reviewRequested: true })));
         const [searchResult, localResults] = await Promise.all([search, local]);
         sources = [{ repo: '', result: searchResult, reviewRequested: true }, ...localResults];
@@ -281,11 +282,21 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
   async reconcileReview(input, context) {
     try {
       const pinned = await prepared(input.repo, input.number, input.headSha, context); if (pinned.actor.toLowerCase() !== input.actor.toLowerCase()) throw new Error('Authenticated actor changed');
-      const response = await request(context, 'GET', `/repos/${input.repo}/pulls/${input.number}/reviews`, { per_page: '100', page: '1' }); const values = array(response.body, 100);
-      if (response.status !== 200 || !values) return unavailable('Pinned GitHub review history is unavailable.');
+      const history = await collection(context, `/repos/${input.repo}/pulls/${input.number}/reviews`, {}, { pages: 20 });
+      if (history.quality !== 'complete') return unavailable('Pinned GitHub review history is incomplete.');
       const expectedBody = formatPullRequestReviewBody(input);
-      const found = values.map(object).filter(value => positive(value?.id) && value?.commit_id === input.headSha && value?.body === expectedBody && String(object(value?.user)?.login).toLowerCase() === input.actor.toLowerCase());
+      const ids = new Set<number>();
+      const found = history.items.map(value => {
+        const review = object(value);
+        if (!positive(review?.id) || ids.has(review.id)) throw new Error('Invalid GitHub review history');
+        ids.add(review.id); return review;
+      }).filter(value => {
+        const actor = object(value.user)?.login;
+        return value.commit_id === input.headSha && value.body === expectedBody && typeof actor === 'string' && actor.toLowerCase() === input.actor.toLowerCase();
+      });
       if (found.length !== 1) return unavailable(found.length > 1 ? 'Multiple review receipts match this operation; operator reconciliation is required.' : 'No authenticated review receipt proves delivery; an earlier request may still be in flight.');
+      const current = await prepared(input.repo, input.number, input.headSha, context);
+      if (current.actor.toLowerCase() !== input.actor.toLowerCase()) throw new Error('Authenticated actor changed');
       return { status: 'acknowledged' as const, receipt: { repo: input.repo, prNumber: input.number, headSha: input.headSha, actor: input.actor, reviewId: found[0]!.id } };
     } catch { return unavailable('Pinned GitHub review history is unavailable.'); }
   },

@@ -1,4 +1,5 @@
 import { readPullRequestDetail, retainPullRequestSource, prepareCommunicationReview, readOutcomePullRequest, verifyPullRequestExecution, parsePullRequestSource } from './pull-request-source';
+import { allowMutationRequest } from './request-origin';
 import type { CampaignTriggerProviderV1, CommunicationReviewTriggerProviderV1, PullRequestReviewTriggerProviderV1, WebhookTriggerProviderV1 } from '../../src/plugins/trigger';
 import type { SelectedTriggerCapture } from './trigger-runtime';
 import type { ReviewNotificationProposal } from './slack/store';
@@ -1506,6 +1507,10 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   void (async () => {
     const url: URL = new URL(req.url ?? '/', `http://localhost:${PORT}`);
+    if (!allowMutationRequest(req, url.pathname)) {
+      res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      res.end(JSON.stringify({ error: 'Mutations require a same-origin JSON request to the local server.' })); return;
+    }
     if (url.pathname === '/api/plugins/catalog' && (req.method === 'GET' || req.method === 'HEAD')) {
       try { await pluginCoordinator.reconcile(); await refreshPluginSnapshot(); }
       catch {
@@ -1519,10 +1524,6 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.end(req.method === 'HEAD' ? undefined : recoveryPage()); return;
     }
     if (url.pathname === '/api/webhooks/github/credential' && req.method === 'PUT') {
-      if (req.headers['content-type']?.split(';')[0] !== 'application/json'
-        || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) {
-        res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Credential changes require same-origin JSON.' })); return;
-      }
       const input = await readBody(req, 8192);
       if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1
         || !('secret' in input) || typeof input.secret !== 'string') {
@@ -1559,18 +1560,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const commandBodyLimit = url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/local-git/') || url.pathname.startsWith('/api/terminal/') ? 3 * 1024 * 1024 + 4096 : undefined;
     const body: unknown = hasBody ? await readBody(req, commandBodyLimit) : null;
     if (url.pathname === '/api/recovery' || url.pathname === '/api/recovery/actions') {
-      if (req.method === 'POST' && (req.headers['content-type']?.split(';')[0] !== 'application/json'
-        || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
-        res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Recovery requires a same-origin JSON request.' })); return;
-      }
       const result = await handleRecoveryRequest(req.method ?? 'GET', url.pathname, url.searchParams, body, recoveryService);
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
-    }
-    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/terminal/') || url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/local-git/') || url.pathname.startsWith('/api/jira-settings') || url.pathname.startsWith('/api/github-settings') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
-      && (req.headers['content-type']?.split(';')[0] !== 'application/json'
-        || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
     }
     const inspectController = (url.pathname.startsWith('/api/pull-request-inspect/') || url.pathname === '/api/profile') ? new AbortController() : null;
     const cancelInspect = () => inspectController?.abort();

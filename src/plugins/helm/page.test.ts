@@ -77,6 +77,21 @@ describe.each([['shipped Helm', helm], ['independent Helm', workspace]] as const
 });
 
 describe('shipped Helm composition controls', () => {
+  it('gives duplicate instances distinguishable groups and action names while preserving the targeted state', async () => {
+    const f = await fixture(); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
+    await f.composition.updateLayout({ ...f.layout, instances: [...f.layout.instances, { ...f.layout.instances[0]!, instanceId: 'second' }], columns: [[{ instances: ['first', 'second'], activeInstanceId: 'first', collapsed: false }]] }, f.layout.revision);
+    await vi.waitFor(() => expect(f.container.querySelectorAll('.helm-config-row[role="group"]')).toHaveLength(2));
+    const groups = [...f.container.querySelectorAll('.helm-config-row[role="group"]')];
+    expect(groups.map(row => row.getAttribute('aria-label'))).toEqual(['Tasks · first', 'Tasks · second']);
+    for (const row of groups) {
+      expect(row.getAttribute('role')).toBe('group');
+      for (const control of row.querySelectorAll('button, input, select')) expect(control.getAttribute('aria-label')).toContain(row.getAttribute('aria-label'));
+    }
+    const removals = [...f.container.querySelectorAll<HTMLButtonElement>('button[aria-label^="Remove · "]')];
+    expect(removals.map(control => control.getAttribute('aria-label'))).toEqual(['Remove · Tasks · first', 'Remove · Tasks · second']);
+    removals[1]!.click(); await vi.waitFor(() => expect(f.layout.instances.map(value => value.instanceId)).toEqual(['first']));
+    expect(f.layout.instances[0]?.state['example.missing/panel']).toEqual({ version: 2, value: { draft: 'kept' } }); f.lifetime.abort();
+  });
   it('duplicates, hides and stacks without overwriting other implementation state', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.container.textContent).toContain('Read public services'));
     const click = (label: string) => { const value = Array.from(f.container.querySelectorAll('button')).find(button => button.textContent === label); if (!value) throw new Error(`Missing ${label}`); value.click(); };
@@ -85,7 +100,7 @@ describe('shipped Helm composition controls', () => {
     await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(2));
     click('Hide'); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
     expect(f.container.querySelector<HTMLElement>('[data-panel-instance="first"]')?.hidden).toBe(true);
-    const select = f.container.querySelector<HTMLSelectElement>('[aria-label="Stack with panel"]')!; select.value = f.layout.instances[1]!.instanceId;
+    const select = f.container.querySelector<HTMLSelectElement>('[aria-label^="Stack with panel · "]')!; select.value = f.layout.instances[1]!.instanceId;
     click('Stack'); await vi.waitFor(() => expect(f.layout.columns[0]?.[0]?.instances).toHaveLength(2));
     expect(f.layout.instances[0]?.state['example.missing/panel']).toEqual({ version: 2, value: { draft: 'kept' } });
     f.lifetime.abort();
@@ -108,12 +123,12 @@ describe('shipped Helm composition controls', () => {
   });
   it('retains unsaved scope text and focus through a presentation refresh', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
-    const scope = f.container.querySelector<HTMLSelectElement>('[aria-label="Scope for Tasks"]')!;
+    const scope = f.container.querySelector<HTMLSelectElement>('[aria-label^="Scope for Tasks · "]')!;
     scope.value = 'galleon'; scope.dispatchEvent(new Event('change'));
-    const repo = f.container.querySelector<HTMLInputElement>('[aria-label="Panel repository"]')!;
+    const repo = f.container.querySelector<HTMLInputElement>('[aria-label^="Panel repository · "]')!;
     repo.value = 'owner/draft-project'; repo.dispatchEvent(new Event('input')); repo.focus();
     await f.instance.update({ ...state, themeId: 'light' });
-    const updated = f.container.querySelector<HTMLInputElement>('[aria-label="Panel repository"]')!;
+    const updated = f.container.querySelector<HTMLInputElement>('[aria-label^="Panel repository · "]')!;
     expect(updated.value).toBe('owner/draft-project'); expect(updated.hidden).toBe(false); expect(document.activeElement).toBe(updated);
     expect(f.layout.instances[0]?.scope).toEqual({ kind: 'inherit' }); f.lifetime.abort();
   });

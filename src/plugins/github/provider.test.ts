@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { inspectQuery as query, inspectTarget as target } from '../pull-request-inspect.test-fixture';
 import { githubPullRequestProvider } from './provider';
+import { formatPullRequestReviewBody } from '@helmsman/plugin-sdk';
 
 const review = (id: number, state: string, submittedAt = '2025-01-02T03:04:05.000Z') => ({ id, state, user: { login: 'reviewer' }, submitted_at: submittedAt, commit_id: target.headSha });
 const metadata = (overrides: Record<string, unknown> = {}) => ({ number: target.number, base: { sha: target.baseSha, repo: { full_name: target.repo } }, head: { sha: target.headSha, ref: 'work' }, state: 'open', draft: false, merged: false,
@@ -14,6 +15,54 @@ const comparison = (overrides: Record<string, unknown> = {}) => ({ url: `https:/
 function context(request: (input: { method: 'GET' | 'POST'; path: string; query: Readonly<Record<string, string>>; body: unknown | null }) => Promise<{ status: number; body: unknown; link?: string }>) {
   return { signal: new AbortController().signal, configuredAuthor: 'reviewer', http: { request: vi.fn(request) } };
 }
+
+describe('exact review receipt reconciliation', () => {
+  const input = { id: 'operation-1', contentHash: 'a'.repeat(64), repo: target.repo, number: target.number, headSha: target.headSha, actor: 'reviewer', event: 'COMMENT' as const, body: 'Reviewed' };
+  const receipt = (id: number, body = formatPullRequestReviewBody(input)) => ({ ...review(id, 'COMMENTED'), body });
+  const unrelated = () => Array.from({ length: 100 }, (_, i) => receipt(i + 1, 'Unrelated'));
+  const path = `/repos/${target.repo}/pulls/${target.number}/reviews`;
+  const link = (page: number) => `<https://api.github.com${path}?per_page=100&page=${page}>; rel="next"`;
+  function fixture(history: (page: number) => { status: number; body: unknown; link?: string }, actor = () => 'reviewer', head = () => target.headSha) {
+    return context(async request => {
+      expect(request.method).toBe('GET');
+      if (request.path === '/user') return { status: 200, body: { login: actor() } };
+      if (request.path === path) return history(Number(request.query.page));
+      return { status: 200, body: metadata({ head: { sha: head(), ref: 'work' } }) };
+    });
+  }
+
+  it.each([true, false])('finds an exact receipt beyond the first 100 reviews with next link=%s', async hasLink => {
+    const ctx = fixture(page => page === 1 ? { status: 200, body: unrelated(), ...(hasLink ? { link: link(2) } : {}) } : { status: 200, body: [receipt(101)] });
+    expect(await githubPullRequestProvider.reconcileReview!(input, ctx)).toMatchObject({ status: 'acknowledged', receipt: { reviewId: 101, headSha: target.headSha } });
+    expect(ctx.http.request.mock.calls.filter(([request]) => request.path === path).map(([request]) => request.query.page)).toEqual(['1', '2']);
+  });
+
+  it.each(['duplicate-marker', 'duplicate-id', 'malformed-page', 'failed-page', 'foreign-next-link', 'repeated-page'] as const)('preserves uncertainty for %s', async failure => {
+    const first = [receipt(1), ...unrelated().slice(1)];
+    const ctx = fixture(page => page === 1 ? { status: 200, body: first, link: failure === 'foreign-next-link' ? '<https://attacker.example/reviews?page=2>; rel="next"' : failure === 'repeated-page' ? link(1) : link(2) }
+      : failure === 'failed-page' ? { status: 503, body: null } : { status: 200, body: failure === 'malformed-page' ? null : [receipt(failure === 'duplicate-id' ? 1 : 101)] });
+    expect(await githubPullRequestProvider.reconcileReview!(input, ctx)).toMatchObject({ status: 'unknown' });
+  });
+
+  it('never acknowledges a partial bounded history even when it contains a matching marker', async () => {
+    const ctx = fixture(page => ({ status: 200, body: [receipt(page * 100), ...Array.from({ length: 99 }, (_, index) => receipt(page * 100 + index + 1, 'Unrelated'))], link: link(page + 1) }));
+    expect(await githubPullRequestProvider.reconcileReview!(input, ctx)).toMatchObject({ status: 'unknown' });
+    expect(ctx.http.request.mock.calls.filter(([request]) => request.path === path)).toHaveLength(20);
+  });
+
+  it.each(['actor', 'head'] as const)('rechecks %s after reading the full history', async changed => {
+    let finished = false;
+    const ctx = fixture(() => { finished = true; return { status: 200, body: [receipt(1)] }; }, () => changed === 'actor' && finished ? 'replacement' : 'reviewer', () => changed === 'head' && finished ? 'b'.repeat(40) : target.headSha);
+    expect(await githubPullRequestProvider.reconcileReview!(input, ctx)).toMatchObject({ status: 'unknown' });
+  });
+
+  it('stops pagination when cancellation arrives without acknowledging or sending a review', async () => {
+    const controller = new AbortController();
+    const ctx = fixture(() => { controller.abort(); return { status: 200, body: [receipt(1)], link: link(2) }; });
+    expect(await githubPullRequestProvider.reconcileReview!(input, { ...ctx, signal: controller.signal })).toMatchObject({ status: 'unknown' });
+    expect(ctx.http.request.mock.calls.filter(([request]) => request.path === path)).toHaveLength(1);
+  });
+});
 
 describe('GitHub pull request provider', () => {
   it('projects bounded profile names using the public authenticated HTTP service', async () => {

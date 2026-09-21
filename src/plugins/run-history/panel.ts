@@ -92,7 +92,9 @@ class HistoryPanel implements PluginPanelInstance {
         node('small', `Page ${this.index + 1} · ${this.page.items.length} runs shown. Statuses may change between pages.`));
       for (const run of this.page.items) {
         const row = node('article'); row.className = 'run-row'; row.dataset.runId = run.id;
-        row.append(this.button(run.displayKey, () => this.select(run.repo, run.id), !this.context.selectPresentation), node('small', `${run.repo} · ${run.id} · Attempt ${run.attempt}`),
+        const open = this.button(run.displayKey, () => this.select(run.repo, run.id), !this.context.selectPresentation);
+        open.setAttribute('aria-label', `${run.displayKey} · ${run.repo} · ${run.id} · Attempt ${run.attempt}`);
+        row.append(open, node('small', `${run.repo} · ${run.id} · Attempt ${run.attempt}`),
           node('p', `Worker: ${run.status} · ${run.costUsd === null ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`}`), node('small', `Started ${run.startedAt}${run.endedAt ? ` · Ended ${run.endedAt}` : ''}`));
         if (run.review) row.append(node('p', `Review recommendation: ${run.review.outcome}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
         if (run.sourceSettlement) row.append(node('p', `Source settlement: ${run.sourceSettlement.state}`));

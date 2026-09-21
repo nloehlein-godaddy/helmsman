@@ -10,7 +10,7 @@ describe('retryRun', () => {
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ runId: 'new-voyage', ignored: true })));
     vi.stubGlobal('fetch', fetch);
     await expect(retryRun(id)).resolves.toEqual({ runId: 'new-voyage' });
-    expect(fetch).toHaveBeenCalledExactlyOnceWith(`/api/agents/${id}/retry`, { method: 'POST' });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(`/api/agents/${id}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   });
 
   it.each(['', '../run', 'bad id', 'x'.repeat(129), null, undefined, 42])('rejects invalid IDs without fetching: %j', async id => {

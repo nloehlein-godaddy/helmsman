@@ -96,7 +96,7 @@ export function updateTodo(id: string, input: TodoInput): Promise<Todo> {
 
 export async function deleteTodo(id: string): Promise<void> {
   const pending = mutation(`/api/todos/${encodeURIComponent(id)}`, 'DELETE', null);
-  const data = await request(pending.path, { method: 'DELETE' }, pending);
+  const data = await request(pending.path, { method: 'DELETE', headers: { 'Content-Type': 'application/json' } }, pending);
   if (data.ok !== true) throw new Error('Unable to confirm deletion. Refresh before retrying.');
   pending.complete();
 }

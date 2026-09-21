@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         '/plugin-assets': { target: `http://localhost:${port}`, changeOrigin: true },
-        '/api': { target: `http://localhost:${port}`, changeOrigin: true },
+        '/api': { target: `http://localhost:${port}`, changeOrigin: false },
       },
     },
   };

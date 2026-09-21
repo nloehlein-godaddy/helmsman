@@ -290,7 +290,9 @@ class ViewerPanel implements PluginPanelInstance {
     const visibleTabs = this.tabs.filter(item => this.inScope(item.repo));
     for (const [index, tab] of visibleTabs.entries()) {
       const group = node('span'); group.className = 'run-tab'; group.dataset.runKey = tabKey(tab);
-      const button = this.button(tab.summary?.displayKey ?? tab.runId, () => this.activate(tab), !this.context.selectPresentation); button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(this.activeKey === tabKey(tab))); button.title = `${tab.repo} · ${tab.runId}`;
+      const label = `${tab.summary?.displayKey ?? tab.runId} · ${tab.repo} · ${tab.runId}`;
+      const button = this.button(label, () => this.activate(tab), !this.context.selectPresentation); button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(this.activeKey === tabKey(tab)));
+      button.setAttribute('aria-label', `${label}${tab.summary ? ` · Attempt ${tab.summary.attempt}` : ''}`);
       button.tabIndex = this.activeKey === tabKey(tab) || this.activeKey === null && index === 0 ? 0 : -1;
       button.addEventListener('keydown', event => {
         const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? visibleTabs.length - 1 : event.key === 'ArrowRight' ? (index + 1) % visibleTabs.length : event.key === 'ArrowLeft' ? (index + visibleTabs.length - 1) % visibleTabs.length : null;

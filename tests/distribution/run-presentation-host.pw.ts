@@ -51,7 +51,7 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     await expect(history.getByText('Page 2 · 5 runs shown.', { exact: false })).toBeVisible();
     await history.getByRole('button', { name: 'Previous page', exact: true }).click();
     await expect(history.locator('[data-run-id]')).toHaveCount(50);
-    await history.getByRole('button', { name: 'TASK-54', exact: true }).click();
+    await history.getByRole('button', { name: /^TASK-54 · / }).click();
     const viewer = page.locator('.plugin-auxiliary-slot [data-plugin-page="example.run-viewer/page"]');
     await expect(viewer.getByRole('heading', { name: 'Voyage viewer', exact: true })).toBeVisible();
     await expect(viewer.locator('.run-log')).toContainText('log 349');
@@ -66,9 +66,9 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
     await expect(viewer.getByRole('button', { name: 'Follow latest', exact: true })).toBeEnabled();
     await expect(viewer.locator('.run-log')).toContainText('log 250');
-    await history.getByRole('button', { name: 'TASK-53', exact: true }).click();
-    await expect(viewer.getByRole('tab', { name: 'TASK-53', exact: true })).toHaveAttribute('aria-selected', 'true');
-    await viewer.getByRole('tab', { name: 'TASK-54', exact: true }).click();
+    await history.getByRole('button', { name: /^TASK-53 · / }).click();
+    await expect(viewer.getByRole('tab', { name: /^TASK-53 · / })).toHaveAttribute('aria-selected', 'true');
+    await viewer.getByRole('tab', { name: /^TASK-54 · / }).click();
     await expect(viewer.locator('.run-log')).toContainText('log 250');
     await expect(viewer.getByRole('button', { name: 'Earlier logs', exact: true })).toBeEnabled();
     let commandRequests = 0;

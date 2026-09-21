@@ -49,6 +49,19 @@ describe('authored run viewer lifecycle and commands', () => {
     await ready(f.container); expect(f.container.querySelector('pre')?.textContent).toContain('<img src=x'); expect(f.container.querySelector('img')).toBeNull();
     expect(f.container.textContent).toContain('Run-wide log preview'); expect(f.container.textContent).toContain('Spend unknown');
   });
+  it('distinguishes same-key run tabs and selects their canonical identity', async () => {
+    const f = await mount(); await ready(f.container);
+    f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), displayKey: 'TASK-1' } }));
+    await f.instance.refresh?.();
+    await f.instance.update({ ...f.state, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'two' } });
+    await vi.waitFor(() => expect(f.container.querySelectorAll('[role="tab"]')).toHaveLength(2));
+    await vi.waitFor(() => expect([...f.container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['TASK-1 · org/a · one', 'TASK-1 · org/a · two']));
+    const tabs = [...f.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    expect(tabs.map(tab => tab.getAttribute('aria-label'))).toEqual(['TASK-1 · org/a · one · Attempt 1', 'TASK-1 · org/a · two · Attempt 1']);
+    tabs[0]!.click();
+    expect(f.selectPresentation).toHaveBeenLastCalledWith({ version: 1, kind: 'run', repo: 'org/a', runId: 'one' });
+    expect(f.state.repo).toBe('org/a');
+  });
   it('never replaces the live-follow cursor with an older-page cursor', async () => {
     const log = vi.fn<RunInspectServiceV1['log']>(async input => available(input.cursor === 'older-51' ? page({ events: [event(1)], nextCursor: null, followCursor: null, hasEarlier: false })
       : input.direction === 'forward' ? page({ events: [event(52)], nextCursor: 'follow-52', followCursor: null }) : page()));

@@ -26,7 +26,7 @@ test('independent page defaults seed only fresh layouts and survive replacement 
     await expect(page.locator('.plugin-helm .alternative-backlog')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('[data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(1);
     await page.getByText('Manage panels', { exact: true }).click();
-    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    await page.getByRole('button', { name: /^Remove(?: ·|$)/ }).click();
     await expect(page.locator('[data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(0);
     await page.reload();
     await expect(page.locator('.plugin-helm')).toBeVisible();

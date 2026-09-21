@@ -21,6 +21,15 @@ async function mount(history: RunInspectServiceV1['history'] = vi.fn(async () =>
   return { container, instance, state, activity, lifetime, selectPresentation, saveState, context };
 }
 describe('authored bounded run history', () => {
+  it('names same-key runs by galleon, canonical run and attempt without changing action scope', async () => {
+    const items = [run('one', 'org/a'), run('two', 'org/b'), run('three', 'org/a')].map(value => ({ ...value, displayKey: 'TASK-1' }));
+    const f = await mount(vi.fn(async () => available(page({ repo: null, items, nextCursor: null }))), { repo: null, activity: { epoch: 1, repo: null, active: true, signal: new AbortController().signal } });
+    await vi.waitFor(() => expect(f.container.querySelectorAll('[data-run-id]')).toHaveLength(3));
+    const buttons = [...f.container.querySelectorAll<HTMLButtonElement>('[data-run-id] button')];
+    expect(buttons.map(value => value.getAttribute('aria-label'))).toEqual(items.map(value => `TASK-1 · ${value.repo} · ${value.id} · Attempt 1`));
+    buttons[1]!.click(); expect(f.selectPresentation).toHaveBeenCalledWith({ version: 1, kind: 'run', repo: 'org/b', runId: 'two' });
+    expect(f.state.repo).toBeNull();
+  });
   it('reports observation-time total separately from the loaded page and selects canonical scope', async () => {
     const history = vi.fn<RunInspectServiceV1['history']>(async () => available(page())); const f = await mount(history);
     await vi.waitFor(() => expect(f.container.textContent).toContain('101 matching runs observed'));

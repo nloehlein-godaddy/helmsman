@@ -124,6 +124,8 @@ class HelmPage implements PluginPageInstance {
     const addRow = element('div'); addRow.className = 'helm-config-row'; addRow.append(add, button('Add panel', () => { if (add.value) void this.save(value => addInstance(value, add.value)); }, this.saving || !add.options.length)); controls.append(addRow);
     for (const instance of layout.instances) {
       const row = element('div'); row.className = 'helm-config-row'; row.append(element('strong', this.title(instance.contributionId)));
+      const identity = `${this.title(instance.contributionId)} · ${instance.instanceId}`;
+      row.setAttribute('role', 'group'); row.setAttribute('aria-label', identity);
       const focus = (control: HTMLElement, suffix: string) => { control.dataset.helmFocus = `${instance.instanceId}:${suffix}`; return control; };
       row.append(focus(button(instance.hidden ? 'Show' : 'Hide', () => { void this.save(value => changeInstance(value, instance.instanceId, { hidden: !instance.hidden })); }, this.saving), 'hidden'));
       row.append(button('Duplicate', () => { void this.save(value => addInstance(value, instance.contributionId, instance.scope)); }, this.saving));
@@ -154,7 +156,11 @@ class HelmPage implements PluginPageInstance {
       const stack = element('select'); stack.setAttribute('aria-label', 'Stack with panel');
       const choose = element('option', 'Choose a panel'); choose.value = ''; stack.append(choose);
       for (const other of layout.instances) if (other.instanceId !== instance.instanceId) { const option = element('option', `${this.title(other.contributionId)} · ${other.instanceId.slice(0, 8)}`); option.value = other.instanceId; stack.append(option); }
-      row.append(stack, button('Stack', () => { if (stack.value) void this.save(value => stackInstance(value, instance.instanceId, stack.value)); }, this.saving)); controls.append(row);
+      row.append(stack, button('Stack', () => { if (stack.value) void this.save(value => stackInstance(value, instance.instanceId, stack.value)); }, this.saving));
+      for (const control of row.querySelectorAll<HTMLElement>('button, input, select')) {
+        control.setAttribute('aria-label', `${control.getAttribute('aria-label') ?? control.textContent} · ${identity}`);
+      }
+      controls.append(row);
     }
     manager.append(controls); page.append(manager);
     const grid = element('div'); grid.className = 'helm-columns'; grid.style.setProperty('--helm-columns', String(Math.max(1, layout.columns.length)));
