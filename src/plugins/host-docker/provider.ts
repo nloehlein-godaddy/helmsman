@@ -386,7 +386,7 @@ async function prepareStage(run: DockerCommandRunner, input: ExecutionHostStageI
     await control(['create', '--name', relayName, '--label', `helmsman.runId=${input.runId}`, '--network', 'bridge',
       '--add-host', 'host.docker.internal:host-gateway', '--user', `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--read-only', '--entrypoint', 'node', image,
-      '-e', gatewayRelaySource, gateway.origin, '8080']);
+      '--input-type=module', '-e', gatewayRelaySource, gateway.origin, '8080']);
     await control(['network', 'connect', '--alias', 'gateway', network, relayName]);
     await control(['start', relayName]);
     await control(['exec', relayName, 'node', '-e', "(async()=>{for(let i=0;i<30;i++){try{if((await fetch('http://127.0.0.1:8080/health')).status===204)return;}catch{}await new Promise(r=>setTimeout(r,100));}process.exitCode=1;})()"]);
