@@ -27,7 +27,7 @@ function options() {
 }
 describe('trusted shipped frontend lifecycle', () => {
   it('keeps authored shipped metadata aligned with independently buildable package descriptors', () => {
-    const privateCompatibility = new Set(['helmsman.compat-clarifications', 'helmsman.compat-pr']);
+    const privateCompatibility = new Set(['helmsman.compat-pr']);
     for (const pkg of builtinFrontendPackages.filter(pkg => !privateCompatibility.has(pkg.manifest.id))) {
       const name = pkg.manifest.id.replace(/^helmsman\./, '');
       const descriptor = parsePluginPackage(JSON.parse(readFileSync(new URL(`../../../src/plugins/${name}/plugin-package.json`, import.meta.url), 'utf8')), { allowBuiltin: true });

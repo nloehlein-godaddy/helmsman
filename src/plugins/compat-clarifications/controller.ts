@@ -1,23 +1,22 @@
-import type { ClarificationReadItemV1, ClarificationReadServiceV1 } from './plugins/clarification-read';
-import type { ClarificationCommandPendingV1, ClarificationCommandReceiptV1, ClarificationCommandServiceV1 } from './plugins/clarification-command';
-import type { SuggestedContactAdminContactV1, SuggestedContactAdminPendingV1, SuggestedContactAdminReceiptV1, SuggestedContactAdminServiceV1 } from './plugins/suggested-contact-admin';
-import { createHostClarificationReadService } from './plugins/clarification-read-service';
-import { createHostClarificationCommandService } from './plugins/clarification-command-service';
-import { createHostSuggestedContactAdminService } from './plugins/suggested-contact-admin-service';
-import { clarificationDraftKey, createClarificationDraftStore, emptyClarificationDrafts, type ClarificationDraftStore } from './clarification-drafts';
-import { renderClarifications } from './renderClarifications';
+import type { ClarificationReadItemV1, ClarificationReadServiceV1 } from '@helmsman/plugin-sdk';
+import type { ClarificationCommandPendingV1, ClarificationCommandReceiptV1, ClarificationCommandServiceV1 } from '@helmsman/plugin-sdk';
+import type { SuggestedContactAdminContactV1, SuggestedContactAdminPendingV1, SuggestedContactAdminReceiptV1, SuggestedContactAdminServiceV1 } from '@helmsman/plugin-sdk';
+import { clarificationDraftKey, createClarificationDraftStore, emptyClarificationDrafts, type ClarificationDraftStore } from './drafts.js';
+import { renderClarifications } from './render.js';
+import { styles } from './styles.js';
 
 export interface ClarificationViewServices {
   clarifications: ClarificationReadServiceV1; clarificationCommands: ClarificationCommandServiceV1; suggestedContacts: SuggestedContactAdminServiceV1;
 }
 export function mountClarifications(container: HTMLElement, options: {
-  repo(): string | null; services?: ClarificationViewServices; signal?: AbortSignal; visible?: boolean; drafts?: ClarificationDraftStore;
+  contributionId: string; repo(): string | null; pirateMode?(): boolean; navigate?(href: string): void;
+  services: ClarificationViewServices; signal?: AbortSignal; visible?: boolean; drafts?: ClarificationDraftStore;
 }): { refresh(): Promise<void>; setVisible(visible: boolean): void; destroy(): void } {
-  const lifetime = new AbortController(); let activity = new AbortController(); let visible = options.visible ?? true; let destroyed = false;
+  let activity = new AbortController(); let visible = options.visible ?? true; let destroyed = false;
   let scope = options.repo(); let generation = 0; let sequence = 0; let busy = false;
-  const hostOptions = { caller: 'helmsman.compat-clarifications/page', scope: () => ({ repo: scope, epoch: generation, active: visible && !destroyed, signal: activity.signal }) };
-  const services = options.services ?? { clarifications: createHostClarificationReadService(lifetime.signal, hostOptions), clarificationCommands: createHostClarificationCommandService(lifetime.signal, hostOptions), suggestedContacts: createHostSuggestedContactAdminService(lifetime.signal, hostOptions) };
-  const draftStore = options.drafts ?? createClarificationDraftStore(); let drafts = emptyClarificationDrafts(); let storageError: string | null = null;
+  const services = options.services;
+  const draftStore = options.drafts ?? createClarificationDraftStore(options.contributionId); let drafts = emptyClarificationDrafts(); let storageError: string | null = null;
+  container.classList.add('plugin-clarification-recovery');
   const dirtyAnswers = new Set<string>(); let dirtyContact = false;
   let items: ClarificationReadItemV1[] = []; let contacts: SuggestedContactAdminContactV1[] = [];
   let pending: readonly ClarificationCommandPendingV1[] = []; let contactPending: readonly SuggestedContactAdminPendingV1[] = [];
@@ -41,7 +40,7 @@ export function mountClarifications(container: HTMLElement, options: {
     const unresolved = new Set([...pending, ...contactPending].map(entry => entry.command.requestId));
     const answerDrafts = Object.entries(drafts.answers).map(([key, text]) => { const [repo, runId, id] = JSON.parse(key) as [string, string, string];
       return { key, text, repo, label: `${repo} · ${runId} · ${id}`, protected: pending.some(entry => entry.command.repo === repo && entry.command.runId === runId && entry.command.questionId === id) }; }).filter(draft => scope === null || draft.repo === scope);
-    container.innerHTML = renderClarifications(items, contacts, scope, error, { loading, contactError, notice, storageError, pending, contactPending, moreQuestions: questionsCursor !== null, moreContacts: contactsCursor !== null,
+    container.innerHTML = `<style>${styles}</style>` + renderClarifications(items, contacts, scope, error, { pirateMode: options.pirateMode?.() ?? true, loading, contactError, notice, storageError, pending, contactPending, moreQuestions: questionsCursor !== null, moreContacts: contactsCursor !== null,
       results: drafts.results.filter(result => result.repo === null || scope === null || result.repo === scope).map(result => ({ ...result, protected: unresolved.has(result.requestId) })), drafts: answerDrafts,
       contactDraft: drafts.contact.name || drafts.contact.address ? { text: `${drafts.contact.name} · ${drafts.contact.address}`, protected: contactPending.length > 0 } : null });
     for (const form of container.querySelectorAll<HTMLFormElement>('form')) {
@@ -169,7 +168,12 @@ export function mountClarifications(container: HTMLElement, options: {
     }
   }
   const click = (event: Event) => {
-    if (!(event.target instanceof Element)) return; const button = event.target.closest<HTMLButtonElement>('button'); if (!button || button.disabled) return;
+    if (!(event.target instanceof Element)) return;
+    const link = event.target.closest<HTMLAnchorElement>('a.app-link');
+    if (link && options.navigate && event instanceof MouseEvent && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+      event.preventDefault(); event.stopPropagation(); options.navigate(link.getAttribute('href') ?? '/clarifications'); return;
+    }
+    const button = event.target.closest<HTMLButtonElement>('button'); if (!button || button.disabled) return;
     if (button.hasAttribute('data-refresh-questions')) { void refresh(); return; }
     const holder = button.closest<HTMLElement>('[data-request]');
     if (holder) { void action(token => reconcile(holder.dataset.pendingKind, holder.dataset.request, button.dataset.pendingAction, token)); return; }
@@ -215,7 +219,7 @@ export function mountClarifications(container: HTMLElement, options: {
     });
   };
   const input = (event: Event) => { if (event.target instanceof Element) { const form = event.target.closest('form'); if (form) persist(form); } };
-  function destroy(): void { if (destroyed) return; destroyed = true; transition(); lifetime.abort(); container.removeEventListener('submit', submit); container.removeEventListener('click', click); container.removeEventListener('input', input); options.signal?.removeEventListener('abort', destroy); }
+  function destroy(): void { if (destroyed) return; destroyed = true; transition(); container.classList.remove('plugin-clarification-recovery'); container.removeEventListener('submit', submit); container.removeEventListener('click', click); container.removeEventListener('input', input); options.signal?.removeEventListener('abort', destroy); }
   options.signal?.addEventListener('abort', destroy, { once: true });
   container.addEventListener('submit', submit); container.addEventListener('click', click); container.addEventListener('input', input);
   if (options.signal?.aborted) destroy(); else { paint(); void refresh(); }

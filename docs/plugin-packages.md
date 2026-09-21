@@ -8,7 +8,7 @@ The reviewed foundation (`e788774`) includes separate [run inspection](run-inspe
 
 The current working slice adds authored `run-viewer` and `run-history` projects, exposed at `/run-viewer` and `/run-history` after builtin catalog activation. Their public panel contracts and compositions use `helmsman/run-viewer-panel@1` / `helmsman/run-viewer-page` and `helmsman/run-history-panel@1` / `helmsman/run-history-page`. The generic auxiliary host honors the selected viewer page on plugin-page selections. These are provisional entry points; `/runs` and its drawer are not cut over by registering them.
 
-The bundled `helmsman.compat-clarifications/page` bridge adapts the existing renderer to durable public services. It remains compatibility code and is not a standalone author project. See [the backend clarification boundary](clarification-backend.md), [panel lifecycle and typed selection](panel-authoring.md), and [current acceptance status](plugin-implementation-progress.md).
+The independently buildable `helmsman.compat-clarifications/page` recovery package owns its renderer, styles and legacy draft store while using durable public services. Its original identity preserves existing requests and raw drafts; renamed copies use their own draft namespace and caller journals. See [the backend clarification boundary](clarification-backend.md), [panel lifecycle and typed selection](panel-authoring.md), and [current acceptance status](plugin-implementation-progress.md).
 
 ## Try the external sample
 
@@ -97,7 +97,7 @@ Static and literal dynamic JavaScript imports must resolve to `.js`/`.mjs` files
 
 ## Authored question and contact packages
 
-The [authored question/contact packages](authored-clarifications.md) use separate public panel contracts and conditional instance-state saves. Independently installed copies must rewrite both the question page's own panel reference and its cross-package contact reference to the chosen nonreserved IDs. Keep the shared contracts unchanged. Select an installed page for `/clarifications` with `select helmsman/clarifications-page example.questions/page`. Existing composition layouts, compatibility drafts and original caller-owned requests remain intact; recovery stays available through the original compatibility contribution, whose retirement requires separate acceptance.
+The [authored question/contact packages](authored-clarifications.md) use separate public panel contracts and conditional instance-state saves. Independently installed copies must rewrite both the question page's own panel reference and its cross-package contact reference to the chosen nonreserved IDs. Keep the shared contracts unchanged. Select an installed page for `/clarifications` with `select helmsman/clarifications-page example.questions/page`. Existing composition layouts, compatibility drafts and original caller-owned requests remain intact; recovery stays available through the original compatibility contribution, which now owns its renderer and storage through the public package boundary.
 
 ## Storage and startup
 

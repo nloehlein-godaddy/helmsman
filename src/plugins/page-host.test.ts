@@ -37,6 +37,18 @@ afterEach(() => {
 });
 
 describe('plugin page host', () => {
+  it('binds page identity to the mounted contribution across scope updates and replacements', async () => {
+    const { host } = setup(); const contexts: PluginPageContext[] = [];
+    const module: PluginPageModule = { mount(_container, context) { contexts.push(context); return lifecycle(); } };
+    host.show('example.original/page', module, state()); await settle();
+    host.show('example.original/page', module, state({ repo: 'org/second' })); await settle();
+    expect(contexts).toHaveLength(1); expect(contexts[0]?.contributionId).toBe('example.original/page');
+    expect(Object.isFrozen(contexts[0])).toBe(true);
+    host.show('example.replacement/page', module, state()); await settle();
+    expect(contexts[0]?.signal.aborted).toBe(true); expect(contexts[1]?.contributionId).toBe('example.replacement/page');
+    expect(contexts[0]?.contributionId).toBe('example.original/page');
+  });
+
   it('delivers presentation changes without remounting and captures current scope for selection', async () => {
     const selectPresentation = vi.fn(); const { host } = setup({ selectPresentation });
     let context!: PluginPageContext; const instance = lifecycle();

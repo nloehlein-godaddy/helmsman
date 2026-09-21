@@ -25,12 +25,12 @@ test('compatibility clarifications preserve drafts and durable results in the so
   host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   try {
-    await expect(host.script('prove-renderer-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/renderClarifications.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
+    await expect(host.script('prove-renderer-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/compat-clarifications/render.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
     await host.start(); await host.stop(); await seedClarificationProof(host);
     const origin = await host.start();
     const contactReads = '**/api/suggested-contact-admin?*';
     await page.route(contactReads, route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ reason: 'contact-proof-unavailable' }) }));
-    await page.goto(`${origin}/clarifications?repo=org/a`);
+    await page.goto(`${origin}/plugins/helmsman.compat-clarifications/page?repo=org/a`);
     const renderer = page.locator('.clarification-page');
     const known = renderer.locator('[data-question="question-proof"]');
     const unknown = renderer.locator('[data-question="legacy-proof"]');

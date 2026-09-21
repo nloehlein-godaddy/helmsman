@@ -1,11 +1,11 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mountClarifications, renderClarifications } from './renderClarifications';
-import type { ClarificationViewServices } from './clarification-controller';
-import { clarificationDraftKey, createClarificationDraftStore } from './clarification-drafts';
-import type { ClarificationReadItemV1, ClarificationReadResultV1 } from './plugins/clarification-read';
-import type { ClarificationCommandPendingV1, ClarificationCommandReceiptV1, ClarificationCommandV1 } from './plugins/clarification-command';
-import type { SuggestedContactAdminPendingV1 } from './plugins/suggested-contact-admin';
-import { setPirateMode } from './logic/terminology';
+import { mountClarifications } from './controller.js';
+import { renderClarifications } from './render.js';
+import type { ClarificationViewServices } from './controller.js';
+import { clarificationDraftKey, createClarificationDraftStore } from './drafts.js';
+import type { ClarificationReadItemV1, ClarificationReadResultV1 } from '@helmsman/plugin-sdk';
+import type { ClarificationCommandPendingV1, ClarificationCommandReceiptV1, ClarificationCommandV1 } from '@helmsman/plugin-sdk';
+import type { SuggestedContactAdminPendingV1 } from '@helmsman/plugin-sdk';
 
 const uuid = '00000000-0000-4000-8000-000000000001';
 const time = '2026-09-19T00:00:00Z';
@@ -34,7 +34,7 @@ function fixture() {
   } satisfies ClarificationViewServices;
   function mount(options: Partial<Parameters<typeof mountClarifications>[1]> = {}) {
     const container = document.createElement('main'); document.body.append(container);
-    const controller = mountClarifications(container, { repo: () => 'org/app', services, ...options }); controllers.push(controller); return { container, controller };
+    const controller = mountClarifications(container, { contributionId: 'helmsman.compat-clarifications/page', repo: () => 'org/app', services, ...options }); controllers.push(controller); return { container, controller };
   }
   return { data, services, mount };
 }
@@ -42,10 +42,10 @@ function form(container: HTMLElement): HTMLFormElement { const form = container.
 function draft(container: HTMLElement, text: string): void { const input = form(container).querySelector('textarea')!; input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); }
 function submit(container: HTMLElement): void { form(container).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); }
 const ready = (container: HTMLElement) => vi.waitFor(() => expect(container.querySelector('form[data-answer]')).not.toBeNull());
-afterEach(() => { controllers.splice(0).forEach(controller => controller.destroy()); document.body.innerHTML = ''; localStorage.clear(); vi.restoreAllMocks(); setPirateMode(true); });
+afterEach(() => { controllers.splice(0).forEach(controller => controller.destroy()); document.body.innerHTML = ''; localStorage.clear(); vi.restoreAllMocks(); });
 
 it.each([true, false])('renders scoped questions without requiring contacts in pirate mode %s', pirate => {
-  setPirateMode(pirate); document.body.innerHTML = renderClarifications([question()], [], 'org/app', null);
+  document.body.innerHTML = renderClarifications([question()], [], 'org/app', null, { pirateMode: pirate });
   expect(document.querySelector('h1')?.textContent).toBe('Agent Questions'); expect(document.querySelector('.clarification-create')).toBeNull();
   expect(document.querySelector('.clarification-help a')?.getAttribute('href')).toBe('/helm?repo=org%2Fapp&pane=newrun');
   expect(document.querySelector<HTMLDetailsElement>('[data-contact-settings]')?.open).toBe(false);
@@ -67,7 +67,7 @@ it('renders questions and permits answers while global contact reads remain stal
   expect(container.textContent).toContain('Answer accepted'); expect(container.textContent).toContain('Worker consumption is not confirmed');
 });
 it('submits exact observed question fences, persists result before acknowledgment and moves answered rows to history', async () => {
-  const f = fixture(); const store = createClarificationDraftStore(); const ack = f.services.clarificationCommands.acknowledge.getMockImplementation()!;
+  const f = fixture(); const store = createClarificationDraftStore('helmsman.compat-clarifications/page'); const ack = f.services.clarificationCommands.acknowledge.getMockImplementation()!;
   f.services.clarificationCommands.acknowledge.mockImplementation(async query => { expect(store.read().results[0]?.requestId).toBe(query.requestId); expect(store.read().answers[clarificationDraftKey(question())]).toBe('Yes'); await ack(query); });
   const { container } = f.mount(); await ready(container); draft(container, 'Yes'); submit(container);
   await vi.waitFor(() => expect(f.services.clarificationCommands.acknowledge).toHaveBeenCalled());
@@ -87,7 +87,7 @@ it('retains changed drafts while explicitly retrying an original unresolved comm
   expect(f.services.clarificationCommands.submit).not.toHaveBeenCalled(); container.querySelector<HTMLButtonElement>('[data-pending-action="retry"]')!.click();
   await vi.waitFor(() => expect(f.services.clarificationCommands.retry).toHaveBeenCalled());
   expect(f.services.clarificationCommands.retry).toHaveBeenCalledWith({ repo: command.repo, requestId: uuid }, expect.any(AbortSignal)); expect(f.services.clarificationCommands.submit).not.toHaveBeenCalled();
-  expect(createClarificationDraftStore().read().answers[clarificationDraftKey(question())]).toBe('Edited unsent answer');
+  expect(createClarificationDraftStore('helmsman.compat-clarifications/page').read().answers[clarificationDraftKey(question())]).toBe('Edited unsent answer');
 });
 it('keeps unknown outcomes pending and checking a missing receipt never resubmits or acknowledges', async () => {
   const f = fixture(); f.services.clarificationCommands.submit.mockImplementation(async input => { f.data.pending = [{ command: { ...input, requestId: uuid }, receipt: null }]; return { status: 'unavailable', reason: 'connection-failed' }; });
@@ -97,12 +97,12 @@ it('keeps unknown outcomes pending and checking a missing receipt never resubmit
   await vi.waitFor(() => expect(container.textContent).toContain('No receipt is recorded')); expect(f.services.clarificationCommands.submit).toHaveBeenCalledTimes(1); expect(f.services.clarificationCommands.acknowledge).not.toHaveBeenCalled();
 });
 it('does not acknowledge accepted work when saving its result fails', async () => {
-  const f = fixture(); const base = createClarificationDraftStore(); const { container } = f.mount({ drafts: { ...base, accept() { throw new Error('Result quota'); } } }); await ready(container); draft(container, 'Yes'); submit(container);
+  const f = fixture(); const base = createClarificationDraftStore('helmsman.compat-clarifications/page'); const { container } = f.mount({ drafts: { ...base, accept() { throw new Error('Result quota'); } } }); await ready(container); draft(container, 'Yes'); submit(container);
   await vi.waitFor(() => expect(container.textContent).toContain('Result quota')); expect(f.services.clarificationCommands.acknowledge).not.toHaveBeenCalled();
   expect(container.querySelector('[data-pending-action="acknowledge"]')).not.toBeNull(); expect(base.read().answers[clarificationDraftKey(question())]).toBe('Yes');
 });
 it('preserves a newer unsaved draft when the original response arrives and waits for its durable save before acknowledgment', async () => {
-  const f = fixture(); const base = createClarificationDraftStore(); let rejectNewDraft = true;
+  const f = fixture(); const base = createClarificationDraftStore('helmsman.compat-clarifications/page'); let rejectNewDraft = true;
   const wait = deferred<ClarificationReadResultV1<ClarificationCommandReceiptV1>>(); f.services.clarificationCommands.submit.mockReturnValue(wait.promise);
   const { container } = f.mount({ drafts: { ...base, answer(key, value) { if (value === 'New unsent draft' && rejectNewDraft) throw new Error('Draft quota'); base.answer(key, value); } } });
   await ready(container); draft(container, 'Original answer'); submit(container); draft(container, 'New unsent draft');
@@ -116,7 +116,7 @@ it('preserves a newer unsaved draft when the original response arrives and waits
   expect(base.read().answers[clarificationDraftKey(question())]).toBe('New unsent draft');
 });
 it('does not send while draft storage is inaccessible and keeps entered text visible', async () => {
-  const f = fixture(); const base = createClarificationDraftStore(); const { container } = f.mount({ drafts: { ...base, answer() { throw new Error('Draft quota'); } } }); await ready(container); draft(container, 'Unsent'); submit(container);
+  const f = fixture(); const base = createClarificationDraftStore('helmsman.compat-clarifications/page'); const { container } = f.mount({ drafts: { ...base, answer() { throw new Error('Draft quota'); } } }); await ready(container); draft(container, 'Unsent'); submit(container);
   expect(container.textContent).toContain('Draft quota'); expect(form(container).querySelector('textarea')?.value).toBe('Unsent'); expect(f.services.clarificationCommands.submit).not.toHaveBeenCalled();
 });
 it('ignores a stale submission when scope changes and does not clear or acknowledge the newer draft', async () => {
@@ -138,7 +138,7 @@ it('uses opaque continuation for explicit load more and preserves existing draft
   await vi.waitFor(() => expect(container.textContent).toContain('Second question')); expect(form(container).querySelector('textarea')?.value).toBe('Draft'); expect(container.querySelector('[data-more-questions]')).toBeNull();
 });
 it('recovers from the saved-state record cap through explicit result dismissal without deleting pending commands', async () => {
-  const f = fixture(); const base = createClarificationDraftStore(); base.answer(clarificationDraftKey(question()), 'Yes');
+  const f = fixture(); const base = createClarificationDraftStore('helmsman.compat-clarifications/page'); base.answer(clarificationDraftKey(question()), 'Yes');
   for (let index = 0; index < 1023; index++) {
     const requestId = `00000000-0000-4000-8000-${(index + 1000).toString(16).padStart(12, '0')}`;
     localStorage.setItem(`helmsman.compat-clarifications.drafts.v2:result:${requestId}`, JSON.stringify({ requestId, repo: 'org/app', message: 'Earlier accepted answer' }));
@@ -153,7 +153,7 @@ it('recovers from the saved-state record cap through explicit result dismissal w
   expect(base.read().results.some(result => result.requestId === uuid)).toBe(true);
 });
 it('protects unresolved drafts from cleanup and refuses cleanup when journal reads fail', async () => {
-  const f = fixture(); const base = createClarificationDraftStore(); const key = clarificationDraftKey(question()); base.answer(key, 'Saved draft');
+  const f = fixture(); const base = createClarificationDraftStore('helmsman.compat-clarifications/page'); const key = clarificationDraftKey(question()); base.answer(key, 'Saved draft');
   const { container, controller } = f.mount(); await ready(container); await controller.refresh();
   f.services.clarificationCommands.pending.mockRejectedValueOnce(new Error('Journal unavailable'));
   container.querySelector<HTMLButtonElement>('[data-remove-draft]')!.click();
@@ -167,7 +167,7 @@ it.each([
   ['answer', 'same-tab'], ['answer', 'other-tab'], ['answer', 'unsaved'],
   ['contact', 'same-tab'], ['contact', 'other-tab'], ['contact', 'unsaved'],
 ] as const)('retains newer %s edits from %s while cleanup checks journals', async (kind, writer) => {
-  const f = fixture(); const base = createClarificationDraftStore(); const key = clarificationDraftKey(question());
+  const f = fixture(); const base = createClarificationDraftStore('helmsman.compat-clarifications/page'); const key = clarificationDraftKey(question());
   base.answer(key, 'Original'); base.contact({ name: 'Original', address: 'account', enabled: true });
   const { container, controller } = f.mount(writer === 'unsaved' ? { drafts: { ...base,
     answer(key, value) { if (value === 'Newer edit') throw new Error('Draft quota'); base.answer(key, value); },
@@ -176,7 +176,7 @@ it.each([
   const wait = deferred<ClarificationCommandPendingV1[]>(); f.services.clarificationCommands.pending.mockReturnValueOnce(wait.promise);
   container.querySelector<HTMLButtonElement>(kind === 'answer' ? '[data-remove-draft]' : '[data-remove-contact-draft]')!.click();
   if (writer === 'other-tab') {
-    const other = createClarificationDraftStore();
+    const other = createClarificationDraftStore('helmsman.compat-clarifications/page');
     if (kind === 'answer') other.answer(key, 'Newer edit');
     else other.contact({ name: 'Newer edit', address: 'account', enabled: true });
   } else if (kind === 'answer') draft(container, 'Newer edit');
@@ -191,7 +191,7 @@ it.each([
   expect(f.services.clarificationCommands.acknowledge).not.toHaveBeenCalled();
 });
 it.each(['answer', 'contact'] as const)('discards only a preexisting unsaved %s edit and retains newer persisted content for review', async kind => {
-  const f = fixture(); const base = createClarificationDraftStore(); const key = clarificationDraftKey(question());
+  const f = fixture(); const base = createClarificationDraftStore('helmsman.compat-clarifications/page'); const key = clarificationDraftKey(question());
   base.answer(key, 'Original'); base.contact({ name: 'Original', address: 'account', enabled: true });
   const { container, controller } = f.mount({ drafts: { ...base,
     answer(key, value) { if (value === 'Unsent local edit') throw new Error('Draft quota'); base.answer(key, value); },
@@ -200,7 +200,7 @@ it.each(['answer', 'contact'] as const)('discards only a preexisting unsaved %s 
   const selector = kind === 'answer' ? 'textarea' : '.trusted-contact-form [name="name"]';
   const input = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
   input.value = 'Unsent local edit'; input.dispatchEvent(new Event('input', { bubbles: true }));
-  const other = createClarificationDraftStore();
+  const other = createClarificationDraftStore('helmsman.compat-clarifications/page');
   if (kind === 'answer') other.answer(key, 'Other tab saved edit');
   else other.contact({ name: 'Other tab saved edit', address: 'account', enabled: true });
   const cleanup = kind === 'answer' ? '[data-remove-draft]' : '[data-remove-contact-draft]';

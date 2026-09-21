@@ -8,6 +8,7 @@ import sourceSettingsPackage from './source-settings/plugin-package.json' with {
 import runViewerPackage from './run-viewer/plugin-package.json' with { type: 'json' };
 import runHistoryPackage from './run-history/plugin-package.json' with { type: 'json' };
 import clarificationsPackage from './clarifications/plugin-package.json' with { type: 'json' };
+import compatibilityClarificationsPackage from './compat-clarifications/plugin-package.json' with { type: 'json' };
 import suggestedContactsPackage from './suggested-contacts/plugin-package.json' with { type: 'json' };
 
 export function supportsPageSlot(page: PluginPageDefinition, slot: string): boolean {
@@ -89,13 +90,7 @@ export const runViewerManifest = runViewerPackage.manifest as PluginManifest;
 export const runHistoryManifest = runHistoryPackage.manifest as PluginManifest;
 export const clarificationsManifest = clarificationsPackage.manifest as PluginManifest;
 export const suggestedContactsManifest = suggestedContactsPackage.manifest as PluginManifest;
-export const compatibilityClarificationsManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.compat-clarifications', version: '0.1.0', sdkVersion: 1, panels: [],
-  pages: [{ id: 'page', title: 'Clarifications', slots: [], panes: [], requires: [
-    { id: 'helmsman/clarification-read', version: 1 }, { id: 'helmsman/clarification-command', version: 1 },
-    { id: 'helmsman/suggested-contact-admin', version: 1 },
-  ] }],
-};
+export const compatibilityClarificationsManifest = compatibilityClarificationsPackage.manifest as PluginManifest;
 
 export const compatibilityPrManifest: PluginManifest = {
   manifestVersion: 2, id: 'helmsman.compat-pr', version: '0.1.0', sdkVersion: 1,

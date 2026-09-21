@@ -290,3 +290,13 @@ Final validation under the revised delivery plan: TypeScript/app/distribution bu
 Affected READMEs, author/operator guides and matching Markdown/HTML flows are updated. Local documentation links pass, and the offline flow renders without horizontal overflow. Exact-commit architectural review and push are next. The next feature milestone is Runs presentation and public-contract clarification recovery; the full E/F/G scope stays open.
 
 _Helmsman · not reported - not reported_
+
+## Public clarification recovery package
+
+The preceding checkpoint `380609010bf7f5399532ddc39c5e4505a7f3d7f0` passed one independent exact-commit architectural review and is pushed to `godaddy/master`; the remote SHA was verified.
+
+Clarification recovery now owns its renderer, controller, draft storage and scoped styles inside an independently buildable public-SDK package. Root legacy implementations are removed. The original contribution ID, caller journals and raw storage formats remain unchanged. The host supplies immutable optional page contribution identity; missing identity/services fails closed before storage reads, and renamed packages use a separate namespace outside the legacy prefix so another caller cannot clean up original evidence.
+
+TypeScript/app/distribution build passed. Focused host, package and descriptor checks covered 95 cases: the initial run passed 94 with one missing descriptor entry-map failure; the descriptor and a test-only typing error were corrected, then all 21 directly affected descriptor/page tests passed. Both source-denied production scenarios passed (31.9s), covering independent copied-SDK compile/install/reload, original versus copied namespace isolation, original answer/contact request identities, exact retry, newer drafts, storage failure and result-before-acknowledgment. Six changed desktop/mobile screenshots were inspected. No aggregate suite was repeated. READMEs/guides and matching process flows describe the package boundary and preserved recovery data. Exact-commit review and push are next; Runs cutover is the next feature.
+
+_Helmsman · not reported - not reported_

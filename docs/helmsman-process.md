@@ -142,7 +142,10 @@ flowchart TD
     Alias[Agent Questions alias] --> Selected[Selected authored composition]
     Selected --> Panels[Independent question and global contact panels]
     Selected --> Recovery[Page-level compatibility recovery link<br/>Visible for empty and missing-panel layouts]
-    Recovery --> Original[Original caller, drafts, results and journals<br/>No import, rekey or automatic replay]
+    Recovery --> Identity{Host-mounted contribution identity}
+    Identity -->|Original recovery contribution| Original[Original caller, drafts, results and journals<br/>No import, rekey or automatic replay]
+    Identity -->|Renamed copy| Separate[Independent draft namespace and caller journal<br/>No original evidence cleanup]
+    Identity -->|Unavailable on older host| Closed[Recovery unavailable before storage access]
     Scope[Active PR inspector and permitted galleon] --> Target[Read canonical base and head]
     Target --> Signals[Bounded check runs, classic statuses and reviews]
     Signals --> Recheck[Recheck target and provider binding]

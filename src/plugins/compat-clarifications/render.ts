@@ -1,15 +1,12 @@
-import type { ClarificationReadItemV1 as Clarification } from './plugins/clarification-read';
-import type { SuggestedContactAdminContactV1 as TrustedContact } from './plugins/suggested-contact-admin';
-import type { ClarificationCommandPendingV1 } from './plugins/clarification-command';
-import type { SuggestedContactAdminPendingV1 } from './plugins/suggested-contact-admin';
-export { mountClarifications } from './clarification-controller';
-import { escapeHtml as esc } from './logic/html';
-import { routeHref } from './logic/routes';
-import { RUN_VIEWER_PAGE_SLOT } from './plugins/page-slots';
-import { term } from './logic/terminology';
-import './clarifications.css';
+import type { ClarificationReadItemV1 as Clarification } from '@helmsman/plugin-sdk';
+import type { SuggestedContactAdminContactV1 as TrustedContact } from '@helmsman/plugin-sdk';
+import type { ClarificationCommandPendingV1 } from '@helmsman/plugin-sdk';
+import type { SuggestedContactAdminPendingV1 } from '@helmsman/plugin-sdk';
+import { escapeHtml as esc } from './html.js';
+import { terms } from './terminology.js';
 
 export interface QuestionViewState {
+  pirateMode?: boolean;
   storageError?: string | null;
   pending?: readonly ClarificationCommandPendingV1[];
   contactPending?: readonly SuggestedContactAdminPendingV1[];
@@ -29,12 +26,13 @@ function deadline(value: string | null): string {
   return Number.isNaN(date.getTime()) ? '' : `<span>Answer by <time datetime="${esc(value)}">${esc(date.toLocaleString())}</time></span>`;
 }
 
-function questionCard(item: Clarification, contacts: TrustedContact[], scope: string | null): string {
+function questionCard(item: Clarification, contacts: TrustedContact[], scope: string | null, pirateMode: boolean): string {
+  const copy = terms(pirateMode);
   const pending = item.answerability.available && item.state === 'pending';
   const owner = contacts.find(contact => contact.id === item.contactId);
   const state = item.state === 'answered' ? 'Answered' : item.state === 'timed-out' ? 'Deadline passed' : item.state === 'cancelled' ? 'Closed' : item.required ? 'Answer required' : 'Optional answer';
   return `<article class="clarification-card" data-question="${esc(item.id)}">
-    <div class="clarification-meta"><span class="clarification-state">${state}</span><span>${esc(item.repo)}</span><a class="app-link" href="${esc(routeHref({ view: 'plugin', pluginSlot: RUN_VIEWER_PAGE_SLOT, repo: scope, runRepo: item.repo, run: item.runId }))}">View ${term('run').toLowerCase()} ${esc(item.runId)}</a></div>
+    <div class="clarification-meta"><span class="clarification-state">${state}</span><span>${esc(item.repo)}</span><a class="app-link" href="${esc(`/run-viewer?${new URLSearchParams({ ...(scope ? { repo: scope } : {}), runRepo: item.repo, run: item.runId })}`)}">View ${copy.run.toLowerCase()} ${esc(item.runId)}</a></div>
     <h3>${esc(item.prompt)}</h3>
     ${item.blocksPublication ? '<p class="clarification-help">This required question remains a publication blocker until answered.</p>' : ''}
     ${pending ? `<p class="clarification-help">${item.required ? 'The agent needs your answer before it can finish or publish its work.' : 'Answer if you have useful context. This question does not block completion.'}</p>
@@ -45,19 +43,20 @@ function questionCard(item: Clarification, contacts: TrustedContact[], scope: st
 }
 
 export function renderClarifications(items: Clarification[], contacts: TrustedContact[], repo: string | null, error: string | null, state: QuestionViewState = {}): string {
+  const pirateMode = state.pirateMode ?? true; const copy = terms(pirateMode);
   const pending = items.filter(item => item.state === 'pending');
   const history = items.filter(item => item.state !== 'pending');
   return `<div class="clarification-page">
-    <header class="clarification-heading"><div><h1>${term('clarifications')}</h1><p>When an agent needs a decision from you, its question appears here. An accepted answer is saved for the agent; worker consumption is not confirmed.</p></div><button type="button" data-refresh-questions>Refresh questions</button></header>
-    <p class="clarification-help">This page is for answering agents. To give an agent a new task, <a class="app-link" href="${esc(routeHref({ view: 'dashboard', repo, pane: 'newrun' }))}">start a ${term('run').toLowerCase()}</a>.</p>
+    <header class="clarification-heading"><div><h1>${copy.clarifications}</h1><p>When an agent needs a decision from you, its question appears here. An accepted answer is saved for the agent; worker consumption is not confirmed.</p></div><button type="button" data-refresh-questions>Refresh questions</button></header>
+    <p class="clarification-help">This page is for answering agents. To give an agent a new task, <a class="app-link" href="${esc(`/helm?${new URLSearchParams({ ...(repo ? { repo } : {}), pane: 'newrun' })}`)}">start a ${copy.run.toLowerCase()}</a>.</p>
     ${state.storageError ? `<p role="alert" class="clarification-error">Draft or result storage unavailable: ${esc(state.storageError)}. Unresolved requests are retained.</p>` : ''}
     ${pendingRows(state)}
     ${state.notice ? `<p role="status" class="clarification-notice">${esc(state.notice)}</p>` : ''}
     ${error ? `<p role="alert" class="clarification-error">Could not refresh questions. ${esc(error)} Use “Refresh questions” to try again.</p>` : ''}
-    <section class="clarification-list" aria-labelledby="pending-questions"><div class="clarification-section-heading"><h2 id="pending-questions">Questions awaiting your answer${pending.length ? ` (${pending.length})` : ''}</h2><span class="clarification-meta">${esc(repo ?? term('allRepositories'))}</span></div>
-      ${pending.map(item => questionCard(item, contacts, repo)).join('') || (state.loading ? '<p role="status">Loading questions…</p>' : error ? '<p class="clarification-help">Questions could not be loaded.</p>' : `<div class="clarification-empty"><h3>${state.moreQuestions ? 'No pending questions in the loaded page' : 'No pending questions in this scope'}</h3><p>Questions from agents in this scope will appear here. No contact setup is needed.</p></div>`)}
+    <section class="clarification-list" aria-labelledby="pending-questions"><div class="clarification-section-heading"><h2 id="pending-questions">Questions awaiting your answer${pending.length ? ` (${pending.length})` : ''}</h2><span class="clarification-meta">${esc(repo ?? copy.allRepositories)}</span></div>
+      ${pending.map(item => questionCard(item, contacts, repo, pirateMode)).join('') || (state.loading ? '<p role="status">Loading questions…</p>' : error ? '<p class="clarification-help">Questions could not be loaded.</p>' : `<div class="clarification-empty"><h3>${state.moreQuestions ? 'No pending questions in the loaded page' : 'No pending questions in this scope'}</h3><p>Questions from agents in this scope will appear here. No contact setup is needed.</p></div>`)}
     </section>
-    ${history.length ? `<details class="clarification-history"><summary>Answered and closed questions (${history.length})</summary>${history.map(item => questionCard(item, contacts, repo)).join('')}</details>` : ''}
+    ${history.length ? `<details class="clarification-history"><summary>Answered and closed questions (${history.length})</summary>${history.map(item => questionCard(item, contacts, repo, pirateMode)).join('')}</details>` : ''}
     ${state.results?.length || state.drafts?.length || state.contactDraft ? `<details class="clarification-saved"><summary>Saved drafts and results</summary><p>Free browser storage by explicitly discarding drafts or dismissing saved results. Items associated with unresolved submissions remain protected.</p>
       ${(state.drafts ?? []).map(draft => `<article><p><strong>${esc(draft.label)}</strong> · ${esc(draft.text.slice(0, 120))}</p><button type="button" data-remove-draft="${esc(draft.key)}" ${draft.protected ? 'data-protected disabled' : ''}>Discard this saved draft</button></article>`).join('')}
       ${state.contactDraft ? `<article><p><strong>Global contact draft</strong> · ${esc(state.contactDraft.text.slice(0, 120))}</p><button type="button" data-remove-contact-draft ${state.contactDraft.protected ? 'data-protected disabled' : ''}>Discard global contact draft</button></article>` : ''}

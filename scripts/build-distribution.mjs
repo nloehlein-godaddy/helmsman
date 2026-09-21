@@ -10,7 +10,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const marker = '.helmsman-distribution.json';
 const ignoredSource = /(?:\.test\.[cm]?[jt]s|\.d\.ts)$/;
 const nodeMajor = Number(process.versions.node.split('.')[0]);
-const authorPackages = ['clarifications', 'suggested-contacts', 'run-viewer', 'run-history', 'costs', 'pricing', 'todos', 'todos-ui', 'source-settings', 'triage', 'bugs', 'jira', 'local-tasks-alternative', 'helm', 'backlog', 'helm-alternative', 'backlog-alternative', 'running', 'recent', 'underway', 'newrun', 'repoprs', 'shipped', 'activity'];
+const authorPackages = ['compat-clarifications', 'clarifications', 'suggested-contacts', 'run-viewer', 'run-history', 'costs', 'pricing', 'todos', 'todos-ui', 'source-settings', 'triage', 'bugs', 'jira', 'local-tasks-alternative', 'helm', 'backlog', 'helm-alternative', 'backlog-alternative', 'running', 'recent', 'underway', 'newrun', 'repoprs', 'shipped', 'activity'];
 const authorGuides = ['panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'pull-request-inspect-authoring.md', 'download-authoring.md', 'run-presentation-authoring.md', 'clarification-authoring.md', 'authored-clarifications.md', 'clarification-backend.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md', 'helmsman-process.md'];
 
 async function exists(path) {

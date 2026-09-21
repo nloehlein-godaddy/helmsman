@@ -86,6 +86,7 @@ export class PluginPageHost {
     try { session.composition = this.options.createComposition?.(id, session.element, session.state) ?? null; }
     catch { this.fail(session); return; }
     const context: PluginPageContext = Object.freeze({
+      contributionId: id,
       state: session.state,
       ...(this.options.selectPresentation ? { selectPresentation: (input: PresentationLocatorV1 | null) => {
         if (!this.active(session) || !session.state.visible || session.activityController.signal.aborted) throw new DOMException('Page is inactive.', 'AbortError');

@@ -1,0 +1,40 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.compat-clarifications",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "panels": [],
+    "pages": [
+      {
+        "id": "page",
+        "title": "Clarifications",
+        "slots": [],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/clarification-read",
+            "version": 1
+          },
+          {
+            "id": "helmsman/clarification-command",
+            "version": 1
+          },
+          {
+            "id": "helmsman/suggested-contact-admin",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {}
+}
