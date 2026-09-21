@@ -1,6 +1,6 @@
 import type {
   LocalSourceRecordV1, PluginBackendModule, SourceCallContextV1, TaskHistoryQueryV1, TaskHistoryV1, TaskHistoryEventV1,
-  SourceMutationPlanV1, TaskSnapshotV1, TaskPageV1, TaskSourceProviderV1, WorkRefV1,
+  TaskEditorContractV1, TaskEditorDocumentV1, TaskEditorPageV1, SourceMutationPlanV1, TaskSnapshotV1, TaskPageV1, TaskSourceProviderV1, WorkRefV1,
 } from '@helmsman/plugin-sdk';
 import { document, input, LOCAL_TASK_SCHEMA, object, PRIORITIES, repo, sequence, taskInput, TodoSourceError } from './document.js';
 
@@ -65,7 +65,7 @@ function snapshot(record: LocalSourceRecordV1): TaskSnapshotV1 {
   return { version: 1, ref: record.ref, revision: record.revision, displayKey: record.ref.externalId,
     title: value.title, repo: record.repo, url: null, state: stateMap[value.state], priority: PRIORITIES.indexOf(value.priority),
     requirements: { description: value.description, acceptanceCriteria: value.acceptanceCriteria ? [value.acceptanceCriteria] : [], links: [] },
-    providerData: { version: 1, kind: 'local-task', priority: value.priority } };
+    providerData: { version: 1, kind: 'local-task', priority: value.priority, createdAt: value.createdAt, updatedAt: value.updatedAt } };
 }
 
 function transition(record: LocalSourceRecordV1, state: 'todo' | 'in_progress' | 'in_review' | 'blocked'): SourceMutationPlanV1 {
@@ -81,10 +81,12 @@ function revision(value: unknown, record: LocalSourceRecordV1): void {
   if (typeof value !== 'string' || value !== record.revision) throw new TodoSourceError('Todo changed; reload before trying again');
 }
 
-async function listLocalTasks(request: { repo: string; state: TaskSnapshotV1['state'] | 'underway' | null; cursor: string | null; limit: number }, context: SourceCallContextV1): Promise<TaskPageV1> {
+async function listLocalTasks(request: { repo: string; state: TaskSnapshotV1['state'] | 'underway' | 'todo' | 'in_review' | null; search?: string; cursor: string | null; limit: number }, context: SourceCallContextV1): Promise<TaskPageV1 & { total: number }> {
     const scope = scopedRepo(request?.repo, context);
+    const search = request.search ?? '';
+    if (typeof search !== 'string' || search.length > 512) throw new TodoSourceError('Invalid task search');
     if (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 100
-      || request.state !== null && request.state !== 'underway' && !Object.values(stateMap).includes(request.state)) throw new TodoSourceError('Invalid local task query');
+      || request.state !== null && !['underway', 'todo', 'in_review'].includes(request.state) && !Object.values(stateMap).includes(request.state as TaskSnapshotV1['state'])) throw new TodoSourceError('Invalid local task query');
     const local = records(context);
     const before = await local.describeCollection();
     context.signal.throwIfAborted();
@@ -93,8 +95,8 @@ async function listLocalTasks(request: { repo: string; state: TaskSnapshotV1['st
     if (request.cursor !== null) {
       if (typeof request.cursor !== 'string' || request.cursor.length > 1024) throw new TodoSourceError('Invalid local task cursor');
       let cursor: Record<string, unknown>;
-      try { cursor = object(JSON.parse(request.cursor), ['revision', 'repo', 'state', 'offset']); } catch { throw new TodoSourceError('Invalid local task cursor'); }
-      if (cursor.revision !== before.revision || cursor.repo !== scope || cursor.state !== request.state
+      try { cursor = object(JSON.parse(request.cursor), ['revision', 'repo', 'state', 'offset', 'search']); } catch { throw new TodoSourceError('Invalid local task cursor'); }
+      if (cursor.revision !== before.revision || cursor.repo !== scope || cursor.state !== request.state || (cursor.search ?? '') !== search
         || !Number.isSafeInteger(cursor.offset) || Number(cursor.offset) < 0 || Number(cursor.offset) > 10_000) throw new TodoSourceError('Task collection changed; reload the list');
       offset = Number(cursor.offset);
     }
@@ -122,8 +124,9 @@ async function listLocalTasks(request: { repo: string; state: TaskSnapshotV1['st
     const after = await local.describeCollection();
     context.signal.throwIfAborted();
     if (!after || after.collectionId !== before.collectionId || after.revision !== before.revision) throw new TodoSourceError('Task collection changed; reload the list');
-    const tasks = result.map(snapshot).filter(task => request.state === 'underway' ? task.state === 'in_progress' || task.state === 'review'
-      : request.state === null || task.state === request.state && (request.state !== 'ready' || Boolean(task.requirements.description.trim())))
+    const needle = search.trim().toLowerCase();
+    const tasks = result.map(snapshot).filter(task => !needle || [task.displayKey, task.title, task.repo, task.requirements.description, ...task.requirements.acceptanceCriteria].some(value => value.toLowerCase().includes(needle))).filter(task => request.state === 'underway' ? task.state === 'in_progress' || task.state === 'review'
+      : request.state === 'todo' ? task.state === 'ready' : request.state === 'in_review' ? task.state === 'review' : request.state === null || task.state === request.state && (request.state !== 'ready' || Boolean(task.requirements.description.trim())))
       .sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2) || sequence(a.ref.externalId) - sequence(b.ref.externalId));
     const items: TaskSnapshotV1[] = [];
     let pageBytes = 2048;
@@ -135,8 +138,8 @@ async function listLocalTasks(request: { repo: string; state: TaskSnapshotV1['st
       pageBytes += bytes;
     }
     if (offset < tasks.length && items.length === 0) throw new TodoSourceError('Local task exceeds the page size limit');
-    const nextCursor = offset + items.length < tasks.length ? JSON.stringify({ revision: before.revision, repo: scope, state: request.state, offset: offset + items.length }) : null;
-    return { items, nextCursor };
+    const nextCursor = offset + items.length < tasks.length ? JSON.stringify({ revision: before.revision, repo: scope, state: request.state, search, offset: offset + items.length }) : null;
+    return { items, nextCursor, total: tasks.length };
 }
 
 async function localHistory(request: TaskHistoryQueryV1, context: SourceCallContextV1): Promise<TaskHistoryV1> {
@@ -180,7 +183,41 @@ async function localHistory(request: TaskHistoryQueryV1, context: SourceCallCont
     historyQuality: 'partial', days: days.map(day => ({ ...day, completed: complete ? day.completed : null })), throughputQuality: complete ? 'complete' : 'partial' };
 }
 
+function editorContract(editor: TaskEditorContractV1): void {
+  if (editor?.id !== 'helmsman/local-task-editor' || editor.version !== 1) throw new TodoSourceError('Unsupported local task editor');
+}
 export const todosProvider: TaskSourceProviderV1 = {
+  prepareEditorCommand(request, context) {
+    editorContract(request?.editor);
+    if (request.commandId !== request.action || (request.action === 'create') !== (request.target === null)) throw new TodoSourceError('Invalid local task editor command');
+    const handler = this.commands?.[request.commandId]; if (!handler) throw new TodoSourceError('Local task command is unavailable');
+    const value = request.action === 'create' ? request.value : { ref: { ...request.target!.ref }, expectedRevision: request.target!.expectedRevision,
+      ...(request.action === 'update' ? { patch: request.value } : {}) };
+    return handler.prepare(value, context);
+  },
+  async readEditor(request, context): Promise<TaskEditorDocumentV1 | null> {
+    editorContract(request?.editor);
+    const record = request.ref === null ? null : await read(request.ref, context);
+    if (request.ref !== null && record === null) return null;
+    if (context.repo === null) throw new TodoSourceError('Select a galleon before editing a task');
+    const current = record ? document(record.data) : null;
+    const locked = record !== null && (activeClaim(record) || current?.state === 'in_progress');
+    const available = (commandId: string) => ({ commandId, available: !locked, reason: locked ? 'This task is owned by an active voyage.' : null });
+    return { version: 1, editor: { id: 'helmsman/local-task-editor', version: 1 },
+      target: record ? { ref: record.ref, revision: record.revision } : null,
+      value: { title: current?.title ?? '', repo: record?.repo ?? context.repo, description: current?.description ?? '',
+        acceptanceCriteria: current?.acceptanceCriteria ?? '', priority: current?.priority ?? 'P2', state: current?.state ?? 'todo' },
+      commands: { create: record ? null : available('create'), update: record ? available('update') : null, delete: record ? available('delete') : null },
+      destinationRepos: context.instance.allowedRepos,
+      relatedRun: record?.lastRunId ? { runId: record.lastRunId, repo: record.repo } : null };
+  },
+  async listEditableTasks(request, context): Promise<TaskEditorPageV1> {
+    editorContract(request?.editor); const filter = object(request.filter, ['state', 'search']);
+    if (filter.search !== undefined && (typeof filter.search !== 'string' || filter.search.length > 512)) throw new TodoSourceError('Invalid task search');
+    if (filter.state !== null && !['todo', 'in_progress', 'in_review', 'done', 'blocked'].includes(String(filter.state))) throw new TodoSourceError('Invalid local task presentation filter');
+    const page = await listLocalTasks({ repo: request.repo, state: filter.state as 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked' | null, cursor: request.cursor, limit: request.limit, search: filter.search as string | undefined }, context);
+    return { ...page, items: page.items.map(task => { const metadata = object(task.providerData); return { ...task, createdAt: metadata.createdAt as string, updatedAt: metadata.updatedAt as string }; }) };
+  },
   readHistory: localHistory,
   async identify(context) {
     const collection = await records(context).describeCollection();
@@ -192,8 +229,8 @@ export const todosProvider: TaskSourceProviderV1 = {
       authority: { protocol: 'helmsman.local-collection/v1', authorityId: collection.collectionId, identityFormat: LOCAL_TASK_SCHEMA },
       proof: { evidenceId: collection.evidenceId, collectionId: collection.collectionId, revision: collection.revision } };
   },
-  list: listLocalTasks,
-  listUnderway(request, context) { return listLocalTasks({ ...request, state: 'underway' }, context); },
+  async list(request, context) { const { total: _total, ...page } = await listLocalTasks(request, context); return page; },
+  async listUnderway(request, context) { const { total: _total, ...page } = await listLocalTasks({ ...request, state: 'underway' }, context); return page; },
   async lookup(request, context) {
     const reference = ref({ sourceId: context.instance.sourceId, externalId: request?.displayKey }, context);
     return await read(reference, context) ? reference : null;

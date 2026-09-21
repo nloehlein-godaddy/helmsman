@@ -1,0 +1,84 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.bugs",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Bugs",
+        "slots": [
+          "helmsman/bugs-page"
+        ],
+        "panes": [],
+        "composition": {
+          "id": "helmsman/bugs-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/bugs-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "bugs",
+                "contributionId": "helmsman.bugs/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "bugs"
+                  ],
+                  "activeInstanceId": "bugs",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        },
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ]
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Bugs",
+        "contract": {
+          "id": "helmsman/bugs-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/task-read",
+            "version": 1
+          },
+          {
+            "id": "helmsman/task-views-read",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

@@ -1,3 +1,5 @@
+import { createHostSourceAdminService } from './source-admin-service';
+import { createHostTodoLegacyRecoveryService } from './todo-legacy-recovery-service';
 import type { CompositionLayoutV1, CompositionServiceV1, ManagedPanelInstanceV1, PageCompositionDefinitionV1,
   PanelLayoutInstanceV1, PanelOpaqueStateV1, PanelScopeV1, PluginPanelModule } from './composition';
 import { parseCompositionLayout } from './composition-layout';
@@ -5,6 +7,9 @@ import type { PluginPageState } from './sdk';
 import type { PluginPanelRegistry } from './panels';
 import { PluginPanelHost } from './panel-host';
 import { createHostTaskReadService } from './task-read-service';
+import { createHostTaskEditService } from './task-edit-service';
+import { createHostSourceCommandService } from './source-command-service';
+import { createHostTaskViewsReadService } from './task-views-read-service';
 import { createHostPullRequestReadService } from './pull-request-read-service';
 import { createHostActivityReadService } from './activity-read-service';
 import { createHostRunReadService } from './run-read-service';
@@ -176,7 +181,7 @@ export class PluginCompositionHost {
     const contribution = this.options.registry.get(instance.contributionId);
     const compatible = contribution && this.options.definition.accepts.some(contract =>
       contract.id === contribution.contract.id && contract.version === contribution.contract.version)
-      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/run-read', 'helmsman/pull-request-read', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
+      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/pull-request-read', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
     const module = compatible ? this.options.registry.getModule(instance.contributionId) : null;
     if (panel.module !== module || panel.contributionId !== instance.contributionId) {
       panel.host?.dispose(); panel.host = null;
@@ -204,6 +209,11 @@ export class PluginCompositionHost {
     panel.host = new PluginPanelHost(panel.container, module, state, savedState, {
       instanceId: instance.instanceId, services: (lifetime, activity) => Object.freeze({ version: 1,
         tasks: createHostTaskReadService(lifetime, { scope: activity }),
+        taskEdit: createHostTaskEditService(lifetime, { scope: activity }),
+        todoLegacyRecovery: createHostTodoLegacyRecoveryService(lifetime, { scope: activity }),
+        sourceCommands: createHostSourceCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
+        sourceAdmin: createHostSourceAdminService(lifetime, { scope: activity, caller: instance.contributionId }),
+        taskViews: createHostTaskViewsReadService(lifetime, { scope: activity }),
         runs: createHostRunReadService(lifetime, { scope: activity }),
         pullRequests: createHostPullRequestReadService(lifetime, { scope: activity }),
         activity: createHostActivityReadService(lifetime, { scope: activity }),

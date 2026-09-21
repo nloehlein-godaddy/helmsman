@@ -2,7 +2,7 @@
 
 The shipped Helm page composes registered panels through `context.composition`. It never imports a panel implementation or a host module. It edits the shared layout through revision-checked updates, retaining state for unavailable implementations.
 
-Build in an isolated directory with the public SDK and TypeScript installed:
+Before building in an isolated directory, [rename the descriptor](../../../docs/plugin-packages.md#opt-in-task-presentation-packages) from `helmsman.helm` to your own non-reserved ID (for example `example.helm`), including any self-referencing initial-layout contribution IDs. Keep shared contract identifiers and references to other plugins unchanged. Then install the public SDK and TypeScript:
 
 ```sh
 npm install --no-save typescript /absolute/path/to/release/sdk

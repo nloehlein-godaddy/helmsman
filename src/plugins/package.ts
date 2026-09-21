@@ -1,3 +1,5 @@
+import { parseTaskEditorDeclarationV1 } from './task-edit';
+import { parseSourceSettingFieldsV1 } from './source-settings';
 import { parsePluginManifest } from './manifest';
 import type { PluginManifest } from './sdk';
 import { isLocalId } from './manifest';
@@ -84,16 +86,28 @@ function parseBackend(value: unknown): PluginBackendDefinition {
     };
     for (const localId of sourceIds) {
       const rawDeclaration = declarations[localId];
+      const hasEditors = rawDeclaration !== null && typeof rawDeclaration === 'object' && Object.hasOwn(rawDeclaration, 'editorContracts');
+      const hasSettings = rawDeclaration !== null && typeof rawDeclaration === 'object' && Object.hasOwn(rawDeclaration, 'settingsFields');
       const hasReadViews = rawDeclaration !== null && typeof rawDeclaration === 'object' && Object.hasOwn(rawDeclaration, 'readViews');
-      const declaration = record(rawDeclaration, ['identityFormats', 'effectIds', 'commandIds', 'access', ...(hasReadViews ? ['readViews'] : [])], 'Task source declaration');
+      const declaration = record(rawDeclaration, ['identityFormats', 'effectIds', 'commandIds', 'access', ...(hasReadViews ? ['readViews'] : []), ...(hasEditors ? ['editorContracts'] : []), ...(hasSettings ? ['settingsFields'] : [])], 'Task source declaration');
       const identityFormats = strings(declaration.identityFormats, (item): item is string => typeof item === 'string'
         && item.length <= 128 && /^[a-z][a-z0-9.-]*\/[a-z0-9.-]+$/.test(item), 1, 'identity formats');
       const effectIds = strings(declaration.effectIds, isLocalId, 0, 'effect IDs');
       const commandIds = strings(declaration.commandIds, isLocalId, 0, 'command IDs');
       const access = strings(declaration.access, (item): item is 'local-records' | 'connection-http' => item === 'local-records' || item === 'connection-http', 0, 'access') as TaskSourceDeclaration['access'];
       if (effectIds.length && !access.includes('connection-http') || commandIds.length && !access.includes('local-records')) throw new PluginPackageError('Task source handlers require their matching access capability.');
-      const readViews = hasReadViews ? strings(declaration.readViews, (item): item is 'underway' | 'history' => item === 'underway' || item === 'history', 0, 'read views') as readonly ('underway' | 'history')[] : undefined;
-      taskSources[localId] = Object.freeze({ identityFormats, effectIds, commandIds, access, ...(readViews ? { readViews } : {}) });
+      const readViews = hasReadViews ? strings(declaration.readViews, (item): item is 'underway' | 'history' | 'triage' | 'bugs' => typeof item === 'string' && ['underway', 'history', 'triage', 'bugs'].includes(item), 0, 'read views') as TaskSourceDeclaration['readViews'] : undefined;
+      let editorContracts;
+      if (hasEditors) {
+        if (!Array.isArray(declaration.editorContracts) || declaration.editorContracts.length > 16) throw new PluginPackageError('Invalid task editor declarations.');
+        try { editorContracts = Object.freeze(declaration.editorContracts.map(parseTaskEditorDeclarationV1)); } catch { throw new PluginPackageError('Invalid task editor declarations.'); }
+        if (new Set(editorContracts.map(editor => editor.id)).size !== editorContracts.length || editorContracts.some(editor => Object.values(editor.commands).some(command => command !== null && !commandIds.includes(command)))) throw new PluginPackageError('Task editor commands must be declared.');
+      }
+      let settingsFields;
+      if (hasSettings) {
+        try { settingsFields = parseSourceSettingFieldsV1(declaration.settingsFields); } catch { throw new PluginPackageError('Invalid source setting declarations.'); }
+      }
+      taskSources[localId] = Object.freeze({ ...(settingsFields ? { settingsFields } : {}), ...(editorContracts ? { editorContracts } : {}), identityFormats, effectIds, commandIds, access, ...(readViews ? { readViews } : {}) });
     }
   }
   if (!input.settings || typeof input.settings !== 'object' || Array.isArray(input.settings) || Object.keys(input.settings).length > 64) throw new PluginPackageError('Invalid settings schema.');

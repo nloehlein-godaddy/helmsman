@@ -1,3 +1,6 @@
+import { handleSourceAdminApi } from './source-admin-routes';
+import type { SourceAdminServerService } from './source-admin-service';
+import { handleTodoLegacyRecoveryApi } from './todo-legacy-recovery-routes';
 import { TodoConflictError, TodoValidationError } from './todos';
 import { SlackReviewError, type SlackReviewResult } from './slack/review-request';
 import type { Db, RunRow } from './db';
@@ -19,6 +22,12 @@ import type { PricingEstimate, UsageQueryService, UsageSnapshot } from '../../sr
 import { UsageValidationError } from './usage-store';
 import { CapabilityResolutionError } from './plugins/backend';
 import { handleRunCommandApi } from './run-command-routes';
+import { handleSourceCommandApi } from './source-command-routes';
+import type { SourceCommandServerService } from './source-command-coordinator';
+import { handleTaskEditApi } from './task-edit-routes';
+import type { TaskEditServerService } from './task-edit-service';
+import { handleTaskViewsReadApi } from './task-views-read-routes';
+import type { TaskViewsReadService } from './task-views-read-service';
 import type { RunCommandServerService } from './run-command-coordinator';
 import { handlePullRequestReadApi } from './pull-request-read-routes';
 import type { PullRequestReadServerService } from './pull-request-read-service';
@@ -75,6 +84,12 @@ export interface RouterDeps {
   activityRead?: ActivityReadService;
   runCommands?: RunCommandServerService;
   runCommandCaller?: string;
+  sourceCommands?: SourceCommandServerService;
+  sourceAdmin?: SourceAdminServerService;
+  sourceAdminCaller?: string;
+  sourceCommandCaller?: string;
+  taskEdit?: TaskEditServerService;
+  taskViews?: TaskViewsReadService;
   taskSources?: TaskSourceService;
   sourceSchedule?: TaskSourceSchedule;
   usage?: UsageQueryService;
@@ -132,6 +147,16 @@ export async function handleApi(
   _body: unknown,
   deps: RouterDeps,
 ): Promise<ApiResult | null> {
+  const sourceAdminResult = await handleSourceAdminApi({ method, path, query, body: _body, caller: deps.sourceAdminCaller, service: deps.sourceAdmin });
+  if (sourceAdminResult) return sourceAdminResult;
+  const sourceCommandResult = await handleSourceCommandApi({ method, path, query, body: _body, caller: deps.sourceCommandCaller, service: deps.sourceCommands });
+  if (sourceCommandResult) return sourceCommandResult;
+  const legacyTodoResult = handleTodoLegacyRecoveryApi({ method, path, body: _body, todos: deps.todos });
+  if (legacyTodoResult) return legacyTodoResult;
+  const taskEditResult = await handleTaskEditApi({ method, path, query, body: _body, service: deps.taskEdit });
+  if (taskEditResult) return taskEditResult;
+  const taskViewsResult = await handleTaskViewsReadApi({ method, path, query, service: deps.taskViews });
+  if (taskViewsResult) return taskViewsResult;
   const commandResult = await handleRunCommandApi({ method, path, query, body: _body, caller: deps.runCommandCaller, service: deps.runCommands });
   if (commandResult) return commandResult;
   const pullRequestReadResult = await handlePullRequestReadApi({ method, path, query, service: deps.pullRequestRead });

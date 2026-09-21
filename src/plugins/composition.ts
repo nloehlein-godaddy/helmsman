@@ -1,12 +1,17 @@
+import type { SourceAdminServiceV1 } from './source-admin';
+import type { TodoLegacyRecoveryServiceV1 } from './todo-legacy-recovery';
 import type { PluginPageInstance, PluginPageState } from './sdk';
 import type { TaskReadServiceV1 } from './task-read';
 import type { RunReadServiceV1 } from './run-read';
 import type { PullRequestReadServiceV1 } from './pull-request-read';
 import type { ActivityReadServiceV1 } from './activity-read';
 import type { RunCommandServiceV1 } from './run-command';
+import type { TaskEditServiceV1 } from './task-edit';
+import type { SourceCommandServiceV1 } from './source-command';
+import type { TaskViewsReadServiceV1 } from './task-views';
 
 export interface PluginServiceRequirementV1 {
-  readonly id: 'helmsman/task-read' | 'helmsman/run-read' | 'helmsman/pull-request-read' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
+  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/pull-request-read' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
   readonly version: 1;
 }
 
@@ -97,6 +102,11 @@ export interface PluginPanelContext {
 export interface PluginPanelServicesV1 {
   readonly version: 1;
   readonly tasks?: TaskReadServiceV1;
+  readonly taskEdit?: TaskEditServiceV1;
+  readonly todoLegacyRecovery?: TodoLegacyRecoveryServiceV1;
+  readonly sourceCommands?: SourceCommandServiceV1;
+  readonly sourceAdmin?: SourceAdminServiceV1;
+  readonly taskViews?: TaskViewsReadServiceV1;
   readonly runs?: RunReadServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
   readonly activity?: ActivityReadServiceV1;

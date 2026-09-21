@@ -11,7 +11,8 @@ import type { LocalSourceAdapter } from './task-sources/local-records';
 import type { SourceResolutionPurpose, TaskSourceRegistry } from './task-sources/registry';
 import type { TaskSourceStore } from './task-sources/store';
 
-export class TaskSourceViewUnavailableError extends Error {}
+import { createTaskSourceViews, TaskSourceViewUnavailableError } from './task-source-views';
+export { TaskSourceViewUnavailableError } from './task-source-views';
 
 export function createTaskSourceService(options: {
   store: TaskSourceStore;
@@ -43,7 +44,8 @@ export function createTaskSourceService(options: {
     return Object.freeze({ instance, repo, signal,
       local: records ? Object.freeze({ describeCollection: () => checked(() => records.describeCollection()),
         get: (externalId: string) => checked(() => records.get(externalId)), list: (input: Parameters<typeof records.list>[0]) => checked(() => records.list(input)) }) : null,
-      http: http ? Object.freeze({ get: (input: Parameters<typeof http.get>[0]) => checked(() => http.get(input)) }) : null });
+      http: http ? Object.freeze({ get: (input: Parameters<typeof http.get>[0]) => checked(() => http.get(input)),
+        ...(http.query ? { query: (input: Parameters<NonNullable<typeof http.query>>[0]) => checked(() => http.query!(input)) } : {}) }) : null });
   }
   function selected(instanceId: string, expectedRevision: number, repo: string): SourceInstanceV1 {
     const instance = store.instance(instanceId);
@@ -55,6 +57,7 @@ export function createTaskSourceService(options: {
     if (requireAvailable) store.assertUnquarantined(task.ref, task.displayKey);
   }
   return {
+    ...createTaskSourceViews({ registry, selected, context, assertScope }),
     context, assertScope, adoption: createTaskSourceAdoptionService(options),
     refresh: createTaskSourceRefreshService({ ...options, ...(options.refresh ?? { connection: () => null, identityFormat: () => null }) }),
     configure(input: { instanceId: string; instanceRevision: number; desiredEnabled?: boolean; label?: string; settings?: Readonly<Record<string, PluginJson>>; allowedRepos?: readonly string[] }) {

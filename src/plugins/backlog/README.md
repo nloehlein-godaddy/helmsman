@@ -2,7 +2,7 @@
 
 The shipped backlog panel discovers task sources through `context.services.tasks`, then reads each permitted galleon with an exact source instance revision. Manual source selection is saved per panel instance and does not depend on automatic scheduling. Reads show at most 50 source views, with 25 tasks per page and ten pages per selected source.
 
-Build in an isolated directory with the public SDK and TypeScript installed:
+Before building in an isolated directory, [rename the descriptor](../../../docs/plugin-packages.md#opt-in-task-presentation-packages) from `helmsman.backlog` to your own non-reserved ID (for example `example.backlog`), including any self-referencing initial-layout contribution IDs. Keep shared contract identifiers and references to other plugins unchanged. Then install the public SDK and TypeScript:
 
 ```sh
 npm install --no-save typescript /absolute/path/to/release/sdk

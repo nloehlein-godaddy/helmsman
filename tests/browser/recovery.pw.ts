@@ -142,3 +142,33 @@ test('a lost resolution response requires an explicit retry with the same reques
   expect(actions[1]).toEqual(actions[0]);
   await expect(page.locator('#status')).toContainText('choose Check request');
 });
+
+test('source command recovery retains the selected proof through refresh and lost responses', async ({ page }) => {
+  const original = { caller: 'example.todos/panel', requestId: '00000000-0000-4000-8000-000000000123', repo: 'fleet/alpha',
+    sourceId: '00000000-0000-4000-8000-000000000111', instanceId: 'source-instance', action: 'update', commandId: 'update',
+    target: { ref: { sourceId: '00000000-0000-4000-8000-000000000111', externalId: 'TODO-7' }, expectedRevision: '12' },
+    status: 'recovery-required', message: 'Source command delivery needs reconciliation.', receiptHash: 'a'.repeat(64), actions: ['resolve-source-command'] };
+  let receiptHash = original.receiptHash; const submitted: unknown[] = []; let resolved = false;
+  await page.route('**/recovery?*', route => route.fulfill({ contentType: 'text/html', body: recoveryPage() }));
+  await page.route('**/api/context', route => route.fulfill({ json: { repos: ['fleet/alpha'] } }));
+  await page.route('**/api/recovery?*', route => route.fulfill({ json: { version: 1, readOnly: false, errors: [], sourceCommands: resolved ? [] : [{ ...original, receiptHash }] } }));
+  await page.route('**/api/recovery/actions', async route => {
+    submitted.push(route.request().postDataJSON());
+    if (submitted.length === 1) await route.abort('failed');
+    else { resolved = true; await route.fulfill({ json: { ok: true } }); }
+  });
+  await page.goto('/recovery?repo=fleet%2Falpha');
+  await page.getByRole('button', { name: 'Resolve as not applied', exact: true }).click();
+  await expect(page.locator('#action-help')).toContainText('without editing or deleting any task');
+  await page.getByLabel('Actor', { exact: true }).fill('operator');
+  await page.getByLabel('Reason', { exact: true }).fill('Verified local receipt absence');
+  await page.getByLabel('Evidence', { exact: true }).fill('Original task revision retained');
+  await expect(page).toHaveScreenshot('source-command-recovery.png', { fullPage: true });
+  receiptHash = 'b'.repeat(64); await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.getByRole('button', { name: 'Record resolution', exact: true }).click();
+  await expect.poll(() => submitted.length).toBe(1); await expect(page.locator('#resolution')).toBeVisible();
+  await page.getByRole('button', { name: 'Record resolution', exact: true }).click();
+  await expect.poll(() => submitted.length).toBe(2);
+  expect(submitted[0]).toEqual(submitted[1]); expect(submitted[0]).toMatchObject({ action: 'resolve-source-command', receiptHash: original.receiptHash, requestId: original.requestId });
+  await expect(page.getByRole('button', { name: 'Resolve as not applied', exact: true })).toHaveCount(0);
+});

@@ -132,7 +132,14 @@ export default page;
     await run(process.execPath, [await compiler(), '-p', author, '--outDir', output], author, env);
     await cp(join(author, 'plugin-package.json'), join(output, 'plugin-package.json'));
     const descriptor = JSON.parse(await readFile(join(author, 'plugin-package.json'), 'utf8'));
-    if (replacementId) { descriptor.manifest.id = replacementId; await writeFile(join(output, 'plugin-package.json'), JSON.stringify(descriptor)); }
+    if (replacementId) {
+      const previousId = descriptor.manifest.id;
+      descriptor.manifest.id = replacementId;
+      for (const page of descriptor.manifest.pages ?? []) for (const instance of page.composition?.initialLayout?.instances ?? []) {
+        if (typeof instance.contributionId === 'string' && instance.contributionId.startsWith(`${previousId}/`)) instance.contributionId = `${replacementId}/${instance.contributionId.slice(previousId.length + 1)}`;
+      }
+      await writeFile(join(output, 'plugin-package.json'), JSON.stringify(descriptor));
+    }
     const archive = join(author, 'plugin.hmp');
     await cli('pack', output, archive);
     await cli('install', archive);

@@ -1,4 +1,4 @@
-import { COSTS_PAGE_SLOT, HELM_PAGE_SLOT, builtinFrontendManifests } from './frontend-manifests';
+import { isBuiltinPageSlot, builtinFrontendManifests } from './frontend-manifests';
 import { isContributionId, PluginManifestError } from './manifest';
 import { parsePluginPackage } from './package';
 import type { PluginPackage } from './package';
@@ -83,7 +83,7 @@ export function parsePluginCatalog(value: unknown): PluginCatalog {
   const bindings: Record<string, string> = {};
   for (const slot of Object.getOwnPropertyNames(rawBindings)) {
     const contribution = rawBindings[slot];
-    if (slot !== COSTS_PAGE_SLOT && slot !== HELM_PAGE_SLOT || !isContributionId(contribution)) {
+    if (!isBuiltinPageSlot(slot) || !isContributionId(contribution)) {
       throw new PluginManifestError('Invalid plugin page binding.');
     }
     bindings[slot] = contribution;

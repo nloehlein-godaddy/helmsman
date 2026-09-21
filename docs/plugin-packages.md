@@ -19,7 +19,7 @@ Open `/plugins/example.scope-summary/page?repo=org/a`, or `/outcomes` to use the
 
 The CLI and server use `HELMSMAN_PLUGINS_DIR`, defaulting to `~/.helmsman/plugins`. Both load an optional `.env` in their working directory. A CLI command can override the directory with `npm run plugins -- --dir /absolute/store COMMAND ...`. Use the same directory for the running server. Package directories and archive paths must have real directory ancestors; resolve symlinked temporary paths before packing.
 
-Commands operate on the installation catalog. The server reconciles catalog changes and browsers poll the catalog. Page selection, enablement and disablement apply to open tabs; disabling or replacing a contribution disposes its managed instances and aborts their requests. Already evaluated trusted JavaScript is not a security sandbox. Backend disablement stops new admissions while retained executions and operations drain under their pinned bindings.
+Commands operate on the installation catalog. The server reconciles catalog changes and browsers poll the catalog. Frontend page selection, enablement and disablement apply to open tabs; disabling or replacing a contribution disposes its managed instances and aborts their requests. Already evaluated trusted JavaScript is not a security sandbox. Backend disablement stops new admissions while retained executions and operations drain under their pinned bindings. Follow the CLI restart/reload instruction for backend activation or configuration changes, including re-enabling a provider; catalog reconciliation alone does not guarantee backend reactivation.
 
 ```sh
 npm run plugins -- disable example.scope-summary
@@ -27,6 +27,40 @@ npm run plugins -- select helmsman/costs-page default
 ```
 
 Disabling preserves the explicit selected contribution and shows it as unavailable. Reset selection to `default` explicitly to restore built-in Costs. To upgrade, disable the package, install the new archive, and enable it again; previous artifacts remain on disk. Packages are installed disabled initially. Reinstalling identical bytes preserves the current activation setting. Uninstallation and artifact collection respect retained execution and operation pins; they cannot remove bytes needed by ongoing work. There is no automatic package update.
+
+## Opt-in task presentation packages
+
+The distribution includes `plugin-sources/todos-ui`, `triage`, `bugs`, and `source-settings`. Copy an author project outside the checkout, install the distributed SDK and TypeScript, and build its `dist` directory. Rename its reserved `helmsman.*` package ID and any self-referencing initial-layout contribution IDs before packing. Install and enable it through the same CLI, then open `/plugins/<your-package-id>/page`.
+
+For example, in the copied Triage author directory, rename the descriptor before building:
+
+```sh
+node --input-type=module <<'JS'
+import { readFileSync, writeFileSync } from 'node:fs';
+const file = 'plugin-package.json';
+const descriptor = JSON.parse(readFileSync(file, 'utf8'));
+const previousId = descriptor.manifest.id;
+const packageId = 'example.triage';
+descriptor.manifest.id = packageId;
+for (const page of descriptor.manifest.pages ?? []) {
+  for (const instance of page.composition?.initialLayout?.instances ?? []) {
+    if (instance.contributionId?.startsWith(previousId + '/')) {
+      instance.contributionId = packageId + instance.contributionId.slice(previousId.length);
+    }
+  }
+}
+writeFileSync(file, JSON.stringify(descriptor, null, 2) + '\n');
+JS
+npm install --save-dev /absolute/path/to/release/sdk typescript
+npm run build
+node /absolute/path/to/release/server/helmsman/plugins/cli.js pack ./dist ./triage.hmp
+node /absolute/path/to/release/server/helmsman/plugins/cli.js install ./triage.hmp
+node /absolute/path/to/release/server/helmsman/plugins/cli.js enable example.triage
+```
+
+Open `/plugins/example.triage/page`. For another package, choose its own non-reserved ID and archive name; retain the shared `helmsman/...` contract and composition identifiers. References to other packages remain unchanged. The Jira author descriptor already uses the installable `example.jira` namespace.
+
+These E3 author packages declare composition/panel contracts but are not registered as built-in defaults. `/todos`, `/triage`, `/bugs` and `/config` still render legacy pages; selecting those aliases as replacements is a future cutover gate. Costs and Helm already support their documented alias selections. See [panel contracts](panel-authoring.md), [task-source services](task-source-authoring.md), and the [completion ledger](plugin-implementation-progress.md).
 
 ## Author contract
 

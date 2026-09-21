@@ -63,6 +63,23 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </ul>
 <p class="toolbar">Defaults shown; live configuration may differ. <a href="helmsman-process.md">Mermaid source and full notes</a> · Works offline · Print or save as PDF from your browser.</p>
 </header>
+<section aria-labelledby="task-plugins-heading">
+<h2 class="section-heading" id="task-plugins-heading">Plugin task presentation and command authority</h2>
+<p class="section-intro">Costs and Helm use public plugin services. E3 Todos, Triage, Bugs and source-settings packages are opt-in author projects; default task/configuration routes still use legacy pages. E4 run presentation is proposed; execution/policy replacement (F) and compatibility retirement (G) remain pending.</p>
+<div class="flow-step flow-common"><h3>Header scope → managed task panel</h3><p>Inherit the header galleon or choose an explicit panel override. Bind the exact source instance and revision. The host owns panel lifetime, scope and cancellation.</p></div>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<div class="intake-sources">
+<article class="flow-step"><h3>Read and render</h3><p>Public task, editor and task-view services return bounded, validated DTOs without credentials. Providers declare supported views. Render independent completeness, approximate counts, unknown metrics, actual dates and canonical related-voyage links. Triage filters precede pagination; Bugs labels capped resolution samples.</p></article>
+<article class="flow-step"><h3>Persist command intent</h3><p>Journal the original UUID and input before source or run command dispatch. Core checks authority, scope and revisions. The provider prepares a plan; the host owns the mutation and receipt. On a verified terminal result, consume the result and save the draft before acknowledgment.</p></article>
+<article class="flow-step"><h3>Administer sources</h3><p>Source administration uses revision-checked settings and schedules and the same durable intent discipline. Automatic-start state belongs to the current process. Reconcile the original intent in the settings UI: a historical receipt or prior-process expiry does not prove current enabled state. Core Recovery does not resolve this journal.</p></article>
+</div>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<div class="host-options">
+<article class="flow-step"><h3>Uncertain result → same-ID receipt lookup</h3><p>Lost responses and ambiguous preparation retain the original request. Reconcile the same identity; recovery-required source/run commands link to Core Recovery. Do not rebind to a newer provider or blindly resend. Disabling presentation or a source preserves admitted executions and pinned effects.</p></article>
+<article class="flow-step"><h3>Legacy Todo journal → receipt check</h3><p>Core checks the original method, path, payload and UUID in All-galleon scope. Only a verified terminal receipt can be acknowledged. Missing authority or ambiguous evidence stays preserved in the legacy journal. The new service does not reissue old mutations, and Core Recovery does not resolve these entries.</p></article>
+</div>
+<p class="limit-note">Plugin code is trusted. Import checks and DTO validation are authoring boundaries, not a security sandbox. See the <a href="plugin-implementation-progress.md">implementation ledger</a> and <a href="task-source-authoring.md">public task contracts</a>.</p>
+</section>
 <section aria-labelledby="intake-heading">
 <h2 class="section-heading" id="intake-heading">Intake and execution preparation</h2>
 <p class="section-intro">Each source resolves a task, galleon, and workflow before execution. The same publication safeguards apply to automated work.</p>

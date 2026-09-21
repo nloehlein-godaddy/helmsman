@@ -1,4 +1,8 @@
+import type { SourceCommandTargetV1 } from './source-command';
+import type { TaskEditorContractV1, TaskEditorDocumentV1, TaskEditActionV1, TaskEditorPageV1 } from './task-edit';
+import { parseTaskEditorDeclarationV1 } from './task-editor-contract';
 import type { TaskHistoryQueryV1, TaskHistoryV1 } from './activity-read';
+import type { TaskTriageQueryV1, TaskTriagePageV1, TaskBugsQueryV1, TaskBugsReportV1 } from './task-views';
 import type { PluginJson, TaskSourceDeclaration } from './backend';
 
 export type SourceId = string;
@@ -78,6 +82,9 @@ export interface SourceIdentityEvidenceV1 {
 }
 
 export interface TaskSourceProviderV1 {
+  prepareEditorCommand?(input: { editor: TaskEditorContractV1; action: TaskEditActionV1; commandId: string; target: SourceCommandTargetV1 | null; destinationRepo: string | null; value: PluginJson }, context: SourceCallContextV1): Promise<LocalSourceCommandPlanV1>;
+  readEditor?(input: { editor: TaskEditorContractV1; ref: WorkRefV1 | null }, context: SourceCallContextV1): Promise<TaskEditorDocumentV1 | null>;
+  listEditableTasks?(input: { repo: string; editor: TaskEditorContractV1; filter: PluginJson; cursor: string | null; limit: number }, context: SourceCallContextV1): Promise<TaskEditorPageV1>;
   identify(context: SourceCallContextV1): Promise<SourceIdentityEvidenceV1>;
   list(input: {
     repo: string;
@@ -86,6 +93,8 @@ export interface TaskSourceProviderV1 {
     limit: number;
   }, context: SourceCallContextV1): Promise<TaskPageV1>;
   readHistory?(input: TaskHistoryQueryV1, context: SourceCallContextV1): Promise<TaskHistoryV1>;
+  listTriage?(input: TaskTriageQueryV1, context: SourceCallContextV1): Promise<TaskTriagePageV1>;
+  readBugs?(input: TaskBugsQueryV1, context: SourceCallContextV1): Promise<TaskBugsReportV1>;
   listUnderway?(input: { repo: string; cursor: string | null; limit: number }, context: SourceCallContextV1): Promise<TaskPageV1>;
   lookup(input: { displayKey: string }, context: SourceCallContextV1): Promise<WorkRefV1 | null>;
   load(ref: WorkRefV1, context: SourceCallContextV1): Promise<TaskSnapshotV1 | null>;
@@ -124,6 +133,7 @@ export interface LocalSourceRecordsV1 {
 }
 
 export interface SourceReadHttpV1 {
+  query?(input: { readonly id: 'jira.approximate-count/v1'; readonly input: { readonly jql: string } }): Promise<{ status: number; body: PluginJson }>;
   get(input: { path: string; query: Readonly<Record<string, string>> }): Promise<{
     status: number;
     body: PluginJson;
@@ -452,7 +462,17 @@ export function parseSourceEffectResultV1(input: unknown): SourceEffectResultV1 
 }
 export function validateTaskSourceProvider(provider: unknown, declaration: TaskSourceDeclaration): asserts provider is TaskSourceProviderV1 {
   const value = object(provider);
-  if (declaration.readViews !== undefined && (declaration.readViews.length > 2 || new Set(declaration.readViews).size !== declaration.readViews.length || declaration.readViews.some(view => !['underway', 'history'].includes(view)))) invalid('read view declaration');
+  if (declaration.editorContracts !== undefined) {
+    if (!Array.isArray(declaration.editorContracts) || declaration.editorContracts.length > 16) invalid('editor declarations');
+    const editors = declaration.editorContracts.map(parseTaskEditorDeclarationV1);
+    if (new Set(editors.map(editor => editor.id)).size !== editors.length || editors.some(editor => Object.values(editor.commands).some(command => command !== null && !declaration.commandIds.includes(command)))) invalid('editor command declaration');
+    if (editors.length && (typeof value.readEditor !== 'function' || typeof value.listEditableTasks !== 'function' || typeof value.prepareEditorCommand !== 'function')) invalid('provider editor');
+  }
+  if (declaration.readViews !== undefined && (declaration.readViews.length > 4 || new Set(declaration.readViews).size !== declaration.readViews.length || declaration.readViews.some(view => !['underway', 'history', 'triage', 'bugs'].includes(view)))) invalid('read view declaration');
+  if (declaration.readViews?.includes('triage') && typeof value.listTriage !== 'function'
+    || value.listTriage !== undefined && typeof value.listTriage !== 'function') invalid('provider triage view');
+  if (declaration.readViews?.includes('bugs') && typeof value.readBugs !== 'function'
+    || value.readBugs !== undefined && typeof value.readBugs !== 'function') invalid('provider bugs view');
   if (declaration.readViews?.includes('underway') && typeof value.listUnderway !== 'function'
     || value.listUnderway !== undefined && typeof value.listUnderway !== 'function') invalid('provider underway view');
   if (declaration.readViews?.includes('history') && typeof value.readHistory !== 'function'

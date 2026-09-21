@@ -1,0 +1,15 @@
+{
+  "packageVersion":1,
+  "manifest":{
+    "manifestVersion":2,"id":"helmsman.source-settings","version":"0.1.0","sdkVersion":1,
+    "pages":[{"id":"page","title":"Source settings","slots":["helmsman/source-settings-page"],"panes":[],
+      "composition":{"id":"helmsman/source-settings-page","version":1,"accepts":[{"id":"helmsman/source-settings-panel","version":1}],
+        "initialLayout":{"instances":[{"instanceId":"settings","contributionId":"helmsman.source-settings/panel"}],"columns":[[{"instances":["settings"],"activeInstanceId":"settings","collapsed":false}]]}},
+      "requires":[{"id":"helmsman/composition","version":1}]}],
+    "panels":[
+      {"id":"panel","title":"Source administration","contract":{"id":"helmsman/source-settings-panel","version":1},"requires":[{"id":"helmsman/source-admin","version":1}]},
+      {"id":"automatic","title":"Automatic starts","contract":{"id":"helmsman/todos-panel","version":1},"requires":[{"id":"helmsman/source-admin","version":1}]}
+    ]
+  },
+  "node":{"minMajor":22,"maxMajorExclusive":30},"entries":{"page":"page.js"},"panelEntries":{"panel":"panel.js","automatic":"automatic.js"}
+}

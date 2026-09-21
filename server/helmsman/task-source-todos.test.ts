@@ -79,3 +79,29 @@ it('never records definite rejection when the host command committed before resp
   expect(f.persistence.sql.prepare('SELECT result FROM source_todo_commands WHERE id=?').get('saved-request')).toEqual({ result: null });
   expect((await f.api.update(task.id, { title: 'Saved' }, 'saved-request'))?.title).toBe('Saved');
 });
+it('reconciles exact legacy terminal receipts before current source enablement', async () => {
+  const f = setup(); const input = { title: 'Saved', repo: 'owner/project' }; const task = await f.api.create(input, 'old-create');
+  await f.api.remove(task.id, 'old-delete');
+  f.store.configureInstance({ instanceId: f.instance.id, expectedRevision: f.instance.revision, desiredEnabled: false });
+  expect(f.api.legacyReceipt!({ requestId: 'old-create', path: '/api/todos', method: 'POST', input })).toMatchObject({ status: 'succeeded', result: { kind: 'changed', ref: { externalId: task.id } } });
+  expect(f.api.legacyReceipt!({ requestId: 'old-delete', path: `/api/todos/${task.id}`, method: 'DELETE', input: null })).toMatchObject({ status: 'succeeded', result: { kind: 'deleted', ref: { externalId: task.id } } });
+  expect(() => f.api.legacyReceipt!({ requestId: 'old-create', path: '/api/todos', method: 'POST', input: { ...input, title: 'Rebound' } })).toThrow('identity changed');
+});
+it('reconciles exact legacy inner receipts only while original authority remains verifiable', async () => {
+  const f = setup(); const task = await f.api.create({ title: 'Initial', repo: 'owner/project' }, 'create');
+  const flaky = createSourceTodoApi({ ...f, sourceId: f.source.id, service: { ...f.service, async command(...args) { await f.service.command(...args); throw new Error('Response lost'); } } });
+  const first = { title: 'First' }; await expect(flaky.update(task.id, first, 'inner-one')).rejects.toThrow('Response lost');
+  expect(f.api.legacyReceipt!({ requestId: 'inner-one', path: `/api/todos/${task.id}`, method: 'PUT', input: first })).toMatchObject({ status: 'succeeded', result: { kind: 'changed' } });
+  const second = { title: 'Second' }; await expect(flaky.update(task.id, second, 'inner-two')).rejects.toThrow('Response lost');
+  f.store.configureInstance({ instanceId: f.instance.id, expectedRevision: f.instance.revision, desiredEnabled: false });
+  expect(f.api.legacyReceipt!({ requestId: 'inner-two', path: `/api/todos/${task.id}`, method: 'PUT', input: second })).toMatchObject({ status: 'blocked', reason: 'original-authority-unavailable', result: null });
+  expect(f.persistence.sql.prepare('SELECT result FROM source_todo_commands WHERE id=?').get('inner-two')).toEqual({ result: null });
+  expect(f.api.legacyReceipt!({ requestId: 'inner-one', path: `/api/todos/${task.id}`, method: 'PUT', input: first }).status).toBe('succeeded');
+});
+it('keeps legacy unrecorded requests and in-flight intents distinct without reissuing them', async () => {
+  const f = setup(); const input = { title: 'Task', repo: 'owner/project' };
+  const query = { requestId: 'never-recorded', path: '/api/todos', method: 'POST' as const, input };
+  expect(f.api.legacyReceipt!(query)).toMatchObject({ status: 'unrecorded', reason: 'not-recorded', result: null });
+  expect(f.persistence.sql.prepare('SELECT * FROM source_todo_commands').all()).toEqual([]);
+  expect(() => f.api.legacyReceipt!({ ...query, path: '/api/source-commands' })).toThrow('Invalid legacy');
+});

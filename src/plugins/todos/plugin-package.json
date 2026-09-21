@@ -1,13 +1,56 @@
 {
   "packageVersion": 1,
-  "manifest": { "manifestVersion": 1, "id": "example.local-todos", "version": "0.1.0", "sdkVersion": 1, "pages": [] },
-  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "manifest": {
+    "manifestVersion": 1,
+    "id": "example.local-todos",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": []
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
   "entries": {},
   "backend": {
     "entry": "provider.js",
-    "provides": [{ "id": "helmsman/task-source", "version": 1, "localId": "todos" }],
+    "provides": [
+      {
+        "id": "helmsman/task-source",
+        "version": 1,
+        "localId": "todos"
+      }
+    ],
     "taskSources": {
-      "todos": { "identityFormats": ["helmsman.local-task/v1"], "effectIds": [], "commandIds": ["create", "update", "delete"], "access": ["local-records"], "readViews": ["underway", "history"] }
+      "todos": {
+        "identityFormats": [
+          "helmsman.local-task/v1"
+        ],
+        "effectIds": [],
+        "commandIds": [
+          "create",
+          "update",
+          "delete"
+        ],
+        "access": [
+          "local-records"
+        ],
+        "readViews": [
+          "underway",
+          "history"
+        ],
+        "editorContracts": [
+          {
+            "id": "helmsman/local-task-editor",
+            "version": 1,
+            "commands": {
+              "create": "create",
+              "update": "update",
+              "delete": "delete"
+            }
+          }
+        ]
+      }
     },
     "settings": {},
     "storageVersion": 1

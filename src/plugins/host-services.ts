@@ -1,8 +1,13 @@
+import { createHostSourceAdminService } from './source-admin-service';
+import { createHostTodoLegacyRecoveryService } from './todo-legacy-recovery-service';
 import { fetchOutcomes, saveOutcomeAssessment } from '../data/outcomeClient';
 import { createHostPullRequestReadService } from './pull-request-read-service';
 import { createHostActivityReadService } from './activity-read-service';
 import { createHostRunReadService } from './run-read-service';
 import { createHostRunCommandService } from './run-command-service';
+import { createHostTaskEditService } from './task-edit-service';
+import { createHostSourceCommandService } from './source-command-service';
+import { createHostTaskViewsReadService } from './task-views-read-service';
 import type { PluginPageServices } from './services';
 import type { PricingEstimate, UsageQuery, UsageSnapshot } from './usage';
 import { createHostTaskReadService, type TaskReadScopeV1 } from './task-read-service';
@@ -86,9 +91,13 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
   return Object.freeze({
     version: 1,
     ...(scope ? { tasks: createHostTaskReadService(lifetime, { scope }), runs: createHostRunReadService(lifetime, { scope }),
+      todoLegacyRecovery: createHostTodoLegacyRecoveryService(lifetime, { scope }),
+      taskEdit: createHostTaskEditService(lifetime, { scope }), taskViews: createHostTaskViewsReadService(lifetime, { scope }),
       pullRequests: createHostPullRequestReadService(lifetime, { scope }),
       activity: createHostActivityReadService(lifetime, { scope }),
-      ...(caller ? { runCommands: createHostRunCommandService(lifetime, { scope, caller }) } : {}) } : {}),
+      ...(caller ? { runCommands: createHostRunCommandService(lifetime, { scope, caller }),
+        sourceAdmin: createHostSourceAdminService(lifetime, { scope, caller }),
+        sourceCommands: createHostSourceCommandService(lifetime, { scope, caller }) } : {}) } : {}),
     usage: Object.freeze({ async query(input: UsageQuery, signal?: AbortSignal) {
       const body = await request('/api/usage/v1', input, signal);
       if (!usageSnapshot(body, input)) throw new Error('Usage response was invalid.');

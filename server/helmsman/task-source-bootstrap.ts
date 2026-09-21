@@ -45,7 +45,8 @@ export async function bootstrapTaskSources(options: {
           binding: { ...provider, connectionId: connection.id, credentialHandle: connection.credentialHandle }, desiredEnabled: config.jiraEnabled,
           settings: { baseUrl: connection.origin, project: config.jira!.project, projectByRepo: config.repoProjectMap,
             assigneeAccountId: config.botAccountId ?? connection.subject, progressStatus: config.statusInProgress, reviewStatus: config.statusInReview,
-            readyStatuses: [config.statusBacklog, config.statusTodo], jql: config.jira!.jql ?? '', assignee: config.jira!.assignee }, allowedRepos: [...new Set(options.repos)] }).source;
+            readyStatuses: [config.statusBacklog, config.statusTodo], backlogStatus: config.statusBacklog, todoStatus: config.statusTodo,
+            jql: config.jira!.jql ?? '', assignee: config.jira!.assignee }, allowedRepos: [...new Set(options.repos)] }).source;
       } catch { diagnostics.push('Jira source identity could not be verified. Its existing work remains protected; restore the configured connection and restart.'); }
     } else diagnostics.push('The Jira task provider is unavailable; existing Jira work remains protected.');
   }

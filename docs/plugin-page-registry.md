@@ -2,6 +2,8 @@
 
 This implements the page metadata and lifecycle portions of [Phase A](plugin-architecture-plan.md). The API is experimental. Standalone declarations ship as `release/sdk`; see [the runnable distribution and SDK](distribution.md).
 
+This guide describes the page lifecycle introduced in Phase A. Current composition and panel services are documented in [panel authoring](panel-authoring.md); E3 task/editor/admin services are in [task-source authoring](task-source-authoring.md). Costs and Helm have selected aliases; the E3 task author packages remain opt-in on canonical routes, with default task-page cutover pending. See [current progress](plugin-implementation-progress.md).
+
 ## What works
 
 - Runtime validation of page contribution metadata, with immutable defensive copies.

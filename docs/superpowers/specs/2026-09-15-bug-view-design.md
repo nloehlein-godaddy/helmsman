@@ -1,5 +1,7 @@
 # Bug View — design
 
+Historical legacy Bugs design/implementation record. The default `/bugs` page retains this path; the newer opt-in package has explicit metric quality and sample coverage. See [current E3 status](../../plugin-phase-e3-implementation.md) and the [Bugs package](../../../src/plugins/bugs/README.md).
+
 Date: 2026-09-15
 Status: approved (direction), pending spec review
 

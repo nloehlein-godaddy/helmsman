@@ -51,6 +51,17 @@ describe('plugin packages', () => {
     expect(parsePluginPackage({ ...descriptor(), backend: backend() }).backend?.taskSources).toBeUndefined();
   });
 
+  it('validates and snapshots provider-declared public source settings', () => {
+    const source = taskSource();
+    const fields = { project: { label: 'Project', schema: { type: 'string', default: '', maxLength: 128 } } };
+    const withFields = (settingsFields: unknown) => ({ ...descriptor(), backend: { ...source, taskSources: { tasks: { ...source.taskSources.tasks, settingsFields } } } });
+    const parsed = parsePluginPackage(withFields(fields)).backend?.taskSources?.tasks?.settingsFields;
+    fields.project.schema.default = 'later';
+    expect(parsed?.project?.schema.default).toBe('');
+    expect(Object.isFrozen(parsed?.project?.schema)).toBe(true);
+    for (const invalid of [null, { project: { ...fields.project, secret: true } }, { project: { label: 'Project', schema: { type: 'string', default: 12, maxLength: 128 } } }]) expect(() => parsePluginPackage(withFields(invalid))).toThrow();
+  });
+
   it.each([
     {}, { tasks: {} }, { wrong: { identityFormats: ['helmsman.local-task/v1'], effectIds: [], commandIds: [], access: [] } },
     { tasks: { identityFormats: [], effectIds: [], commandIds: [], access: [] } },

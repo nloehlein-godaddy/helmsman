@@ -7,6 +7,8 @@ import { readTaskSource, writeTaskSource, type TaskSourceStore, type WorkClaimRe
 export interface LocalSourceAdapter {
   forContext(instance: SourceInstanceV1, repo: string | null, signal: AbortSignal): LocalSourceRecordsV1;
   get(sourceId: string, externalId: string): LocalSourceRecordV1 | null;
+  hasCommandResult(requestId: string): boolean;
+  recordedCommandResult(input: { requestId: string; instance: SourceInstanceV1; repo: string; commandId: string; commandInput: PluginJson }): { found: false } | { found: true; result: LocalSourceRecordV1 | null };
   commandResult(input: { requestId: string; instance: SourceInstanceV1; repo: string; commandId: string; commandInput: PluginJson }): { found: false } | { found: true; result: LocalSourceRecordV1 | null };
   applyCommand(input: { requestId: string; instance: SourceInstanceV1; repo: string; commandId: string; commandInput: PluginJson; plan: LocalSourceCommandPlanV1 }): LocalSourceRecordV1 | null;
   applyMutation(input: { claim: WorkClaimRecord; plan: SourceMutationPlanV1; purpose: 'claim' | 'completion' | 'abort' }): LocalSourceRecordV1 | null;
@@ -99,8 +101,9 @@ export function openLocalSourceAdapter(store: TaskSourceStore, now: () => string
         },
       });
     },
-    commandResult(input) {
-      scope(input.instance, input.repo);
+    hasCommandResult(requestId) { return Boolean(sql.prepare('SELECT 1 FROM source_commands WHERE id=?').get(requestId)); },
+    commandResult(input) { scope(input.instance, input.repo); return adapter.recordedCommandResult(input); },
+    recordedCommandResult(input) {
       const previous = sql.prepare('SELECT inputHash,json FROM source_commands WHERE id=?').get(input.requestId) as { inputHash: string; json: string } | undefined;
       if (!previous) return { found: false };
       const inputHash = persistenceHash({ instance: input.instance, repo: input.repo, commandId: input.commandId, input: input.commandInput });

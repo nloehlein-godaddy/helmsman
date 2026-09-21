@@ -2,9 +2,11 @@
 
 ## What it is
 
-A **command center** for autonomous, Jira-backlog-driven coding agents. It both *watches* the loop (claim a ticket → explore → implement → run tests → open a PR → transition to review → next) and *drives* it: launch an agent on any ticket or a free-form task, watch it work live, stop it, review its PR (approve / request-changes / comment), re-run it on the PR branch with feedback, and edit runtime config — all from the browser. It is the UI + agent-management half of an internal dev-tooling pattern, not a customer-facing product and not a general orchestration framework.
+A **command center** for autonomous coding agents working from Jira and local task sources. It both *watches* the loop (claim a ticket → explore → implement → run tests → open a PR → transition to review → next) and *drives* it: launch an agent on any ticket or a free-form task, watch it work live, stop it, review its PR (approve / request-changes / comment), re-run it on the PR branch with feedback, and edit runtime config — all from the browser. It is the UI + agent-management half of an internal dev-tooling pattern, not a customer-facing product and not a general orchestration framework.
 
 The **Helm** page presents the fleet as a navigation bridge: graphite control panels, amber readouts, and a **Ship’s log** of recent activity. Startup uses a ship’s wheel, compass bearings, and a plotted course, with navigation and fleet-readiness messages leading into the dashboard.
+
+Costs and Helm are replaceable packages. E3 Todos, Triage, Bugs and source-settings packages are independently buildable opt-in presentations, with explicit unavailable/partial states and durable command recovery. Default task/configuration route cutover and broader feature extraction remain pending; see the [implementation ledger](docs/plugin-implementation-progress.md) and [task flow](docs/helmsman-process.md). Packages inherit header scope unless a panel explicitly overrides it; replacing presentation never cancels retained work.
 
 ## Who it's for
 
@@ -16,7 +18,7 @@ The engineer/operator running the agents. It must be **glanceable** — "what's 
 
 ## The loop it watches
 
-- **State store = Jira.** Ticket status *is* the state machine (`Backlog → In Progress → In Review → Done`). No parallel database.
+- **Task sources own task state.** Jira owns issue state; local Todos persist their state in SQLite. Core separately records durable execution, claims, receipts and recovery evidence. Source completion and worker success remain distinct facts.
 - **Single-flight per repo.** One ticket per codebase at a time; parallelize across repos, serialize within one.
 - **The human gate is real.** PR opened + ticket → In Review *is* the gate. The agent never merges to main; merge is always a human action. Investigation (read/explore/test) is unrestricted; the only gated surface is writing — branch push and PR open.
 

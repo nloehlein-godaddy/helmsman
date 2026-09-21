@@ -3,7 +3,7 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFi
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { COSTS_PAGE_SLOT, HELM_PAGE_SLOT, supportsPageSlot } from '../../../src/plugins/frontend-manifests';
+import { builtinPageSlots, supportsPageSlot } from '../../../src/plugins/frontend-manifests';
 import { builtinFrontendPackages } from './builtin-frontend';
 import { isContributionId, isPluginId } from '../../../src/plugins/manifest';
 import { installPluginArtifact, parsePluginArchive, readPluginArtifact, type PluginArchive } from './artifacts';
@@ -23,7 +23,7 @@ export interface PluginSnapshot {
   errors: string[];
 }
 
-const frontendPageSlots: readonly string[] = [COSTS_PAGE_SLOT, HELM_PAGE_SLOT];
+const frontendPageSlots: readonly string[] = builtinPageSlots.map(slot => slot.id);
 
 export function pluginDirectory(): string {
   return process.env.HELMSMAN_PLUGINS_DIR ?? join(homedir(), '.helmsman', 'plugins');

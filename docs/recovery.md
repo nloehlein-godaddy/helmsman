@@ -19,6 +19,14 @@ Legacy running voyages and retained pre-PR checkpoints without historical runtim
 
 Plugin disable removes presentation and denies new work. Retained execution, checkpoint, dependency, and operation pins can keep a provider draining and prevent upgrade, uninstall, or collection. A checkpoint migration requires a registered validator for the retained provider and records append-only provenance. Without that validator, restore the retained provider or explicitly retire a verified checkpoint through Recovery.
 
+## Task command and settings recovery
+
+Opt-in E3 task panels retain original browser intent UUIDs before dispatch. A response timeout, navigation, source disablement or replacement does not mean a create, edit, delete or launch was rejected. Reconcile the saved request and retry delivery with its original input; never create a second request merely to recover a response. Consume a verified terminal result and persist the affected draft before acknowledging it. Recovery links preserve the originating repository even when the header or panel scope changes.
+
+Core Recovery exposes source-command evidence alongside retained run commands and effects. It can preserve uncertainty when preparation or original authority is unavailable; it does not invent a successful result or silently rebind a request to the current provider. Source administration similarly pins revisions and command identity. Source configuration and schedules persist, while automatic-start enabled state belongs to the current server process. An old successful toggle receipt is historical evidence, not proof of current enabled state. Reconcile source-admin intents within the source-settings UI through same-ID pending/receipt lookup; prior-process unresolved runtime intent expires. Core Recovery does not resolve that browser journal.
+
+For an older Todo mutation, the host checks the original legacy session journal's method, path, payload and UUID through the legacy recovery port. Select All galleons to inspect a nonempty legacy journal. A definite terminal receipt may be acknowledged; missing authority, an unrecorded request or inner-only mutation evidence stays unresolved. The new editor does not replay that request as a new source command, and Core Recovery does not resolve the legacy browser journal. See [task-source authoring](task-source-authoring.md) and the [Todos package](../src/plugins/todos-ui/README.md).
+
 ## Startup and endpoint ownership
 
 Normal startup claims exclusive application ownership before reconciliation or plugin activation. A second application cannot mutate the same main database. Catalog operations may run alongside an initialized application, but startup and maintenance barriers prevent conflicting initialization and migration.

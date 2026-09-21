@@ -1,6 +1,6 @@
 # Experimental usage and pricing plugins
 
-The Phase B SDK supports durable usage queries, replaceable Costs pages, and backend pricing providers. Execution, task-source, and general integration contracts remain subsequent phases.
+This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution and policy providers remain Phase F work; broader feature extraction and compatibility retirement are still pending.
 
 ## Build an independent package
 
@@ -39,7 +39,7 @@ Backend-only packages declare empty `pages` and `entries`. The ESM entry default
 
 Settings schemas support bounded numbers, bounded strings, and booleans; unknown keys and invalid values are rejected. `configure` merges validated overrides and prints effective settings. `reset-settings ID [KEY]` removes one or all overrides without deleting owned data, allowing recovery when an upgrade removes a setting. Storage keys belong to the active plugin namespace. JSON values are bounded, storage is limited to 1,024 keys and 8 MiB per plugin, and schema version 1 is currently supported. Settings, storage versions/data, builtin enablement, and pricing bindings live in `plugin-data.sqlite` under the plugin directory. Core usage retains its existing table in the application database. There is no plugin-specific database handle or environment object in the SDK.
 
-Activation stages registrations and storage writes until success. Failure or timeout discards staged writes, aborts the context, and disposes owned resources. A package containing both pages and a backend publishes its pages/assets only after backend activation succeeds; its selected bindings and installation record survive failure. Runtime/provider failures produce diagnostics without substituting a provider. Safe start skips optional backend composition entirely. Ordinary disable takes effect after restarting this Phase B runtime; durable execution draining and upgrade pins are Phase C work.
+Activation stages registrations and storage writes until success. Failure or timeout discards staged writes, aborts the context, and disposes owned resources. A package containing both pages and a backend publishes its pages/assets only after backend activation succeeds; its selected bindings and installation record survive failure. Runtime/provider failures produce diagnostics without substituting a provider. Safe start skips optional backend composition entirely. Disable denies new work while retained execution and operation pins protect existing obligations; see [Recovery](recovery.md). Follow the CLI restart instruction when changing backend configuration or activation. Safe start intentionally performs no draining or effect reconciliation.
 
 These are trusted modules with host privileges. The APIs and import checks provide an authoring boundary, not a sandbox.
 

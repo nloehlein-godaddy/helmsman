@@ -1,3 +1,4 @@
+import type { LegacyTodoCommandQuery, LegacyTodoCommandReceipt } from '../../src/plugins/todo-legacy-recovery';
 import type { Todo } from '../../src/data/todos';
 import type { PluginJson } from '../../src/plugins/backend';
 import { parseLocalTaskDocumentV1, type LocalSourceRecordV1 } from '../../src/plugins/tasks';
@@ -21,7 +22,9 @@ function rejectedCommand(value: unknown): RejectedTodoCommand | null {
 }
 function rejectedError(receipt: RejectedTodoCommand): SourceTodoRejectedError { return new SourceTodoRejectedError(receipt.message, receipt.requestId, receipt.commandId); }
 
+export type { LegacyTodoCommandQuery, LegacyTodoCommandReceipt } from '../../src/plugins/todo-legacy-recovery';
 export interface TodoApi {
+  legacyReceipt?(input: LegacyTodoCommandQuery): LegacyTodoCommandReceipt;
   list(): Todo[] | Promise<Todo[]>;
   get(id: string): Todo | null | Promise<Todo | null>;
   create(input: unknown, requestId?: string): Todo | Promise<Todo>;
@@ -46,7 +49,7 @@ export function createSourceTodoApi(options: { sourceId: string; store: TaskSour
     return { instance, signal, records };
   }
   function todo(record: LocalSourceRecordV1): Todo {
-    if (record.ref.sourceId !== sourceId || record.schema !== 'helmsman.local-task/v1') throw new PersistenceConflictError('Incompatible local task source record');
+    if (!record || record.ref?.sourceId !== sourceId || record.schema !== 'helmsman.local-task/v1') throw new PersistenceConflictError('Incompatible local task source record');
     const data = parseLocalTaskDocumentV1(record.data);
     return { id: record.ref.externalId, repo: record.repo, title: data.title, description: data.description,
       acceptanceCriteria: data.acceptanceCriteria, priority: data.priority, state: data.state,
@@ -116,6 +119,54 @@ export function createSourceTodoApi(options: { sourceId: string; store: TaskSour
     }
   }
   return {
+    legacyReceipt(query) {
+      const value = persistedJson(query) as unknown as LegacyTodoCommandQuery;
+      if (!value || Object.keys(value).some(key => !['requestId', 'path', 'method', 'input'].includes(key))
+        || !Object.hasOwn(value, 'input') || typeof value.path !== 'string') throw new PersistenceValidationError('Invalid legacy Todo receipt query');
+      const requestId = request(value.requestId);
+      const match = /^\/api\/todos\/(TODO-[1-9]\d*)$/.exec(value.path);
+      const commandId = value.method === 'POST' && value.path === '/api/todos' ? 'create'
+        : value.method === 'PUT' && match ? 'update' : value.method === 'DELETE' && match && value.input === null ? 'delete' : null;
+      if (!commandId) throw new PersistenceValidationError('Invalid legacy Todo operation');
+      const externalId = match?.[1] ?? null;
+      const rawInput = commandId === 'create' ? data(value.input) : commandId === 'update' ? { id: externalId, patch: data(value.input) } : { id: externalId };
+      const inputHash = persistenceHash({ sourceId, commandId, rawInput });
+      const base: LegacyTodoCommandReceipt = { version: 1, requestId, commandId, repo: null, status: 'unrecorded', reason: 'not-recorded', message: null, result: null };
+      return store.persistence.transaction(() => {
+        const saved = sql.prepare('SELECT inputHash,intent,result FROM source_todo_commands WHERE id=?').get(requestId) as { inputHash: string; intent: string; result: string | null } | undefined;
+        if (!saved) return base;
+        if (saved.inputHash !== inputHash) throw new PersistenceConflictError('Legacy Todo request identity changed');
+        const intent = persistedJson(JSON.parse(saved.intent)) as unknown as { instanceId: string; instanceRevision: number; repo: string; input: PluginJson } | null;
+        const scoped = { ...base, repo: intent?.repo ?? null };
+        let result = saved.result;
+        if (result === null) {
+          const applied = sql.prepare('SELECT inputHash,json FROM source_commands WHERE id=?').get(requestId) as { inputHash: string; json: string } | undefined;
+          if (!applied) return { ...scoped, status: 'pending', reason: 'mutation-unconfirmed' };
+          const original = intent ? store.instance(intent.instanceId) : null;
+          if (!intent || !original || original.sourceId !== sourceId || original.revision !== intent.instanceRevision) return { ...scoped, status: 'blocked', reason: 'original-authority-unavailable' };
+          if (applied.inputHash !== persistenceHash({ instance: original, repo: intent.repo, commandId, input: intent.input })) return { ...scoped, status: 'blocked', reason: 'mutation-proof-mismatch' };
+          result = applied.json;
+        }
+        const recorded = persistedJson(JSON.parse(result)); const rejection = rejectedCommand(recorded);
+        let receipt: LegacyTodoCommandReceipt;
+        if (rejection) {
+          if (rejection.requestId !== requestId || rejection.commandId !== commandId) throw new PersistenceValidationError('Legacy Todo rejection identity changed');
+          receipt = { ...scoped, status: 'rejected', reason: null, message: rejection.message };
+        } else if (recorded === null) {
+          if (commandId === 'create' || !externalId) throw new PersistenceValidationError('Legacy creation result is unavailable');
+          receipt = { ...scoped, status: 'succeeded', reason: null, result: intent
+            ? { kind: 'deleted', ref: { sourceId, externalId }, repo: intent.repo }
+            : { kind: 'not-found', ref: { sourceId, externalId } } };
+          if (intent && commandId !== 'delete') throw new PersistenceValidationError('Legacy update result is unavailable');
+        } else {
+          const local = recorded as unknown as LocalSourceRecordV1; const task = todo(local);
+          if (commandId === 'delete' || externalId !== null && task.id !== externalId || typeof local.revision !== 'string' || !local.revision) throw new PersistenceValidationError('Legacy task result changed');
+          receipt = { ...scoped, repo: intent?.repo ?? task.repo, status: 'succeeded', reason: null, result: { kind: 'changed', ref: { sourceId, externalId: task.id }, repo: task.repo, revision: local.revision } };
+        }
+        if (saved.result === null) sql.prepare('UPDATE source_todo_commands SET result=? WHERE id=? AND inputHash=? AND result IS NULL').run(result, requestId, inputHash);
+        return receipt;
+      });
+    },
     async list() {
       const { instance, signal, records } = context();
       const result: Todo[] = [];

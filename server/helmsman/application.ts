@@ -1,3 +1,4 @@
+import { createApplicationSourceAdmin } from './source-admin-application';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isAppPagePath } from '../../src/logic/routes';
 import { appPages } from '../../src/plugins/builtins';
@@ -8,6 +9,10 @@ import { createActivityReadService } from './activity-read-service';
 import { createRunReadService } from './run-read-service';
 import { openRunCommandStore } from './run-command-store';
 import { createApplicationRunCommands, type RunCommandAdmissionBinding } from './run-command-application';
+import { createApplicationSourceCommands } from './source-command-application';
+import { openSourceCommandStore } from './source-command-store';
+import { createTaskEditService } from './task-edit-service';
+import { createTaskViewsReadService } from './task-views-read-service';
 import { createServerPageCatalog } from './plugins/page-catalog';
 import { handlePluginRequest } from './plugins/http';
 import { applicationRoot, isHostCoordinatorCommand, retainedRuntimePath } from './runtime-paths';
@@ -228,6 +233,23 @@ const sourceTodos = taskSourceRuntime.todoApi ?? {
 function presentationEnv() { return { ...configStore.effectiveEnv(), JIRA_ENABLED: taskSourceRuntime.jiraEnabled() ? 'true' : 'false' }; }
 function applicationRepos(cfg = configStore.current()) { return [...new Set([...repositoryScope(cfg, []), ...taskSourceRuntime.repos()])]; }
 const activityRead = createActivityReadService({ sources: taskSourceRuntime.service, repos: applicationRepos });
+const taskEdit = createTaskEditService({ ...taskSourceRuntime, repos: applicationRepos });
+const taskViews = createTaskViewsReadService({ sources: taskSourceRuntime.service, repos: applicationRepos, relatedRun(ref, repo) {
+  const claim = taskSourceRuntime.store.latestClaim(ref);
+  const run = claim ? db.getRun(claim.runId) : null;
+  return run?.repo === repo ? { repo, runId: run.id } : null;
+} });
+const sourceCommands = createApplicationSourceCommands({ ...taskSourceRuntime, repos: applicationRepos,
+  commands: openSourceCommandStore(persistence), catalog: () => pluginSnapshot.catalog });
+
+const scheduler: AutoClaimScheduler = new AutoClaimScheduler({
+  canStart: (r: string) => pm.canStart(r).ok,
+  fetchTopBacklog,
+  launch,
+  onLog: (m: string) => process.stderr.write(m + '\n'),
+});
+
+const sourceAdmin = createApplicationSourceAdmin({ ...taskSourceRuntime, scheduler, repos: applicationRepos, catalog: () => pluginSnapshot.catalog });
 
 const pullRequestRead = createPullRequestReadService({ repos: applicationRepos, async read(query, repos, signal) {
   signal.throwIfAborted();
@@ -804,13 +826,6 @@ function fetchTopBacklog(repo: string): Promise<BacklogItem | null> {
   return taskSourceRuntime.schedule.next(repo, AbortSignal.timeout(30_000));
 }
 
-const scheduler: AutoClaimScheduler = new AutoClaimScheduler({
-  canStart: (r: string) => pm.canStart(r).ok,
-  fetchTopBacklog,
-  launch,
-  onLog: (m: string) => process.stderr.write(m + '\n'),
-});
-
 setInterval(() => void scheduler.tick(), startupCfg.autoClaimIntervalMs);
 
 let slackWatcher: SlackWatcher | null = null;
@@ -935,7 +950,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-const recoveryService = createRecoveryService({ db, executions, admissions, operations, lifecycle, runCommands, legacy: legacyExecutions, taskSources: taskSourceRuntime.store, callbacks: {
+const recoveryService = createRecoveryService({ db, executions, admissions, operations, lifecycle, runCommands, sourceCommands, legacy: legacyExecutions, taskSources: taskSourceRuntime.store, callbacks: {
   requestStop: runId => { if (!pm.hasAttached(runId) || !pm.stop(runId)) throw new Error('Verified worker attachment is unavailable'); },
   retryAttachment: async runId => {
     if (pm.hasAttached(runId)) throw new Error('This voyage already has an attachment');
@@ -1020,12 +1035,14 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
     }
-    if (url.pathname.startsWith('/api/run-commands') && req.method === 'POST'
+    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
       && (req.headers['content-type']?.split(';')[0] !== 'application/json'
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Run commands require a same-origin JSON request.' })); return;
+      res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
     }
     const api = await handleApi(req.method ?? 'GET', url.pathname, url.searchParams, body, {
+      sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, pullRequestRead, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate: runId => {
         if (db.getRun(runId)?.status !== 'running') return false;

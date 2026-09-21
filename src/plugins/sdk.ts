@@ -7,6 +7,12 @@ export type { UsageQuery, UsageSnapshot, UsageRun, UsageTotals, ProviderUsage, U
 export type { PluginBackendModule, PluginBackendContext, PluginBackendDefinition, PluginSetting, PluginStorage, PluginJson, PricingProvider, TaskSourceDeclaration } from './backend';
 export * from './tasks';
 export * from './task-read';
+export * from './task-views';
+export * from './task-edit';
+export * from './todo-legacy-recovery';
+export * from './source-settings';
+export * from './source-admin';
+export * from './source-command';
 export * from './run-read';
 export * from './pull-request-read';
 export * from './activity-read';

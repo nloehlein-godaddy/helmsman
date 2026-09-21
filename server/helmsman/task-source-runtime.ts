@@ -44,10 +44,15 @@ export function createTaskSourceRuntime(options: {
     return { source: value, instance };
   }
   function scopeHttp(request: SourceHttpRequest, ref?: WorkRefV1): void {
+    const body = request.body !== null && typeof request.body === 'object' && !Array.isArray(request.body)
+      ? request.body as Readonly<Record<string, unknown>> : null;
     if (request.method === 'GET') {
       if (['/rest/api/3/myself', '/_edge/tenant_info', '/rest/api/3/search/jql'].includes(request.path)
         || /^\/rest\/api\/3\/issue\/(?:[1-9]\d*|[a-z][a-z\d_]*-\d+)(?:\/transitions)?$/i.test(request.path)) return;
-    } else if (ref && /^[1-9]\d*$/.test(ref.externalId)
+    } else if (!ref && request.method === 'POST' && request.path === '/rest/api/3/search/approximate-count'
+      && body && Object.keys(body).length === 1 && typeof body.jql === 'string'
+      && body.jql.trim() && body.jql.length <= 16_384 && !Object.keys(request.query).length) return;
+    else if (ref && /^[1-9]\d*$/.test(ref.externalId)
       && (request.method === 'PUT' && request.path === `/rest/api/3/issue/${ref.externalId}/assignee`
         || request.method === 'POST' && request.path === `/rest/api/3/issue/${ref.externalId}/transitions`)) return;
     throw new PersistenceConflictError('Task source HTTP request is outside its recorded target');

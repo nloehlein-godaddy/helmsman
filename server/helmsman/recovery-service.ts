@@ -1,3 +1,6 @@
+import { parseSourceCommandV1, parseSourceCommandReceiptV1 } from '../../src/plugins/source-command';
+import { projectSourceCommandRecovery, type SourceCommandServerService, type SourceCommandRecoveryRecord } from './source-command-coordinator';
+import type { SourceCommandAuthority } from './source-command-store';
 import { parseRunCommandV1, parseRunCommandReceiptV1, parseRunCommandReceiptQueryV1 } from '../../src/plugins/run-command';
 import { projectRunCommandRecovery, type RunCommandRecoveryService } from './run-command-coordinator';
 import { validateRunCommandCaller } from './run-command-store';
@@ -14,10 +17,11 @@ import type { PluginLifecycle } from './plugins/lifecycle';
 import type { LegacyExecutionAdoption } from './legacy-execution-adoption';
 import { persistedJson, persistenceHash } from './persistence';
 
-export type RecoveryAction = 'retry-attachment' | 'stop-execution' | 'reconcile-operation' | 'cancel-admission' | 'retire-checkpoint' | 'resolve-operation' | 'retry-source-settlement' | 'resolve-run-command';
+export type RecoveryAction = 'retry-attachment' | 'stop-execution' | 'reconcile-operation' | 'cancel-admission' | 'retire-checkpoint' | 'resolve-operation' | 'retry-source-settlement' | 'resolve-run-command' | 'resolve-source-command';
 interface Actions { actions: RecoveryAction[] }
 export interface RecoverySnapshot {
   version: 1; mode: 'normal' | 'safe-start'; readOnly: boolean; errors: string[]; truncated: boolean;
+  sourceCommands: (Actions & Omit<SourceCommandRecoveryRecord, 'canResolve'>)[];
   commands: (Actions & { caller: string; requestId: string; repo: string; action: 'launch' | 'retry' | 'stop'; assignedRunId: string; attempt: number;
     targetRunId: string | null; targetAttempt: number | null; status: 'recovery-required'; message: string | null; receiptHash: string })[];
   runs: (Actions & { id: string; repo: string; status: string; attempt: number; attachment: string; blockedReason: string | null; protected: boolean })[];
@@ -49,6 +53,7 @@ export class RecoveryActionError extends Error {
 
 type Row = Record<string, unknown>;
 interface RecoverySource {
+  sourceCommands(repo: string | null): Iterable<unknown>;
   commands(repo: string | null): Iterable<unknown>;
   runs(): Iterable<unknown>;
   attempts(): Iterable<unknown>;
@@ -93,7 +98,7 @@ const LIMIT = 1000;
 
 function project(source: RecoverySource, readOnly: boolean, callbacks: RecoveryCallbacks, repo: string | null): RecoverySnapshot {
   const result: RecoverySnapshot = { version: 1, mode: readOnly ? 'safe-start' : 'normal', readOnly, errors: [], truncated: false,
-    commands: [], runs: [], attempts: [], admissions: [], reservations: [], pins: [], checkpoints: [], operations: [], sourceClaims: [], lifecycle: [] };
+    sourceCommands: [], commands: [], runs: [], attempts: [], admissions: [], reservations: [], pins: [], checkpoints: [], operations: [], sourceClaims: [], lifecycle: [] };
   const scoped = (value: string | null) => repo === null || value?.toLowerCase() === repo.toLowerCase();
   const actions = (available: (RecoveryAction | false | undefined)[]): RecoveryAction[] => readOnly ? [] : available.filter((value): value is RecoveryAction => Boolean(value));
   const snapshotOwners = new Set<string>();
@@ -114,6 +119,17 @@ function project(source: RecoverySource, readOnly: boolean, callbacks: RecoveryC
     } catch { result.errors.push(`${name} metadata could not be read; stored data was preserved.`); }
     return values;
   }
+  result.sourceCommands = records('Source command', () => source.sourceCommands(repo), value => {
+    const foundRepo = repoName(value.repo); if (!scoped(foundRepo)) return null;
+    validateRunCommandCaller(value.caller);
+    const query = parseRunCommandReceiptQueryV1({ requestId: value.requestId, repo: foundRepo });
+    const action = state(value.action, ['create', 'update', 'delete']) as 'create' | 'update' | 'delete';
+    if (value.status !== 'recovery-required' || typeof value.message !== 'string' && value.message !== null) throw new Error('Invalid source command receipt');
+    const target = value.target === null ? null : row(value.target);
+    return { caller: value.caller, requestId: query.requestId, repo: foundRepo, sourceId: id(value.sourceId), instanceId: id(value.instanceId),
+      action, commandId: id(value.commandId), target: target ? { ref: { sourceId: id(row(target.ref).sourceId), externalId: String(row(target.ref).externalId) }, expectedRevision: String(target.expectedRevision) } : null,
+      status: 'recovery-required', message: value.message, receiptHash: hash(value.receiptHash), actions: actions([value.canResolve === true && 'resolve-source-command']) };
+  });
   result.commands = records('Run command', () => source.commands(repo), value => {
     const foundRepo = repoName(value.repo);
     if (!scoped(foundRepo)) return null;
@@ -222,11 +238,12 @@ function project(source: RecoverySource, readOnly: boolean, callbacks: RecoveryC
 
 export function createRecoveryService(options: {
   db: Pick<Db, 'activeRuns' | 'getRun'>; executions: ExecutionStore; admissions: AdmissionStore; operations: OperationStore;
-  runCommands?: RunCommandRecoveryService;
+  runCommands?: RunCommandRecoveryService; sourceCommands?: Pick<SourceCommandServerService, 'recovery' | 'resolveNotApplied'>;
   lifecycle: Pick<PluginLifecycle, 'list'>; taskSources?: Pick<TaskSourceStore, 'claims' | 'taskSnapshot'>; callbacks?: RecoveryCallbacks; legacy?: Pick<LegacyExecutionAdoption, 'list'>;
 }): RecoveryService {
   const callbacks = options.callbacks ?? {};
   const source: RecoverySource = {
+    sourceCommands: repo => options.sourceCommands?.recovery(repo) ?? [],
     commands: repo => options.runCommands?.recovery(repo) ?? [],
     runs: () => [...new Map([
       ...options.db.activeRuns(),
@@ -256,7 +273,7 @@ export function createRecoveryService(options: {
       let value: Row;
       try { value = row(persistedJson(input)); } catch { throw new RecoveryActionError(400, 'Invalid recovery action.'); }
       const action = value.action;
-      if (action === 'resolve-run-command') {
+      if (action === 'resolve-run-command' || action === 'resolve-source-command') {
         const fields = ['action', 'caller', 'requestId', 'repo', 'receiptHash', 'actor', 'reason', 'evidence'];
         if (Object.keys(value).some(key => !fields.includes(key)) || fields.some(key => !Object.hasOwn(value, key))) throw new RecoveryActionError(400, 'Recovery action fields are invalid.');
         let query;
@@ -268,8 +285,9 @@ export function createRecoveryService(options: {
         if (typeof value.actor !== 'string' || !value.actor.trim() || value.actor.length > 256 || /[\x00-\x1f\x7f]/.test(value.actor)
           || typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 2000 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value.reason)
           || value.evidence === null || value.evidence === undefined || Buffer.byteLength(JSON.stringify(value.evidence)) > 16_384) throw new RecoveryActionError(400, 'Actor, reason, and bounded evidence are required.');
-        if (!options.runCommands) throw new RecoveryActionError(409, 'Command recovery is unavailable.');
-        options.runCommands.resolveNotAdmitted({ caller: value.caller as string, ...query, receiptHash: value.receiptHash as string,
+        const resolve = action === 'resolve-run-command' ? options.runCommands?.resolveNotAdmitted : options.sourceCommands?.resolveNotApplied;
+        if (!resolve) throw new RecoveryActionError(409, 'Command recovery is unavailable.');
+        resolve({ caller: value.caller as string, ...query, receiptHash: value.receiptHash as string,
           actor: value.actor.trim(), reason: value.reason.trim(), evidence: persistedJson(value.evidence) });
         return;
       }
@@ -329,7 +347,7 @@ export function withReadonlyRecoveryCopy<T>(path: string, read: (sql: Database.D
 }
 
 export function readRecoverySnapshot(path: string, repo: string | null = null): RecoverySnapshot {
-  const empty: RecoverySource = { commands: () => [], runs: () => [], attempts: () => [], admissions: () => [], reservations: () => [], pins: () => [], checkpoints: () => [], operations: () => [], evidence: () => [], lifecycle: () => [], sourceClaims: () => [], repoFor: () => null };
+  const empty: RecoverySource = { sourceCommands: () => [], commands: () => [], runs: () => [], attempts: () => [], admissions: () => [], reservations: () => [], pins: () => [], checkpoints: () => [], operations: () => [], evidence: () => [], lifecycle: () => [], sourceClaims: () => [], repoFor: () => null };
   if (!validRecoveryRepo(repo)) throw new RecoveryActionError(400, 'Invalid galleon filter.');
   if (!existsSync(path)) return project(empty, true, {}, repo);
   try {
@@ -351,6 +369,15 @@ export function readRecoverySnapshot(path: string, repo: string | null = null): 
         return admission ? repoName(json(admission.json).repo) : null;
       };
       const source: RecoverySource = {
+        sourceCommands: scope => decode(read('public_source_commands', `WHERE json_extract(receipt,'$.status')='recovery-required'${scope === null ? '' : " AND json_extract(command,'$.selection.repo')=? COLLATE NOCASE"} ORDER BY caller,requestId LIMIT 1001`, scope === null ? [] : [scope]), value => {
+          validateRunCommandCaller(value.caller);
+          const command = parseSourceCommandV1(json(value.command)), receipt = parseSourceCommandReceiptV1(json(value.receipt), command);
+          const authority = typeof value.authority === 'string' ? JSON.parse(value.authority) as SourceCommandAuthority | null : undefined;
+          const localRequestId = `public-source:${persistenceHash({ caller: value.caller, requestId: command.requestId })}`;
+          if (authority === undefined || command.requestId !== value.requestId || receipt.status !== 'recovery-required' || value.localRequestId !== localRequestId
+            || persistenceHash({ caller: value.caller, command, authority, localRequestId }) !== value.contentHash) throw new Error('Source command integrity check failed');
+          return { ...projectSourceCommandRecovery({ caller: value.caller, command, receipt, authority, localRequestId, contentHash: hash(value.contentHash), owner: null }, false) };
+        }),
         commands: scope => decode(read('run_commands', `WHERE json_extract(receipt,'$.status')='recovery-required'${scope === null ? '' : " AND json_extract(command,'$.repo')=? COLLATE NOCASE"} ORDER BY createdAt,caller,requestId LIMIT 1001`, scope === null ? [] : [scope]), value => {
           validateRunCommandCaller(value.caller);
           const command = parseRunCommandV1(json(value.command)), receipt = parseRunCommandReceiptV1(json(value.receipt), command);

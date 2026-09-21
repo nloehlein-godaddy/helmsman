@@ -1,16 +1,11 @@
 import type { PluginManifest, PluginPageDefinition } from './sdk';
-
-export const COSTS_PAGE_SLOT = 'helmsman/costs-page';
-export const COSTS_PAGE_ID = 'helmsman.costs/page';
-export const COSTS_PAGE_ALIAS = '/outcomes';
-export const HELM_PAGE_SLOT = 'helmsman/helm-page';
-export const HELM_PAGE_ID = 'helmsman.helm/page';
-export const HELM_PAGE_ALIAS = '/helm';
-export const HELM_PANEL_CONTRACT = 'helmsman/helm-panel';
+import { builtinPageSlots, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, HELM_PANEL_CONTRACT } from './page-slots';
+export * from './page-slots';
 
 export function supportsPageSlot(page: PluginPageDefinition, slot: string): boolean {
-  return page.slots.includes(slot) && (slot !== HELM_PAGE_SLOT || page.composition?.id === HELM_PAGE_SLOT
-    && page.composition.version === 1 && page.composition.accepts.some(contract => contract.id === HELM_PANEL_CONTRACT && contract.version === 1));
+  const definition = builtinPageSlots.find(value => value.id === slot);
+  return page.slots.includes(slot) && (!definition?.panelContract || page.composition?.id === slot
+    && page.composition.version === 1 && page.composition.accepts.some(contract => contract.id === definition.panelContract && contract.version === 1));
 }
 
 export const costsManifest: PluginManifest = {

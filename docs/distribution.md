@@ -26,7 +26,7 @@ Rebuilds only replace a release whose generated inventory is intact. Added runti
 
 ## Public page SDK
 
-`release/sdk` is a standalone local npm package named `@helmsman/plugin-sdk`, containing declarations for page lifecycle/services, usage and pricing, and backend context, plus dependency-free runtime modules. Install it as a development dependency in an author project:
+`release/sdk` is a standalone local npm package named `@helmsman/plugin-sdk`, containing declarations for page/panel lifecycle and composition, usage/pricing, task reads/views/editors, durable run/source commands, source administration, legacy Todo receipt recovery, and backend provider context, plus dependency-free runtime modules. Install it as a development dependency in an author project:
 
 ```sh
 npm install --save-dev /absolute/path/to/release/sdk typescript
@@ -58,7 +58,7 @@ Open `/recovery` for server-rendered diagnostics or `/api/recovery` for JSON. Th
 
 Safe start opens existing databases read-only, performs no migrations or reconciliation, loads no optional page plugins, starts no provider watchers/gateway/recovery/cleanup, and rejects mutations and unapproved provider APIs. Worktrees, logs, specifications, plugin artifacts, and active run records remain intact. A small allowlist serves stored history, disabled service summaries, the shell, and recovery diagnostics. Normal execution requires a deliberate restart without safe start.
 
-Use the compiled plugin CLI to disable a failing page package. To restore a retained frontend version, disable it, install its verified `artifacts/<sha256>.json` archive, enable it, and restart. Full backend plugin draining and durable operation recovery are later phases; safe start deliberately does not attempt those operations.
+Use the compiled plugin CLI to disable a failing page package. To restore a retained frontend version, disable it, install its verified `artifacts/<sha256>.json` archive, enable it, and restart. Normal-mode [Recovery](recovery.md) handles retained execution and operation obligations. Safe start deliberately does not activate providers, drain work, or reconcile effects.
 
 `HELMSMAN_PLUGIN_UI_SAFE_MODE=1` remains a narrower option that disables optional page activation while normal backend work continues. Use full safe start for recovery involving persisted work.
 
@@ -75,5 +75,7 @@ Distribution verification copies the release into temporary installations and st
 Checks execute native SQLite, compiled workflow coordinators, the run wrapper, and workflow preparation including prompt/skill hashing. They compile an independent TypeScript page against the copied SDK, install it through the compiled CLI, start the real server, and verify canonical route reload, slot replacement, disable behavior, and legacy navigation in Chromium. No application API mocks are used in this full-server gate; external provider commands are replaced with probes.
 
 Safe-start tests seed active work, launch the compiled server, inspect recovery diagnostics, attempt forbidden APIs, and verify no provider command executed and persisted rows/artifacts remain unchanged. Additional unit tests cover broken/missing frontend assets, malformed catalogs, real process termination during artifact installation, transaction failures, registration rollback, and output rebuild safety.
+
+The E3 gates independently compile the shipped Jira provider and task presentation author projects against the copied SDK. [Task views](../tests/distribution/task-views-host.pw.ts) verify Triage cursors/filter persistence, exact related-voyage scope, honest Bugs metrics, screenshots and restart/disable recovery. [Todos](../tests/distribution/todos-ui-host.pw.ts) verifies editor drafts, durable source mutations and response-loss recovery. [Source settings](../tests/distribution/source-settings-host.pw.ts) verifies revision-checked configuration, explicit overrides/default resets, schedules and process-local automatic-start controls. These opt-in tests do not establish default task-page cutover; see the [E3 status](plugin-phase-e3-implementation.md).
 
 The [Phase B author guide](plugin-backend.md) covers external Costs and pricing packages, persisted settings/storage, and independently usable sources in `release/plugin-sources`.

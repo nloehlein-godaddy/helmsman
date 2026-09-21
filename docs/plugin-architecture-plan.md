@@ -20,7 +20,7 @@ The main obstacles are concentrated:
 - [`server/helmsman/router.ts`](../server/helmsman/router.ts) knows individual features and their dependencies.
 - [`server/helmsman/agents/adapter.ts`](../server/helmsman/agents/adapter.ts) includes Jira-specific task fields; runner and recovery paths know specific providers.
 
-Existing agent adapters, run hosts, data clients, store factories, and mounted page lifecycles provide useful starting boundaries. Jira and Todos currently cannot launch work simultaneously. Making features replaceable requires changing those domain assumptions, beyond adding a plugin loader.
+Existing agent adapters, run hosts, data clients, store factories, and mounted page lifecycles provided the initial boundaries. Phase D removed the former Jira-versus-Todos mode split. E3 adds opt-in task presentations through public editor, command, task-view and source-admin services; default task-page cutover remains pending. See [E3 evidence](plugin-phase-e3-implementation.md) and the [E4 proposal](plugin-phase-e4-implementation.md). The remaining plan describes the target architecture, including unfinished F/G work.
 
 ## 1. Define what stays in the core
 

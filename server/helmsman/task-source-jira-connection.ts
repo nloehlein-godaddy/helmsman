@@ -54,6 +54,7 @@ export function createJiraSourceHttp(options: {
   const pinned = Object.freeze({ ...options.connection });
   const fetcher = options.fetcher ?? fetch;
   return createSourceHttp({ connection: pinned, signal: options.signal, authorize: options.authorize, mutation: options.mutation, fetcher,
+    readQueries: ['jira.approximate-count/v1'],
     async resolve(signal): Promise<ResolvedSourceHttpConnection> {
       signal.throwIfAborted();
       const current = credentials(await options.resolveConfig(signal));

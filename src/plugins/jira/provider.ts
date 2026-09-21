@@ -2,12 +2,14 @@ import type { TaskHistoryQueryV1, TaskHistoryV1, TaskHistoryEventV1, PluginJson,
 import { jiraRecord, jiraText, normalizeJiraIssue } from './normalize.js';
 import { findJiraTransition, jiraArray, jiraGet, jiraIssueId, probeJiraIdentity, probeJiraSubject } from './http.js';
 import { jiraEffects } from './effects.js';
+import { createJiraViews } from './views.js';
 
 export const JIRA_IDENTITY_FORMAT = 'jira.issue-id/v1';
 export const JIRA_AUTHORITY_PROTOCOL = 'jira.cloud';
 interface JiraSettings {
   baseUrl: string; project: string; projectByRepo: Record<string, string>; assigneeAccountId: string;
   progressStatus: string; reviewStatus: string; readyStatuses: string[]; jql: string; assignee: string;
+  backlogStatus: string | null; todoStatus: string | null; bugIssueType: string; bugSeverityField: string;
 }
 export function jiraSettings(input: Readonly<Record<string, PluginJson>>): JiraSettings {
   const settings = jiraRecord(input);
@@ -28,11 +30,17 @@ export function jiraSettings(input: Readonly<Record<string, PluginJson>>): JiraS
   const readyStatuses = settings.readyStatuses === undefined ? ['Backlog', 'To Do'] : jiraArray(settings.readyStatuses, 20);
   const jql = settings.jql ?? '';
   const assignee = settings.assignee ?? '';
+  const backlogStatus = settings.backlogStatus ?? (readyStatuses.length === 2 ? readyStatuses[0] : null);
+  const todoStatus = settings.todoStatus ?? (readyStatuses.length === 2 ? readyStatuses[1] : null);
+  const bugIssueType = settings.bugIssueType ?? 'Bug'; const bugSeverityField = settings.bugSeverityField ?? 'customfield_14808';
+  if (backlogStatus !== null && !jiraText(backlogStatus, 240) || todoStatus !== null && !jiraText(todoStatus, 240)
+    || !jiraText(bugIssueType, 128) || !jiraText(bugSeverityField, 128) || !/^customfield_[1-9]\d*$/.test(bugSeverityField)) throw new Error('Invalid Jira view policy');
   if (!jiraText(progressStatus, 240) || !jiraText(reviewStatus, 240) || !readyStatuses.length || readyStatuses.some(value => !jiraText(value, 240))
     || typeof jql !== 'string' || jql.length > 8192 || /[\x00-\x1f\x7f]/.test(jql)
     || typeof assignee !== 'string' || assignee.length > 320 || /[\x00-\x1f\x7f]/.test(assignee)) throw new Error('Invalid Jira source policy');
   return { baseUrl: url.origin, project: settings.project, projectByRepo, assigneeAccountId: settings.assigneeAccountId,
-    progressStatus, reviewStatus, readyStatuses: readyStatuses as string[], jql, assignee };
+    progressStatus, reviewStatus, readyStatuses: readyStatuses as string[], jql, assignee,
+    backlogStatus: backlogStatus as string | null, todoStatus: todoStatus as string | null, bugIssueType, bugSeverityField };
 }
 function access(context: SourceCallContextV1, repo = context.repo) {
   context.signal.throwIfAborted();
@@ -202,6 +210,7 @@ async function identify(context: SourceCallContextV1): Promise<SourceIdentityEvi
   return { version: 1, level: authority ? 'verified' : 'operator-seeded', authority, verifiedAt: new Date().toISOString(), proof: { accountId: subject.accountId, cloudId: cloud?.cloudId ?? null } };
 }
 export const jiraProvider: TaskSourceProviderV1 = {
+  ...createJiraViews({ access, snapshot, assignedTo }),
   identify, readHistory: jiraHistory,
   async listUnderway(input, context) {
     const { settings, http, repo, project } = access(context, input?.repo);

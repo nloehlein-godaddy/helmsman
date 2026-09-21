@@ -4,6 +4,31 @@ Open [helmsman-process.html](helmsman-process.html) for the standalone diagrams.
 
 The flow now includes Moon Units-inspired intake, frozen execution settings, isolated agent stages, Agent Questions, durable evidence and recovery, and Costs & Outcomes. Those services surround the existing exact-revision PR review gate; they do not replace it.
 
+## Plugin task presentation and command authority
+
+Costs and Helm use public plugin services. The E3 Todos, Triage, Bugs and source-settings packages are opt-in author projects; the default task/configuration routes still render their legacy pages. E4 run presentation is proposed; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
+
+```mermaid
+flowchart TD
+    Scope[Header galleon or explicit panel override<br/>Exact source instance and revision] --> Panel[Opt-in task page and panel<br/>Host manages lifetime, scope and cancellation]
+    Panel --> Reads[Public task / editor / task-view reads<br/>Bounded, validated DTOs; no credentials]
+    Reads --> Provider[Jira or local source provider<br/>Declared optional views; explicit quality]
+    Provider --> Display[Render independent group and metric quality<br/>Actual links, dates and canonical related voyages]
+    Panel --> Intent[Persist original intent UUID and input<br/>Source command or run command]
+    Intent --> Core[Core checks authority, scope and revisions<br/>Provider prepares; host owns mutation and receipt]
+    Core --> Accepted[Verified terminal receipt<br/>Consume result and save draft, then acknowledge]
+    Core --> Uncertain[Lost response or ambiguous preparation<br/>Preserve original request; reconcile same identity]
+    Uncertain --> Lookup[Same-ID receipt lookup<br/>Retain original input; no blind resend]
+    Lookup -->|Recovery-required source or run command| Recovery[Core Recovery and retained evidence<br/>No automatic provider rebind]
+    Panel --> Admin[Source administration<br/>Revision-checked settings and schedules<br/>Process-local automatic-start state]
+    Admin --> AdminLookup[Retain admin intent; same-ID lookup in settings UI<br/>Historical receipt or prior-process expiry<br/>No Core Recovery resolution]
+    Legacy[Legacy Todo session journal<br/>Original method, path, payload and UUID] --> Check[Host receipt check; All-galleon scope<br/>No reissue through new source commands]
+    Check --> Accepted
+    Check -->|Missing authority or ambiguous evidence| Preserve[Preserve legacy journal entry<br/>No reissue; no Core Recovery resolution]
+```
+
+Triage applies provider filters before pagination and preserves independent cursors under a fixed observation window. Bugs labels approximate counts, unknown metrics and capped resolution samples separately. A source or presentation disablement denies new work while retained execution and effect obligations stay pinned. A historical automatic-start receipt never establishes the current process's enabled state. Package code is trusted; DTO and import validation do not provide a security sandbox.
+
 ## Intake and execution preparation
 
 ```mermaid

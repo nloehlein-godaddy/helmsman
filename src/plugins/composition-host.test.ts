@@ -214,9 +214,14 @@ describe('page-owned composition', () => {
     let context!: PluginPanelContext;
     const f = setup({ mount(_element, supplied) { context = supplied; return { update() {}, dispose() {} }; } });
     await f.host.service.mount('first', f.first);
-    expect(Object.keys(context.services).sort()).toEqual(['activity', 'pullRequests', 'runCommands', 'runs', 'tasks', 'version']);
+    expect(Object.keys(context.services).sort()).toEqual(['activity', 'pullRequests', 'runCommands', 'runs', 'sourceAdmin', 'sourceCommands', 'taskEdit', 'taskViews', 'tasks', 'todoLegacyRecovery', 'version']);
     f.host.update({ ...page, visible: false });
     await expect(context.services.tasks?.discover()).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(context.services.taskEdit?.discover()).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(context.services.todoLegacyRecovery?.pending()).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(context.services.sourceAdmin?.snapshot()).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(context.services.sourceCommands?.pending()).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(context.services.taskViews?.bugs({ version: 1, sourceId: '11111111-1111-4111-8111-111111111111', instanceId: 'instance-1', instanceRevision: 1, repo: page.repo })).rejects.toMatchObject({ name: 'AbortError' });
     await expect(context.services.runs?.list({ version: 1, repo: page.repo, kind: 'running', cursor: null, limit: 25 })).rejects.toMatchObject({ name: 'AbortError' });
     await expect(context.services.runCommands?.pending()).rejects.toMatchObject({ name: 'AbortError' });
     await expect(context.services.runCommands?.submit({ version: 1, repo: 'org/a', action: 'stop', target: { runId: 'run-1', expectedAttempt: 1 } })).rejects.toMatchObject({ name: 'AbortError' });

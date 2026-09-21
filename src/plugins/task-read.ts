@@ -14,7 +14,7 @@ export interface TaskReadSelectionV1 {
 }
 
 export interface TaskReadSourceV1 extends TaskReadSelectionV1 {
-  readonly readViews?: readonly ('underway' | 'history')[];
+  readonly readViews?: readonly ('underway' | 'history' | 'triage' | 'bugs')[];
   readonly label: string;
   readonly availability: 'available' | 'disabled' | 'unavailable';
 }
@@ -148,10 +148,10 @@ export function parseTaskReadSources(input: unknown, repo: string): readonly Tas
     if (!allowedRepos.includes(repo) || new Set(allowedRepos).size !== allowedRepos.length || typeof value.available !== 'boolean'
       || typeof value.desiredEnabled !== 'boolean' || value.available && !value.desiredEnabled) invalid();
     const availability: TaskReadSourceV1['availability'] = !value.desiredEnabled ? 'disabled' : value.available ? 'available' : 'unavailable';
-    const readViews = value.readViews === undefined ? undefined : array(value.readViews, 2);
-    if (readViews?.some(view => view !== 'underway' && view !== 'history') || readViews && new Set(readViews).size !== readViews.length) invalid();
+    const readViews = value.readViews === undefined ? undefined : array(value.readViews, 4);
+    if (readViews?.some(view => typeof view !== 'string' || !['underway', 'history', 'triage', 'bugs'].includes(view)) || readViews && new Set(readViews).size !== readViews.length) invalid();
     return Object.freeze({ ...selection, label: boundedText(value.label, 240), availability,
-      ...(readViews ? { readViews: Object.freeze(readViews as ('underway' | 'history')[]) } : {}) });
+      ...(readViews ? { readViews: Object.freeze(readViews as ('underway' | 'history' | 'triage' | 'bugs')[]) } : {}) });
   });
   if (new Set(sources.map(source => source.instanceId)).size !== sources.length) invalid();
   return Object.freeze(sources);

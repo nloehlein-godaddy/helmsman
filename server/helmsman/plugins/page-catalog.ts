@@ -1,12 +1,12 @@
-import { ensureHelmPageSlot } from '../../../src/plugins/builtins';
-import { builtinFrontendManifests, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT } from '../../../src/plugins/frontend-manifests';
+import { ensureBuiltinPageSlots } from '../../../src/plugins/builtins';
+import { builtinFrontendManifests, builtinPageSlots } from '../../../src/plugins/frontend-manifests';
 import { isContributionId, parsePluginManifest, PluginManifestError } from '../../../src/plugins/manifest';
 import { parsePluginPackage } from '../../../src/plugins/package';
 import type { PluginPageRegistry } from '../../../src/plugins/registry';
 import type { PluginCatalog } from '../../../src/plugins/runtime';
 import type { PluginManifest } from '../../../src/plugins/sdk';
 
-const slots: readonly string[] = [COSTS_PAGE_SLOT, HELM_PAGE_SLOT];
+const slots: readonly string[] = builtinPageSlots.map(slot => slot.id);
 function record(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input) || ![Object.prototype, null].includes(Object.getPrototypeOf(input))
     || Reflect.ownKeys(input).some(key => typeof key !== 'string' || !('value' in (Object.getOwnPropertyDescriptor(input, key) ?? {})))) throw new PluginManifestError('Invalid server page catalog data');
@@ -53,8 +53,7 @@ function projection(input: PluginCatalog) {
 }
 
 export function createServerPageCatalog(registry: PluginPageRegistry): { apply(catalog: PluginCatalog): void; dispose(): void } {
-  if (!registry.getSlot(COSTS_PAGE_SLOT)) registry.registerSlot({ id: COSTS_PAGE_SLOT, alias: COSTS_PAGE_ALIAS, defaultContributionId: COSTS_PAGE_ID });
-  ensureHelmPageSlot(registry);
+  ensureBuiltinPageSlots(registry);
   registry.unregister('helmsman.costs');
   const registrations = new Map<string, { fingerprint: string; dispose(): void }>();
   let disposed = false;

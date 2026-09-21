@@ -1,0 +1,88 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.triage",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Triage",
+        "slots": [
+          "helmsman/triage-page"
+        ],
+        "panes": [],
+        "composition": {
+          "id": "helmsman/triage-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/triage-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "triage",
+                "contributionId": "helmsman.triage/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "triage"
+                  ],
+                  "activeInstanceId": "triage",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        },
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ]
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Triage",
+        "contract": {
+          "id": "helmsman/triage-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/task-read",
+            "version": 1
+          },
+          {
+            "id": "helmsman/task-views-read",
+            "version": 1
+          },
+          {
+            "id": "helmsman/run-command",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

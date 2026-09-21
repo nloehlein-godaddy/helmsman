@@ -13,6 +13,21 @@ function setup(overrides: Partial<Parameters<typeof createSourceHttp>[0]> = {}) 
 }
 
 describe('source connection HTTP capabilities', () => {
+  it('exposes only the allowlisted semantic count query without arbitrary POST or mutation access', async () => {
+    const { http, fetcher, authorize } = setup({ readQueries: ['jira.approximate-count/v1'] });
+    expect('send' in http).toBe(false);
+    await http.query!({ id: 'jira.approximate-count/v1', input: { jql: 'project = TASK' } });
+    expect(String(fetcher.mock.calls[0]?.[0])).toBe('https://tenant.example/rest/api/3/search/approximate-count');
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'POST', redirect: 'error', body: '{"jql":"project = TASK"}' });
+    expect(authorize).toHaveBeenCalledTimes(2);
+    for (const value of [{ id: 'jira.transition/v1', input: { jql: 'project = TASK' } },
+      { id: 'jira.approximate-count/v1', input: { jql: 'project = TASK', path: '/issue/1' } },
+      { id: 'jira.approximate-count/v1', input: { jql: '' } },
+      { id: 'jira.approximate-count/v1', input: { jql: 'x\nmutation' } }]) {
+      await expect(http.query!(value as Parameters<NonNullable<typeof http.query>>[0])).rejects.toThrow();
+    }
+    expect(fetcher).toHaveBeenCalledOnce(); expect(setup().http.query).toBeUndefined();
+  });
   it('scopes read requests and keeps credentials outside returned data', async () => {
     const { http, fetcher, authorize } = setup();
     expect('send' in http).toBe(false);

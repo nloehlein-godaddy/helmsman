@@ -28,6 +28,7 @@ export function createSourceHttp(options: {
   authorize(request: SourceHttpRequest): void;
   fetcher?: typeof fetch;
   mutation?: boolean;
+  readQueries?: readonly 'jira.approximate-count/v1'[];
   timeoutMs?: number;
   maxResponseBytes?: number;
 }): SourceReadHttpV1 | SourceMutationHttpV1 {
@@ -40,12 +41,12 @@ export function createSourceHttp(options: {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000
     || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 8 * 1024 * 1024) throw new Error('Invalid source HTTP limits');
   const fetcher = options.fetcher ?? fetch;
-  async function request(input: SourceHttpRequest): Promise<{ status: number; body: PluginJson }> {
+  async function request(input: SourceHttpRequest, readQuery = false): Promise<{ status: number; body: PluginJson }> {
     options.signal.throwIfAborted();
     const parsed = pluginJson(input, { maxBytes: 256 * 1024, maxNodes: 16_384 }) as unknown as SourceHttpRequest;
     if (!parsed || typeof parsed.path !== 'string' || parsed.path.length > 2048 || !parsed.path.startsWith('/')
       || /[\\?#\x00-\x20\x7f]/.test(parsed.path) || parsed.path.startsWith('//')
-      || parsed.method !== 'GET' && (!options.mutation || !['POST', 'PUT', 'PATCH', 'DELETE'].includes(parsed.method))) throw new Error('Invalid source HTTP request');
+      || parsed.method !== 'GET' && !readQuery && (!options.mutation || !['POST', 'PUT', 'PATCH', 'DELETE'].includes(parsed.method))) throw new Error('Invalid source HTTP request');
     const url = new URL(parsed.path, origin);
     if (url.origin !== origin.origin || url.pathname !== parsed.path || /%(?:2f|5c|00|0a|0d)/i.test(parsed.path)
       || !parsed.query || typeof parsed.query !== 'object' || Array.isArray(parsed.query)
@@ -92,7 +93,16 @@ export function createSourceHttp(options: {
     return { status: response.status, body };
   }
   const get: SourceReadHttpV1['get'] = input => request({ method: 'GET', path: input?.path, query: input?.query, body: null });
-  if (!options.mutation) return Object.freeze({ get });
+  const query: NonNullable<SourceReadHttpV1['query']> = async input => {
+    const value = pluginJson(input, { maxBytes: 20_000, maxNodes: 8 }) as unknown as typeof input;
+    if (!value || value.id !== 'jira.approximate-count/v1' || !options.readQueries?.includes(value.id)
+      || Object.keys(value).some(key => !['id', 'input'].includes(key)) || !value.input || typeof value.input !== 'object' || Array.isArray(value.input)
+      || Object.keys(value.input).length !== 1 || typeof value.input.jql !== 'string' || !value.input.jql.trim() || value.input.jql.length > 16_384
+      || /[\x00-\x1f\x7f]/.test(value.input.jql)) throw new Error('Invalid source read query');
+    return request({ method: 'POST', path: '/rest/api/3/search/approximate-count', query: {}, body: { jql: value.input.jql } }, true);
+  };
+  const reads = { get, ...(options.readQueries?.includes('jira.approximate-count/v1') ? { query } : {}) };
+  if (!options.mutation) return Object.freeze(reads);
   const send: SourceMutationHttpV1['send'] = input => request({ method: input?.method, path: input?.path, query: {}, body: input?.body });
-  return Object.freeze({ get, send });
+  return Object.freeze({ ...reads, send });
 }

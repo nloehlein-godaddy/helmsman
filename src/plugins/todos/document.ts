@@ -6,7 +6,10 @@ export const STATES = ['todo', 'in_progress', 'in_review', 'done', 'blocked'] as
 const fields = ['title', 'repo', 'description', 'acceptanceCriteria', 'priority', 'state'] as const;
 export type TodoValues = Pick<LocalTaskDocumentV1, 'title' | 'description' | 'acceptanceCriteria' | 'priority' | 'state'> & { repo: string };
 
-export class TodoSourceError extends Error {}
+export class TodoSourceError extends Error {
+  readonly sourceCommandRejection: Readonly<{ version: 1; kind: 'rejected'; message: string }>;
+  constructor(message: string) { super(message); this.sourceCommandRejection = Object.freeze({ version: 1, kind: 'rejected', message }); }
+}
 
 export function object(value: unknown, allowed?: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)

@@ -1,3 +1,5 @@
+import type { TaskEditorDeclarationV1 } from './task-edit';
+import type { SourceSettingFieldsV1 } from './source-settings';
 import type { PricingEstimate, UsageQueryService, UsageSnapshot } from './usage';
 import type { TaskSourceProviderV1 } from './tasks';
 
@@ -8,7 +10,9 @@ export type PluginSetting =
   | { readonly type: 'boolean'; readonly default: boolean };
 
 export interface TaskSourceDeclaration {
-  readonly readViews?: readonly ('underway' | 'history')[];
+  readonly settingsFields?: SourceSettingFieldsV1;
+  readonly editorContracts?: readonly TaskEditorDeclarationV1[];
+  readonly readViews?: readonly ('underway' | 'history' | 'triage' | 'bugs')[];
   readonly identityFormats: readonly string[];
   readonly effectIds: readonly string[];
   readonly commandIds: readonly string[];
