@@ -146,12 +146,12 @@ describe('Slack provider delivery outcomes', () => {
   });
   it('keeps proven draft conflicts retryable without claiming an uncertain send', async () => {
     const f = providerFixture({ draft: 'User draft' });
-    await expect(slackCommunicationProvider.invokeReviewRequest(f.request, f.context)).resolves.toMatchObject({ status: 'definitely-not-applied', retryable: true });
+    await expect(slackCommunicationProvider.invokeReviewRequest(f.request, f.context)).resolves.toMatchObject({ status: 'definitely-not-applied', retryable: false });
     expect(f.browser.sendCount).toBe(0); expect(f.context.beforeSend).not.toHaveBeenCalled();
   });
   it('keeps missing browser surfaces retryable', async () => {
     const f = providerFixture(); const context = { ...f.context, browser: { ...f.context.browser, tree: async () => ({}) } };
-    await expect(slackCommunicationProvider.invokeReviewRequest(f.request, context)).resolves.toMatchObject({ status: 'definitely-not-applied', retryable: true });
+    await expect(slackCommunicationProvider.invokeReviewRequest(f.request, context)).resolves.toMatchObject({ status: 'definitely-not-applied', retryable: false });
     expect(f.browser.sendCount).toBe(0);
   });
   it('preserves uncertainty after a send loses its response and never resends during reconciliation', async () => {

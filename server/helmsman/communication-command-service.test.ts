@@ -61,6 +61,32 @@ describe('durable public communication commands', () => {
     expect(f.invoke).toHaveBeenCalledTimes(1);
   });
 
+  it('requires explicit retry after a proven pre-send failure, including after service restart', async () => {
+    const f = fixture();
+    f.invoke.mockResolvedValueOnce({ status: 'definitely-not-applied', retryable: true, reason: 'Clear the existing draft', evidence: {} });
+    expect((await f.service.submit(caller, command, null)).status).toBe('recovery-required');
+    const restarted = createCommunicationCommandService(f.options);
+    await restarted.drainPending();
+    await restarted.submit(caller, command, null);
+    expect(f.invoke).toHaveBeenCalledTimes(1);
+    const result = await restarted.retry(caller, { repo: command.repo, requestId: command.requestId }, null);
+    expect(result).toMatchObject({ status: 'succeeded', requestId: command.requestId });
+    expect(f.invoke).toHaveBeenCalledTimes(2);
+    expect(f.operations.list()).toHaveLength(1);
+  });
+
+  it('requires explicit retry after reconciliation proves no delivery', async () => {
+    const f = fixture();
+    f.invoke.mockRejectedValueOnce(new Error('Response lost'));
+    const service = createCommunicationCommandService({ ...f.options, resolve: operation => ({ kind: operation.kind, binding: operation.binding, delivery: 'reconcile', invoke: f.invoke,
+      reconcile: async () => ({ status: 'definitely-not-applied', retryable: true, reason: 'Exact external evidence proves no delivery', evidence: {} }) }) });
+    expect((await service.submit(caller, command, null)).status).toBe('recovery-required');
+    await service.drainPending(); await service.drainPending();
+    expect(f.invoke).toHaveBeenCalledTimes(1);
+    expect((await service.retry(caller, { repo: command.repo, requestId: command.requestId }, null)).status).toBe('succeeded');
+    expect(f.invoke).toHaveBeenCalledTimes(2);
+  });
+
   it('retains the original destination and provider after settings change', async () => {
     const f = fixture();
     f.invoke.mockRejectedValueOnce(new Error('Response lost'));

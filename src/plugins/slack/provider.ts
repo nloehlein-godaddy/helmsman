@@ -57,7 +57,7 @@ export const slackCommunicationProvider: CommunicationProviderV1 = {
       const sent = await createSlackBrowserReviewSender(config, transport(context), { beforeSend: () => context.beforeSend() }).send({ repo: input.repo, prNumber: input.number, requestId: requestId(input), channel: input.destination.channel, mention: input.destination.mention });
       return { status: 'acknowledged', receipt: { workspace: input.destination.workspace, channel: input.destination.channel, mention: input.destination.mention, connectionId: input.destination.connectionId, permalink: sent.permalink } };
     } catch (error) {
-      if (error instanceof SlackReviewError && !error.uncertain) return { status: 'definitely-not-applied', retryable: true, reason: error.message, evidence: { code: 'slack-pre-send-failure' } };
+      if (error instanceof SlackReviewError && !error.uncertain) return { status: 'definitely-not-applied', retryable: false, reason: error.message, evidence: { code: 'slack-pre-send-failure' } };
       return unknown(error instanceof Error ? error.message : 'Slack delivery could not be confirmed.');
     }
   },

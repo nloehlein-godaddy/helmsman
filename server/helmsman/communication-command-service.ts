@@ -19,6 +19,7 @@ import {
 import {
   dispatchOperation,
   type OperationResolver,
+  type OperationAdapter,
 } from "./operation-dispatcher";
 import type { DurableOperation, OperationStore } from "./operations";
 import {
@@ -236,10 +237,19 @@ export function createCommunicationCommandService(
     }
     return operation;
   };
-  const resolve: OperationResolver = (operation, signal) => {
+  const resolve: OperationResolver = async (operation, signal) => {
     if (operation.origin.kind !== origin) return null;
     record(operation);
-    return options.resolve(operation, signal);
+    const adapter = await options.resolve(operation, signal);
+    if (!adapter) return null;
+    const manual = async (method: 'invoke' | 'reconcile', ...args: Parameters<OperationAdapter['invoke']>) => {
+      const result = await adapter[method](...args);
+      return result.status === 'definitely-not-applied' ? { ...result, retryable: false } : result;
+    };
+    return Object.freeze<OperationAdapter>({ ...adapter,
+      invoke: (live, context) => manual('invoke', live, context),
+      reconcile: (live, context) => manual('reconcile', live, context),
+    });
   };
   const dispatch = (id: string) =>
     dispatchOperation(options.operations, id, resolve, { reconcile: true });
@@ -318,6 +328,9 @@ export function createCommunicationCommandService(
       access(caller, query.repo, scope);
       const operation = find(caller, query);
       if (!operation) throw new ClarificationServiceError(404, "not-found");
+      if (operation.status === 'blocked' && !operation.requiresReconciliation && operation.diagnostic?.code === 'delivery-blocked') {
+        options.operations.retry(operation.id, { actor: caller, reason: 'Explicit retry of original communication request', evidence: { requestId: query.requestId } });
+      }
       return project(await dispatch(operation.id));
     },
     async drainPending() {
