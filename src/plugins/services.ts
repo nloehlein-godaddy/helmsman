@@ -4,6 +4,8 @@ import type { AssessmentInput, OutcomeAssessment, OutcomeSummary, OutcomeWindow 
 import type { PricingEstimate, UsageQuery, UsageSnapshot } from './usage';
 import type { TaskReadServiceV1 } from './task-read';
 import type { RunReadServiceV1 } from './run-read';
+import type { RunInspectServiceV1 } from './run-inspect';
+import type { DownloadServiceV1 } from './download';
 import type { PullRequestReadServiceV1 } from './pull-request-read';
 import type { ActivityReadServiceV1 } from './activity-read';
 import type { RunCommandServiceV1 } from './run-command';
@@ -20,6 +22,8 @@ export interface PluginPageServices {
   readonly sourceAdmin?: SourceAdminServiceV1;
   readonly taskViews?: TaskViewsReadServiceV1;
   readonly runs?: RunReadServiceV1;
+  readonly runInspect?: RunInspectServiceV1;
+  readonly downloads?: DownloadServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;

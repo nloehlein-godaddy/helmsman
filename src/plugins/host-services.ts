@@ -4,6 +4,8 @@ import { fetchOutcomes, saveOutcomeAssessment } from '../data/outcomeClient';
 import { createHostPullRequestReadService } from './pull-request-read-service';
 import { createHostActivityReadService } from './activity-read-service';
 import { createHostRunReadService } from './run-read-service';
+import { createHostRunInspectService } from './run-inspect-service';
+import { createHostDownloadService } from './download-service';
 import { createHostRunCommandService } from './run-command-service';
 import { createHostTaskEditService } from './task-edit-service';
 import { createHostSourceCommandService } from './source-command-service';
@@ -90,7 +92,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
   }
   return Object.freeze({
     version: 1,
-    ...(scope ? { tasks: createHostTaskReadService(lifetime, { scope }), runs: createHostRunReadService(lifetime, { scope }),
+    ...(scope ? { tasks: createHostTaskReadService(lifetime, { scope }), runs: createHostRunReadService(lifetime, { scope }), runInspect: createHostRunInspectService(lifetime, { scope }), downloads: createHostDownloadService(lifetime, scope),
       todoLegacyRecovery: createHostTodoLegacyRecoveryService(lifetime, { scope }),
       taskEdit: createHostTaskEditService(lifetime, { scope }), taskViews: createHostTaskViewsReadService(lifetime, { scope }),
       pullRequests: createHostPullRequestReadService(lifetime, { scope }),

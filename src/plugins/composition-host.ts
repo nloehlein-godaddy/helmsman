@@ -13,6 +13,8 @@ import { createHostTaskViewsReadService } from './task-views-read-service';
 import { createHostPullRequestReadService } from './pull-request-read-service';
 import { createHostActivityReadService } from './activity-read-service';
 import { createHostRunReadService } from './run-read-service';
+import { createHostRunInspectService } from './run-inspect-service';
+import { createHostDownloadService } from './download-service';
 import { createHostRunCommandService } from './run-command-service';
 
 export interface CompositionLayoutPort {
@@ -181,7 +183,7 @@ export class PluginCompositionHost {
     const contribution = this.options.registry.get(instance.contributionId);
     const compatible = contribution && this.options.definition.accepts.some(contract =>
       contract.id === contribution.contract.id && contract.version === contribution.contract.version)
-      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/pull-request-read', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
+      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/pull-request-read', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
     const module = compatible ? this.options.registry.getModule(instance.contributionId) : null;
     if (panel.module !== module || panel.contributionId !== instance.contributionId) {
       panel.host?.dispose(); panel.host = null;
@@ -215,6 +217,8 @@ export class PluginCompositionHost {
         sourceAdmin: createHostSourceAdminService(lifetime, { scope: activity, caller: instance.contributionId }),
         taskViews: createHostTaskViewsReadService(lifetime, { scope: activity }),
         runs: createHostRunReadService(lifetime, { scope: activity }),
+        runInspect: createHostRunInspectService(lifetime, { scope: activity }),
+        downloads: createHostDownloadService(lifetime, activity),
         pullRequests: createHostPullRequestReadService(lifetime, { scope: activity }),
         activity: createHostActivityReadService(lifetime, { scope: activity }),
         runCommands: createHostRunCommandService(lifetime, { scope: activity, caller: instance.contributionId }) }),

@@ -2,6 +2,10 @@
 
 Helmsman installs separately authored frontend pages and panels without rebuilding the application. [Composable pages and panels](panel-authoring.md), [backend pricing](plugin-backend.md), and [task sources](task-source-authoring.md) use versioned public contracts. Packages run as explicitly trusted JavaScript in the application's browser context. Installation and enablement validate bytes and metadata without executing plugin code; frontend code runs when an enabled contribution mounts; the backend coordinator controls activation and retained obligations.
 
+## E4 contracts in development
+
+The distributed SDK includes separate [run inspection](run-inspect-authoring.md) and [streamed download](download-authoring.md) facets. Run inspection preserves run-wide log provenance and fences reads/exports by the expected attempt. Download results distinguish a closed writable file from delivery to the browser. The existing run viewer and history remain active while authored replacements are built and validated; this foundation does not complete the E4 cutover.
+
 ## Try the external sample
 
 From the Helmsman checkout:
@@ -60,7 +64,7 @@ node /absolute/path/to/release/server/helmsman/plugins/cli.js enable example.tri
 
 Open `/plugins/example.triage/page`. For another package, choose its own non-reserved ID and archive name; retain the shared `helmsman/...` contract and composition identifiers. References to other packages remain unchanged. The Jira author descriptor already uses the installable `example.jira` namespace.
 
-These E3 packages are registered builtin defaults for `/todos`, `/triage`, `/bugs` and `/source-settings`. Their aliases follow explicit page selections; disabled or unavailable selections remain unavailable without fallback. Core `/config` links to Source settings and retains its own runtime controls. External variants remain independently buildable and installable using the renamed descriptors above. Default task-page acceptance passed; exact-commit review and push are pending. See [panel contracts](panel-authoring.md), [task-source services](task-source-authoring.md), and the [completion ledger](plugin-implementation-progress.md).
+These E3 packages are registered builtin defaults for `/todos`, `/triage`, `/bugs` and `/source-settings`. Their aliases follow explicit page selections; disabled or unavailable selections remain unavailable without fallback. Core `/config` links to Source settings and retains its own runtime controls. External variants remain independently buildable and installable using the renamed descriptors above. Default task-page cutover is reviewed and pushed. See [panel contracts](panel-authoring.md), [task-source services](task-source-authoring.md), and the [completion ledger](plugin-implementation-progress.md).
 
 ## Author contract
 

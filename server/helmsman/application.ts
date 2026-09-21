@@ -7,6 +7,8 @@ import { builtinFrontendArtifacts } from './plugins/builtin-frontend';
 import { createPullRequestReadService, projectLegacyOpenPullRequests, projectLegacyAuthoredPullRequests } from './pull-request-read-service';
 import { createActivityReadService } from './activity-read-service';
 import { createRunReadService } from './run-read-service';
+import { createRunInspectService } from './run-inspect-service';
+import { handleRunInspectExport } from './run-inspect-export';
 import { openRunCommandStore } from './run-command-store';
 import { createApplicationRunCommands, type RunCommandAdmissionBinding } from './run-command-application';
 import { createApplicationSourceCommands } from './source-command-application';
@@ -68,7 +70,9 @@ import { createScopedGateway } from './scoped-gateway';
 import { listenScopedGateway } from './gateway-listener';
 import { createDockerWorkspace, removeDockerWorkspace } from './docker-workspace';
 import { dockerHost, dockerRun, hasDocker } from './docker-host';
-import { createClarificationRuntime, clarificationPaths } from './clarification-runtime';
+import { createClarificationRuntime } from './clarification-runtime';
+import { createClarificationChannel } from './clarification-protocol-store';
+import { createClarificationGate } from './clarification-gate';
 import { createOutcomeService } from './outcome-service';
 import { recoverRuns, type AttachmentHandshake } from './recovery';
 import { createRecoveryService } from './recovery-service';
@@ -186,7 +190,17 @@ pluginCoordinator.subscribe(async () => {
 for (const error of pluginSnapshot.errors) process.stderr.write(`${error}\n`);
 const workflows = openWorkflowStore(persistence.sql);
 const clarifications = openClarificationStore(persistence.sql, { getRun: id => db.getRun(id) });
-const clarificationRuntime = createClarificationRuntime(clarifications, RUNS_DIR);
+function clarificationBinding(runId: string, expectedAttempt?: number) {
+  const row = db.getRun(runId);
+  if (!row || expectedAttempt !== undefined && row.attempt !== expectedAttempt) throw new Error('Clarification attempt is unavailable');
+  return { attempt: row.attempt, channel: clarifications.protocol.verify(executionSnapshot(row)), active: row.status === 'running' && !stopRequested(runId) };
+}
+const clarificationRuntime = createClarificationRuntime(clarifications, RUNS_DIR, { resolve: clarificationBinding });
+function clarificationReady(runId: string, attempt?: number, channelId?: string): boolean {
+  clarificationRuntime.poll(runId, attempt, channelId);
+  return !clarificationRuntime.hasUnanswered(runId, attempt, channelId);
+}
+const clarificationGate = createClarificationGate({ resolve: clarificationBinding, ready: clarificationReady });
 clarifications.cleanupOrphans();
 const outcomes = createOutcomeService({ db, store: outcomeStore, fetchPr: (repo, number) => {
   const github = configStore.current().github;
@@ -262,10 +276,12 @@ const pullRequestRead = createPullRequestReadService({ repos: applicationRepos, 
   if (query.kind === 'review-requested') return projectLegacyOpenPullRequests(await fetchReviewRequestedPrs(github, [...repos], query.repo), null);
   return projectLegacyAuthoredPullRequests(await fetchAuthoredPrs(github, [...repos]), null);
 } });
-const runRead = createRunReadService({ db, repos: applicationRepos, settlement: runId => {
+const runSettlement = (runId: string): { state: 'settled' | 'operator-required' | 'pending' } | null => {
   const claim = taskSourceRuntime.claimForRun(runId);
   return claim ? { state: claim.state === 'settled' ? 'settled' : claim.settlement?.disposition === 'retained-for-operator' ? 'operator-required' : 'pending' } : null;
-} });
+};
+const runRead = createRunReadService({ db, repos: applicationRepos, settlement: runSettlement });
+const runInspect = createRunInspectService({ db, repos: applicationRepos, settlement: runSettlement });
 const runCommands = createApplicationRunCommands({ store: openRunCommandStore(persistence), db, admissions, executions, controls: executionControls,
   catalog: () => pluginSnapshot.catalog, repos: applicationRepos, todos: sourceTodos, jiraEnabled: () => taskSourceRuntime.jiraEnabled(),
   canStart: repo => pm.canStart(repo), launch: input => launch(input), stop: runId => pm.stop(runId) });
@@ -297,7 +313,7 @@ function recordStopRequest(runId: string): void {
 const publicationService = createPublicationService({ persistence, operations, executions, runsDir: RUNS_DIR,
   getRun: id => db.getRun(id), currentConfig: () => configStore.current(),
   verifyArtifacts: verifyEffectArtifacts,
-  clarificationReady: runId => { clarificationRuntime.poll(runId); return !clarificationRuntime.hasUnanswered(runId); },
+  clarificationReady,
   isStopped: runId => stopRequested(runId),
 });
 
@@ -311,7 +327,7 @@ const gateway = createScopedGateway({ path: persistence.sql, openaiKey: () => pr
     const task = run.taskJson ? JSON.parse(run.taskJson) as AgentTask : null;
     return { repo: run.repo, branch: task?.prBranch ?? `agent/${runId}`, readOnly: Boolean(task?.review) };
   },
-  clarificationReady: runId => { clarificationRuntime.poll(runId); return !clarificationRuntime.hasUnanswered(runId); },
+  clarificationReady, clarificationGate,
 });
 if (runHost === 'docker' && !process.env.HELMSMAN_DOCKER_IMAGE) throw new Error('Set HELMSMAN_DOCKER_IMAGE to a built Helmsman runtime image before selecting Docker');
 const campaignsStore = openCampaignStore(persistence.sql);
@@ -419,9 +435,9 @@ function effectsFor(runId: string): LegacyRunEffects {
       const run = operation.origin.runId ? db.getRun(operation.origin.runId) : null;
       const authorization = authorizeRunEffect(operation, run);
       if (!authorization.allowed) return authorization;
-      if (!run || stopRequested(run.id)) return { allowed: false, reason: 'The originating voyage is unavailable or stopped' };
-      clarificationRuntime.poll(run.id);
-      return clarificationRuntime.hasUnanswered(run.id) ? { allowed: false, reason: 'A required clarification remains unanswered' } : { allowed: true };
+      if (!run || operation.origin.attempt === null || stopRequested(run.id)) return { allowed: false, reason: 'The originating voyage is unavailable or stopped' };
+      clarificationRuntime.poll(run.id, operation.origin.attempt);
+      return clarificationRuntime.hasUnanswered(run.id, operation.origin.attempt) ? { allowed: false, reason: 'A required clarification remains unanswered' } : { allowed: true };
     },
   });
   runEffects.set(runId, effects);
@@ -435,7 +451,7 @@ function executionSnapshot(row: RunRow) {
 }
 
 function runnerDurability(cfg: AppConfig) {
-  return createRunnerDurability({ persistence, db, executions, admissions, lifecycle, operations, runsDir: RUNS_DIR, maxConcurrency,
+  return createRunnerDurability({ persistence, db, executions, admissions, lifecycle, operations, clarificationProtocol: clarifications.protocol, runsDir: RUNS_DIR, maxConcurrency,
     finalize: (row, snapshot) => { taskSourceRuntime.finalize(row); effectsFor(row.id).prepareFinalization(row, snapshot); },
     snapshot: (run, task) => {
       const input = { run, task, artifact: currentRuntime.artifact, host: host.kind === 'docker' && (isPrePrAdapter(run.adapter) || run.adapter.startsWith('docker-review:')) ? 'detached' as const : host.kind, config: cfg };
@@ -472,7 +488,10 @@ function baseRunnerDeps(cfg: AppConfig, runId: string): Omit<RunnerDeps, 'adapte
     recordAgentEvent: runTelemetry.record,
     pollClarifications: clarificationRuntime.poll,
     hasRequiredUnanswered: clarificationRuntime.hasUnanswered,
-    onRunComplete: run => { runTelemetry.complete(run); clarificationRuntime.complete(run.id); gateway.revokeRun(run.id); if (host.kind === 'docker') void stopDockerStages(run.id); },
+    onRunComplete: run => {
+      try { runTelemetry.complete(run); clarificationRuntime.complete(run.id, run.attempt); }
+      finally { gateway.revokeRun(run.id); if (host.kind === 'docker') void stopDockerStages(run.id); }
+    },
     createWorktree: (repo: string, id: string) => standaloneWorkspace(repo, id, 'fresh', () => createWorktree(AGENTS_ROOT, repo, id)),
     createWorktreeFromBranch: (repo: string, id: string, branch: string) => standaloneWorkspace(repo, id, 'branch', () => createWorktreeFromBranch(AGENTS_ROOT, repo, id, branch)),
     createReviewWorktree: (repo, id, number, headSha) => standaloneWorkspace(repo, id, 'review', () => createReviewWorktree(AGENTS_ROOT, repo, id, number, headSha), headSha),
@@ -592,6 +611,7 @@ async function resumeVoyage(runId: string): Promise<void> {
     const resumed = await resumeFailedPrePrRun(row, { db, durable: runnerDurability(cfg), host: host.kind === 'docker' && row.hostKind === 'detached' ? { ...host, kind: 'detached' } : host,
       runsDir: RUNS_DIR, publication: publicationConnection(runId), now: () => new Date().toISOString(), isStopped: () => control.stopped,
       prepareTask: async task => {
+        task.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: row.attempt + 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
         const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter === 'pre-pr:codex' ? 'codex' : 'claude-code', workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort });
         if (prepared.task.dockerExecution) {
           if (host.kind !== 'docker') throw new ResumeError('Select the Docker host before continuing an isolated voyage.');
@@ -763,7 +783,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         const capability = gateway.issue(runId, 86_400_000);
         taskObj.dockerExecution = { image, gatewayUrl, capability: capability.token, runId };
       }
-      taskObj.clarification = { ...clarificationPaths(RUNS_DIR, runId), gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` };
+      taskObj.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
       const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task: taskObj,
         provider: adapter.id === 'codex' ? 'codex' : adapter.id === 'claude-code' ? 'claude-code' : undefined, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort,
         skills: adapter.id === 'codex' && taskObj.review || !taskObj.review && !taskObj.prBranch && (adapter.id === 'codex' || cfg.prePr.reviewerCount > 1) ? ['review-agent'] : [] });
@@ -1015,6 +1035,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(['coding', 'review'].map(id => workflows.getDefinition(id as 'coding' | 'review')))); return;
     }
+    if (await handleRunInspectExport(req, res, url, runInspect)) return;
     if (await handleRunLog(req, res, url.pathname, db, bus)) return;
     if (url.pathname === '/api/cmux/events' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
@@ -1043,12 +1064,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const api = await handleApi(req.method ?? 'GET', url.pathname, url.searchParams, body, {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      runRead, pullRequestRead, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      clarificationGate: runId => {
-        if (db.getRun(runId)?.status !== 'running') return false;
-        clarificationRuntime.poll(runId);
-        return !clarificationRuntime.hasUnanswered(runId);
-      },
+      runRead, runInspect, pullRequestRead, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      clarificationGate,
       outcomes,
       taskSources: taskSourceRuntime.service,
       sourceSchedule: taskSourceRuntime.schedule,

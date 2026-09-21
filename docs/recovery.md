@@ -27,6 +27,14 @@ Core Recovery exposes source-command evidence alongside retained run commands an
 
 For an older Todo mutation, the host checks the original legacy session journal's method, path, payload and UUID through the legacy recovery port. Select All galleons to inspect a nonempty legacy journal. A definite terminal receipt may be acknowledged; missing authority, an unrecorded request or inner-only mutation evidence stays unresolved. The new editor does not replay that request as a new source command, and Core Recovery does not resolve the legacy browser journal. See [task-source authoring](task-source-authoring.md) and the [Todos package](../src/plugins/todos-ui/README.md).
 
+## Clarification channels and unresolved questions
+
+Each new execution attempt retains its clarification channel ID and question/answer paths in the immutable execution snapshot. Admission commits that binding with the prepared attempt. Automatic retry and pre-PR continuation receive new channels; recovery verifies and reuses the retained channel. Keep these files with the runs directory and matching database. Missing or changed channel evidence blocks recovery rather than creating replacement provenance.
+
+Existing shared-file questions have unknown attempt provenance. They remain visible, and new answers are rejected even through the compatibility HTTP route. Complete unread legacy records are ingested as unknown; neither the current attempt number nor a timestamp assigns them to a new worker. Required unanswered questions from prior or unknown attempts continue to block publication. This foundation adds no operator action that resolves, discards or reassigns those obligations. Preserve the original run for investigation; a new run has its own question history.
+
+Only an attempt's own terminal question records are published to its answer file. Durable answer acceptance and worker consumption are separate facts. The current compatibility answer endpoint has no durable request receipt; the forthcoming public answer-command service supplies that recovery protocol. Disabling a presentation plugin does not suspend ingestion, timeout handling, answer delivery or publication gates.
+
 ## Startup and endpoint ownership
 
 Normal startup claims exclusive application ownership before reconciliation or plugin activation. A second application cannot mutate the same main database. Catalog operations may run alongside an initialized application, but startup and maintenance barriers prevent conflicting initialization and migration.

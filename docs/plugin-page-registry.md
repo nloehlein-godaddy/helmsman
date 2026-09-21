@@ -2,7 +2,7 @@
 
 This implements the page metadata and lifecycle portions of [Phase A](plugin-architecture-plan.md). The API is experimental. Standalone declarations ship as `release/sdk`; see [the runnable distribution and SDK](distribution.md).
 
-This guide describes the page lifecycle introduced in Phase A. Current composition and panel services are documented in [panel authoring](panel-authoring.md); E3 task/editor/admin services are in [task-source authoring](task-source-authoring.md). Costs, Helm, Todos, Triage, Bugs and Source settings have selected aliases. Canonical package routes remain available; a disabled or missing selected page remains unavailable without fallback. Core Config links to Source settings. Default task-page acceptance passed; exact-commit review and push are pending. See [current progress](plugin-implementation-progress.md).
+This guide describes the page lifecycle introduced in Phase A. Current composition and panel services are documented in [panel authoring](panel-authoring.md); E3 task/editor/admin services are in [task-source authoring](task-source-authoring.md). Costs, Helm, Todos, Triage, Bugs and Source settings have selected aliases. Canonical package routes remain available; a disabled or missing selected page remains unavailable without fallback. Core Config links to Source settings. Default task-page cutover is reviewed and pushed. See [current progress](plugin-implementation-progress.md).
 
 ## What works
 

@@ -29,7 +29,7 @@ export interface PublicationServiceOptions {
   getRun(runId: string): RunRow | null;
   currentConfig(): AppConfig;
   verifyArtifacts(artifacts: readonly ArtifactBinding[]): Promise<void>;
-  clarificationReady(runId: string): boolean;
+  clarificationReady(runId: string, attempt: number): boolean;
   isStopped(runId: string): boolean;
   command?: PublicationCommand;
 }
@@ -74,7 +74,7 @@ export function createPublicationService(options: PublicationServiceOptions) {
     const current = options.getRun(state.row.id);
     const approval = request.approved;
     if (!current || current.attempt !== state.snapshot.attempt || current.worktreePath !== state.worktree || current.status !== 'running'
-      || options.isStopped(current.id) || !options.clarificationReady(current.id) || scope.readOnly || scope.repo !== state.snapshot.repo
+      || options.isStopped(current.id) || !options.clarificationReady(current.id, state.snapshot.attempt) || scope.readOnly || scope.repo !== state.snapshot.repo
       || scope.branch !== approval.branch || approval.branch === approval.baseBranch) throw new Error('Publication authorization is unavailable');
   }
   async function liveGate(runId: string, scope: GatewayScope, request: PublicationRequest, signal: AbortSignal, remote?: string, actor?: string) {

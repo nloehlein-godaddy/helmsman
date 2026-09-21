@@ -9,6 +9,7 @@ import { persistedJson, persistenceHash, PersistenceConflictError, type Persiste
 import type { PluginLifecycle } from './plugins/lifecycle';
 import type { OperationStore } from './operations';
 import type { DurableRunnerAttempt, DurableRunnerCoordinator } from './runner';
+import { parseClarificationChannel, type ClarificationProtocolStore } from './clarification-protocol-store';
 
 export interface RunnerDurabilityOptions {
   persistence: Persistence;
@@ -17,6 +18,7 @@ export interface RunnerDurabilityOptions {
   admissions?: AdmissionStore;
   lifecycle?: PluginLifecycle;
   operations?: OperationStore;
+  clarificationProtocol?: ClarificationProtocolStore;
   runsDir: string;
   maxConcurrency: number;
   snapshot(run: RunRow, task: AgentTask): ExecutionSnapshotInput;
@@ -101,6 +103,13 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
   return {
     async prepare(run, task) {
       const input = options.snapshot(run, task);
+      if (options.clarificationProtocol && task.clarification) {
+        const channel = parseClarificationChannel(task.clarification);
+        if (!channel || channel.runId !== run.id || channel.attempt !== run.attempt) throw new PersistenceConflictError('New execution requires a prepared clarification channel');
+        const snapshotTask = input.task && typeof input.task === 'object' && !Array.isArray(input.task) ? input.task as Record<string, unknown> : null;
+        if (persistenceHash(parseClarificationChannel(snapshotTask?.clarification)) !== persistenceHash(channel)) throw new PersistenceConflictError('Execution snapshot must retain the prepared clarification channel');
+        input.schemas = [...input.schemas.filter(schema => schema.owner !== 'core.clarification-protocol'), { owner: 'core.clarification-protocol', minimum: 1, maximum: 1 }];
+      }
       const attempt = persistence.transaction(() => {
         const previousRun = db.getRun(run.id);
         if (previousRun && options.operations?.list({ runId: run.id }).some(operation => operation.status !== 'completed')) {
@@ -119,6 +128,11 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
         const base = join(options.runsDir, `${run.id}.attempt-${run.attempt}`);
         const prepared = executions.prepare({ snapshot: input, launchId: randomUUID(), maxConcurrency: options.maxConcurrency,
           paths: { worktree: run.worktreePath, log: `${base}.log`, exit: `${base}.exit`, spec: `${base}.json` } });
+        if (options.clarificationProtocol) {
+          const snapshot = executions.snapshot(prepared.snapshotId);
+          if (!snapshot) throw new PersistenceConflictError('Prepared execution snapshot is unavailable');
+          options.clarificationProtocol.bind(snapshot);
+        }
         const row = { ...run, logPath: prepared.paths.log, exitPath: prepared.paths.exit, specPath: prepared.paths.spec, logOffset: 0 };
         const existing = db.getRun(run.id);
         if (existing) {
@@ -138,6 +152,7 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
       if (!attempt) throw new PersistenceConflictError('Legacy voyage needs verified binding and ownership adoption before attachment');
       const snapshot = executions.snapshot(attempt.snapshotId);
       if (!snapshot) throw new PersistenceConflictError('Retained execution snapshot is unavailable');
+      options.clarificationProtocol?.verify(snapshot);
       if (row.repo !== snapshot.repo || row.worktreePath !== attempt.paths.worktree || row.logPath !== attempt.paths.log
         || row.exitPath !== attempt.paths.exit || row.specPath !== attempt.paths.spec) throw new PersistenceConflictError('Run paths or scope differ from the retained execution');
       await options.verify(snapshot);

@@ -6,7 +6,7 @@ The flow now includes Moon Units-inspired intake, frozen execution settings, iso
 
 ## Plugin task presentation and command authority
 
-Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page acceptance passed; exact-commit review and push are pending. E4 run presentation is proposed; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
+Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads and clarification channels are in development; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
 
 ```mermaid
 flowchart TD
@@ -35,6 +35,30 @@ flowchart TD
 ```
 
 Triage applies provider filters before pagination and preserves independent cursors under a fixed observation window. Its related voyages are enriched from canonical task claims and checked against actual runs in the selected galleon. Editor associations instead come from the provider; core verifies run existence and galleon scope without asserting claim ownership. Bugs labels approximate counts, unknown metrics and capped resolution samples separately. A source or presentation disablement denies new work while retained execution and effect obligations stay pinned. A historical automatic-start receipt never establishes the current process's enabled state. Package code is trusted; DTO and import validation do not provide a security sandbox.
+
+## E4 development: run inspection and streamed downloads
+
+This flow describes the E4 implementation in progress. The existing run viewer and history remain active; the replacement packages and cutover have not passed their acceptance gates.
+
+```mermaid
+flowchart TD
+    Panel[Active panel and effective galleon scope] --> Inspect[Public run-inspect service]
+    Inspect --> Resolve[Resolve canonical run and expected attempt]
+    Resolve --> History[Bounded history with observation-time count]
+    Resolve --> Preview[Run-wide log preview<br/>Attempt and direction bound cursors]
+    Preview --> Older[Older pages retain captured watermark]
+    Preview --> Follow[Follow drains captured watermark<br/>Then observes later appends]
+    Resolve --> Export[Capture export watermark<br/>Stream complete stored text in bounded byte chunks]
+    Export --> Sink[Host download service<br/>Open source after destination selection]
+    Sink --> Picker[File picker when available<br/>Saved only after writable close succeeds]
+    Sink --> Browser[Scoped service worker fallback<br/>One-use token and backpressure]
+    Browser --> Delivered[Delivered to browser<br/>Disk save is not confirmed]
+    Inactive[Hidden, disposed or changed scope] --> Abort[Cancel source and sink streams]
+    Abort --> Export
+    Abort --> Sink
+```
+
+Log events remain run-wide because stored events have no reliable attempt provenance. An expected attempt prevents stale reads and exports; it does not attribute old events to that attempt. History totals describe the current observation within an insertion ceiling, not an immutable status snapshot. The browser fallback avoids a full-log Blob; Firefox stream cancellation does not guarantee an immediate native download failure indication. See the [E4 implementation plan](plugin-phase-e4-implementation.md) for clarification channel, durable-answer and replacement-package acceptance gates.
 
 ## Intake and execution preparation
 
@@ -94,9 +118,11 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    Stage[Agent stages] --> Question[Agent asks a question<br/>Run-bound question and deadline saved]
-    Question --> Human[Agent Questions page<br/>Operator sends an answer to that agent]
-    Human --> Continue[Agent reads answer and continues]
+    Channel[Fresh attempt channel<br/>Pinned with immutable execution snapshot] --> Stage[Agent stages]
+    Stage --> Question[Agent asks a question<br/>Exact channel and deadline saved]
+    Question --> Human[Agent Questions page<br/>Accept answer only for proven current attempt]
+    Human --> Continue[Publish matching channel answer<br/>Agent reads answer and continues]
+    Legacy[Legacy shared-file question<br/>Unknown attempt; read-only] --> Block
     Question -->|Required answer missing, expired or cancelled| Block[Block completion and publication<br/>Timeout is never an answer]
     Stage --> Evidence[Host validates reports<br/>Immutable artifacts + content hashes]
     Evidence --> Recovery[Restart: reattach durable process/container identity<br/>Checkpoint: verify snapshot, hashes and pinned revision]
@@ -104,7 +130,7 @@ flowchart LR
     Usage --> Outcomes[Costs & Outcomes<br/>Reported spend + separate Codex API estimates<br/>Usage coverage, tokens, duration, PR outcomes<br/>Separate task assessment with evidence]
 ```
 
-- **Questions:** agents ask; the operator replies. Waiting retains capacity. Required-answer checks run again immediately before publication. Contacts are optional suggested respondents, not an outbound notification system.
+- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Durable answer receipts and replacement presentation remain pending.
 - **Evidence and recovery:** validated reports are recorded with immutable identities and hashes. A checkpoint continuation revalidates saved evidence before reusing it; legacy checkpoints without manifests follow an explicit compatibility path. A fresh retry preserves the original task/provider, workflow snapshot and Docker image pin; changed prompts or skills fail preflight. Restart reattachment and checkpoint continuation are different from restarting an entire failed voyage.
 - **Costs and outcomes:** provider token/cost events and stage timing feed a persistent ledger. Reported spend can be partial; unreported billed costs stay unknown. Eligible unpriced Codex usage receives a separate Standard short-context API baseline estimate, using published rates checked September 19, 2026. The UI exposes estimated/unpriced record coverage and runs without usage records. Missing model/token data remains unknown; service tier, per-request context and cache-write usage are unavailable, and subscription charges may differ. Estimates do not affect budget caps or cost-per-PR metrics, which use fully priced runs. Process success does not itself establish task completion: assessment state (complete/partial/failed/not-assessed) is separate from task outcome (achieved/partial/not-achieved/unknown), with supporting evidence. PR visibility is best-effort with explicit stale/unavailable status.
 

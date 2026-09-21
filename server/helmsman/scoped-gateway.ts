@@ -15,6 +15,7 @@ export interface ScopedGatewayOptions {
   active(runId: string): boolean;
   scope?: (runId: string) => GatewayScope | null;
   clarificationReady?: (runId: string) => boolean;
+  clarificationGate?: (runId: string, query: URLSearchParams) => boolean;
   push?: (runId: string, scope: GatewayScope, headSha: string) => Promise<void>;
   publication?: (runId: string, scope: GatewayScope, request: PublicationRequest, signal: AbortSignal) => Promise<PublicationResponse>;
   fetcher?: typeof fetch;
@@ -72,8 +73,10 @@ export function createScopedGateway(input: ScopedGatewayOptions) {
         }
         reply(res, 200, await input.publication(cap.runId, scope, request, abort.signal)); return;
       }
-      if (path === '/clarification-gate' && req.method === 'GET') {
-        reply(res, 200, { ready: input.clarificationReady?.(cap.runId) === true }); return;
+      if ((path === '/clarification-gate' || path.startsWith('/clarification-gate?')) && req.method === 'GET') {
+        const query = new URL(path, 'http://localhost').searchParams;
+        const ready = input.clarificationGate ? input.clarificationGate(cap.runId, query) : query.size === 0 && input.clarificationReady?.(cap.runId) === true;
+        reply(res, 200, { ready }); return;
       }
       if (path === '/git/push' && req.method === 'POST') {
         const scope = input.scope?.(cap.runId);

@@ -14,6 +14,8 @@ export * from './source-settings';
 export * from './source-admin';
 export * from './source-command';
 export * from './run-read';
+export * from './run-inspect';
+export * from './download';
 export * from './pull-request-read';
 export * from './activity-read';
 export * from './run-command';

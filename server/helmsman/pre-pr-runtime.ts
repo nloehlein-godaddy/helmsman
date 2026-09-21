@@ -85,8 +85,15 @@ export async function assertClarificationReady(task: AgentTask, runId: string, f
     && typeof token === 'string' && /^[a-z\d._~-]{20,4096}$/i.test(token);
   const localGate = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
     && url.pathname === `/api/runs/${runId}/clarification-gate`;
+  const channel = task.clarification;
+  const legacy = channel?.version === undefined && channel?.runId === undefined && channel?.attempt === undefined && channel?.channelId === undefined;
+  const queryMatches = legacy ? !url.search : channel?.version === 1 && channel.runId === runId
+    && Number.isSafeInteger(channel.attempt) && Number(channel.attempt) >= 1
+    && typeof channel.channelId === 'string' && /^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/.test(channel.channelId)
+    && url.searchParams.size === 2 && url.searchParams.getAll('attempt').length === 1 && url.searchParams.getAll('channel').length === 1
+    && url.searchParams.get('attempt') === String(channel.attempt) && url.searchParams.get('channel') === channel.channelId;
   if (url.protocol !== 'http:' || !(dockerGate || localGate)
-    || url.username || url.password || url.search || url.hash
+    || url.username || url.password || !queryMatches || url.hash
     || !/^[a-z\d_-]{1,128}$/i.test(runId)) {
     throw new PrePrGateError('Clarification publication gate must match this local voyage; publication blocked.');
   }

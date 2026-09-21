@@ -3,6 +3,8 @@ import type { TodoLegacyRecoveryServiceV1 } from './todo-legacy-recovery';
 import type { PluginPageInstance, PluginPageState } from './sdk';
 import type { TaskReadServiceV1 } from './task-read';
 import type { RunReadServiceV1 } from './run-read';
+import type { RunInspectServiceV1 } from './run-inspect';
+import type { DownloadServiceV1 } from './download';
 import type { PullRequestReadServiceV1 } from './pull-request-read';
 import type { ActivityReadServiceV1 } from './activity-read';
 import type { RunCommandServiceV1 } from './run-command';
@@ -11,7 +13,7 @@ import type { SourceCommandServiceV1 } from './source-command';
 import type { TaskViewsReadServiceV1 } from './task-views';
 
 export interface PluginServiceRequirementV1 {
-  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/pull-request-read' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
+  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/pull-request-read' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
   readonly version: 1;
 }
 
@@ -108,6 +110,8 @@ export interface PluginPanelServicesV1 {
   readonly sourceAdmin?: SourceAdminServiceV1;
   readonly taskViews?: TaskViewsReadServiceV1;
   readonly runs?: RunReadServiceV1;
+  readonly runInspect?: RunInspectServiceV1;
+  readonly downloads?: DownloadServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;

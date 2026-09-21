@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertClarificationReady, executePrePrStage, githubRepository, localReviewScope, parsePrMetadata, readPrePrReport, stageEventEmitter } from './pre-pr-runtime';
 import type { AgentAdapter, AgentEvent } from './agents/adapter';
+import { createClarificationChannel } from './clarification-protocol-store';
 
 const task = { ticketId: 'T-1', title: 'Task', repo: 'org/repo', jiraBaseUrl: '' };
 const adapter = (script: string): AgentAdapter => ({ id: 'test', buildCommand: () => ({ cmd: process.execPath, args: ['-e', script] }),
@@ -41,6 +42,37 @@ describe('pre-PR runtime boundaries', () => {
     await expect(assertClarificationReady({ ...task, clarification }, 'run-1', fetcher)).rejects.toThrow('publication blocked');
     await assertClarificationReady({ ...task, clarification: { ...clarification, gateToken: 'a'.repeat(64) } }, 'run-1', fetcher);
     expect(fetcher.mock.calls[0]?.[1]?.headers).toEqual({ Authorization: `Bearer ${'a'.repeat(64)}` });
+  });
+
+  it.each(['http://127.0.0.1:8787/api/runs/run-1/clarification-gate', 'http://host.docker.internal:8790/clarification-gate'])
+  ('preserves the factory-generated attempt and channel query for %s', async gateUrl => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue({ ok: true, json: async () => ({ ready: true }) } as Response);
+    const channel = createClarificationChannel(tmpdir(), { runId: 'run-1', attempt: 2, gateUrl });
+    const clarification = { ...channel, ...(gateUrl.includes('host.docker.internal') ? { gateToken: 'a'.repeat(64) } : {}) };
+    await assertClarificationReady({ ...task, clarification }, 'run-1', fetcher);
+    expect(fetcher).toHaveBeenCalledOnce();
+    const sent = new URL(String(fetcher.mock.calls[0]?.[0]));
+    expect(sent.href).toBe(channel.gateUrl); expect([...sent.searchParams]).toEqual([['attempt', '2'], ['channel', channel.channelId]]);
+    if (clarification.gateToken) expect(fetcher.mock.calls[0]?.[1]?.headers).toEqual({ Authorization: `Bearer ${clarification.gateToken}` });
+  });
+
+  it.each(['', '?attempt=1', '?attempt=2&channel=wrong', '?attempt=2&channel={id}&extra=yes', '?attempt=2&attempt=2&channel={id}', '?attempt=3&channel={id}'])
+  ('rejects a changed or ambiguous channel query %s before fetching', async query => {
+    const fetcher = vi.fn<typeof fetch>();
+    const base = 'http://127.0.0.1:8787/api/runs/run-1/clarification-gate';
+    const channel = createClarificationChannel(tmpdir(), { runId: 'run-1', attempt: 2, gateUrl: base });
+    await expect(assertClarificationReady({ ...task, clarification: { ...channel, gateUrl: base + query.replace('{id}', channel.channelId) } }, 'run-1', fetcher)).rejects.toThrow('publication blocked');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('rejects partial channel identities and legacy query parameters', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const channel = createClarificationChannel(tmpdir(), { runId: 'run-1', attempt: 2, gateUrl: 'http://127.0.0.1:8787/api/runs/run-1/clarification-gate' });
+    for (const clarification of [{ ...channel, version: undefined }, { ...channel, runId: 'other' }, { ...channel, attempt: 0 },
+      { questionsPath: '/q', answersPath: '/a', gateUrl: channel.gateUrl }]) {
+      await expect(assertClarificationReady({ ...task, clarification }, 'run-1', fetcher)).rejects.toThrow('publication blocked');
+    }
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it.each([null, {}, { ready: false }, { ready: 'true' }])('fails closed for unready/malformed clarification gate %j', async body => {

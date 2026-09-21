@@ -114,6 +114,19 @@ describe('scoped gateway', () => {
   });
 });
 
+describe('attempt-bound clarification gateway', () => {
+  it('forwards channel evidence and rejects stale channels under a reusable run credential', async () => {
+    const gate = vi.fn((_runId: string, query: URLSearchParams) => query.get('attempt') === '2' && query.get('channel') === 'current');
+    const { gateway, base } = await open({ openaiKey: 'key', active: () => true, clarificationReady: () => true, clarificationGate: gate });
+    const capability = gateway.issue('run', 1000);
+    for (const suffix of ['', '?attempt=1&channel=old', '?attempt=2&channel=old']) {
+      expect(await (await request(base, capability.token, `/clarification-gate${suffix}`)).json()).toEqual({ ready: false });
+    }
+    expect(await (await request(base, capability.token, '/clarification-gate?attempt=2&channel=current')).json()).toEqual({ ready: true });
+    expect(gate.mock.calls.every(([runId]) => runId === 'run')).toBe(true);
+  });
+});
+
 describe('coordinator publication capabilities', () => {
   const approval = { version: 1, kind: 'pre-pr', approved: { baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), branch: 'agent/run', baseBranch: 'main', round: 1, reviewers: ['codex'], metadata: { stage: 'implement', round: 0 } } };
   it('isolates publication from inference and rechecks gate, scope, expiry, revocation, and active run', async () => {

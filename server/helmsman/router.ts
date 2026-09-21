@@ -34,6 +34,8 @@ import type { PullRequestReadServerService } from './pull-request-read-service';
 import { handleActivityReadApi } from './activity-read-routes';
 import type { ActivityReadService } from './activity-read-service';
 import { handleRunReadApi } from './run-read-routes';
+import { handleRunInspectApi } from './run-inspect-routes';
+import type { RunInspectServerService } from './run-inspect-service';
 import type { RunReadServerService } from './run-read-service';
 import { handleTaskSourceApi } from './task-source-routes';
 import type { TaskSourceService } from './task-source-service';
@@ -80,6 +82,7 @@ function toRunSummary(row: RunRow, db: Db): RunSummary {
 
 export interface RouterDeps {
   runRead?: RunReadServerService;
+  runInspect?: RunInspectServerService;
   pullRequestRead?: PullRequestReadServerService;
   activityRead?: ActivityReadService;
   runCommands?: RunCommandServerService;
@@ -94,7 +97,7 @@ export interface RouterDeps {
   sourceSchedule?: TaskSourceSchedule;
   usage?: UsageQueryService;
   pricing?: (snapshot: UsageSnapshot) => Promise<PricingEstimate | null>;
-  clarificationGate?: (runId: string) => boolean;
+  clarificationGate?: (runId: string, query: URLSearchParams) => boolean;
   outcomes?: OutcomeService;
   campaigns?: CampaignService;
   clarifications?: ClarificationStore;
@@ -163,6 +166,8 @@ export async function handleApi(
   if (pullRequestReadResult) return pullRequestReadResult;
   const activityReadResult = await handleActivityReadApi({ method, path, query, service: deps.activityRead });
   if (activityReadResult) return activityReadResult;
+  const runInspectResult = handleRunInspectApi({ method, path, query, service: deps.runInspect });
+  if (runInspectResult) return runInspectResult;
   const runReadResult = handleRunReadApi({ method, path, query, service: deps.runRead });
   if (runReadResult) return runReadResult;
   const sourceResult = await handleTaskSourceApi({ method, path, query, body: _body, service: deps.taskSources, schedule: deps.sourceSchedule, launch: deps.launch });
@@ -183,7 +188,7 @@ export async function handleApi(
   }
   const clarificationGate = path.match(/^\/api\/runs\/([a-z\d_-]{1,128})\/clarification-gate$/i);
   if (clarificationGate && method === 'GET') {
-    try { return { status: 200, json: { ready: deps.clarificationGate?.(clarificationGate[1]!) === true } }; }
+    try { return { status: 200, json: { ready: deps.clarificationGate?.(clarificationGate[1]!, query) === true } }; }
     catch { return { status: 200, json: { ready: false } }; }
   }
   if (path.startsWith('/api/campaigns') && deps.campaigns) return deps.campaigns.handle(path, method, query, _body);

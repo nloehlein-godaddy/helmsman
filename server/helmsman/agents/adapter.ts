@@ -17,7 +17,8 @@ export interface AgentTask {
   reviewComplexity?: 'low' | 'medium' | 'high';
   reviewReason?: string;
   reviewOutputPaths?: { markdown: string; comments: string };
-  clarification?: { questionsPath: string; answersPath: string; gateUrl?: string; gateToken?: string };
+  clarification?: { questionsPath: string; answersPath: string; gateUrl?: string; gateToken?: string;
+    version?: 1; runId?: string; attempt?: number; channelId?: string };
   workflowSnapshotId?: string;
   skillsPath?: string;
   promptRevision?: string;

@@ -147,7 +147,7 @@ async function copyDependencies(staging, dependencies) {
 
 async function buildSdk(destination, version) {
   const sourceRoot = join(root, 'src', 'plugins');
-  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'task-views.ts', 'task-edit.ts', 'todo-legacy-recovery.ts', 'task-editor-contract.ts', 'source-command.ts', 'source-settings.ts', 'source-admin.ts', 'source-contract-validation.ts', 'run-read.ts', 'run-command.ts', 'pull-request-read.ts', 'activity-read.ts']);
+  const publicModules = new Set(['sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'task-views.ts', 'task-edit.ts', 'todo-legacy-recovery.ts', 'task-editor-contract.ts', 'source-command.ts', 'source-settings.ts', 'source-admin.ts', 'source-contract-validation.ts', 'run-read.ts', 'run-inspect.ts', 'download.ts', 'run-command.ts', 'pull-request-read.ts', 'activity-read.ts']);
   const queued = new Set([join(sourceRoot, 'sdk.ts')]);
   await mkdir(destination);
   for (const source of queued) {
@@ -218,7 +218,7 @@ export async function buildDistribution(options = {}) {
     }
     await cp(join(root, 'dist'), join(staging, 'dist'), { recursive: true });
     await mkdir(join(staging, 'docs'), { recursive: true });
-    for (const name of ['panel-authoring.md', 'task-source-authoring.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md']) {
+    for (const name of ['panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'download-authoring.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md']) {
       if (await exists(join(root, 'docs', name))) await cp(join(root, 'docs', name), join(staging, 'docs', name));
     }
     await cp(join(root, 'examples'), join(staging, 'examples'), { recursive: true });

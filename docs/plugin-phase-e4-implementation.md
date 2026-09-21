@@ -1,6 +1,6 @@
 # Phase E4: run presentation and clarifications
 
-Status: proposed next implementation batch, pending exact-commit review and push of the validated E3 default task-page cutover. No E4 runtime work is claimed complete. E4 is another slice of Phase E; it does not complete the [architecture plan](plugin-architecture-plan.md), Phase F policy replacement, or Phase G compatibility retirement. The [E3 implementation plan](plugin-phase-e3-implementation.md) remains authoritative for the preceding extraction and its acceptance gates. Record delivered work in the [completion ledger](plugin-implementation-progress.md).
+Status: implementation underway after the reviewed and pushed E3 task-page cutover (`d21d9cb`). The run-inspect, streaming-download and clarification attempt-channel foundations are implemented and validated locally; exact-commit review and push remain checkpoint steps. Viewer/history packages, bounded clarification reads and durable answer/contact contracts remain unfinished. E4 is another slice of Phase E; it does not complete the [architecture plan](plugin-architecture-plan.md), Phase F policy replacement, or Phase G compatibility retirement. The [E3 implementation plan](plugin-phase-e3-implementation.md) remains authoritative for the preceding extraction and its acceptance gates. Record delivered work in the [completion ledger](plugin-implementation-progress.md).
 
 ## Scope and sequence
 
@@ -71,7 +71,7 @@ History, task and PR entry points open the same canonical viewer target. Preserv
 
 Propose `helmsman/clarification-read@1` with bounded `list` and `load` operations. Queries explicitly identify galleon scope and optional canonical run; filtering precedes pagination. DTOs contain question/run identity, recorded attempt provenance, an opaque question revision, prompt, required/owner information, state, bounded answer, timestamps/deadline and explicit answerability/reason. Preserve pending, answered, timed-out and cancelled states. Empty results and unavailable reads remain distinct.
 
-Stamp new questions with the attempt that ingested them. Existing rows may be backfilled only when the binding can be proven. A run with multiple attempts is not evidence that an old question belongs to its current attempt. Read-only legacy questions with unknown attempt provenance need an explicit reason and remain visible; do not guess a writable target. Confirm whether an attempt-one migration can be proven from retained execution evidence before allowing that backfill.
+Bind new questions to the durable channel retained by their producing attempt. Existing rows may be backfilled only when the binding can be proven. A run with multiple attempts is not evidence that an old question belongs to its current attempt. Legacy shared-file questions remain explicitly `legacy-unproven`; the store rejects new answers, including through the compatibility HTTP route. The forthcoming presentation contract must show that read-only reason. No attempt-one backfill is performed, because the existing shared channel does not prove the producer's attempt.
 
 Use a stable revision over canonical question state or a durable revision counter. It must change whenever relevant answerability changes, and answer execution must separately recheck the current run attempt/status and deadline. Revision comparison alone cannot freeze time or a worker outcome.
 
@@ -128,7 +128,7 @@ flowchart TD
 
 ## Suggested-contact boundary
 
-Use a separate explicitly global administration capability, provisionally `helmsman/suggested-contact-admin@1`, for bounded contact reads and revision-checked durable saves. Preserve the existing public name, account ID/address and enabled fields, with independent contact revisions and host-reserved create identities. Global contact settings must not inherit a misleading galleon target or be treated as permission to answer a foreign-scope question.
+Use a separate explicitly global administration capability, provisionally `helmsman/suggested-contact-admin@1`, for bounded contact reads and revision-checked durable saves. Preserve the existing `name`, `address`, `enabled` and `createdAt` fields, with independent contact revisions and host-reserved create identities. Global contact settings must not inherit a misleading galleon target or be treated as permission to answer a foreign-scope question.
 
 Saving a suggested contact only changes contact metadata; the port has no notification/send capability. Core retains contact selection policy at question ingestion. Contact-read or contact-save failures must not hide otherwise available questions, clear answer drafts, or block answering. The authored contact settings can share a page with clarifications while retaining their independent service and error boundary.
 
@@ -164,10 +164,110 @@ Use a separately declared `helmsman/run-inspect@1` facet rather than changing `r
 
 The legacy exporter pages whole event rows. A bounded row count alone does not bound bytes when one event is arbitrarily large. The new export must iterate bounded text chunks, preserve Unicode and backpressure, and cancel its underlying reader on lifetime/scope/attempt changes. Prove a browser download sink that does not collect a complete Blob before claiming export parity.
 
-Clarification provenance requires a durable per-attempt channel before writable plugin contracts. The current runtime rereads run-wide question files across retries; stamping the current attempt on ingestion would misattribute old unread lines. Create the channel before prompt/adapter preparation, pin its identity and paths in the immutable execution snapshot, and bind ingestion, answer delivery and required-answer publication gates to that retained channel. Cover fresh launches, retries, recovery and pre-PR continuation. Existing shared-channel records remain unknown/read-only unless retained producer evidence actually proves their attempt; attempt number or wall-clock timing alone is insufficient.
+Clarification provenance requires a durable per-attempt channel before writable plugin contracts. The compatibility runtime used run-wide question files across retries; stamping the current attempt on ingestion would misattribute old unread lines. The foundation creates a channel before prompt/adapter preparation, pins its identity and paths in the immutable execution snapshot, and binds ingestion and answer delivery to that retained channel. It covers fresh launches, automatic retries, recovery and pre-PR continuation. Existing shared-channel records remain unknown; the forthcoming public answer contract must keep them read-only. Attempt number or wall-clock timing alone is insufficient evidence for backfill.
 
-Preserve the existing compatibility schema checksum. Prefer a new owned clarification-protocol schema with companion question/contact revision metadata, immutable attempt-channel records and answer/contact receipts. Initialize legacy questions with unknown provenance and retain their original records. All compatibility and new mutations must advance metadata in the same transaction. Register migrations before acquiring the application writer lease.
+The foundation preserves the `compat.clarifications@1` checksum and adds `core.clarification-protocol@1` with companion question/contact revision metadata and immutable attempt-channel records. Legacy rows initialize with unknown provenance and revision 1, without changing their state. Named, versioned SQLite triggers update revisions atomically with compatibility and new mutations; startup verifies their exact definitions. `openClarificationStore` initializes the companion schema after the compatibility tables, before the application writer lease. Answer/contact receipt tables belong to the later durable-command slice and are not implemented by this foundation.
 
 Expose bounded `clarification-read@1`, durable `clarification-command@1` and explicitly global `suggested-contact-admin@1` services. Answer admission rechecks canonical question/channel/attempt identity, revision, worker state, persisted stop intent and deadline inside the answer-plus-receipt transaction. Replay exact receipts before current eligibility checks; changed input under an existing request ID conflicts. Answer success means durable acceptance, not successful downstream delivery. Unknown ownership remains unknown. Browser journals preserve unresolved answer identity while allowing a separate unsent draft; contact creation reserves its identity once. Contact availability is independent from question/answer availability, and saving contacts never sends a message.
 
 Retire or constrain legacy ID-only answer/contact and unverified ingestion POST paths at cutover so they cannot bypass the new authority checks. Core ingestion, timeouts, delivery and publication gates remain active when presentation packages are disabled.
+
+### Clarification channel ownership
+
+The host generates a channel with run ID, attempt number, random channel ID and dedicated question/answer paths. The task carries it before preparation. Durable admission commits the channel binding with the prepared execution snapshot; failure rolls both back. Recovery verifies the existing binding and never rewrites a retained snapshot. A subsequent attempt receives a fresh channel, including when continuing a preserved pre-PR checkpoint.
+
+The runtime ingests channel records only while their exact attempt is current. Replaying an unknown or differently bound question ID cannot promote it to the new channel. Complete legacy shared-file records are ingested separately with unknown attempt provenance, so an unread required question cannot disappear during upgrade. Partial lines wait for completion. Delivery includes only the selected channel's terminal questions; legacy answers never enter a new attempt's file. Completion cancels only its channel's pending questions.
+
+Required-answer obligations remain run-wide: prior and unknown required questions continue to block publication when unanswered. Channel isolation does not resolve those obligations or prove answer consumption. Disabling presentation changes none of these core responsibilities. The old answer/contact routes remain compatibility paths until the durable-command extraction retires or constrains them.
+
+```mermaid
+flowchart TD
+    Task[Prepare task with fresh attempt channel] --> Admission[Atomic execution snapshot and channel binding]
+    Admission --> Worker[Worker uses retained channel paths]
+    Recovery[Recovery verifies immutable snapshot] --> Worker
+    Worker --> Ingest[Exact current attempt ingestion]
+    Shared[Legacy shared question file] --> Unknown[Ingest with unknown attempt provenance]
+    Ingest --> Questions[Question state and atomic revision metadata]
+    Unknown --> Questions
+    Questions --> Delivery[Publish only matching channel answers]
+    Delivery --> Worker
+    Questions --> Obligations[Run-wide required unanswered obligations]
+    Obligations --> Gate[Attempt-fenced publication gate]
+    Questions --> Reads[Future bounded public reads and durable answers]
+```
+
+Focused tests exercise populated legacy-schema adoption, unchanged compatibility checksums, revision and admission rollback, trigger corruption, partial/repeated lines, unknown and cross-channel question identities, scoped answer delivery, real-worker automatic retries and lost-launch recovery, and checkpoint continuation without snapshot rewriting. Public read DTOs, durable answer receipts and global contact administration remain the next slice.
+
+## Planned next slice: public clarification and contact contracts
+
+The contracts and transaction rules below are the agreed implementation baseline for the next slice. They are not implemented or accepted by the run-inspect/channel foundation checkpoint. Root owns final contract registration and central wiring; costs/review owns browser contracts, codecs, adapters and journals; backend owns server coordinators, bounded queries and receipt stores; host owns the independently authored presentation packages and their installation/browser tests. These assignments supersede the broader ownership table for this slice.
+
+### Bounded clarification reads
+
+`helmsman/clarification-read@1` exposes `list({ version: 1, repo, runId, states, limit, cursor }, signal?)` and `load({ version: 1, repo, runId, questionId }, signal?)`. List accepts a nullable repository/run filter, a validated set of existing question states, a limit from 1 through 100, and a nullable opaque cursor. Load requires an exact repository/run/question identity. Effective host scope and configured repositories constrain both operations before filtering or pagination; a caller cannot broaden scope by supplying `repo: null`. Foreign and absent identities produce the same not-found result.
+
+Each question DTO contains `version: 1`, `id`, `runId`, `repo`, positive `revision`, `prompt`, `required`, `owner`, `contactId`, `state`, `answer`, `createdAt`, `timeoutAt` and `answeredAt`. `prompt` maps the existing stored `question`; nullable fields remain nullable. Additional fields are:
+
+| Field | Contract |
+|---|---|
+| `provenance` | Either `{ kind: 'attempt-channel', attempt, channelId }` or `{ kind: 'legacy-unproven', attempt: null, channelId: null }`. |
+| `currentAttempt` | Current run attempt, or `null` when unavailable. This does not assign provenance. |
+| `blocksPublication` | `required && state !== 'answered'`, including unknown, prior-attempt, cancelled and timed-out obligations. |
+| `answerability` | `{ available: true, reason: null }` or `{ available: false, reason }`, where reason is `provenance-unknown`, `different-attempt`, `not-pending`, `run-unavailable`, `run-inactive`, `stop-requested`, `deadline-expired` or `channel-unavailable`. This is observed guidance; submission rechecks eligibility atomically. |
+
+List returns `{ version: 1, repo, items, nextCursor, total, observedAt }`, with `total: number | null` describing the complete scoped/filter-matched set at observation time, not the remaining cursor suffix. Rows/count use the same database observation; mutable state across pages is not an immutable snapshot. Cursors bind scope, configured repositories, filters and ordering. Results expose no channel file paths, gate URLs/tokens or raw execution snapshots. Question reads do not depend on contact reads. Unknown provenance remains visible and read-only; adoption or waiver of old obligations is outside this slice.
+
+### Durable answer admission
+
+`helmsman/clarification-command@1` accepts immutable answer intent `{ version: 1, repo, runId, questionId, expectedAttempt, expectedChannelId, expectedQuestionRevision, answer }`. Attempts/revisions must be positive integers and identity fields must validate. The adapter trims the answer once before journal reservation and preserves the existing nonempty, maximum 4000 UTF-16-code-unit semantics. The authored component preserves its editable draft separately from that canonical intent.
+
+The public operations are `submit(input, signal?)`, `receipt({ repo, requestId }, signal?)`, `pending()` and `acknowledge({ repo, requestId }, signal?)`. The host reserves request IDs; a plugin cannot choose or replace one. Resubmitting the same unresolved canonical intent uses its original identity. A receipt contains the immutable input and request ID, terminal `succeeded` or `rejected` status, and the result or rejection reason. Success returns the exact question ID, resulting revision, canonical answer and `answeredAt`. It proves durable acceptance only. Synchronous local database effects need terminal server receipts; a lost/unknown transport outcome remains a browser journal entry without a known receipt.
+
+Admission uses one shared database transaction:
+
+1. Validate the host-recognized contribution caller, effective scope and canonical payload, then enter `BEGIN IMMEDIATE`.
+2. Look up the exact caller/request receipt before checking current run, attempt or deadline. Identical input replays the recorded terminal result; changed input under that identity conflicts.
+3. Read the question/revision/provenance, immutable channel binding and execution snapshot, current run attempt/state, persisted stop intent and current deadline from the same database transaction. Missing or corrupt channel/snapshot evidence fails closed.
+4. Compare-and-set the exact question identity, revision and pending state. Commit the answer, trigger-maintained revision and success receipt together.
+5. Record definite rejection in that transaction. Any required timeout/cancellation transition commits with its rejection receipt; throwing must not accidentally roll the transition back. Receipt storage failure rolls all answer, revision and lifecycle changes back.
+
+There is no asynchronous worker or file I/O inside admission. Core ingestion, timeout/cancellation, answers-file delivery and publication gates retain their independent responsibilities. Stop intent denies a new answer even while the worker row still reports running. An exact accepted receipt remains replayable after stop, deadline expiry, attempt change and process restart.
+
+### Browser answer journal
+
+Use an IndexedDB reservation key of caller, repository, run ID and question ID. Keying by answer text or mutable revision would permit multiple unresolved identities for the same question. An existing unresolved reservation accepts only identical canonical intent; changed text or revision is rejected until its terminal result is recorded and explicitly acknowledged. New edits remain a separate unsent draft. Separate callers still race through server revision checks, producing one accepted mutation and a durable stale rejection.
+
+The journal provides `reserve(input, signal)`, `record(receipt)`, `pending()` and `acknowledge(query, signal)`, with a bounded maximum of 256 pending entries and 8 MiB of encoded pending payloads per caller. Recording verifies exact identity and canonical input. Acknowledgment removes only a recorded terminal result after the consumer saves its draft/result state. Abort, unmount, reload or response loss never deletes an unknown request identity. Cross-tab reservation is transactional, and retries reuse the retained request rather than allocating another.
+
+### Global suggested-contact administration
+
+`helmsman/suggested-contact-admin@1` uses an explicit `scope: 'global'` and no repository field. It exposes bounded cursor-based list/read operations and durable create/update submission, receipt, pending and acknowledgment operations with the same immutable-input and terminal-receipt conventions. List includes `observedAt`; limits are 1 through 100. Global service access neither inherits the invoking galleon nor authorizes foreign question access.
+
+The contact DTO is `{ id, revision, name, address, enabled, createdAt }`, preserving the actual `TrustedContact` model. Names and addresses are trimmed, nonempty strings of at most 160 and 320 UTF-16 code units respectively; address remains arbitrary text, not email-only. `enabled` is an explicit boolean in create/update inputs. Existing IDs retain the current case-insensitive `[a-z0-9_-]` validation with length 1 through 128. Updates require `expectedRevision` and preserve `createdAt`.
+
+For create, the browser journal atomically reserves both a request UUID and contact UUID before delivery and retains them in the immutable command. Retries reuse both; server insertion and terminal receipt commit together, preventing duplicate contacts after response loss. The journal allows one unresolved create reservation per caller; an identical retry reuses it and a different create draft waits for acknowledgment. Update reservations are keyed by caller/contact ID and enforce revision compare-and-set. Separate callers may deliberately create separate contacts with identical metadata; this is not address-based deduplication.
+
+Contact saves change metadata only and never send notifications. Contact failure must not hide questions, clear drafts or block answer submission. Receipt tables use a new owned schema rather than modifying the published companion-schema checksum; migrations complete before acquiring the writer lease. At cutover, retire or constrain legacy ID-only answer/contact and unverified-ingestion write routes so they cannot bypass durable admission.
+
+### Planned viewer composition
+
+The generic auxiliary host reuses the selected page-slot/composition lifecycle and rehomes a stable DOM instance. An optional typed presentation locator and selection callback travel from page to panel; locator comparisons are structural. The locator baseline is:
+
+```ts
+type PresentationLocatorV1 =
+  | { version: 1; kind: 'run'; repo: string; runId: string }
+  | { version: 1; kind: 'legacy-run'; runId: string }
+  | { version: 1; kind: 'pull-request'; repo: string; number: number };
+```
+
+The public selection callback accepts a locator or null; the host captures the caller's effective scope and activity internally. Reject inactive callers and canonical targets outside a concrete caller scope. Resolve legacy IDs only within that effective scope. An explicit panel override may scope the auxiliary presentation without changing the header. Presentation locators do not freeze an execution attempt: the package resolves the current attempt separately and keeps unresolved command identity immutable. Missing/disabled selections remain unavailable without fallback. Root owns no feature tab arrays, log buffers or polling state.
+
+Composition contains the independently authored viewer panel and a separately tracked legacy PR compatibility panel. The latter retains private PR, review and Slack state until their later public extraction. Do not introduce an arbitrary child-renderer escape API or import private clients into the authored viewer package. Host owns viewer/history packages; root owns the central locator and auxiliary integration.
+
+### Next-slice acceptance additions
+
+- Unknown and prior-attempt required questions remain visible, blocking and read-only; missing/corrupt channel or snapshot evidence fails closed.
+- Persisted stop intent prevents admission while a run still reports running. Exact receipt replay survives stop, expiry, attempt change and restart; altered input with the same request conflicts.
+- Concurrent tabs reserve consistently and conflicting server submissions produce one success. Response loss preserves original identity and draft. Timeout/cancellation rejections commit their lifecycle transition, and receipt failure rolls it back.
+- Global contacts preserve name/address/enabled semantics; create retry cannot duplicate, stale update revisions reject, and contact outage leaves question reads and answers available. No save sends a message and no answer receipt claims worker consumption.
+- Authored viewer selection preserves effective scope, stable panel state and rehoming lifecycle. PR compatibility remains explicitly accounted for until extraction. Independent SDK-only package installation, public-route tests and visual cutover proof are required before claiming the presentation slice complete.

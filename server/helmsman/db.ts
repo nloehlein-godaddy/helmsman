@@ -46,6 +46,12 @@ export interface RunReadRowQuery {
   after: { startedAt: string; id: string } | null;
 }
 
+export interface RunInspectLogRowQuery {
+  runId: string; expectedAttempt: number; direction: 'backward' | 'forward'; limit: number;
+  through: number | null; position: number | null; textLimit: number;
+}
+export interface RunInspectEventMetadata { id: number; tsBytes: number; kindBytes: number; textBytes: number; }
+
 export interface Db {
   insertRun(r: RunRow): void;
   updateRun(id: string, patch: Partial<RunRow>): void;
@@ -54,6 +60,11 @@ export interface Db {
   runsInWindow(from: string, to: string, repo?: string | null): RunRow[];
   runPage(limit: number, offset: number, repo?: string | null): RunPage;
   runReadPage(input: RunReadRowQuery): { runs: RunRow[]; ceiling: number };
+  runInspectHistory(input: RunReadRowQuery): { runs: RunRow[]; ceiling: number; total: number };
+  runInspectLog(input: RunInspectLogRowQuery): { run: RunRow | null; events: RunEventRow[]; through: number; hasEarlier: boolean; hasLater: boolean };
+  runInspectWatermark(runId: string): { run: RunRow | null; through: number };
+  runInspectEventMetadata(runId: string, after: number, through: number): RunInspectEventMetadata | null;
+  runInspectEventBytes(runId: string, eventId: number, field: 'ts' | 'kind' | 'text', offset: number, limit: number): Uint8Array | null;
   activeRuns(): RunRow[];
   reattachableRuns(): RunRow[];
   appendEvent(runId: string, kind: string, text: string, ts: string): RunEventRow;
@@ -149,6 +160,57 @@ export function openDb(path: string | Database.Database): Db {
       const runs = sql.prepare(`SELECT * FROM runs WHERE ${predicates.join(' AND ')} ORDER BY startedAt DESC,id DESC LIMIT ?`).all(...params) as RunRow[];
       return { runs, ceiling };
     }),
+    runInspectHistory: sql.transaction((input: RunReadRowQuery) => {
+      if (!input || !Array.isArray(input.repos) || input.repos.length > 1000 || input.repos.some(repo => typeof repo !== 'string' || !repo || repo.length > 512)
+        || !['running', 'terminal', 'all'].includes(input.kind) || !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 101
+        || input.ceiling !== null && (!Number.isSafeInteger(input.ceiling) || input.ceiling < 0)
+        || input.after !== null && (typeof input.after?.startedAt !== 'string' || typeof input.after?.id !== 'string')) throw new RangeError('Invalid run inspection history bounds');
+      const ceiling = input.ceiling ?? (sql.prepare('SELECT COALESCE(MAX(rowid),0) AS value FROM runs').get() as { value: number }).value;
+      if (!input.repos.length) return { runs: [], ceiling, total: 0 };
+      const predicates = [`repo IN (${input.repos.map(() => '?').join(',')})`, 'rowid <= ?'];
+      const params: (string | number)[] = [...input.repos, ceiling];
+      if (input.kind === 'running') predicates.push("status = 'running'");
+      if (input.kind === 'terminal') predicates.push("status IN ('succeeded','failed','stopped')");
+      const total = (sql.prepare(`SELECT COUNT(*) AS total FROM runs WHERE ${predicates.join(' AND ')}`).get(...params) as { total: number }).total;
+      if (input.after) { predicates.push('(startedAt < ? OR (startedAt = ? AND id < ?))'); params.push(input.after.startedAt, input.after.startedAt, input.after.id); }
+      const runs = sql.prepare(`SELECT * FROM runs WHERE ${predicates.join(' AND ')} ORDER BY startedAt DESC,id DESC LIMIT ?`).all(...params, input.limit) as RunRow[];
+      return { runs, ceiling, total };
+    }),
+    runInspectLog: sql.transaction((input: RunInspectLogRowQuery) => {
+      if (!input || typeof input.runId !== 'string' || !Number.isSafeInteger(input.expectedAttempt) || input.expectedAttempt < 1
+        || !['backward', 'forward'].includes(input.direction) || !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 50
+        || !Number.isSafeInteger(input.textLimit) || input.textLimit < 1 || input.textLimit > 4001
+        || [input.through, input.position].some(value => value !== null && (!Number.isSafeInteger(value) || value < 0))) throw new RangeError('Invalid run inspection log bounds');
+      const run = (sql.prepare('SELECT * FROM runs WHERE id = ?').get(input.runId) as RunRow | undefined) ?? null;
+      if (!run || run.attempt !== input.expectedAttempt) return { run, events: [], through: 0, hasEarlier: false, hasLater: false };
+      const latest = (sql.prepare('SELECT COALESCE(MAX(id),0) AS value FROM run_events WHERE runId = ?').get(input.runId) as { value: number }).value;
+      const through = input.through === null || input.direction === 'forward' && input.position === input.through ? latest : input.through;
+      if (through > latest || input.direction === 'forward' && (input.position ?? 0) > through) throw new RangeError('Run inspection log changed');
+      const backwards = input.direction === 'backward';
+      const position = input.position ?? (backwards ? through + 1 : 0);
+      const events = sql.prepare(`SELECT id,runId,ts,kind,CAST(substr(CAST(text AS BLOB),1,?) AS TEXT) AS text FROM run_events WHERE runId = ? AND id <= ? AND id ${backwards ? '<' : '>'} ? ORDER BY id ${backwards ? 'DESC' : 'ASC'} LIMIT ?`)
+        .all(input.textLimit * 4, input.runId, through, position, input.limit) as RunEventRow[];
+      if (backwards) events.reverse();
+      const first = events[0]?.id; const last = events.at(-1)?.id;
+      const exists = (operator: '<' | '>' | '<=' | '>=', id: number) => !!sql.prepare(`SELECT 1 FROM run_events WHERE runId = ? AND id <= ? AND id ${operator} ? LIMIT 1`).get(input.runId, through, id);
+      return { run, events, through, hasEarlier: exists(first === undefined && !backwards ? '<=' : '<', first ?? position),
+        hasLater: exists(last === undefined && backwards ? '>=' : '>', last ?? position) };
+    }),
+    runInspectWatermark: sql.transaction((runId: string) => ({
+      run: (sql.prepare('SELECT * FROM runs WHERE id = ?').get(runId) as RunRow | undefined) ?? null,
+      through: (sql.prepare('SELECT COALESCE(MAX(id),0) AS value FROM run_events WHERE runId = ?').get(runId) as { value: number }).value,
+    })),
+    runInspectEventMetadata(runId, after, through) {
+      if (![after, through].every(value => Number.isSafeInteger(value) && value >= 0) || after > through) throw new RangeError('Invalid run export bounds');
+      return (sql.prepare('SELECT id,length(CAST(ts AS BLOB)) AS tsBytes,length(CAST(kind AS BLOB)) AS kindBytes,length(CAST(text AS BLOB)) AS textBytes FROM run_events WHERE runId = ? AND id > ? AND id <= ? ORDER BY id ASC LIMIT 1')
+        .get(runId, after, through) as RunInspectEventMetadata | undefined) ?? null;
+    },
+    runInspectEventBytes(runId, eventId, field, offset, limit) {
+      if (!['ts', 'kind', 'text'].includes(field) || !Number.isSafeInteger(eventId) || eventId < 1 || !Number.isSafeInteger(offset) || offset < 0
+        || !Number.isSafeInteger(limit) || limit < 1 || limit > 65536) throw new RangeError('Invalid run export chunk');
+      const row = sql.prepare(`SELECT substr(CAST(${field} AS BLOB),?,?) AS bytes FROM run_events WHERE runId = ? AND id = ?`).get(offset + 1, limit, runId, eventId) as { bytes: Uint8Array } | undefined;
+      return row?.bytes ?? null;
+    },
     activeRuns(): RunRow[] {
       return sql.prepare(`SELECT * FROM runs WHERE status = 'running' ORDER BY startedAt DESC, rowid ASC`).all() as RunRow[];
     },

@@ -10,13 +10,14 @@ import type { AttachmentHandshake } from './recovery';
 import { reviewVerdictLine } from './review-verdict';
 import { parseInlineReviewComments, type InlineReviewInput } from './inline-review';
 import { agentAttribution } from './agent-attribution';
+import { createClarificationChannel, parseClarificationChannel } from './clarification-protocol-store';
 
 export interface RunnerDeps {
   durable?: DurableRunnerCoordinator;
   db: Db;
   recordAgentEvent?: (run: RunRow, task: AgentTask, event: AgentEvent, byteOffset: number) => number | null;
-  pollClarifications?: (runId: string) => void;
-  hasRequiredUnanswered?: (runId: string) => boolean;
+  pollClarifications?: (runId: string, expectedAttempt?: number) => void;
+  hasRequiredUnanswered?: (runId: string, expectedAttempt?: number) => boolean;
   onRunComplete?: (run: RunRow) => void;
   prepareFinalization?: (run: RunRow) => Promise<void>;
   bus: RunBus;
@@ -133,8 +134,8 @@ async function postReviewDerivingStatusFromReviewNotExitCode(
   }
   const comments = parseInlineReviewComments(await deps.readReviewComments?.(worktreePath) ?? null);
   if (deps.isStopped?.()) return 'stopped';
-  deps.pollClarifications?.(runId);
-  if (deps.hasRequiredUnanswered?.(runId)) {
+  deps.pollClarifications?.(runId, task.clarification?.attempt);
+  if (deps.hasRequiredUnanswered?.(runId, task.clarification?.attempt)) {
     onEvent({ kind: 'error', text: 'Required clarification has no answer; review publication blocked', stage: 'clarification' });
     return 'failed';
   }
@@ -210,9 +211,10 @@ async function tailUntilExit(
   waitOpts: WaitForExitOptions,
 ): Promise<number | 'stopped' | 'capped'> {
   let tailError: unknown;
+  const expectedAttempt = deps.db.getRun(runId)?.attempt;
   const tail: Tail = tailLog(logPath, startOffset, consume, (off) => deps.db.updateRun(runId, { logOffset: off }), error => { tailError = error; });
   let outcome: number | 'stopped' | 'capped';
-  try { outcome = await waitForExit(exitPath, { ...waitOpts, poll: () => deps.pollClarifications?.(runId), isStopped: () => tailError !== undefined || waitOpts.isStopped() }); } finally { tail.stop(); }
+  try { outcome = await waitForExit(exitPath, { ...waitOpts, poll: () => deps.pollClarifications?.(runId, expectedAttempt), isStopped: () => tailError !== undefined || waitOpts.isStopped() }); } finally { tail.stop(); }
   if (tailError !== undefined) throw tailError;
   const logOffset = readLogLines(logPath, deps.db.getRun(runId)?.logOffset ?? startOffset, consume, true);
   deps.db.updateRun(runId, { logOffset });
@@ -236,7 +238,7 @@ interface FinalizeParams {
 async function finalizeRun(p: FinalizeParams): Promise<void> {
   const { runId, task, deps, prNumber, totalCost, ok, worktreePath, onEvent } = p;
   const commit = p.commit ?? ((patch: Partial<RunRow>) => deps.db.updateRun(runId, patch));
-  if (ok && deps.hasRequiredUnanswered?.(runId)) {
+  if (ok && deps.hasRequiredUnanswered?.(runId, task.clarification?.attempt)) {
     onEvent({ kind: 'error', text: 'Required clarification has no answer; task cannot complete', stage: 'clarification' });
     p.ok = false;
   }
@@ -245,7 +247,7 @@ async function finalizeRun(p: FinalizeParams): Promise<void> {
   const status: RunStatus = stopped ? 'stopped' : p.ok ? 'succeeded' : 'failed';
 
   if (task.review) {
-    if (deps.hasRequiredUnanswered?.(runId)) {
+    if (deps.hasRequiredUnanswered?.(runId, task.clarification?.attempt)) {
       await commit({ status: 'failed', prNumber, costUsd: totalCost, endedAt: deps.now() }); return;
     }
     const reviewStatus: RunStatus = await postReviewDerivingStatusFromReviewNotExitCode(runId, task, worktreePath, prNumber, stopped, deps, onEvent);
@@ -485,7 +487,7 @@ export async function reattachRun(row: RunRow, deps: RunnerDeps): Promise<void |
 
     const existingCode: number | null = readExitCode(exitPath);
     if (existingCode != null) {
-      deps.pollClarifications?.(runId);
+      deps.pollClarifications?.(runId, row.attempt);
       const logOffset = readLogLines(logPath, row.logOffset ?? 0, consume, true);
       deps.db.updateRun(runId, { logOffset });
       const ok: boolean = existingCode === 0;
@@ -588,7 +590,7 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
     while (true) {
       check();
       if (tailError) throw tailError;
-      deps.pollClarifications?.(row.id);
+      deps.pollClarifications?.(row.id, row.attempt);
       const exit = await readExitEvidence(spec);
       check();
       if (recordedStatus === null) stopped ||= deps.isStopped?.() ?? false;
@@ -652,7 +654,9 @@ async function startDurableRun(task: AgentTask, deps: RunnerDeps): Promise<strin
   let row = initial;
   let worktree: { path: string; branch: string } | null = null;
   for (let attempt = 1; attempt <= Math.max(1, deps.maxAttempts ?? 1); attempt++) {
-    row = { ...(deps.db.getRun(runId) ?? row), attempt, logOffset: 0 };
+    if (attempt > 1 && parseClarificationChannel(task.clarification)) task = { ...task,
+      clarification: createClarificationChannel(deps.runsDir, { runId, attempt, gateUrl: task.clarification?.gateUrl }) };
+    row = { ...(deps.db.getRun(runId) ?? row), attempt, logOffset: 0, taskJson: JSON.stringify(task) };
     const session = await deps.durable!.prepare(row, task);
     const heartbeat = durableHeartbeat(session);
     try {

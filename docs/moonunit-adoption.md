@@ -4,7 +4,7 @@ Source: `deliverables/Moon-Units-vs-Helmsman.docx` (source-reviewed edition, 18 
 
 The recommendations were implemented on `feat/moonunit-adoption` and merged into `master`. This checklist records implementation evidence and remaining setup requirements.
 
-This is the adoption evidence record, not the plugin migration completion ledger. Current Costs/Helm packages and E3 task services preserve these execution safeguards. See the [plugin implementation status](plugin-implementation-progress.md) and the updated task-service flow in both [Markdown](helmsman-process.md) and [offline HTML](helmsman-process.html). Default task-page cutover passed acceptance validation locally; exact-commit review, push and phases F/G remain pending.
+This is the adoption evidence record, not the plugin migration completion ledger. Current Costs/Helm packages and E3 task services preserve these execution safeguards. See the [plugin implementation status](plugin-implementation-progress.md) and the updated task-service flow in both [Markdown](helmsman-process.md) and [offline HTML](helmsman-process.html). Default task-page cutover is reviewed and pushed; phases F/G remain pending.
 
 ## Feature overview
 

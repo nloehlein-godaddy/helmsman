@@ -3,6 +3,8 @@ import { storeConnection } from './store-connection';
 import { randomUUID } from 'node:crypto';
 import type { Clarification, ClarificationOwner, ClarificationState, TrustedContact } from '../../src/data/clarifications';
 import { selectTrustedContact } from './contact-policy';
+import { openClarificationProtocolStore, type ClarificationChannel, type ClarificationProtocolStore } from './clarification-protocol-store';
+import { immediateTransaction, stableJson } from './persistence';
 
 export const MAX_CLARIFICATION_PROTOCOL_LINE_BYTES = 16 * 1024;
 export const MAX_CLARIFICATIONS_PER_RUN = 32;
@@ -30,6 +32,7 @@ export interface ClarificationAnswerRecord {
 interface RunReference {
   repo: string;
   status: string;
+  attempt?: number;
   taskJson?: string | null;
 }
 
@@ -110,9 +113,12 @@ export function parseClarificationQuestionLine(line: string): ClarificationQuest
 }
 
 export interface ClarificationStore {
+  readonly protocol: ClarificationProtocolStore;
   list(repo?: string | null): Clarification[];
   listForRun(runId: string): Clarification[];
-  ingestQuestion(runId: string, record: unknown): Clarification;
+  ingestQuestion(runId: string, record: unknown, channel?: ClarificationChannel): Clarification;
+  listForChannel(channel: ClarificationChannel): Clarification[];
+  cancelForChannel(channel: ClarificationChannel): number;
   answer(id: string, input: unknown): Clarification;
   hasRequiredPending(runId: string): boolean;
   hasRequiredTimedOut(runId: string): boolean;
@@ -144,7 +150,8 @@ export function openClarificationStore(
       enabled INTEGER NOT NULL, createdAt TEXT NOT NULL
     );
   ` });
-
+  let protocol: ClarificationProtocolStore;
+  try { protocol = openClarificationProtocolStore(sql); } catch (error) { connection.close(); throw error; }
 
   const readQuestion = sql.prepare('SELECT * FROM clarifications WHERE id = ?');
   const getQuestion = (id: string): Clarification | null => {
@@ -160,6 +167,7 @@ export function openClarificationStore(
   };
 
   return {
+    protocol,
     list(repo = null) {
       const rows = repo
         ? sql.prepare('SELECT * FROM clarifications WHERE repo = ? COLLATE NOCASE ORDER BY createdAt DESC').all(repo)
@@ -170,12 +178,24 @@ export function openClarificationStore(
       const rows = sql.prepare('SELECT * FROM clarifications WHERE runId = ? ORDER BY createdAt DESC').all(validId(run, 'run ID')) as ClarificationRow[];
       return rows.map(toClarification);
     },
-    ingestQuestion(run, record) {
+    listForChannel(channel) {
+      if (stableJson(protocol.channel(channel.runId, channel.attempt)) !== stableJson(channel)) throw new ClarificationValidationError('Clarification channel is unavailable');
+      return (sql.prepare(`SELECT q.* FROM clarifications q JOIN clarification_question_metadata m ON m.questionId=q.id
+        WHERE q.runId=? AND m.attempt=? AND m.channelId=? ORDER BY q.createdAt DESC`).all(channel.runId, channel.attempt, channel.channelId) as ClarificationRow[]).map(toClarification);
+    },
+    cancelForChannel(channel) {
+      if (stableJson(protocol.channel(channel.runId, channel.attempt)) !== stableJson(channel)) throw new ClarificationValidationError('Clarification channel is unavailable');
+      return sql.prepare(`UPDATE clarifications SET state='cancelled' WHERE runId=? AND state='pending' AND id IN
+        (SELECT questionId FROM clarification_question_metadata WHERE attempt=? AND channelId=?)`).run(channel.runId, channel.attempt, channel.channelId).changes;
+    },
+    ingestQuestion(run, record, channel) { return immediateTransaction(sql, () => {
       const id = validId(run, 'run ID');
       const boundRun = deps.getRun(id);
       if (!boundRun || boundRun.status !== 'running') {
         throw new ClarificationValidationError('Run is not active');
       }
+      if (channel && (channel.runId !== id || boundRun.attempt !== channel.attempt
+        || stableJson(protocol.channel(id, channel.attempt)) !== stableJson(channel))) throw new ClarificationValidationError('Question does not belong to the active clarification channel');
       if (!isRecord(record) || record.kind !== 'question') {
         throw new ClarificationValidationError('Invalid question record');
       }
@@ -183,6 +203,9 @@ export function openClarificationStore(
       const existing = getQuestion(question.id);
       if (existing) {
         if (existing.runId !== id) throw new ClarificationValidationError('Question ID belongs to another run');
+        const provenance = protocol.provenance(question.id);
+        if (channel && (provenance?.channelId !== channel.channelId || provenance.attempt !== channel.attempt)
+          || !channel && provenance?.channelId !== null) throw new ClarificationValidationError('Question ID belongs to another clarification channel');
         if (existing.question !== question.prompt
           || existing.required !== question.required
           || existing.timeoutAt !== (question.timeoutAt ?? null)) {
@@ -221,8 +244,9 @@ export function openClarificationStore(
           createdAt: now(),
           timeoutAt: question.timeoutAt ?? null,
         });
+      if (channel) protocol.recordQuestion(question.id, channel);
       return getQuestion(question.id)!;
-    },
+    }); },
     answer(id, input) {
       const clarificationId = validId(id, 'clarification ID');
       const answer = requiredText(isRecord(input) ? input.answer : undefined, 'answer');
@@ -230,6 +254,8 @@ export function openClarificationStore(
       if (!current) throw new ClarificationValidationError('Clarification not found');
       if (current.state !== 'pending') throw new ClarificationValidationError('Clarification is no longer pending');
       const run = deps.getRun(current.runId);
+      const provenance = protocol.provenance(clarificationId);
+      if (provenance?.attempt !== null && provenance?.attempt !== run?.attempt) throw new ClarificationValidationError('Clarification belongs to another attempt');
       if (!run || run.status !== 'running') {
         sql.prepare("UPDATE clarifications SET state = 'cancelled' WHERE id = ? AND state = 'pending'").run(clarificationId);
         throw new ClarificationValidationError('Run is not active');
@@ -239,6 +265,7 @@ export function openClarificationStore(
         sql.prepare("UPDATE clarifications SET state = 'timed-out' WHERE id = ? AND state = 'pending'").run(clarificationId);
         throw new ClarificationValidationError('Clarification has timed out');
       }
+      if (!provenance || provenance.kind === 'legacy-unproven') throw new ClarificationValidationError('Clarification attempt provenance is unknown; this question is read-only');
       const update = sql.prepare("UPDATE clarifications SET state = 'answered', answer = ?, answeredAt = ? WHERE id = ? AND state = 'pending'")
         .run(answer, answeredAt, clarificationId);
       if (update.changes !== 1) throw new ClarificationValidationError('Clarification is no longer pending');
