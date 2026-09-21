@@ -9,11 +9,11 @@ const status: PrStatusView = { repo: 'org/b', number: 42, headSha: 'original', s
 const json = (value: unknown) => new Response(JSON.stringify(value));
 const lifetimes: AbortController[] = [];
 afterEach(() => { lifetimes.splice(0).forEach(value => value.abort()); vi.unstubAllGlobals(); document.body.replaceChildren(); });
-async function fixture() {
+async function fixture(overrides: Partial<PluginPanelState> = {}) {
   const root = document.createElement('div'); const container = document.createElement('div'); root.append(container); document.body.append(root);
   const session = new PrCompatibilitySession({ repos: () => ['org/a', 'org/b'], headerRepo: () => 'org/a' }); bindPrCompatibilitySession(root, session);
   const lifetime = new AbortController(); lifetimes.push(lifetime); const activity = new AbortController();
-  const state: PluginPanelState = { repo: 'org/a', themeId: 'dark', pirateMode: false, visible: true, pane: null, instanceId: 'pr', activity: { epoch: 1, signal: activity.signal, active: true, repo: 'org/a' }, savedState: { version: 1, value: { target: { repo: 'org/b', number: 42 } } } };
+  const state: PluginPanelState = { repo: 'org/a', themeId: 'dark', pirateMode: false, visible: true, pane: null, instanceId: 'pr', activity: { epoch: 1, signal: activity.signal, active: true, repo: 'org/a' }, savedState: { version: 1, value: { target: { repo: 'org/b', number: 42 } } }, ...overrides };
   const saveState = vi.fn(async () => {}); const navigate = vi.fn();
   const instance = await panel.mount(container, { state, activity: state.activity, signal: lifetime.signal, services: { version: 1 }, onDispose: vi.fn(), navigate, saveState });
   return { root, container, session, lifetime, activity, state, instance, saveState, navigate };
@@ -61,4 +61,13 @@ it.each(['review', 'rerun'] as const)('preselects and focuses route %s without l
   expect(document.activeElement).toBe(f.container.querySelector(mode === 'review' ? '.pr-review-agent' : '.pr-rerun-feedback'));
   expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Preserve routed draft');
   expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
+});
+
+it.each(['../private', 'org/..', '-owner/repo', 'org/repo?bad', 'org/repo/extra', 'org/' + 'x'.repeat(101)])('rejects malformed opaque PR targets before provider reads: %s', async repo => {
+  vi.stubGlobal('fetch', vi.fn(async () => json(status)));
+  const f = await fixture({ savedState: null, routeState: { version: 1, value: { target: { repo, number: 1 }, mode: 'review' } } });
+  await f.instance.refresh?.();
+  expect(fetch).not.toHaveBeenCalled(); expect(f.container.querySelector('.pr-panel')).toBeNull();
+  await f.instance.update({ ...f.state, routeState: null, presentation: { version: 1, kind: 'pull-request', repo, number: 1 } });
+  expect(fetch).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { validRepo } from './repo';
 import { parseTaskRepo } from '../plugins/tasks';
 import { LEGACY_PAGE_ALIASES, LEGACY_PAGE_PATHS } from './pagePaths';
 import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, RUNS_PAGE_ID, RUNS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_ID } from '../plugins/builtins';
@@ -35,14 +36,6 @@ const panes: Record<keyof typeof LEGACY_PAGE_PATHS, readonly string[]> = {
   campaigns: [],
   clarifications: [],
 };
-
-function validRepo(value: string | null): string | null {
-  if (!value) return null;
-  const [owner, name, extra] = value.split('/');
-  if (extra !== undefined || !owner || !name) return null;
-  if (!/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(owner)) return null;
-  return /^[a-z\d_.-]{1,100}$/i.test(name) && name !== '.' && name !== '..' ? value : null;
-}
 
 function positiveInteger(value: string | null): number | null {
   if (!value || !/^\d+$/.test(value)) return null;

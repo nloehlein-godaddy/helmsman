@@ -3,11 +3,13 @@ import { findPrCompatibilitySession, prTarget, type PrIdentity } from '../../pr-
 import { parsePrUrl } from '../../data/pr';
 import { renderPrPanel, renderPrDiff } from '../../render';
 import { term } from '../../logic/terminology';
+import { validRepo } from '../../logic/repo';
 
 const validTarget = (value: unknown): PrIdentity | null => {
-  if (!value || typeof value !== 'object') return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const item = value as Partial<PrIdentity>;
-  return typeof item.repo === 'string' && /^[^/\s]+\/[^/\s]+$/.test(item.repo) && Number.isSafeInteger(item.number) && Number(item.number) > 0 ? { repo: item.repo, number: Number(item.number) } : null;
+  const repo = validRepo(item.repo);
+  return repo && Number.isSafeInteger(item.number) && Number(item.number) > 0 ? { repo, number: Number(item.number) } : null;
 };
 function routeSelection(state: PluginPanelState): { target: PrIdentity; mode: 'review' | 'rerun' | null } | null {
   const value = state.routeState?.version === 1 ? state.routeState.value : null;
@@ -15,7 +17,8 @@ function routeSelection(state: PluginPanelState): { target: PrIdentity; mode: 'r
     const record = value as Record<string, unknown>; const target = validTarget(record.target);
     if (target && (record.mode === null || record.mode === 'review' || record.mode === 'rerun')) return { target, mode: record.mode };
   }
-  return state.presentation?.kind === 'pull-request' ? { target: state.presentation, mode: null } : null;
+  const target = state.presentation?.kind === 'pull-request' ? validTarget(state.presentation) : null;
+  return target ? { target, mode: null } : null;
 }
 const panel: PluginPanelModule = { mount(container, context) {
   const session = findPrCompatibilitySession(container);
