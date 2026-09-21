@@ -113,6 +113,61 @@ describe('GitHub requested review watcher', () => {
     expect(f.store.getNotification(original.id)).toMatchObject({ status: 'launched', proposal: original.proposal, trigger: original.trigger });
   });
 
+  it('retires a superseded captured head while busy and admits only its replacement', async () => {
+    const f = setupTriggered();
+    await f.watcher.poll();
+    const original = f.store.listNotifications()[0]!;
+    f.source.detail.mockResolvedValue({ repo: 'org/repo', number: 42, headSha: nextHead, title: 'Update', url: 'https://github.com/org/repo/pull/42', status: 'open', draft: false });
+    await f.watcher.poll();
+    expect(f.store.getNotification(original.id)).toMatchObject({ status: 'blocked', error: 'A newer PR revision superseded this queued review' });
+    expect(f.releaseTriggerPins).toHaveBeenCalledWith({ store: 'review', rowId: original.id });
+    expect(f.launch).not.toHaveBeenCalled();
+    f.controls.busy = false;
+    await f.watcher.poll();
+    expect(f.launch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ headSha: nextHead }));
+    expect(f.store.listNotifications().filter(row => row.status === 'queued')).toHaveLength(0);
+  });
+
+  it.each([
+    { status: 'closed' as const, draft: false, error: 'Pull request is no longer open' },
+    { status: 'merged' as const, draft: false, error: 'Pull request is no longer open' },
+    { status: 'open' as const, draft: true, error: 'Pull request is a draft' },
+  ])('retires a captured $status draft=$draft request even if the replacement policy filters it while busy', async ({ status, draft, error }) => {
+    const f = setupTriggered();
+    await f.watcher.poll();
+    const original = f.store.listNotifications()[0]!;
+    f.controls.filter = true;
+    f.source.detail.mockResolvedValue({ repo: 'org/repo', number: 42, headSha: head, title: 'Update', url: 'https://github.com/org/repo/pull/42', status, draft });
+    await f.watcher.poll();
+    expect(f.store.getNotification(original.id)).toMatchObject({ status: 'blocked', error });
+    expect(f.releaseTriggerPins).toHaveBeenCalledWith({ store: 'review', rowId: original.id });
+    expect(f.launch).not.toHaveBeenCalled();
+  });
+
+  it.each(['missing', 'failed', 'malformed', 'different-target', 'stale-source'] as const)('retains a captured request and its pins on %s target evidence', async condition => {
+    const f = setupTriggered();
+    await f.watcher.poll();
+    const original = f.store.listNotifications()[0]!;
+    f.controls.filter = true;
+    f.controls.busy = false;
+    const target = { repo: 'org/repo', number: 42, headSha: head, title: 'Update', url: 'https://github.com/org/repo/pull/42', status: 'closed' as const, draft: false };
+    if (condition === 'missing') f.source.detail.mockResolvedValueOnce(null);
+    else if (condition === 'failed') f.source.detail.mockRejectedValueOnce(new Error('offline'));
+    else if (condition === 'malformed') f.source.detail.mockResolvedValueOnce({ ...target, headSha: '' });
+    else if (condition === 'different-target') f.source.detail.mockResolvedValueOnce({ ...target, number: 43 });
+    else f.source.detail.mockImplementationOnce(async () => {
+      f.source.assertCurrent = () => { throw new Error('source changed'); };
+      return target;
+    });
+    await f.watcher.poll();
+    expect(f.store.getNotification(original.id)).toMatchObject({ status: 'queued', trigger: original.trigger, runId: original.runId });
+    expect(f.releaseTriggerPins).not.toHaveBeenCalled();
+    expect(f.launch).not.toHaveBeenCalled();
+    f.source.assertCurrent = () => {};
+    await f.watcher.poll();
+    expect(f.launch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ runId: original.runId, trigger: original.trigger }));
+  });
+
   it('does not infer source removal or membership from a policy that skips discovery', async () => {
     const f = setupTriggered();
     await f.watcher.poll();

@@ -28,6 +28,8 @@ Pull-request watchers can read the selected provider's requested-review list and
 
 Core records requested-review membership separately from policy proposals. Queued reviews require positive membership in the current scan before a new admission. A complete source list retires removed requests; partial or failed scans preserve unobserved requests without launching them. Replacement policy filters govern new proposals and do not cancel a retained decision for a request still present. Existing-run receipts reconcile even while intake is disabled.
 
+Current validated detail retires a retained decision when its head is superseded or the pull request is closed, merged, or draft. Null, failed, malformed, mismatched, or stale-source responses preserve the queued decision and its artifact pins. Retirement does not wait for execution capacity.
+
 Check `context.signal` around every asynchronous read and stop promptly when aborted. Helmsman also validates observed handles, bounds reads and output, fences selection and source revisions, deduplicates events, rechecks the exact pull-request head before dispatch, and owns cursor persistence.
 
 ## Authenticated webhooks

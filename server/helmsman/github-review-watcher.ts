@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isGithubRepo, type PrListResponse } from '../pr-lists';
-import type { PullRequestReviewTriggerProviderV1 } from '../../src/plugins/trigger';
+import { parseTriggerReviewTargetV1, type PullRequestReviewTriggerProviderV1 } from '../../src/plugins/trigger';
 import type { ExecutionStore } from './execution-store';
 import { persistenceHash } from './persistence';
 import { parseTriggerProvenanceV1, triggerDependencyPins, type TriggerProvenanceV1 } from './trigger-provenance';
@@ -132,6 +132,21 @@ export function createGithubReviewWatcher(options: GithubReviewWatcherOptions): 
           try {
             capture.assertCurrent(); source.assertCurrent();
             if (persistenceHash(trigger.source) !== persistenceHash(source.source)) throw new Error('Recorded review source changed');
+            const detail = await source.detail({ repo, number: notification.prNumber });
+            capture.assertCurrent(); source.assertCurrent();
+            if (!detail) continue;
+            const target = parseTriggerReviewTargetV1({ ...detail, targetId: notification.proposal.targetId });
+            if (!target || target.repo.toLowerCase() !== repo.toLowerCase() || target.number !== notification.prNumber) throw new Error('Review source returned a different target');
+            const reason = target.status !== 'open' ? 'Pull request is no longer open' : target.draft ? 'Pull request is a draft'
+              : target.headSha.toLowerCase() !== notification.proposal.headSha.toLowerCase() ? 'A newer PR revision superseded this queued review' : null;
+            if (reason) {
+              const current = store.getNotification(notification.id);
+              if (!current || current.status !== 'queued' || current.runId !== notification.runId) continue;
+              if (recoverQueued(current)) continue;
+              store.updateNotification(notification.id, 'blocked', now(), reason);
+              try { options.releaseTriggerPins?.({ store: 'review', rowId: notification.id }); } catch { }
+              continue;
+            }
             await options.verifyProposal(notification.proposal, trigger);
             capture.assertCurrent(); source.assertCurrent();
           } catch (error) {
