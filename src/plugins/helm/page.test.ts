@@ -92,6 +92,19 @@ describe('shipped Helm composition controls', () => {
     removals[1]!.click(); await vi.waitFor(() => expect(f.layout.instances.map(value => value.instanceId)).toEqual(['first']));
     expect(f.layout.instances[0]?.state['example.missing/panel']).toEqual({ version: 2, value: { draft: 'kept' } }); f.lifetime.abort();
   });
+  it('distinguishes stack targets whose instance IDs share the same prefix', async () => {
+    const f = await fixture();
+    const ids = ['shared-prefix-first', 'shared-prefix-second'];
+    await f.composition.updateLayout({ ...f.layout,
+      instances: [...f.layout.instances, ...ids.map(instanceId => ({ ...f.layout.instances[0]!, instanceId }))],
+      columns: [[{ instances: ['first', ...ids], activeInstanceId: 'first', collapsed: false }]],
+    }, f.layout.revision);
+    await vi.waitFor(() => {
+      const options = f.container.querySelector<HTMLSelectElement>('[aria-label="Stack with panel · Tasks · first"]')?.options;
+      expect(options && [...options].map(option => option.textContent)).toEqual(['Choose a panel', ...ids.map(id => `Tasks · ${id}`)]);
+    });
+    f.lifetime.abort();
+  });
   it('duplicates, hides and stacks without overwriting other implementation state', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.container.textContent).toContain('Read public services'));
     const click = (label: string) => { const value = Array.from(f.container.querySelectorAll('button')).find(button => button.textContent === label); if (!value) throw new Error(`Missing ${label}`); value.click(); };

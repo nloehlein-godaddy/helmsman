@@ -155,7 +155,7 @@ class HelmPage implements PluginPageInstance {
       for (const direction of ['up', 'down', 'left', 'right'] as const) row.append(focus(button(`Move ${direction}`, () => { void this.save(value => moveInstance(value, instance.instanceId, direction)); }, this.saving), `move-${direction}`));
       const stack = element('select'); stack.setAttribute('aria-label', 'Stack with panel');
       const choose = element('option', 'Choose a panel'); choose.value = ''; stack.append(choose);
-      for (const other of layout.instances) if (other.instanceId !== instance.instanceId) { const option = element('option', `${this.title(other.contributionId)} · ${other.instanceId.slice(0, 8)}`); option.value = other.instanceId; stack.append(option); }
+      for (const other of layout.instances) if (other.instanceId !== instance.instanceId) { const option = element('option', `${this.title(other.contributionId)} · ${other.instanceId}`); option.value = other.instanceId; stack.append(option); }
       row.append(stack, button('Stack', () => { if (stack.value) void this.save(value => stackInstance(value, instance.instanceId, stack.value)); }, this.saving));
       for (const control of row.querySelectorAll<HTMLElement>('button, input, select')) {
         control.setAttribute('aria-label', `${control.getAttribute('aria-label') ?? control.textContent} · ${identity}`);
