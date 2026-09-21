@@ -1,6 +1,6 @@
 # Workflow webhooks
 
-Webhook trigger extraction is reviewed and pushed through `12a62c9`. The selected `github-webhook` trigger owns event/action parsing and route policy; core owns authentication, credentials, durable delivery identity and guarded dispatch.
+Webhook trigger extraction is reviewed and pushed through `12a62c9`. The selected `github-webhook` trigger owns event/action parsing and route policy; core owns authentication, credentials, durable delivery identity and guarded dispatch. New intake requires this selected parser; removing it never enables the retired core parser.
 
 ## Configure the selected parser
 

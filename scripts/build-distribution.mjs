@@ -5,13 +5,14 @@ import { existsSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import { checkSdkCompatibility } from './sdk-compatibility.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const marker = '.helmsman-distribution.json';
 const ignoredSource = /(?:\.test\.[cm]?[jt]s|\.d\.ts)$/;
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 const authorPackages = ['agent-codex', 'agent-claude', 'agent-command', 'host-local', 'host-docker', 'terminal-cmux', 'terminal-wezterm', 'scheduling', 'profile', 'github-settings', 'jira-settings', 'local-git', 'campaigns', 'terminal', 'compat-pr', 'communication', 'github', 'slack', 'runs', 'compat-clarifications', 'clarifications', 'suggested-contacts', 'run-viewer', 'run-history', 'costs', 'pricing', 'todos', 'todos-ui', 'source-settings', 'triage', 'bugs', 'jira', 'local-tasks-alternative', 'helm', 'backlog', 'helm-alternative', 'backlog-alternative', 'running', 'recent', 'underway', 'newrun', 'repoprs', 'shipped', 'activity', 'workflow-coding', 'workflow-review', 'trigger-campaign', 'trigger-slack-review', 'trigger-github-review', 'trigger-github-webhook'];
-const authorGuides = ['agent-authoring.md', 'execution-host-authoring.md', 'native-terminal-authoring.md', 'scheduling-authoring.md', 'profile-authoring.md', 'integration-settings-authoring.md', 'local-git-authoring.md', 'campaigns-authoring.md', 'terminal-authoring.md', 'communication-authoring.md', 'pull-request-authoring.md', 'panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'pull-request-inspect-authoring.md', 'download-authoring.md', 'run-presentation-authoring.md', 'clarification-authoring.md', 'authored-clarifications.md', 'clarification-backend.md', 'workflow-authoring.md', 'trigger-authoring.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md', 'helmsman-process.md'];
+const authorGuides = ['plugin-quickstart.md', 'plugin-compatibility.md', 'agent-authoring.md', 'execution-host-authoring.md', 'native-terminal-authoring.md', 'scheduling-authoring.md', 'profile-authoring.md', 'integration-settings-authoring.md', 'local-git-authoring.md', 'campaigns-authoring.md', 'terminal-authoring.md', 'communication-authoring.md', 'pull-request-authoring.md', 'panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'pull-request-inspect-authoring.md', 'download-authoring.md', 'run-presentation-authoring.md', 'clarification-authoring.md', 'authored-clarifications.md', 'clarification-backend.md', 'workflow-authoring.md', 'trigger-authoring.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md', 'helmsman-process.md'];
 
 async function exists(path) {
   try { await lstat(path); return true; }
@@ -237,7 +238,10 @@ async function copyDependencies(staging, dependencies) {
   for (const name of Object.keys(dependencies).sort()) await copyPackage(name, root, join(staging, 'node_modules'));
 }
 
-async function buildSdk(destination, version) {
+export async function buildSdk(destination) {
+  const metadata = JSON.parse(await readFile(join(root, 'sdk/version.json'), 'utf8'));
+  if (metadata?.protocolMajor !== 1 || metadata?.baseline !== 'v1' || !/^1\.\d+\.\d+$/.test(metadata?.version ?? '')) throw new Error('Unsupported SDK release metadata');
+  const version = metadata.version;
   const sourceRoot = join(root, 'src', 'plugins');
   const publicModules = new Set(['agent-provider.ts', 'execution-host.ts', 'execution-host-node.ts', 'native-terminal.ts', 'workflow.ts', 'trigger.ts', 'scheduling-provider.ts', 'profile.ts', 'github-settings.ts', 'jira-settings.ts', 'local-git.ts', 'campaigns.ts', 'terminal.ts', 'terminal-route.ts', 'sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'task-views.ts', 'task-edit.ts', 'todo-legacy-recovery.ts', 'task-editor-contract.ts', 'source-command.ts', 'source-settings.ts', 'source-admin.ts', 'source-contract-validation.ts', 'run-read.ts', 'run-inspect.ts', 'download.ts', 'presentation.ts', 'clarification-read.ts', 'clarification-command.ts', 'suggested-contact-admin.ts', 'clarification-validation.ts', 'run-command.ts', 'pull-request-read.ts', 'pull-request-inspect.ts', 'pull-request-command.ts', 'pull-request-provider.ts', 'communication-provider.ts', 'communication.ts', 'communication-command.ts', 'activity-read.ts']);
   const queued = new Set([join(sourceRoot, 'sdk.ts'), join(sourceRoot, 'execution-host-node.ts')]);
@@ -331,7 +335,8 @@ export async function buildDistribution(options = {}) {
       scripts: { start: 'node server/helmsman/main.js', plugins: 'node server/helmsman/plugins/cli.js' },
       dependencies: packageJson.dependencies };
     await writeFile(join(staging, 'package.json'), `${JSON.stringify(runtimePackage, null, 2)}\n`);
-    await buildSdk(join(staging, 'sdk'), packageJson.version);
+    await buildSdk(join(staging, 'sdk'));
+    checkSdkCompatibility(join(root, 'sdk/baseline/v1'), join(staging, 'sdk'));
     await writeFile(join(staging, marker), `${JSON.stringify({ version: 2, applicationVersion: packageJson.version,
       platform: process.platform, arch: process.arch, nodeMajor, nodeAbi: process.versions.modules,
       inventory: await inventory(staging) }, null, 2)}\n`);

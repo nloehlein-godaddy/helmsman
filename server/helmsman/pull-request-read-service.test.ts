@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createPullRequestReadService, projectLegacyAuthoredPullRequests, projectLegacyOpenPullRequests } from './pull-request-read-service';
+import { createPullRequestReadService } from './pull-request-read-service';
 import { handlePullRequestReadApi } from './pull-request-read-routes';
 import type { PullRequestProviderBatch } from './pull-request-read-service';
 import { parsePullRequestReadPageV1, type PullRequestReadItemV1, type PullRequestReadQueryV1 } from '../../src/plugins/pull-request-read';
@@ -52,22 +52,7 @@ describe('pull request read provider boundary', () => {
     const pending = f.service.list({ ...query, repo: null, kind: 'authored-recent' }); await vi.waitFor(() => expect(f.read).toHaveBeenCalled()); f.repos = [repo]; finish(batch);
     await expect(pending).rejects.toMatchObject({ status: 409 });
   });
-  it('projects legacy open PRs with null metadata and bounded safe provider links', () => {
-    const projected = projectLegacyOpenPullRequests({ prs: [{ repo, number: 42, title: 'TASK-7 Work', createdAt: item.createdAt, draft: false, reviews: { approved: 0, changesRequested: -1, commented: 2, requested: null }, token: 'secret' }], degraded: false, truncated: false }, 'https://github.com/org/project/pulls');
-    expect(projected).toMatchObject({ quality: 'complete', items: [{ comments: null, ticketId: 'TASK-7', reviews: { approved: 0, changesRequested: null }, url: 'https://github.com/org/project/pull/42' }] });
-    expect(projected.items[0]).not.toHaveProperty('token');
-  });
-  it('never claims completeness for legacy authored windows, even empty or provider-scoped', () => {
-    expect(projectLegacyAuthoredPullRequests([], null)).toEqual({ items: [], quality: 'partial', truncated: true, browseUrl: null });
-    const result = projectLegacyAuthoredPullRequests([{ repo, number: 1, title: 'Change', headRef: 'TASK-11/test', state: 'closed', createdAt: item.createdAt, mergedAt: item.createdAt, reviewDecision: 'CHANGES_REQUESTED' }], null);
-    expect(result.items[0]).toMatchObject({ status: 'merged', mergedAt: item.createdAt, ticketId: 'TASK-11', draft: null });
-    expect(projectLegacyAuthoredPullRequests([null], null)).toMatchObject({ quality: 'degraded', items: [] });
-  });
-  it('retains explicit degraded and truncated states instead of masking missing results', () => {
-    expect(projectLegacyOpenPullRequests({ prs: [], degraded: true, truncated: false }, null)).toMatchObject({ quality: 'degraded' });
-    expect(projectLegacyOpenPullRequests({ prs: [], degraded: false, truncated: true }, null)).toMatchObject({ quality: 'partial' });
-    expect(() => projectLegacyAuthoredPullRequests(null, null)).toThrow();
-  });
+
 });
 
 describe('public pull request response validation and routes', () => {

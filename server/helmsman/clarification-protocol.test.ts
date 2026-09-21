@@ -173,12 +173,12 @@ describe('attempt-bound clarification protocol', () => {
     expect(() => f.reopen()).toThrow('trigger is missing or changed');
   });
 
-  it('keeps unknown provenance read-only through the legacy HTTP answer route', async () => {
+  it('keeps unknown provenance unchanged when the legacy HTTP answer route is retired', async () => {
     const f = fixture(true);
     expect(() => f.store.answer('old', { answer: 'Unsafe guess' })).toThrow('read-only');
     const result = await handleApi('POST', '/api/clarifications/old/answer', new URLSearchParams({ repo: f.run.repo }), { answer: 'Unsafe guess' },
       { clarifications: f.store, db: { getRun: () => f.run } } as unknown as RouterDeps);
-    expect(result).toMatchObject({ status: 400, json: { error: expect.stringContaining('read-only') } });
+    expect(result).toMatchObject({ status: 410 });
     expect(f.store.list()[0]).toMatchObject({ state: 'pending', answer: null }); expect(f.store.protocol.provenance('old')?.revision).toBe(1);
     expect(f.store.hasRequiredUnanswered('run-1')).toBe(true);
   });

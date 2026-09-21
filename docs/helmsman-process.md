@@ -6,7 +6,7 @@ The flow now includes Moon Units-inspired intake, frozen execution settings, iso
 
 ## Plugin task presentation and command authority
 
-Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use public plugin services. Task and Communication aliases select registered page implementations; core Config links to the separate Source settings page. The notification header, Communication panels and Slack provider are independently buildable. Interchangeable execution primitives (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use public plugin services. Task and Communication aliases select registered page implementations; core Config links to the separate Source settings page. The notification header, Communication panels and Slack provider are independently buildable. Scheduling, agents, execution hosts, native terminal/browser providers, workflows and triggers are independently replaceable; Phase F is complete. Phase G retirement and documentation work awaits final validation. See the [implementation ledger](plugin-implementation-progress.md).
 
 ```mermaid
 flowchart TD
@@ -41,9 +41,9 @@ flowchart TD
 
 Triage applies provider filters before pagination and preserves independent cursors under a fixed observation window. Its related voyages are enriched from canonical task claims and checked against actual runs in the selected galleon. Editor associations instead come from the provider; core verifies run existence and galleon scope without asserting claim ownership. Bugs labels approximate counts, unknown metrics and capped resolution samples separately. A source or presentation disablement denies new work while retained execution and effect obligations stay pinned. A historical automatic-start receipt never establishes the current process's enabled state. Package code is trusted; DTO and import validation do not provide a security sandbox.
 
-## E4 foundation: run inspection and streamed downloads
+## Run inspection and streamed downloads
 
-This flow describes the reviewed and pushed E4 foundation. Authored Runs/history/viewer packages use selected composition slots; Runs uses the shared auxiliary viewer and a public PR panel.
+Authored Runs/history/viewer packages use selected composition slots; Runs uses the shared auxiliary viewer and a public PR panel.
 
 ```mermaid
 flowchart TD
@@ -67,11 +67,11 @@ flowchart TD
     Abort --> Sink
 ```
 
-Log events remain run-wide because stored events have no reliable attempt provenance. An expected attempt prevents stale reads and exports; it does not attribute old events to that attempt. History totals describe the current observation within an insertion ceiling, not an immutable status snapshot. The browser fallback avoids a full-log Blob; Firefox stream cancellation does not guarantee an immediate native download failure indication. See the [E4 implementation plan](plugin-phase-e4-implementation.md) for clarification channel, durable-answer and replacement-package acceptance gates.
+Log events remain run-wide because stored events have no reliable attempt provenance. An expected attempt prevents stale reads and exports; it does not attribute old events to that attempt. History totals describe the current observation within an insertion ceiling, not an immutable status snapshot. The browser fallback avoids a full-log Blob; Firefox stream cancellation does not guarantee an immediate native download failure indication. See [run inspection](run-inspect-authoring.md), [downloads](download-authoring.md) and [clarification recovery](recovery.md#clarification-channels-and-unresolved-questions) for the current contracts.
 
-## E4 working slice: presentation and durable answers
+## Presentation and durable answers
 
-These flows describe the current integration work. Runs composes the authored history panel and public PR panel; the shared viewer retains selected runs. The PR alias uses an authored composition and the same shared viewer. Clarification recovery is an independently buildable package under its original caller.
+Runs composes the authored history panel and public PR panel; the shared viewer retains selected runs. The PR alias uses an authored composition and the same shared viewer. Clarification recovery is an independently buildable package under its original caller.
 
 ```mermaid
 flowchart TD
@@ -134,7 +134,7 @@ flowchart TD
 
 Saved browser drafts and results remain until explicit cleanup. Fresh successful journal reads protect records associated with unresolved submissions; a read failure prevents deletion. Cleanup checks the displayed and saved draft again after the journal read and rejects changed content. Discarding an already-unsaved local edit retains and reloads persisted text for review; deleting that text requires a separate action. Scoped answer drafts, saved results and the explicitly global contact draft have separate removal actions, and none deletes journal entries. Compatibility local storage does not provide an atomic transaction across tabs for the final comparison and deletion.
 
-Answer acceptance does not prove worker consumption. Contacts are global metadata; saving them sends no messages. Disabled contributions retain browser journals and reconcile after reenablement. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 when the public services are active. Trusted worker ingestion still requires its retained attempt channel. See [backend contracts](clarification-backend.md) and [author lifecycle](panel-authoring.md).
+Answer acceptance does not prove worker consumption. Contacts are global metadata; saving them sends no messages. Disabled contributions retain browser journals and reconcile after reenablement. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 even when the replacement services are unavailable. Trusted worker ingestion still requires its retained attempt channel. See [backend contracts](clarification-backend.md) and [author lifecycle](panel-authoring.md).
 
 ## Clarification alias and PR inspection
 
@@ -181,6 +181,31 @@ flowchart TD
 ```
 
 See [PR authoring](pull-request-authoring.md) for public commands and replacement selection.
+
+## Selected PR source for new work
+
+Manual reviews, reruns, communication preparation and outcome refresh use the selected public PR provider. Missing or changed source authority blocks new work. Historical retries and durable publication/send obligations retain their original bindings.
+
+```mermaid
+flowchart TD
+    Review[New manual or triggered PR review] --> Capture[Capture selected PR provider<br/>Connection, settings, selection revision and artifacts]
+    Rerun[New rerun with feedback] --> Capture
+    Send[New communication review request] --> Capture
+    Costs[Costs and Outcomes refresh] --> Capture
+    Capture --> Detail[Bounded public detail read<br/>Recheck selection and exact target]
+    Detail --> Purpose{Consumer}
+    Purpose -->|Review| Diff[Read exact-head public diff<br/>Recheck source and command head]
+    Purpose -->|Rerun| Branch[Retain public head and branch]
+    Purpose -->|Communication| Eligible[Require owned open unmerged PR<br/>Retain source with durable send target]
+    Purpose -->|Outcomes| Evidence[Project available observation only<br/>Unavailable source stays unknown or stale]
+    Diff --> Admission[Core admission and original artifact pins]
+    Branch --> Admission
+    Eligible --> Operation[Core durable operation and send authority]
+    Changed[Missing, disabled or changed selected source] --> Deny[No fallback to private new-work reads]
+    Prior[Historical execution or external obligation] --> Original[Resolve original saved binding<br/>Never adopt current selection]
+```
+
+Retired dashboard, task-list and private PR routes return 410 even when a replacement is absent. Authored clients use SDK services with scope, cancellation and caller identity. Core Recovery, historical clarification reads, the read-only Slack diagnostic and exact legacy Todo request recovery remain available. See [route retirement and retained recovery](plugin-legacy-retirement.md).
 
 ## Communication notifications and review requests
 
@@ -249,7 +274,7 @@ flowchart TD
     Preview --> Confirm[Explicit confirmation imports queued tasks<br/>Import alone does not start work]
 ```
 
-A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. The selected campaign policy owns candidate ordering; core retains durable claims and execution gates. Trigger extraction is reviewed and pushed through `12a62c9`; the Phase F aggregate gate and Phase G remain open. See [Campaign authoring](campaigns-authoring.md).
+A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. The selected campaign policy owns candidate ordering; core retains durable claims and execution gates. Trigger extraction is reviewed and pushed through `12a62c9`; Phase F is complete and final Phase G validation remains pending. See [Campaign authoring](campaigns-authoring.md).
 
 ## Local Git confirmation and recovery
 
@@ -445,7 +470,7 @@ flowchart TD
     Legacy[Legacy rows without trigger provenance] --> Original[Preserve original payload and run identity<br/>Explicit legacy reconciliation path]
 ```
 
-Campaign capture occurs at claim, not import; an unclaimed imported intent may receive its first policy decision after cutover. Already claimed legacy tasks reconcile the original run. Watch proposals and complete-scan cursor updates are atomic. Partial or stale scans never advance the cursor. Dedupe keys exclude policy versions, settings and selections; accepted proposals never run through replacement policy. Authenticated ignored webhook events also retain their digest, so later routes cannot reinterpret duplicates.
+All four coordinators require a selected trigger for new intake; no pre-plugin discovery, ordering or webhook parser fallback remains. Campaign capture occurs at claim, not import; an unclaimed imported intent may receive its first policy decision after cutover. Already claimed legacy tasks reconcile the original run without current-policy recapture, including after claim expiry. Saved normalized legacy review/webhook rows keep their original IDs and payloads; disabled triggers still reconcile receipts but do not admit queued work. Watch proposals and complete-scan cursor updates are atomic. Partial or stale scans never advance the cursor. Dedupe keys exclude policy versions, settings and selections; accepted proposals never run through replacement policy. Authenticated ignored webhook events also retain their digest, so later routes cannot reinterpret duplicates.
 
 Campaign candidates share the atomic claim's concurrency and galleon checks; rejected claims are skipped for the rest of the poll. Requested reviews dispatch only after positive source-list membership. Complete source lists retire removed requests independently of policy filtering; partial or failed scans retain unobserved queued work without launching it.
 
@@ -455,7 +480,8 @@ Legacy watch flags and webhook routes seed settings once. Slack/GitHub watch for
 
 ```mermaid
 flowchart TD
-    Manual[Operator selects a galleon<br/>Jira ticket, custom task, local todo or existing PR] --> Dispatch
+    Manual[Operator selects a galleon<br/>Jira ticket, custom task, local todo or existing PR] --> Prepare[Task source or selected PR provider<br/>Capture exact source, target and head]
+    Prepare --> Dispatch
     Campaign[Campaign: create phases<br/>CSV/JSONL preview → confirm → start phase<br/>Selected trigger chooses eligible candidate] --> Dispatch
     Webhook[GitHub webhook, when configured<br/>Core raw-body HMAC + selected parser mapping<br/>Durable normalized proposal and delivery deduplication] --> Dispatch
     Dispatch[Check scope and capacity<br/>One active writer per galleon<br/>Automated dispatch uses durable claims] --> Snapshot[Retain selected workflow artifact, metadata and settings<br/>Verify required skills and provision private copies<br/>Retry/resume must match the original snapshot]
@@ -525,7 +551,7 @@ flowchart LR
     Usage --> Outcomes[Costs & Outcomes<br/>Reported spend + separate Codex API estimates<br/>Usage coverage, tokens, duration, PR outcomes<br/>Separate task assessment with evidence]
 ```
 
-- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Public answer commands now retain durable receipts; the compatibility renderer uses those services. Authored clarification panels now own the selected Agent Questions alias and canonical page. A page-level recovery link retains access to original compatibility drafts and requests without import or replay. Runs uses the authored composition and shared viewer; PR presentation and providers also use public contracts.
+- **Questions:** core pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Public answer commands now retain durable receipts; the compatibility renderer uses those services. Authored clarification panels now own the selected Agent Questions alias and canonical page. A page-level recovery link retains access to original compatibility drafts and requests without import or replay. Runs uses the authored composition and shared viewer; PR presentation and providers also use public contracts.
 - **Evidence and recovery:** validated reports are recorded with immutable identities and hashes. A checkpoint continuation revalidates saved evidence before reusing it; legacy checkpoints without manifests follow an explicit compatibility path. A fresh retry preserves the original task/provider, workflow snapshot and Docker image pin; changed prompts or skills fail preflight. Restart reattachment and checkpoint continuation are different from restarting an entire failed voyage.
 - **Costs and outcomes:** provider token/cost events and stage timing feed a persistent ledger. Reported spend can be partial; unreported billed costs stay unknown. Eligible unpriced Codex usage receives a separate Standard short-context API baseline estimate, using published rates checked September 19, 2026. The UI exposes estimated/unpriced record coverage and runs without usage records. Missing model/token data remains unknown; service tier, per-request context and cache-write usage are unavailable, and subscription charges may differ. Estimates do not affect budget caps or cost-per-PR metrics, which use fully priced runs. Process success does not itself establish task completion: assessment state (complete/partial/failed/not-assessed) is separate from task outcome (achieved/partial/not-achieved/unknown), with supporting evidence. PR visibility is best-effort with explicit stale/unavailable status.
 

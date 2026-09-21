@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { openWebhookIntake, parseWebhookRoutes } from './webhooks';
+import { openWebhookIntake } from './webhooks';
+import { githubWebhookTriggerProvider } from '../../src/plugins/trigger-github-webhook/provider';
 const raw = Buffer.from(JSON.stringify({ action: 'opened', repository: { full_name: 'o/r' }, issue: { number: 1, title: 'Fix input', body: 'Validate it' } }));
 const signature = createHmac('sha256', 'secret').update(raw).digest('hex');
 function setup() {
   const launch = vi.fn(input => input.runId);
-  const intake = openWebhookIntake(':memory:', { secret: () => 'secret', routes: () => [{ repo: 'o/r', event: 'issues', action: 'opened', workflowRef: 'coding@1' }],
+  const provider = githubWebhookTriggerProvider({ enabled: true, routes: [{ repo: 'o/r', event: 'issues', action: 'opened', workflowRef: 'coding@1' }] });
+  const artifact = { pluginId: 'example.webhook', artifactHash: 'a'.repeat(64), packageVersion: '1.0.0', requires: [] };
+  const intake = openWebhookIntake(':memory:', { secret: () => 'secret', captureTrigger: () => ({
+    instanceId: 'github-webhook', selectionRevision: 'revision-1', provider, artifacts: [artifact],
+    record: { version: 1, origin: 'external', binding: { providerId: 'example.webhook/parse', pluginId: artifact.pluginId, artifactHash: artifact.artifactHash, contractVersion: 1 },
+      settings: {}, metadata: provider.metadata }, assertCurrent() {},
+  }), retainPins: vi.fn(), verifyLaunch: vi.fn(),
     allowedRepos: () => ['o/r'], canStart: () => true, getRun: () => null, isRunActive: () => false, launch });
   return { intake, launch };
 }
@@ -27,10 +34,10 @@ describe('authenticated webhook intake', () => {
     expect(launch.mock.calls[0]?.[0]).toMatchObject({ runId: first.runId, repo: 'o/r', mode: 'freeform', workflowRef: 'coding@1' });
     intake.close();
   });
-  it('rejects unmapped actions and unsupported workflow versions', () => {
+  it('records unmapped events as ignored without dispatching', () => {
     const { intake } = setup();
-    expect(() => intake.receive(raw, { delivery: 'd1', event: 'push', signature: `sha256=${signature}` })).toThrow('configured workflow');
-    expect(() => parseWebhookRoutes('[{"repo":"o/r","event":"issues","action":"opened","workflowRef":"coding@2"}]')).toThrow('mapping');
+    expect(intake.receive(raw, { delivery: 'd1', event: 'push', signature: `sha256=${signature}` })).toMatchObject({ ignored: true, runId: null });
+    expect(intake.status()).toMatchObject([{ state: 'ignored' }]);
     intake.close();
   });
 });

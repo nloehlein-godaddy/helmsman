@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { githubReviewTriggerProvider } from '../../src/plugins/trigger-github-review/provider';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openSlackStore, type SlackStore } from './slack/store';
 import { createGithubReviewWatcher, type GithubReviewWatcherOptions } from './github-review-watcher';
@@ -10,15 +12,38 @@ const head = 'a'.repeat(40);
 const nextHead = 'b'.repeat(40);
 const request = { repo: 'org/repo', number: 42, title: 'Update', reviewDecision: 'REVIEW_REQUIRED', draft: false, createdAt: '2026-09-17T12:00:00.000Z' };
 
-function setup(overrides: Partial<GithubReviewWatcherOptions> = {}) {
+function setup(overrides: Partial<GithubReviewWatcherOptions> & { enabled?: () => boolean } = {}) {
   const store = overrides.store ?? openSlackStore(':memory:');
   if (!stores.includes(store)) stores.push(store);
   const active = new Set<string>();
   const fetchRequested = vi.fn().mockResolvedValue({ prs: [request], degraded: false, truncated: false });
   const fetchPr = vi.fn().mockResolvedValue({ headSha: head, state: 'open', draft: false });
   const launch = vi.fn(({ runId }: { runId: string }) => { active.add(runId); return runId; });
+  const provider = githubReviewTriggerProvider({ enabled: true, intervalMs: 1000 });
+  const artifact = { pluginId: 'example.github-trigger', artifactHash: 'e'.repeat(64), packageVersion: '1.0.0', requires: [] };
+  const assertCurrent = () => { if (overrides.enabled?.() === false) throw new Error('selection changed'); };
+  const capture: SelectedTriggerCapture<PullRequestReviewTriggerProviderV1> = {
+    instanceId: 'github-review', selectionRevision: 'revision-1', provider, artifacts: [artifact],
+    record: { version: 1, binding: { providerId: 'example.github-trigger/watch', pluginId: artifact.pluginId, artifactHash: artifact.artifactHash, contractVersion: 1 },
+      origin: 'external', settings: {}, metadata: provider.metadata }, assertCurrent,
+  };
+  const source: PullRequestReviewSourceCapture = {
+    kind: 'pull-request', source: { sourceKey: 'github-review-requests', revision: 'source-1', bindings: [] }, artifacts: [], assertCurrent,
+    async requested() {
+      const value = await fetchRequested();
+      return { items: value.prs.map((item: { repo: string; number: number }) => ({ repo: item.repo, number: item.number })), quality: value.degraded ? 'degraded' : 'complete', truncated: value.truncated };
+    },
+    async detail({ repo, number }) {
+      if (!(overrides.allowedRepos?.() ?? ['org/repo']).some(value => value.toLowerCase() === repo.toLowerCase())) return null;
+      const value = await fetchPr(repo, number);
+      return value ? { repo, number, headSha: value.headSha, title: 'Update', url: `https://github.com/${repo}/pull/${number}`,
+        status: value.merged ? 'merged' : value.state, draft: value.draft } : null;
+    },
+  };
   const options: GithubReviewWatcherOptions = {
-    store, fetchRequested, fetchPr, allowedRepos: () => ['org/repo'], canLaunch: () => true,
+    captureTrigger: () => overrides.enabled?.() === false ? null : capture, captureSource: () => source,
+    defaultWorkflowRef: () => 'review@1', verifyProposal: vi.fn(), retainPins: vi.fn(),
+    store, fetchPr, allowedRepos: () => ['org/repo'], canLaunch: () => true,
     getRun: () => null, isRunActive: id => active.has(id), launch, now: () => '2026-09-17T12:00:00.000Z', ...overrides,
   };
   return { store, fetchRequested, fetchPr, launch, active, options, watcher: createGithubReviewWatcher(options) };
@@ -194,6 +219,28 @@ describe('GitHub requested review watcher', () => {
     expect(f.releaseTriggerPins).toHaveBeenCalledWith({ store: 'review', rowId: original.id });
   });
 
+  it('drains an uncaptured legacy row using its original identity and reconciles while disabled', async () => {
+    let enabled = false;
+    const f = setup({ enabled: () => enabled });
+    const id = createHash('sha256').update(JSON.stringify(['github-review-requests', 'org/repo', 42, head])).digest('hex');
+    const runId = `github-${id}`;
+    f.store.insertNotification('github-review-requests', { id, repo: 'org/repo', prNumber: 42,
+      prUrl: 'https://github.com/org/repo/pull/42', sourceUrl: 'https://github.com/org/repo/pull/42', author: 'GitHub',
+      channelName: 'GitHub requested reviews', status: 'queued', runId, createdAt: '2026-09-17T12:00:00.000Z',
+      updatedAt: '2026-09-17T12:00:00.000Z', readAt: null, error: null });
+    await f.watcher.poll();
+    expect(f.launch).not.toHaveBeenCalled();
+    enabled = true;
+    await f.watcher.poll();
+    expect(f.launch).toHaveBeenCalledExactlyOnceWith({ repo: 'org/repo', prNumber: 42, mode: 'review', headSha: head, runId });
+    expect(f.store.getNotification(id)).toMatchObject({ trigger: null, proposal: null, runId });
+    enabled = false;
+    f.options.getRun = () => ({ status: 'failed' });
+    await f.watcher.poll();
+    expect(f.store.getNotification(id)?.status).toBe('failed');
+    expect(f.launch).toHaveBeenCalledTimes(1);
+  });
+
   it('launches currently pending reviews on the initial poll once per revision', async () => {
     const { watcher, launch, store } = setup();
     await watcher.poll();
@@ -255,7 +302,7 @@ describe('GitHub requested review watcher', () => {
     fetchPr.mockRejectedValue(new Error('offline'));
     await watcher.poll();
     expect(store.listNotifications()[0]?.status).toBe('queued');
-    expect(watcher.health().status).toBe('partial');
+    expect(watcher.health().status).toBe('unavailable');
     expect(launch).not.toHaveBeenCalled();
   });
 
@@ -304,7 +351,7 @@ describe('GitHub requested review watcher', () => {
     await watcher.poll();
     expect(fetchPr).not.toHaveBeenCalled();
     expect(launch).not.toHaveBeenCalled();
-    expect(store.listNotifications()[0]).toMatchObject({ status: 'blocked', error: 'Galleon other/repo is not configured' });
+    expect(store.listNotifications()).toEqual([]);
   });
 
   it('coalesces an existing review and persists the shared run link', async () => {
@@ -316,11 +363,11 @@ describe('GitHub requested review watcher', () => {
     expect(store.listNotifications()[0]).toMatchObject({ status: 'launched', runId: 'slack-existing-review' });
   });
 
-  it('starts a previously blocked draft when it becomes ready on the same head', async () => {
+  it('admits a previously filtered draft when it becomes ready on the same head', async () => {
     const { watcher, fetchPr, launch, store } = setup();
     fetchPr.mockResolvedValue({ headSha: head, state: 'open', draft: true });
     await watcher.poll();
-    expect(store.listNotifications()[0]?.status).toBe('blocked');
+    expect(store.listNotifications()).toEqual([]);
     fetchPr.mockResolvedValue({ headSha: head, state: 'open', draft: false });
     await watcher.poll();
     expect(launch).toHaveBeenCalledTimes(1);
@@ -347,6 +394,6 @@ describe('GitHub requested review watcher', () => {
     fetchPr.mockImplementation(async () => { enabled = false; return { headSha: head, state: 'open', draft: false }; });
     await watcher.poll();
     expect(launch).not.toHaveBeenCalled();
-    expect(watcher.health()).toMatchObject({ enabled: false, status: 'disabled' });
+    expect(watcher.health()).toMatchObject({ status: 'unavailable', error: 'selection changed' });
   });
 });

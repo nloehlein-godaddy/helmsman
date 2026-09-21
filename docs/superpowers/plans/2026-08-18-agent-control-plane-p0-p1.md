@@ -1,5 +1,7 @@
 # Agent Control Plane — Phase 0 + Phase 1 Implementation Plan
 
+> Historical plan: implementation references and endpoints below describe the earlier architecture. Current features use public plugin services; see [retired routes and retained recovery](../../plugin-legacy-retirement.md) and [current flows](../../helmsman-process.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up the persistent Helmsman Node server (P0: serves the dashboard API + SQLite), then run one CLI agent against a ticket in a git worktree and stream its work live to the UI (P1). No Jira writes yet — the agent works, you watch.

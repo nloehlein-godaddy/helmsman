@@ -1,6 +1,6 @@
-# Experimental page registry and lifecycle
+# Page registry and lifecycle
 
-This implements the page metadata and lifecycle portions of [Phase A](plugin-architecture-plan.md). The API is experimental. Standalone declarations ship as `release/sdk`; see [the runnable distribution and SDK](distribution.md).
+This implements the page metadata and lifecycle portions of [Phase A](plugin-architecture-plan.md). The lifecycle is part of the stable version-1 SDK; see [compatibility and deprecation](plugin-compatibility.md). Standalone declarations ship as `release/sdk`; see [the runnable distribution and SDK](distribution.md).
 
 This guide describes the page lifecycle introduced in Phase A. Current composition and panel services are documented in [panel authoring](panel-authoring.md); E3 task/editor/admin services are in [task-source authoring](task-source-authoring.md). Costs, Helm, Todos, Triage, Bugs and Source settings have selected aliases. Canonical package routes remain available; a disabled or missing selected page remains unavailable without fallback. Core Config links to Source settings. Default task-page cutover is reviewed and pushed. See [current progress](plugin-implementation-progress.md).
 

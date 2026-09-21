@@ -32,7 +32,7 @@ export function createCommunicationRuntime(options: {
   env(): Record<string, string | undefined>;
   artifacts(binding: Pick<ProviderBinding, 'pluginId' | 'artifactHash'>): readonly ArtifactBinding[];
   verifyArtifacts(artifacts: readonly ArtifactBinding[]): Promise<void>;
-  assertReviewable?(repo: string, number: number): Promise<void>;
+  assertReviewable?(repo: string, number: number, source?: unknown): Promise<void>;
 }) {
   const browserSelectionOptions = { root: options.root, registry: options.nativeTerminals, defaultProviderId: options.defaultBrowserProviderId, kind: 'browser' as const };
   function browserSelection() {
@@ -89,9 +89,9 @@ export function createCommunicationRuntime(options: {
   const effects = createCommunicationProviderEffects({ registry: options.registry, selected, destination, admissionSession, retainedSession,
     artifacts: options.artifacts, verifyArtifacts: options.verifyArtifacts, assertAdmission, withSession: withSlackBrowserLock,
     async authorize(binding, operation, context) {
-      const review = operation.target as { repo?: unknown; number?: unknown } | null;
+      const review = operation.target as { repo?: unknown; number?: unknown; pullRequestSource?: unknown } | null;
       if (typeof review?.repo !== 'string' || typeof review.number !== 'number') return { allowed: false, reason: 'Invalid retained communication target.' };
-      try { await options.assertReviewable?.(review.repo, review.number); }
+      try { await options.assertReviewable?.(review.repo, review.number, review.pullRequestSource); }
       catch { return { allowed: false, reason: 'The retained review request is no longer eligible for delivery.' }; }
       const live = options.operations.get(operation.id);
       if (!live || live.contentHash !== operation.contentHash || live.generation !== context.generation || live.status !== 'leased'

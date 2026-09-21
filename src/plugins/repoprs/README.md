@@ -6,10 +6,12 @@ The repository panel requires one selected repository and reads at most 100 open
 
 Counts absent from provider evidence remain null and are omitted rather than displayed as zero. Complete empty lists, partial provider windows, degraded results, and unavailable reads are distinct states. A provider browse link is optional; panels never reconstruct a GitHub URL or assume a Jira ticket URL.
 
-## Temporary provider adapter
+## Selected provider reads
 
-The server currently projects existing GitHub read helpers behind the public service. These private helpers retain their existing repository authorization, cache, concurrency, and review policies until the E3 integration extraction. The recent-authored helper caps and combines results with fail-soft direct scans, so this adapter always reports its coverage as partial (including an empty result). It cannot honestly assert complete results or unknown direct-scan success. It projects only allowlisted fields, supplies GitHub links server-side, and excludes credentials and private provider state.
+The public service captures the selected `helmsman/pull-request@1` provider, connection, settings and selection revision. The shipped GitHub package implements the provider contract and may be replaced independently of either panel. Missing or disabled explicit selections remain unavailable; the old private GitHub read routes return 410.
 
-The server coalesces overlapping provider reads for the same effective repository set and list kind, always requesting the maximum public window before applying each caller's limit. A cancelled subscriber never abandons that shared operation and causes an overlapping provider request. At most 64 provider operations can be outstanding; a 30-second deadline bounds each caller even when the legacy provider ignores cancellation. E3 should replace this adapter with cancellable provider reads that report completeness directly.
+The provider reports list quality and truncation directly. Core validates the bounded projection and effective galleon scope; a capped window cannot claim complete coverage. Lists coalesce overlapping reads for the same scope and kind, request the maximum public window before applying caller limits, and permit at most 64 outstanding provider operations. A 30-second deadline bounds requests, and cancellation stops delivery to the departing caller without restarting shared work for another caller.
+
+PR detail and review/rerun preparation use the selected provider too. New commands retain exact source and head evidence; historical execution and publication obligations retain their original bindings. See [PR authoring](../../../docs/pull-request-authoring.md) and [retired routes and recovery](../../../docs/plugin-legacy-retirement.md).
 
 The public service provides `list` and `watchList` with `repo-open`, `authored-recent`, and `review-requested` kinds, a maximum page of 100, and no synthetic pagination beyond the provider window. Tests for both packages live in `../repoprs/panel.test.ts`.

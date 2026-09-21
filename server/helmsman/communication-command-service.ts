@@ -31,6 +31,7 @@ import {
   type Persistence,
 } from "./persistence";
 export interface CommunicationCommandPreparation {
+  assertCurrent?(): void;
   readonly binding: ProviderBinding;
   readonly artifacts: readonly ArtifactBinding[];
   readonly target: {
@@ -283,6 +284,7 @@ export function createCommunicationCommandService(
       const operation = options.persistence.transaction(() => {
         access(caller, command.repo, scope);
         options.assertAdmission();
+        prepared.assertCurrent?.();
         const prior = find(caller, command);
         if (prior) {
           if (!same(record(prior).command, command))

@@ -26,7 +26,7 @@ export interface RunnerDeps {
   runsDir: string;
   launchJson?: string;
   createWorktree: (repo: string, runId: string) => Promise<{ path: string; branch: string }>;
-  createWorktreeFromBranch?: (repo: string, runId: string, branch: string) => Promise<{ path: string; branch: string }>;
+  createWorktreeFromBranch?: (repo: string, runId: string, branch: string, expectedHeadSha?: string) => Promise<{ path: string; branch: string }>;
   createReviewWorktree?: (repo: string, runId: string, prNumber: number, headSha: string) => Promise<{ path: string; branch: string }>;
   removeWorktree: (repo: string, path: string) => Promise<void>;
   now: () => string;
@@ -370,7 +370,7 @@ export async function startRun(task: AgentTask, deps: RunnerDeps): Promise<strin
     const worktree: { path: string; branch: string } = pinnedReview
       ? await deps.createReviewWorktree!(task.repo, runId, task.prNumber!, pinnedReview)
       : task.prBranch
-        ? await deps.createWorktreeFromBranch!(task.repo, runId, task.prBranch)
+        ? await deps.createWorktreeFromBranch!(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.pullRequestSource.target.headSha] as const : []))
         : await deps.createWorktree(task.repo, runId);
     worktreePath = worktree.path;
     deps.db.updateRun(runId, { worktreePath: worktree.path });
@@ -714,7 +714,7 @@ async function startDurableRun(task: AgentTask, deps: RunnerDeps): Promise<strin
           worktree = await deps.createReviewWorktree(task.repo, runId, task.prNumber, task.prHeadSha);
         } else if (task.prBranch) {
           if (!deps.createWorktreeFromBranch) throw new Error('Pinned branch worktree is unavailable');
-          worktree = await deps.createWorktreeFromBranch(task.repo, runId, task.prBranch);
+          worktree = await deps.createWorktreeFromBranch(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.pullRequestSource.target.headSha] as const : []));
         } else worktree = await deps.createWorktree(task.repo, runId);
       }
       heartbeat.check();

@@ -1,5 +1,4 @@
 import type { Db, RunRow } from './db';
-import type { PrStatus } from '../github';
 import { isGithubRepo } from '../pr-lists';
 import { aggregateOutcomes, OutcomeValidationError, type OutcomeStore } from './outcomes';
 import type { OutcomePullRequest, OutcomeSummary } from '../../src/data/outcomes';
@@ -12,10 +11,13 @@ export interface OutcomeService {
 export function createOutcomeService(deps: {
   db: Db;
   store: OutcomeStore;
-  fetchPr(repo: string, number: number): Promise<PrStatus | null>;
+  fetchPr(repo: string, number: number): Promise<{ draft: boolean; merged: boolean; reviewsAvailable?: boolean; reviews?: { approved: number; changesRequested: number; commented: number } } | null>;
+  sourceIdentity?(): string | null;
   now?: () => number;
 }): OutcomeService {
   const now = deps.now ?? Date.now;
+  const sourceIdentity = () => { try { return deps.sourceIdentity ? deps.sourceIdentity() : 'legacy'; } catch { return null; } };
+  const cacheKey = (source: string | null, key: string) => JSON.stringify([source, key]);
   const cache = new Map<string, { at: number; value: OutcomePullRequest | null }>();
   const inflight = new Map<string, Promise<void>>();
   const authored = (run: RunRow): boolean => {
@@ -24,15 +26,15 @@ export function createOutcomeService(deps: {
       return Boolean(task && typeof task === 'object' && !('review' in task && task.review) && !('prBranch' in task && task.prBranch));
     } catch { return false; }
   };
-  async function refresh(key: string, pr: { repo: string; number: number }): Promise<void> {
+  async function refresh(key: string, source: string, pr: { repo: string; number: number }): Promise<void> {
     const prior = inflight.get(key);
     if (prior) return prior;
     const work = (async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const result = await Promise.race([deps.fetchPr(pr.repo, pr.number).catch(() => null),
+        const result = await Promise.race([Promise.resolve().then(() => deps.fetchPr(pr.repo, pr.number)).catch(() => null),
           new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 3000); })]);
-        cache.set(key, { at: now(), value: result && result.reviewsAvailable !== false ? {
+        cache.set(key, { at: now(), value: sourceIdentity() === source && result && result.reviewsAvailable !== false ? {
           ...pr, published: !result.draft, merged: result.merged,
           reviewed: Boolean(result.reviews && result.reviews.approved + result.reviews.changesRequested + result.reviews.commented > 0),
         } : null });
@@ -51,16 +53,17 @@ export function createOutcomeService(deps: {
       const from = new Date(now() - Number(days) * 86_400_000).toISOString();
       const runs = deps.db.runsInWindow(from, to, repo);
       const prs = new Map(runs.flatMap(run => run.prNumber ? [[`${run.repo.toLowerCase()}#${run.prNumber}`, { repo: run.repo, number: run.prNumber }] as const] : []));
-      const missing = [...prs].filter(([key]) => now() - (cache.get(key)?.at ?? -Infinity) > 300_000).slice(0, 20);
+      const source = sourceIdentity();
+      const missing = source === null ? [] : [...prs].filter(([key]) => now() - (cache.get(cacheKey(source, key))?.at ?? -Infinity) > 300_000).slice(0, 20);
       for (let index = 0; index < missing.length; index += 4) {
-        await Promise.all(missing.slice(index, index + 4).map(([key, pr]) => refresh(key, pr)));
+        await Promise.all(missing.slice(index, index + 4).map(([key, pr]) => refresh(cacheKey(source, key), source!, pr)));
       }
       if (cache.size > 5000) for (const [key, value] of cache) if (now() - value.at > 300_000) cache.delete(key);
       const authoredPrs = new Set(runs.filter(authored).map(run => `${run.repo.toLowerCase()}#${run.prNumber}`));
       const ids = runs.map(run => run.id);
       return aggregateOutcomes({ runs, assessments: deps.store.listAssessments(ids), usage: deps.store.listUsage(ids),
         pullRequests: [...prs.keys()].flatMap(key => {
-          const entry = cache.get(key);
+          const entry = source !== null && sourceIdentity() === source ? cache.get(cacheKey(source, key)) : undefined;
           return entry?.value && now() - entry.at <= 300_000 ? [{ ...entry.value, published: entry.value.published && authoredPrs.has(key) }]
             : [{ ...prs.get(key)!, published: false, reviewed: false, merged: false, availability: entry?.value ? 'stale' as const : 'unavailable' as const }];
         }), from, to, repo });

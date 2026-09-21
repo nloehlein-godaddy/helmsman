@@ -193,3 +193,26 @@ describe('discoverRepoDirs', () => {
     expect(dirs).toEqual([]);
   });
 });
+
+it('rejects a moved rerun head before removing the original branch worktree', async () => {
+  const agentsRoot = await mkdtemp(join(tmpdir(), 'pinned-rerun-'));
+  try {
+    const source = join(agentsRoot, 'source'); const repo = join(agentsRoot, 'repo');
+    await mkdir(source);
+    await execFileAsync('git', ['-C', source, 'init', '-q', '-b', 'main']);
+    await execFileAsync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
+    await execFileAsync('git', ['-C', source, 'config', 'user.name', 'Test']);
+    await execFileAsync('git', ['-C', source, 'commit', '-q', '--allow-empty', '-m', 'original']);
+    await execFileAsync('git', ['-C', source, 'switch', '-qc', 'fix/pinned']);
+    const original = (await execFileAsync('git', ['-C', source, 'rev-parse', 'HEAD'])).stdout.trim();
+    await execFileAsync('git', ['clone', '-q', source, repo]);
+    await expect(createWorktreeFromBranch(agentsRoot, 'o/repo', 'checked-out', 'fix/pinned', original)).rejects.toThrow();
+    expect((await execFileAsync('git', ['-C', repo, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(original);
+    await execFileAsync('git', ['-C', repo, 'switch', '-q', 'main']);
+    const first = await createWorktreeFromBranch(agentsRoot, 'o/repo', 'first', 'fix/pinned', original);
+    expect((await execFileAsync('git', ['-C', first.path, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(original);
+    await execFileAsync('git', ['-C', source, 'commit', '-q', '--allow-empty', '-m', 'replacement']);
+    await expect(createWorktreeFromBranch(agentsRoot, 'o/repo', 'second', 'fix/pinned', original)).rejects.toThrow('PR branch changed');
+    expect(existsSync(first.path)).toBe(true); expect(existsSync(join(repo, '.worktrees', 'second'))).toBe(false);
+  } finally { await rm(agentsRoot, { recursive: true, force: true }); }
+});

@@ -1,3 +1,4 @@
+import { readPullRequestDetail, retainPullRequestSource, prepareCommunicationReview, readOutcomePullRequest, verifyPullRequestExecution, parsePullRequestSource } from './pull-request-source';
 import type { CampaignTriggerProviderV1, CommunicationReviewTriggerProviderV1, PullRequestReviewTriggerProviderV1, WebhookTriggerProviderV1 } from '../../src/plugins/trigger';
 import type { SelectedTriggerCapture } from './trigger-runtime';
 import type { ReviewNotificationProposal } from './slack/store';
@@ -65,9 +66,6 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { buildDashboardResponse } from '../dashboard-endpoint';
-import { buildTriageResponse } from '../triage-endpoint';
-import { buildBugsResponse } from '../bugs-endpoint';
 import { loadConfig, type AppConfig } from '../config';
 import { openDb } from './db';
 import { openPersistence, persistedJson, persistenceHash, claimApplicationStartup } from './persistence';
@@ -145,9 +143,7 @@ import { dockerReviewAdapter } from './agents/docker-review';
 import { restoreRunAdapter } from './agents/restore';
 import { readReviewArtifact } from './review-artifacts';
 import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeWorktree, removeWorktreeAt, repoBasename, sweepOrphanedWorktrees } from './worktree';
-import { findPrNumberByBranch, fetchPrStatus, fetchPrDiff, type PrStatus } from '../github';
-import { fetchRepoOpenPrs, fetchReviewRequestedPrs } from '../pr-lists';
-import type { PrFileDiff } from '../../src/types';
+import { findPrNumberByBranch, fetchPrStatus } from '../github';
 import { openTodoStore } from './todos';
 import { reconcileTodoRuns } from './todo-source';
 import { repositoryScope } from './repository-scope';
@@ -163,7 +159,7 @@ import { openSlackReviewRequester, slackReviewSettings } from './slack/review-re
 import type { SlackState } from '../../src/data/slack';
 import { createGithubReviewWatcher } from './github-review-watcher';
 import { createCreatedPrReviews } from './created-pr-reviews';
-import { fetchReviewHead, fetchReviewScope, selectReviewModel } from './review-policy';
+import { fetchReviewHead, selectReviewModel } from './review-policy';
 import { createOutboundMeter } from './outbound-meter';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
@@ -307,10 +303,9 @@ function clarificationReady(runId: string, attempt?: number, channelId?: string)
 }
 const clarificationGate = createClarificationGate({ resolve: clarificationBinding, ready: clarificationReady });
 clarifications.cleanupOrphans();
-const outcomes = createOutcomeService({ db, store: outcomeStore, fetchPr: (repo, number) => {
-  const github = configStore.current().github;
-  return github ? fetchPrStatus(github, repo, number) : Promise.resolve(null);
-} });
+const outcomes = createOutcomeService({ db, store: outcomeStore, sourceIdentity: () => {
+  try { const source = captureTriggerPullRequest(AbortSignal.timeout(3000)); return persistenceHash({ revision: source.revision, repos: source.repos }); } catch { return null; }
+}, fetchPr: (repo, number) => readOutcomePullRequest({ repo, number }, captureTriggerPullRequest(AbortSignal.timeout(3000))) });
 const slackReviewRequester = openSlackReviewRequester(persistence.sql, {
   settings: () => slackReviewSettings(configStore.effectiveEnv()),
   send: input => createSlackBrowserReviewSender(slackSettings(configStore.effectiveEnv())).send(input),
@@ -350,7 +345,6 @@ const sourceTodos = taskSourceRuntime.todoApi ?? {
   list: () => { throw new Error('Local task source is unavailable'); }, get: () => { throw new Error('Local task source is unavailable'); },
   create: () => { throw new Error('Local task source is unavailable'); }, update: () => { throw new Error('Local task source is unavailable'); }, remove: () => { throw new Error('Local task source is unavailable'); },
 };
-function presentationEnv() { return { ...configStore.effectiveEnv(), JIRA_ENABLED: taskSourceRuntime.jiraEnabled() ? 'true' : 'false' }; }
 function applicationRepos(cfg = configStore.current()) { return [...new Set([...repositoryScope(cfg, []), ...taskSourceRuntime.repos()])]; }
 const activityRead = createActivityReadService({ sources: taskSourceRuntime.service, repos: applicationRepos });
 const taskEdit = createTaskEditService({ ...taskSourceRuntime, repos: applicationRepos, getRun: id => db.getRun(id) });
@@ -693,9 +687,11 @@ function captureTriggerPullRequest(signal: AbortSignal) {
   const binding = selectedPullRequestProvider();
   if (!binding) throw new Error('Selected pull request source is unavailable');
   const read = pullRequestReadContext(binding, signal); const registration = pullRequestRegistration(binding, 'admission');
-  return { binding, provider: registration.provider, context: read.context, artifacts: providerArtifacts(binding),
+  const repos = [...applicationRepos()].map(repo => repo.toLowerCase()).sort();
+  return { binding, repos, provider: registration.provider, context: read.context, artifacts: providerArtifacts(binding), settings: registration.settings ?? {},
     revision: persistenceHash({ binding, settings: registration.settings ?? {} }),
-    assertCurrent() { read.assertCurrent(); if (pullRequestRegistration(binding, 'admission') !== registration) throw new Error('Pull request source changed'); } };
+    assertCurrent() { signal.throwIfAborted(); read.assertCurrent(); if (pullRequestRegistration(binding, 'admission') !== registration
+      || persistenceHash(repos) !== persistenceHash([...applicationRepos()].map(repo => repo.toLowerCase()).sort())) throw new Error('Pull request source changed'); } };
 }
 function captureReviewSource(role: 'slack-review' | 'github-review', signal: AbortSignal) {
   const pullRequest = captureTriggerPullRequest(signal);
@@ -770,7 +766,22 @@ const communicationRuntime = createCommunicationRuntime({ root: pluginDirectory(
   nativeTerminals: backendPlugins.nativeTerminals, defaultBrowserProviderId: 'helmsman.terminal-cmux/cmux',
   browserRuntime: { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot) },
   env: triggerEnvironment, artifacts: providerArtifacts, verifyArtifacts: verifyEffectArtifacts, assertReviewable: assertCommunicationReviewable });
-async function assertCommunicationReviewable(repo: string, number: number): Promise<void> {
+async function assertCommunicationReviewable(repo: string, number: number, source?: unknown): Promise<void> {
+  if (source !== undefined) {
+    const retained = parsePullRequestSource(source);
+    if (retained.target.repo !== repo || retained.target.number !== number) throw new Error('Retained PR source target changed');
+    const registration = pullRequestRegistration(retained.binding, 'obligation');
+    const signal = AbortSignal.timeout(30_000);
+    const context = pullRequestContext(retained.binding, signal, false);
+    const assertCurrent = () => {
+      signal.throwIfAborted();
+      if (pullRequestRegistration(retained.binding, 'obligation') !== registration
+        || persistenceHash(registration.settings ?? {}) !== persistenceHash(retained.settings)) throw new Error('Retained PR source settings changed');
+    };
+    await verifyEffectArtifacts(retained.artifacts);
+    await prepareCommunicationReview({ repo, number }, { ...retained, provider: registration.provider, context, assertCurrent });
+    return;
+  }
   const github = configStore.current().github;
   const pr = github ? await fetchPrStatus(github, repo, number) : null;
   if (!pr || pr.isOwnPr !== true || pr.state !== 'open' || pr.merged) throw new ClarificationServiceError(409, 'conflict');
@@ -781,12 +792,18 @@ const communicationCommands = createCommunicationCommandService({ persistence, o
   },
   assertAdmission: communicationRuntime.assertAdmission,
   async assertReviewable(repo, number) {
-    await assertCommunicationReviewable(repo, number);
     const recent = persistence.sql.prepare(`SELECT requestId FROM slack_review_requests WHERE repo = ? COLLATE NOCASE AND prNumber = ?
       AND createdAt > ? AND status IN ('pending', 'sent', 'uncertain') LIMIT 1`).get(repo, number, Date.now() - 60_000);
     if (recent) throw new ClarificationServiceError(409, 'conflict');
   },
-  prepareReviewRequest: communicationRuntime.effects.prepareReviewRequest,
+  async prepareReviewRequest(input, signal = AbortSignal.timeout(30_000)) {
+    const source = captureTriggerPullRequest(signal);
+    const retained = await prepareCommunicationReview(input, source);
+    const prepared = await communicationRuntime.effects.prepareReviewRequest(input, signal);
+    source.assertCurrent();
+    return { ...prepared, artifacts: mergeExecutionArtifacts(prepared.artifacts, retained.artifacts),
+      target: { ...prepared.target, pullRequestSource: retained }, assertCurrent: () => source.assertCurrent() };
+  },
   resolve: communicationRuntime.effects.resolve,
 });
 const communication = createCommunicationReadService({ persistence, repos: applicationRepos,
@@ -834,7 +851,10 @@ function executionSnapshot(row: RunRow) {
   const attempt = executions.attempt({ runId: row.id, attempt: row.attempt });
   const snapshot = attempt && executions.snapshot(attempt.snapshotId);
   if (!snapshot) throw new Error('Retained execution bindings are unavailable');
-  if (row.taskJson) verifyTriggerExecution(JSON.parse(row.taskJson) as AgentTask, snapshot);
+  if (row.taskJson) {
+    const task = JSON.parse(row.taskJson) as AgentTask;
+    verifyTriggerExecution(task, snapshot); verifyPullRequestExecution(task, snapshot);
+  }
   return snapshot;
 }
 
@@ -864,6 +884,7 @@ function runnerDurability(cfg: AppConfig) {
       await verifyEffectArtifacts(snapshot.artifacts);
       verifyAgentExecution(savedTask, snapshot);
       verifyWorkflowExecution(savedTask, snapshot);
+      verifyPullRequestExecution(savedTask, snapshot);
       const expected = snapshot.bindings.some(binding => binding.capability === 'helmsman/task-source') ? sourceExecutionSettings(cfg, snapshot.settings.agents !== undefined, snapshot.settings.workflow !== undefined) : legacyExecutionSettings(cfg, snapshot.settings.agents !== undefined, snapshot.settings.workflow !== undefined);
       if (persistenceHash(snapshot.settings.execution) !== persistenceHash(expected)) throw new Error('Execution settings or connection identity changed; restore the retained binding before recovery');
       if (snapshot.workflowSnapshotId && !workflows.resolveSnapshot(snapshot.workflowSnapshotId)) throw new Error('Retained workflow snapshot is unavailable');
@@ -886,7 +907,7 @@ function baseRunnerDeps(cfg: AppConfig, runId: string, context: RunHostContext):
       finally { gateway.revokeRun(run.id); if (context.isolated && context.host.kind !== 'plugin') void stopLegacyDockerStages(run.id); }
     },
     createWorktree: (repo: string, id: string) => standaloneWorkspace(context, repo, id, 'fresh', () => createWorktree(AGENTS_ROOT, repo, id)),
-    createWorktreeFromBranch: (repo: string, id: string, branch: string) => standaloneWorkspace(context, repo, id, 'branch', () => createWorktreeFromBranch(AGENTS_ROOT, repo, id, branch)),
+    createWorktreeFromBranch: (repo: string, id: string, branch: string, expectedHeadSha?: string) => standaloneWorkspace(context, repo, id, 'branch', () => createWorktreeFromBranch(AGENTS_ROOT, repo, id, branch, expectedHeadSha)),
     createReviewWorktree: (repo, id, number, headSha) => standaloneWorkspace(context, repo, id, 'review', () => createReviewWorktree(AGENTS_ROOT, repo, id, number, headSha), headSha),
     removeWorktree: (repo: string, path: string) => path.startsWith(`${DOCKER_WORKSPACES}${sep}`) ? removeDockerWorkspace(DOCKER_WORKSPACES, path) : removeWorktree(AGENTS_ROOT, repo, path),
     now: () => new Date().toISOString(),
@@ -1097,9 +1118,11 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   if (priorRun && !priorTask?.executionHost) throw new RetryError('Legacy execution hosts cannot be migrated by retry. Continue the retained voyage or start a new voyage.');
   if (priorRun && !priorTask?.workflow) throw new RetryError('Legacy workflows cannot be migrated by retry. Continue the retained voyage or start a new voyage.');
   const trigger = body.trigger ? parseTriggerProvenanceV1(body.trigger) : priorTask?.trigger ? parseTriggerProvenanceV1(priorTask.trigger) : undefined;
-  const triggerReviewSource = trigger && body.mode === 'review' ? captureTriggerPullRequest(AbortSignal.timeout(30_000)) : null;
+  const pullRequestSource = !priorTask && (body.mode === 'review' || body.mode === 'rerun') ? captureTriggerPullRequest(AbortSignal.timeout(30_000)) : null;
+  let preparedPullRequestSource = priorTask?.pullRequestSource;
+  if (priorTask && priorRun) verifyPullRequestExecution(priorTask, executionSnapshot(priorRun));
   const recordedPullRequest = trigger?.source.bindings.find(binding => binding.capability === 'helmsman/pull-request');
-  if (recordedPullRequest && triggerReviewSource && !samePullRequestBinding(recordedPullRequest, triggerReviewSource.binding)) throw new Error('Recorded trigger PR source changed');
+  if (recordedPullRequest && pullRequestSource && !samePullRequestBinding(recordedPullRequest, pullRequestSource.binding)) throw new Error('Recorded trigger PR source changed');
   const workflowMode: WorkflowModeV1 = body.mode === 'review' ? 'review' : body.mode === 'rerun' ? 'branch' : 'coding';
   const workflowOptions = { root: pluginDirectory(), registry: backendPlugins.workflows };
   const selectedWorkflow = priorTask?.workflow
@@ -1128,7 +1151,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   let sourceSelection = taskSourceRuntime.selection(body, body.retryOf);
   if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
   let launchJson = launchIntentJson(body);
-  const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, hostArtifacts, workflowArtifacts, trigger?.artifacts ?? [], triggerReviewSource?.artifacts ?? [], sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
+  const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, hostArtifacts, workflowArtifacts, trigger?.artifacts ?? [], pullRequestSource?.artifacts ?? priorTask?.pullRequestSource?.artifacts ?? priorTask?.triggerReviewSource?.artifacts ?? [], sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
   persistence.transaction(() => {
     assertAgentSelectionCurrent(agentOptions, selectedAgents);
     assertExecutionHostSelectionCurrent(executionHostOptions, selectedExecutionHost);
@@ -1142,9 +1165,9 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         source.assertCurrent();
       }
     }
-    triggerReviewSource?.assertCurrent();
+    pullRequestSource?.assertCurrent();
     const scheduling = taskSourceRuntime.schedule.assertAdmission(body);
-    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, host: selectedExecutionHost.record, workflow: selectedWorkflow.record, ...(scheduling ? { scheduling } : {}), ...(trigger ? { trigger } : {}), ...(triggerReviewSource ? { triggerReviewSource: { binding: triggerReviewSource.binding, revision: triggerReviewSource.revision } } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
+    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, host: selectedExecutionHost.record, workflow: selectedWorkflow.record, ...(scheduling ? { scheduling } : {}), ...(trigger ? { trigger } : {}), ...(pullRequestSource ? { pullRequestSource: { binding: pullRequestSource.binding, revision: pullRequestSource.revision, settings: pullRequestSource.settings } } : preparedPullRequestSource ? { pullRequestSource: preparedPullRequestSource } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
       settings: sourceSelection ? sourceExecutionSettings(cfg, true, true) : legacyExecutionSettings(cfg, true, true), artifacts: admissionArtifacts }, maxConcurrency); };
     if (sourceSelection) taskSourceRuntime.reserve(runId, body.repo, sourceSelection, admit, body.retryOf);
     else admit();
@@ -1176,49 +1199,20 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         if (priorTask.repo.toLowerCase() !== body.repo.toLowerCase()) throw new RetryError('Saved task belongs to another galleon.');
         taskObj = { ...priorTask, prePrResume: undefined };
       } else if (body.mode === 'rerun') {
-        const pr: PrStatus | null =
-          cfg.github && body.prNumber ? await fetchPrStatus(cfg.github, body.repo, body.prNumber) : null;
-        if (!pr) {
-          const ts: string = new Date().toISOString();
-          const failedRow: RunRow = {
-            id: runId, ticketId: 'rerun', repo: body.repo, adapter: adapter.id,
-            status: 'failed', attempt: 1, prNumber: body.prNumber ?? null, startedAt: ts,
-            endedAt: ts, costUsd: null, worktreePath: null, launchJson,
-          };
-          db.insertRun(failedRow);
-          const message: string = `could not resolve PR #${body.prNumber ?? '?'} for rerun`;
-          db.appendEvent(runId, 'error', message, ts);
-          db.appendEvent(runId, 'run-complete', 'failed', ts);
-          bus.publish(runId, { kind: 'error', text: message });
-          bus.publish(runId, { kind: 'run-complete', text: 'failed' });
-          return;
-        }
+        if (!pullRequestSource || !body.prNumber) throw new Error('Selected pull request source is unavailable');
+        const pr = await readPullRequestDetail({ repo: body.repo, number: body.prNumber, headSha: body.headSha }, pullRequestSource);
+        if (pr.status !== 'open') throw new Error('Pull request is no longer open for rerun');
+        preparedPullRequestSource = retainPullRequestSource(pullRequestSource, pr.target);
         taskObj = {
-          ticketId: 'rerun', title: `rerun #${pr.number}`, repo: body.repo,
+          ticketId: 'rerun', title: `rerun #${pr.target.number}`, repo: body.repo,
           jiraBaseUrl: cfg.jira?.baseUrl ?? '', task: body.feedback ?? '',
-          prBranch: pr.headRefName, prNumber: pr.number,
+          prBranch: pr.headRefName, prNumber: pr.target.number, prHeadSha: pr.target.headSha,
         };
       } else if (body.mode === 'review') {
-        const triggered = triggerReviewSource && body.prNumber ? await prepareTriggerReview({ repo: body.repo, number: body.prNumber, headSha: body.headSha }, triggerReviewSource) : null;
-        const pr = triggered?.pr ?? (triggerReviewSource ? null : cfg.github && body.prNumber ? await fetchReviewHead(cfg.github, body.repo, body.prNumber) : null);
-        if (!pr) {
-          const ts: string = new Date().toISOString();
-          const failedRow: RunRow = {
-            id: runId, ticketId: 'review', repo: body.repo, adapter: adapter.id,
-            status: 'failed', attempt: 1, prNumber: body.prNumber ?? null, startedAt: ts,
-            endedAt: ts, costUsd: null, worktreePath: null, launchJson,
-          };
-          db.insertRun(failedRow);
-          const message: string = `could not resolve PR #${body.prNumber ?? '?'} for review`;
-          db.appendEvent(runId, 'error', message, ts);
-          db.appendEvent(runId, 'run-complete', 'failed', ts);
-          bus.publish(runId, { kind: 'error', text: message });
-          bus.publish(runId, { kind: 'run-complete', text: 'failed' });
-          return;
-        }
-        if (body.headSha && pr.headSha !== body.headSha) throw new Error('PR changed before review launch; a new review is needed for the latest revision');
-        const scope = triggered?.scope ?? (triggerReviewSource ? null : cfg.github ? await fetchReviewScope(cfg.github, body.repo, pr.number) : null);
-        if (body.headSha && scope?.headSha && scope.headSha !== body.headSha) throw new Error('PR changed during review preparation; a new review is needed for the latest revision');
+        if (!pullRequestSource || !body.prNumber) throw new Error('Selected pull request source is unavailable');
+        const prepared = await prepareTriggerReview({ repo: body.repo, number: body.prNumber, headSha: body.headSha }, pullRequestSource);
+        const { pr, scope } = prepared;
+        preparedPullRequestSource = retainPullRequestSource(pullRequestSource, prepared.target);
         const choice = selectReviewModel(scope?.headSha === pr.headSha ? scope : null, adapter.metadata ?? adapter.id, body);
         taskObj = {
           ticketId: 'review', title: `review #${pr.number}`, repo: body.repo,
@@ -1232,7 +1226,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         taskObj = { ticketId, title: body.title ?? ticketId, repo: body.repo, jiraBaseUrl: cfg.jira?.baseUrl ?? '', task: body.task };
       }
       if (trigger) taskObj.trigger = trigger;
-      if (triggerReviewSource) taskObj.triggerReviewSource = { binding: triggerReviewSource.binding, revision: triggerReviewSource.revision, artifacts: triggerReviewSource.artifacts };
+      if (preparedPullRequestSource) taskObj.pullRequestSource = preparedPullRequestSource;
       taskObj.workflow = selectedWorkflow.record;
       taskObj.workflowRuntime = workflowRuntime;
       taskObj.executionHost = selectedExecutionHost.record;
@@ -1265,6 +1259,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       taskObj = prepared.task;
       const runAdapter = selectedWorkflow.record.metadata.execution === 'staged' ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.hostIsolation ? dockerReviewAdapter(adapter) : adapter;
       admissionController.signal.throwIfAborted();
+      pullRequestSource?.assertCurrent();
       await startRun(taskObj, {
         ...baseRunnerDeps(cfg, runId, hosting),
         launchJson,
@@ -1340,7 +1335,7 @@ function configuredSlackWatcher(): SlackWatcher | null {
   if (key === slackSettingsKey) return slackWatcher;
   slackSettingsKey = key;
   slackWatcher = settings.clientId && settings.channelId ? createSlackWatcher({
-    ...settings, store: slackStore, source: { scan: input => communicationRuntime.scan(input) },
+    ...settings, store: slackStore,
     allowedRepos: () => {
       const cfg = configStore.current();
       return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])];
@@ -1406,11 +1401,6 @@ scheduleTriggerPoll('slack-review', pollSlack, SLACK_INTERVAL_MS);
 const githubReviewEnabled = () => triggerEnabled('github-review');
 const githubReviewWatcher = createGithubReviewWatcher({
   store: slackStore,
-  enabled: githubReviewEnabled,
-  fetchRequested: () => {
-    const cfg = configStore.current();
-    return fetchReviewRequestedPrs(cfg.github);
-  },
   fetchPr: (repo, number) => {
     const github = configStore.current().github;
     return github ? fetchReviewHead(github, repo, number) : Promise.resolve(null);
@@ -1615,16 +1605,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
           jiraBaseUrl: unmaskedConfig().jira?.baseUrl ?? null,
         };
       },
-      slack: { snapshot: slackSnapshot, markRead: (id) => {
-        const now = new Date().toISOString();
-        return id.startsWith('voyage-') ? voyageNotifications.markRead(id, now) : slackStore.markRead(id, now);
-      } },
-      slackReviewRequest: (input) => slackEffects.request(input),
+      slack: { snapshot: slackSnapshot },
       todos: sourceTodos,
       jiraEnabled: () => taskSourceRuntime.jiraEnabled(),
-      dashboard: async (repo) => buildDashboardResponse(presentationEnv(), new Date(), undefined, repo, [], { service: taskSourceRuntime.service, jiraEnabled: taskSourceRuntime.jiraEnabled() }),
-      triage: (repo) => buildTriageResponse(presentationEnv(), undefined, repo),
-      bugs: (repo) => buildBugsResponse(presentationEnv(), new Date(), undefined, repo),
       db,
       canStart: (repo: string) => pm.canStart(repo),
       launch,
@@ -1648,23 +1631,6 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
           return { ok: false as const, error: err instanceof Error ? err.message : 'invalid config key' };
         }
       },
-      reviewRequestedPrs: (repo) => {
-        const cfg: AppConfig = configStore.current();
-        const repos = applicationRepos(cfg);
-        return fetchReviewRequestedPrs(cfg.github, repos, repo);
-      },
-      repoOpenPrs: (repo) => fetchRepoOpenPrs(configStore.current().github, repo),
-      prStatus: (repo: string, prNumber: number): Promise<PrStatus | null> => {
-        const g: AppConfig['github'] = configStore.current().github;
-        return g ? fetchPrStatus(g, repo, prNumber) : Promise.resolve(null);
-      },
-      prDiff: (repo: string, prNumber: number): Promise<PrFileDiff[] | null> => {
-        const g: AppConfig['github'] = configStore.current().github;
-        return g ? fetchPrDiff(g, repo, prNumber) : Promise.resolve(null);
-      },
-      submitReview: (repo, prNumber, event, body, requestId, expectedHeadSha) => manualReviewEffects.submit({
-        repo, prNumber, event, body, requestId: requestId ?? randomUUID(), expectedHeadSha,
-      }),
     }).finally(() => {
       if (inspectController) { req.off('aborted', cancelInspect); res.off('close', cancelInspect); }
     });

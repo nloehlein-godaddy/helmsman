@@ -37,3 +37,39 @@ describe('outcome service application entry points', () => {
     db.close(); store.close();
   });
 });
+
+it('invalidates cached PR outcomes immediately on source replacement or disablement', async () => {
+  const db = openDb(':memory:'); const store = openOutcomeStore(':memory:'); db.insertRun(run('source-cache'));
+  let identity: string | null = 'original';
+  const fetchPr = vi.fn(async () => identity === 'original' ? pr : { ...pr, merged: false });
+  const service = createOutcomeService({ db, store, fetchPr, sourceIdentity: () => identity, now: () => Date.parse('2026-09-18T00:00:00Z') });
+  try {
+    expect((await service.summary(new URLSearchParams())).mergedPrs).toBe(1);
+    identity = 'replacement';
+    expect((await service.summary(new URLSearchParams())).mergedPrs).toBe(0); expect(fetchPr).toHaveBeenCalledTimes(2);
+    identity = null;
+    expect(await service.summary(new URLSearchParams())).toMatchObject({ unavailablePrs: 1, unknownPrs: 1 });
+    expect(fetchPr).toHaveBeenCalledTimes(2);
+  } finally { db.close(); store.close(); }
+});
+
+it('does not cache an old provider response that completes after source replacement', async () => {
+  const db = openDb(':memory:'); const store = openOutcomeStore(':memory:'); db.insertRun(run('source-race'));
+  let identity = 'original'; let finish!: (value: PrStatus) => void;
+  const fetchPr = vi.fn(() => new Promise<PrStatus>(resolve => { finish = resolve; }));
+  const service = createOutcomeService({ db, store, fetchPr, sourceIdentity: () => identity, now: () => Date.parse('2026-09-18T00:00:00Z') });
+  try {
+    const pending = service.summary(new URLSearchParams()); await vi.waitFor(() => expect(fetchPr).toHaveBeenCalledOnce()); identity = 'replacement'; finish(pr);
+    expect(await pending).toMatchObject({ unavailablePrs: 1, unknownPrs: 1 });
+    fetchPr.mockResolvedValue({ ...pr, merged: false });
+    expect((await service.summary(new URLSearchParams())).mergedPrs).toBe(0); expect(fetchPr).toHaveBeenCalledTimes(2);
+  } finally { db.close(); store.close(); }
+});
+
+it('treats synchronous source unavailability during refresh as unknown evidence', async () => {
+  const db = openDb(':memory:'); const store = openOutcomeStore(':memory:'); db.insertRun(run('source-disabled'));
+  const service = createOutcomeService({ db, store, sourceIdentity: () => 'initial', fetchPr: () => { throw new Error('Selected source disabled'); },
+    now: () => Date.parse('2026-09-18T00:00:00Z') });
+  try { expect(await service.summary(new URLSearchParams())).toMatchObject({ unavailablePrs: 1, unknownPrs: 1 }); }
+  finally { db.close(); store.close(); }
+});

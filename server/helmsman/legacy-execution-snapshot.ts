@@ -1,3 +1,4 @@
+import { pullRequestExecutionSnapshot } from './pull-request-source';
 import { triggerExecutionSnapshot } from './trigger-execution';
 import { parseWorkflowRetainedProviderV1 } from './workflow-providers';
 import { parseAgentSelectionV1 } from './agent-providers';
@@ -75,10 +76,10 @@ export function legacyExecutionSnapshot(input: {
     binding('workflow', 'workflow', task.review ? 'review' : 'coding')];
   if (jiraIdentity) bindings.push(binding('effect', 'jira', 'jira-actions', jiraIdentity, 'jira-primary'));
   if (githubIdentity) bindings.push(binding('effect', 'github', 'github-publication', githubIdentity, 'github-primary'));
-  return triggerExecutionSnapshot(workflowExecutionSnapshot(hostExecutionSnapshot(agentExecutionSnapshot({ version: 1, runId: run.id, attempt: run.attempt, repo: run.repo,
+  return pullRequestExecutionSnapshot(triggerExecutionSnapshot(workflowExecutionSnapshot(hostExecutionSnapshot(agentExecutionSnapshot({ version: 1, runId: run.id, attempt: run.attempt, repo: run.repo,
     logicalWork: { source, instance: source === 'jira' ? jiraIdentity ?? 'unconfigured' : source === 'github-review' ? githubIdentity ?? 'unconfigured' : 'local', taskId: task.todoId ?? task.ticketId },
     task: nonsecretExecutionTask(task), workflowSnapshotId: task.workflowSnapshotId ?? null,
     artifacts: [artifact], bindings, settings: { execution: legacyExecutionSettings(config, Boolean(task.agentSelection), Boolean(task.workflow)) },
     schemas: [{ owner: 'core.runs', minimum: 1, maximum: 1 }, { owner: 'core.execution', minimum: 1, maximum: 1 }],
-    provenance: { kind: 'admission', evidence: { runtimeHash: artifact.artifactHash } } }, task), task), task), task);
+    provenance: { kind: 'admission', evidence: { runtimeHash: artifact.artifactHash } } }, task), task), task), task), task);
 }

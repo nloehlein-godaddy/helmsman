@@ -1,10 +1,10 @@
-# Experimental plugin packages
+# Plugin packages
 
 Helmsman installs separately authored frontend pages and panels without rebuilding the application. [Composable pages and panels](panel-authoring.md), [backend pricing](plugin-backend.md), and [task sources](task-source-authoring.md) use versioned public contracts. Packages run as explicitly trusted JavaScript in the application's browser context. Installation and enablement validate bytes and metadata without executing plugin code; frontend code runs when an enabled contribution mounts; the backend coordinator controls activation and retained obligations.
 
-## E4 foundations and work in progress
+## Public presentation contracts
 
-The reviewed foundation (`e788774`) includes separate [run inspection](run-inspect-authoring.md) and [streamed download](download-authoring.md) facets. Run inspection preserves run-wide log provenance and fences reads/exports by the expected attempt. Download results distinguish a closed writable file from delivery to the browser. The existing run viewer and history remain active while authored replacements are built and validated; this foundation does not complete the E4 cutover.
+The public SDK includes separate [run inspection](run-inspect-authoring.md) and [streamed download](download-authoring.md) facets. Run inspection preserves run-wide log provenance and fences reads/exports by the expected attempt. Download results distinguish a closed writable file from delivery to the browser. Runs, viewer and history are independently authored packages using these public services.
 
 Authored `runs`, `run-viewer` and `run-history` projects provide `/runs`, `/run-viewer` and `/run-history` after builtin catalog activation. Their public panel contracts and compositions use `helmsman/run-viewer-panel@1` / `helmsman/run-viewer-page` and `helmsman/run-history-panel@1` / `helmsman/run-history-page`. The generic auxiliary host honors the selected viewer page on plugin-page selections. The `/runs` alias selects `helmsman.runs/page` in `helmsman/runs-page`, composing history and the public PR panel while using the shared auxiliary viewer. Copying the Runs page requires renaming only its package ID; its initial layout deliberately references separately registered panel packages. The `/prs` and `/pr` aliases use the independently buildable PR composition and the shared viewer; see [PR plugins](pull-request-authoring.md).
 
@@ -16,7 +16,9 @@ Terminal extraction supplies a selected `helmsman/terminal-page` composition for
 
 The Campaign package selects `helmsman/campaigns-page` for `/campaigns` and composes `helmsman/campaigns-panel@1`. It uses public scoped reads and atomic campaign command receipts while the existing dispatcher retains execution coordination. See [Campaign authoring](campaigns-authoring.md).
 
-## Try the external sample
+Start with the [release-only author quickstart](plugin-quickstart.md) for a compact TypeScript page/panel and a backend replacement. The [compatibility policy](plugin-compatibility.md) defines stable SDK version 1, independent version domains and retained recovery.
+
+## Try the external sample from a checkout
 
 From the Helmsman checkout:
 

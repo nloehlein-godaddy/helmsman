@@ -1,5 +1,7 @@
 # Backlog Runner → Agent Control Plane
 
+> Historical plan: implementation references and endpoints below describe the earlier architecture. Current features use public plugin services; see [retired routes and retained recovery](../../plugin-legacy-retirement.md) and [current flows](../../helmsman-process.md).
+
 **Date:** 2026-08-18
 **Status:** Approved design
 

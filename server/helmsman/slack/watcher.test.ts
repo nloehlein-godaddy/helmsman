@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openSlackStore, type SlackStore } from './store';
-import { createSlackWatcher, parsePullRequestUrl, type SlackMessage, type SlackWatcherOptions } from './watcher';
+import { createSlackWatcher, type SlackWatcherOptions } from './watcher';
+import { slackReviewTriggerProvider } from '../../../src/plugins/trigger-slack-review/provider';
 import type { CommunicationReviewTriggerProviderV1 } from '../../../src/plugins/trigger';
 import type { CommunicationReviewSourceCapture, SelectedTriggerCapture } from '../trigger-runtime';
 
@@ -17,7 +18,7 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-function message(offset: number, prUrls = ['https://github.com/org/repo/pull/42']): SlackMessage {
+function message(offset: number, prUrls = ['https://github.com/org/repo/pull/42']) {
   return { channelId: 'C123', ts: (activationTs + offset).toFixed(6), permalink: 'https://example.slack.com/archives/C123/p123', author: 'Someone', prUrls };
 }
 
@@ -27,32 +28,24 @@ function setup(overrides: Partial<SlackWatcherOptions> = {}) {
   const scan = vi.fn().mockResolvedValue({ messages: [message(1)], complete: true });
   const active = new Set<string>();
   const launch = vi.fn(({ runId }: { runId: string }) => { active.add(runId); return runId; });
+  const provider = slackReviewTriggerProvider({ enabled: true, intervalMs: 1000, overlapSeconds: 300, repoFilter: [] });
+  const artifact = { pluginId: 'example.slack-trigger', artifactHash: 'c'.repeat(64), packageVersion: '1.0.0', requires: [] };
+  const capture: SelectedTriggerCapture<CommunicationReviewTriggerProviderV1> = { instanceId: 'slack-review', selectionRevision: 'revision-1', provider,
+    artifacts: [artifact], record: { version: 1, binding: { providerId: 'example.slack-trigger/watch', pluginId: artifact.pluginId, artifactHash: artifact.artifactHash, contractVersion: 1 },
+      origin: 'external', settings: {}, metadata: provider.metadata }, assertCurrent() {} };
+  const source: CommunicationReviewSourceCapture = { kind: 'communication', channelId: 'C123', channelName: 'airo-editing',
+    source: { sourceKey: JSON.stringify(['T123', 'C123']), revision: 'source-1', bindings: [] }, artifacts: [], assertCurrent() {},
+    async messages(input) { const value = await scan(input); return { items: value.messages, complete: value.complete }; },
+    async detail({ repo, number }) { return { repo, number, headSha: 'a'.repeat(40), title: 'Update', url: `https://github.com/${repo}/pull/${number}`, status: 'open', draft: false }; } };
   const options: SlackWatcherOptions = {
+    captureTrigger: () => capture, captureSource: () => source, defaultWorkflowRef: () => 'review@1', verifyProposal: vi.fn(), retainPins: vi.fn(),
     store, clientId: 'T123', channelId: 'C123', channelName: 'airo-editing',
-    source: { scan }, allowedRepos: () => ['org/repo'], canLaunch: () => true,
+    allowedRepos: () => ['org/repo'], canLaunch: () => true,
     getRun: () => null, isRunActive: id => active.has(id), launch, now: () => activation,
     ...overrides,
   };
   return { store, scan, launch, options, watcher: createSlackWatcher(options) };
 }
-
-describe('Slack PR URL validation', () => {
-  it('canonicalizes full PR links with anchors and query parameters', () => {
-    expect(parsePullRequestUrl('https://github.com/Org/Repo/pull/42/?diff=split#discussion')).toEqual({
-      repo: 'org/repo', prNumber: 42, prUrl: 'https://github.com/org/repo/pull/42',
-    });
-  });
-
-  it.each([
-    null, {}, '/org/repo/pull/42', 'http://github.com/org/repo/pull/42',
-    'https://github.com.evil.test/org/repo/pull/42', 'https://github.com@evil.test/org/repo/pull/42',
-    'https://github.com/org/repo/pull/0', 'https://github.com/org/repo/pull/9007199254740993',
-    'https://github.com/org/repo/pull/42/files', 'https://github.com/org/repo/issues/42',
-    'https://github.com:8443/org/repo/pull/42',
-  ])('rejects invalid PR URL %s', (value) => {
-    expect(parsePullRequestUrl(value)).toBeNull();
-  });
-});
 
 describe('Slack watcher', () => {
   it('persists observed trigger proposal and provenance before launching it', async () => {
@@ -105,6 +98,29 @@ describe('Slack watcher', () => {
     expect(f.scan).not.toHaveBeenCalled();
     expect(watcher.health().status).toBe('healthy');
   });
+  it('preserves legacy queue identity and receipts while disabled without new intake or launch', async () => {
+    let enabled = false;
+    const f = setup();
+    const capture = f.options.captureTrigger(new AbortController().signal);
+    f.options.captureTrigger = () => enabled ? capture : null;
+    const key = JSON.stringify(['T123', 'C123']);
+    f.store.insertNotification(key, { id: 'legacy-row', runId: 'slack-original', repo: 'org/repo', prNumber: 42,
+      prUrl: 'https://github.com/org/repo/pull/42', sourceUrl: message(1).permalink, author: 'Someone', channelName: 'airo-editing',
+      status: 'queued', createdAt: activation, updatedAt: activation, readAt: null, error: null });
+    await f.watcher.poll();
+    expect(f.scan).not.toHaveBeenCalled(); expect(f.launch).not.toHaveBeenCalled();
+    enabled = true;
+    f.scan.mockResolvedValue({ messages: [], complete: true });
+    await f.watcher.poll();
+    expect(f.launch).toHaveBeenCalledExactlyOnceWith({ repo: 'org/repo', prNumber: 42, mode: 'review', runId: 'slack-original' });
+    expect(f.store.getNotification('legacy-row')).toMatchObject({ trigger: null, proposal: null, runId: 'slack-original' });
+    enabled = false;
+    f.options.getRun = () => ({ status: 'failed' });
+    await f.watcher.poll();
+    expect(f.store.getNotification('legacy-row')?.status).toBe('failed');
+    expect(f.launch).toHaveBeenCalledTimes(1);
+  });
+
   it('uses activation as the baseline and captures posts arriving during the first scan', async () => {
     const { watcher, scan, launch, store } = setup();
     scan.mockResolvedValue({ messages: [message(-60), message(1)], complete: true });
@@ -122,7 +138,7 @@ describe('Slack watcher', () => {
       'https://github.com/org/repo/pull/43', '/org/repo/pull/44',
     ]);
     first.author = 'Me';
-    scan.mockResolvedValue({ messages: [first, { ...message(2), channelId: 'OTHER' }], complete: true });
+    scan.mockResolvedValue({ messages: [first], complete: true });
     await watcher.poll();
     await watcher.poll();
     expect(launch).toHaveBeenCalledTimes(2);
@@ -162,7 +178,7 @@ describe('Slack watcher', () => {
     const restarted = setup({ store: openSlackStore(path), now: () => '2026-09-17T12:10:00.000Z' });
     restarted.scan.mockRejectedValue(new Error('browser closed'));
     await restarted.watcher.poll();
-    expect(restarted.launch).toHaveBeenCalledExactlyOnceWith({ repo: 'org/repo', prNumber: 42, mode: 'review', runId: queued.runId });
+    expect(restarted.launch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ repo: 'org/repo', prNumber: 42, mode: 'review', runId: queued.runId }));
     expect(restarted.store.listNotifications()[0]).toMatchObject({ id: queued.id, status: 'launched', readAt: null });
   });
 
@@ -186,7 +202,7 @@ describe('Slack watcher', () => {
     const runId = initial.store.listNotifications()[0]!.runId;
     const restarted = setup({ store: initial.store });
     await restarted.watcher.poll();
-    expect(restarted.launch).toHaveBeenCalledExactlyOnceWith({ repo: 'org/repo', prNumber: 42, mode: 'review', runId });
+    expect(restarted.launch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ repo: 'org/repo', prNumber: 42, mode: 'review', runId }));
   });
 
   it('never retries a completed run after restart', async () => {
@@ -232,17 +248,19 @@ describe('Slack watcher', () => {
     expect(store.listNotifications()[0]).toMatchObject({ status: 'failed', readAt: null, error: expect.stringContaining('PR run failed') });
   });
 
-  it('coalesces overlapping polls and tolerates malformed external message data', async () => {
+  it('coalesces overlapping polls and rejects malformed external message data', async () => {
     const { watcher, scan, launch } = setup();
     let finish: ((result: unknown) => void) | undefined;
     scan.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const first = watcher.poll();
     const second = watcher.poll();
     expect(first).toBe(second);
+    await vi.waitFor(() => expect(finish).toBeDefined());
     finish?.({ messages: [null, {}, { ...message(1), prUrls: null }, message(2)], complete: true });
     await first;
     expect(scan).toHaveBeenCalledTimes(1);
-    expect(launch).toHaveBeenCalledTimes(1);
+    expect(launch).not.toHaveBeenCalled();
+    expect(watcher.health().status).toBe('unavailable');
   });
 
   it('retains queued posts when disabled during a scan and launches after re-enabling', async () => {
@@ -251,6 +269,7 @@ describe('Slack watcher', () => {
     let finish: ((result: unknown) => void) | undefined;
     scan.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const pending = watcher.poll();
+    await vi.waitFor(() => expect(finish).toBeDefined());
     enabled = false;
     finish?.({ messages: [message(1)], complete: true });
     await pending;
@@ -259,7 +278,7 @@ describe('Slack watcher', () => {
     expect(notification.status).toBe('queued');
     enabled = true;
     await watcher.poll();
-    expect(launch).toHaveBeenCalledExactlyOnceWith({ repo: 'org/repo', prNumber: 42, mode: 'review', runId: notification.runId });
+    expect(launch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ repo: 'org/repo', prNumber: 42, mode: 'review', runId: notification.runId }));
     expect(store.listNotifications()).toHaveLength(1);
     expect(store.listNotifications()[0]?.status).toBe('launched');
   });

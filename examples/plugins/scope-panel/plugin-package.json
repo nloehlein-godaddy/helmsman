@@ -1,0 +1,25 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "example.scope-panel",
+    "version": "1.0.0",
+    "sdkVersion": 1,
+    "pages": [{
+      "id": "page", "title": "Scope workspace", "slots": ["helmsman/helm-page"], "panes": [],
+      "requires": [{ "id": "helmsman/composition", "version": 1 }],
+      "composition": {
+        "id": "helmsman/helm-page", "version": 1,
+        "accepts": [{ "id": "helmsman/helm-panel", "version": 1 }],
+        "initialLayout": {
+          "instances": [{ "instanceId": "scope", "contributionId": "example.scope-panel/panel" }],
+          "columns": [[{ "instances": ["scope"], "activeInstanceId": "scope", "collapsed": false }]]
+        }
+      }
+    }],
+    "panels": [{ "id": "panel", "title": "Selected scope", "contract": { "id": "helmsman/helm-panel", "version": 1 }, "requires": [] }]
+  },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": { "page": "page.js" },
+  "panelEntries": { "panel": "panel.js" }
+}

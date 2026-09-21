@@ -1,0 +1,11 @@
+export { sourceFields as clarificationFields, sourceObject as clarificationObject, sourceJson as clarificationJson } from "./source-contract-validation.js";
+export declare function invalidClarification(): never;
+export declare function clarificationId(value: unknown): string;
+export declare function clarificationUuid(value: unknown): string;
+export declare function clarificationInteger(value: unknown, maximum?: number): number;
+export declare function clarificationText(value: unknown, maximum: number, canonical?: boolean): string;
+export declare function clarificationTime(value: unknown): string;
+export declare function clarificationBoolean(value: unknown): boolean;
+export declare function clarificationCursor(value: unknown): string | null;
+export declare function clarificationArray<T>(value: unknown, parse: (value: unknown) => T, maximum: number): readonly T[];
+export declare function clarificationVersion(value: unknown): Record<string, unknown>;

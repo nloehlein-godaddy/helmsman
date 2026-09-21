@@ -1,3 +1,4 @@
+import type { PullRequestSourceRecord } from '../pull-request-source';
 import type { TriggerProvenanceV1 } from '../trigger-provenance';
 import type { AgentProviderMetadataV1 } from '../../../src/plugins/agent-provider';
 import type { AgentSelectionV1 } from '../agent-providers';
@@ -8,6 +9,7 @@ import type { WorkflowRetainedProviderV1 } from '../workflow-providers';
 
 export interface AgentTask {
   trigger?: TriggerProvenanceV1;
+  pullRequestSource?: PullRequestSourceRecord;
   triggerReviewSource?: { binding: ProviderBinding; revision: string; artifacts: readonly ArtifactBinding[] };
   executionHost?: ExecutionHostRetainedProviderV1;
   hostRuntime?: { pluginsRoot: string; runtimeArtifactsRoot: string; artifacts: readonly ArtifactBinding[] };

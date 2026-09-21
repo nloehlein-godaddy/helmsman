@@ -21,6 +21,7 @@ export interface TodoLegacyPendingV1 {
 export type TodoLegacyRecoveryResultV1<T> = { readonly status: 'available'; readonly value: T }
   | { readonly status: 'unavailable'; readonly reason: 'all-galleons-required' | 'storage-unavailable' | 'invalid-storage'
     | 'request-changed' | 'confirmation-required' | 'service-unavailable' | 'invalid-response' | 'timeout' };
+/** @deprecated Recovery-only for historical Todo journals. Use SourceCommandServiceV1 for new commands; retained journals must remain recoverable. */
 export interface TodoLegacyRecoveryServiceV1 {
   readonly version: 1;
   pending(signal?: AbortSignal): Promise<TodoLegacyRecoveryResultV1<readonly TodoLegacyPendingV1[]>>;

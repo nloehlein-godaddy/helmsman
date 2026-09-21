@@ -24,9 +24,11 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service with independently replaceable native cmux/WezTerm providers. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Execution hosts and native terminal/browser providers are complete, including Docker child stages and retained browser transports. Workflow extraction is reviewed and pushed through `eb8ad1a`. Trigger extraction is reviewed and pushed through `12a62c9`; the Phase F aggregate gate and Phase G compatibility retirement follow.
+Optional pages, panels and integrations use replaceable plugin contributions. Task sources, PR and communication providers, pricing, scheduling, agents, execution hosts, native terminal/browser providers, workflows and triggers have public contracts. Core retains scope, credentials, durable state, admission, budgets, concurrency, publication and recovery. Disabling a selected provider blocks new work without restoring a private fallback; saved layouts and existing obligations remain intact.
 
-Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) run inspection, streamed downloads, provisional viewer/history pages and durable clarification services are reviewed and pushed through `3806090`, including exact-request retry, clarification alias selection and public PR inspection. The [run-inspection contract](docs/run-inspect-authoring.md) and [presentation guide](docs/run-presentation-authoring.md) are available. Shared viewer convergence and authored question/contact panels are delivered; `/runs` now selects an authored composition with history, the public PR panel and the shared auxiliary viewer. The `/prs` alias selects the public PR composition.
+Phases A–F are complete. Phase G removes obsolete entry points and finishes SDK/documentation checks; final validation and independent review are pending. See the [implementation ledger](docs/plugin-implementation-progress.md) for accepted evidence.
+
+Start with the [independent plugin quickstart](docs/plugin-quickstart.md), [package installation](docs/plugin-packages.md), [compatibility policy](docs/plugin-compatibility.md) and [retired routes](docs/plugin-legacy-retirement.md). The [voyage flow diagrams](docs/helmsman-process.md) describe current presentation, execution and recovery boundaries. Runs, history, the shared viewer and clarification panels are authored packages; `/runs` and `/prs` select compositions using public PR panels and the same auxiliary viewer.
 
 The [authored question/contact guide](docs/authored-clarifications.md) describes the selected `/clarifications` composition, conditional draft/result saves and its always-visible compatibility recovery link. Original drafts and pending requests remain under their original caller in the independently buildable recovery package; the alias does not import or replay them. Renamed copies use their own storage namespace and request journals. The [public PR page and provider guide](docs/pull-request-authoring.md) describes independently buildable PR presentation, replaceable GitHub integration and durable manual-review requests. `/prs` and `/pr` select an authored composition. The [Runs package](src/plugins/runs/README.md) composes the public PR and history panels; separate header, PR and run targets remain intact. The [Communication authoring guide](docs/communication-authoring.md) covers the selected `/communication` composition, notification header, scoped reads and revision-checked settings, caller-owned exact retry, durable Slack requests, and the independently buildable Slack provider.
 
@@ -46,10 +48,11 @@ runtime framework.
 
 ## Data
 
-`GET /api/dashboard` is served by the **Helmsman server** (`server/helmsman/`), which
-queries enabled task-source providers and GitHub to assemble a `DashboardSnapshot`;
-in dev, Vite proxies `/api` to it. Source failures are reported as unavailable;
-source-aware task discovery does not substitute sample work for a failed provider.
+Pages and panels read scoped, versioned services from their plugin context. The
+Helmsman server queries the selected task-source and PR providers; Vite proxies
+`/api` to that server during development. Source failures remain unavailable.
+The old `/api/dashboard`, `/api/triage`, `/api/bugs` and private PR routes return
+410; use the public SDK services described in [route retirement](docs/plugin-legacy-retirement.md).
 
 ## Commands
 
@@ -261,7 +264,7 @@ silently reduce the gate. The selected workflow package owns prompt templates an
 guarded stage sequencing. Configure `maxRounds` (1–5) and `stageTimeoutMinutes`
 (5–180) on `helmsman.workflow-coding`. Defaults are three rounds and 45 minutes per
 session. Agent and workflow settings are captured at admission; changes do not
-affect an existing voyage. Workflow extraction is accepted; trigger extraction remains in Phase F.
+affect an existing voyage. Scheduling and automatic trigger policies are independently selectable plugins.
 
 Reviewers inspect the same pinned commit in separate detached worktrees and focus
 on material logic, structure, acceptance criteria, UX, and external effects. Codex
@@ -351,11 +354,13 @@ refresh and preserves any unsent review while updating.
 A run with a PR shows a **PR panel** in its drawer (state, CI checks, review decision,
 comments, link); a **Review a PR** panel takes any PR (paste a URL or `owner/repo#number`)
 so you can act on PRs that aren't from a run. From the panel you can **Approve /
-Request changes / Comment** (`POST /api/pr/review`, server-side token) and — when the PR's
+Request changes / Comment** through durable public PR commands and — when the PR's
 repo is checked out under `AGENTS_ROOT` — **Relaunch with feedback**: the agent checks out the
 existing PR branch, addresses the feedback, and pushes the **same** branch so the PR updates
-(no new PR, no Jira claim). GitHub reads/writes go through Helmsman (`GET /api/pr`,
-`POST /api/pr/review`); the token never reaches the browser. **There is no Merge button** —
+(no new PR, no Jira claim). Reads and new review/rerun preparation use the selected
+PR provider, retaining its connection, settings, artifact and exact head. A missing
+or changed selection blocks admission. Publication remains a guarded server-side
+operation; credentials never reach the browser. **There is no Merge button** —
 merge stays a deliberate action on GitHub, and the agent never merges.
 
 ### Direct links
@@ -435,7 +440,7 @@ against persisted voyages. Todos are stored in the same SQLite database as voyag
 
 New voyages and attempts retain dedicated question/answer channels with their execution snapshots. A retry or pre-PR continuation receives a new channel; recovery reuses the recorded one. Required unanswered questions remain publication blockers across attempts, including legacy questions whose producing attempt cannot be proven. Those legacy questions stay visible but reject new answers, including through the compatibility API. See [clarification recovery](docs/recovery.md#clarification-channels-and-unresolved-questions).
 
-An accepted answer is stored durably before the core runtime publishes it to the worker's channel. Acceptance does not prove that the worker consumed it. The current E4 service slice adds durable request receipts and revision-checked answer commands; the compatibility UI uses these public adapters. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 while the services are active; compatibility GETs remain. See [the contracts](docs/clarification-authoring.md) and [remaining E4 presentation work](docs/plugin-phase-e4-implementation.md).
+An accepted answer is stored durably before the core runtime publishes it to the worker's channel. Acceptance does not prove that the worker consumed it. Authored panels use durable request receipts and revision-checked answer commands. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 even when the replacement service is unavailable; historical reads remain for recovery. See [the contracts](docs/clarification-authoring.md) and [retained recovery](docs/plugin-legacy-retirement.md).
 
 ### Auto-claim
 
@@ -578,8 +583,11 @@ there is currently no UI action to remove an override. Use Config to update an
 already-overridden setting. Overrides, runs, watcher checkpoints, and notifications
 persist in `HELMSMAN_DB`; a browser reload does not reset them.
 
-**Live** below means editable in Config (`GET/PUT /api/config`) and used by subsequent
-requests, launches, or watcher scans. Existing runs keep their launch configuration.
+**Live** below means editable through the owning settings service and used by
+subsequent requests or launches. Jira source fields belong to Source settings;
+GitHub defaults/author belong to GitHub settings; Slack connection fields belong
+to Communication settings. Generic Config rejects migrated integration writes.
+Existing runs keep their launch configuration.
 **Restart** means configure in `.env` or the parent environment and restart the
 server; restart Vite too when changing `HELMSMAN_PORT`. Even Live keys changed in
 `.env` require a restart to be loaded. The auto-claim interval is UI-editable, but its

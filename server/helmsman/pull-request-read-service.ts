@@ -1,6 +1,6 @@
 import { parseTaskRepo } from '../../src/plugins/tasks';
 import { parsePullRequestReadItemV1, parsePullRequestReadPageV1, parsePullRequestReadQueryV1, PULL_REQUEST_READ_LIMITS } from '../../src/plugins/pull-request-read';
-import type { PullRequestReadItemV1, PullRequestReadPageV1, PullRequestReadQueryV1 } from '../../src/plugins/pull-request-read';
+import type { PullRequestReadPageV1, PullRequestReadQueryV1 } from '../../src/plugins/pull-request-read';
 import type { PullRequestProviderBatchV1 } from '../../src/plugins/pull-request-provider';
 
 export type PullRequestProviderBatch = PullRequestProviderBatchV1;
@@ -13,43 +13,6 @@ function providerError(error: unknown): PullRequestReadError | null {
   const reason = error && typeof error === 'object' && 'reason' in error ? (error as { reason?: unknown }).reason : null;
   if (reason === 'selection-changed') return new PullRequestReadError(409, reason);
   return null;
-}
-function record(value: unknown): Record<string, unknown> | null { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null; }
-function count(value: unknown): number | null { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null; }
-function legacyItem(value: unknown, authored: boolean): PullRequestReadItemV1 {
-  const item = record(value); if (!item) throw new TypeError('Invalid provider pull request');
-  const repo = parseTaskRepo(item.repo); const mergedAt = authored ? item.mergedAt : null;
-  const reviews = record(item.reviews);
-  const title = typeof item.title === 'string' ? item.title.slice(0, 2048).replace(/[\uD800-\uDBFF]$/, '') : item.title;
-  const ticketId = typeof title === 'string' ? title.match(/[A-Z][A-Z0-9]+-\d+/)?.[0] ?? (typeof item.headRef === 'string' ? item.headRef.match(/[A-Z][A-Z0-9]+-\d+/)?.[0] : null) ?? null : null;
-  if (authored && !['open', 'closed'].includes(item.state as string)) throw new TypeError('Invalid provider pull request status');
-  return parsePullRequestReadItemV1({ repo, number: item.number, title,
-    url: `https://github.com/${repo.split('/').map(encodeURIComponent).join('/')}/pull/${String(item.number)}`,
-    status: mergedAt ? 'merged' : authored && item.state === 'closed' ? 'closed' : 'open', createdAt: item.createdAt, mergedAt,
-    draft: typeof item.draft === 'boolean' ? item.draft : null, ticketId,
-    reviewDecision: ['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED'].includes(item.reviewDecision as string) ? item.reviewDecision : null,
-    comments: count(item.comments), reviews: reviews ? { approved: count(reviews.approved), changesRequested: count(reviews.changesRequested), commented: count(reviews.commented), requested: count(reviews.requested) } : null });
-}
-function project(values: readonly unknown[], authored: boolean): { items: PullRequestReadItemV1[]; degraded: boolean } {
-  const items: PullRequestReadItemV1[] = []; const seen = new Set<string>(); let degraded = false;
-  for (const value of values.slice(0, 300)) {
-    try {
-      const item = legacyItem(value, authored); const key = `${item.repo.toLowerCase()}#${item.number}`;
-      if (seen.has(key)) continue; seen.add(key); items.push(item);
-    } catch { degraded = true; }
-  }
-  return { items, degraded };
-}
-export function projectLegacyOpenPullRequests(value: unknown, browseUrl: string | null): PullRequestProviderBatch {
-  const data = record(value);
-  if (!Array.isArray(data?.prs)) throw new PullRequestReadError(503, 'Pull request provider unavailable');
-  const result = project(data.prs, false); const truncated = data.truncated === true || data.prs.length > 300;
-  return { items: result.items, quality: result.degraded || data.degraded !== false || typeof data.truncated !== 'boolean' ? 'degraded' : truncated ? 'partial' : 'complete', truncated, browseUrl };
-}
-export function projectLegacyAuthoredPullRequests(value: unknown, browseUrl: string | null): PullRequestProviderBatch {
-  if (!Array.isArray(value)) throw new PullRequestReadError(503, 'Pull request provider unavailable');
-  const result = project(value, true);
-  return { items: result.items, quality: result.degraded ? 'degraded' : 'partial', truncated: true, browseUrl };
 }
 async function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
   let cancel!: () => void;

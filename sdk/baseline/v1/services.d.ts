@@ -1,0 +1,65 @@
+import type { ProfileServiceV1 } from "./profile.js";
+import type { GithubSettingsServiceV1 } from "./github-settings.js";
+import type { JiraSettingsServiceV1 } from "./jira-settings.js";
+import type { LocalGitServiceV1 } from "./local-git.js";
+import type { CampaignServiceV1 } from "./campaigns.js";
+import type { TerminalServiceV1 } from "./terminal.js";
+import type { CommunicationServiceV1 } from "./communication.js";
+import type { CommunicationCommandServiceV1 } from "./communication-command.js";
+import type { PullRequestCommandServiceV1 } from "./pull-request-command.js";
+import type { ClarificationReadServiceV1 } from "./clarification-read.js";
+import type { ClarificationCommandServiceV1 } from "./clarification-command.js";
+import type { SuggestedContactAdminServiceV1 } from "./suggested-contact-admin.js";
+import type { SourceAdminServiceV1 } from "./source-admin.js";
+import type { TodoLegacyRecoveryServiceV1 } from "./todo-legacy-recovery.js";
+import type { AssessmentInput, OutcomeAssessment, OutcomeSummary, OutcomeWindow } from "./outcomes.js";
+import type { PricingEstimate, UsageQuery, UsageSnapshot } from "./usage.js";
+import type { TaskReadServiceV1 } from "./task-read.js";
+import type { RunReadServiceV1 } from "./run-read.js";
+import type { RunInspectServiceV1 } from "./run-inspect.js";
+import type { DownloadServiceV1 } from "./download.js";
+import type { PullRequestReadServiceV1 } from "./pull-request-read.js";
+import type { PullRequestInspectServiceV1 } from "./pull-request-inspect.js";
+import type { ActivityReadServiceV1 } from "./activity-read.js";
+import type { RunCommandServiceV1 } from "./run-command.js";
+import type { TaskEditServiceV1 } from "./task-edit.js";
+import type { SourceCommandServiceV1 } from "./source-command.js";
+import type { TaskViewsReadServiceV1 } from "./task-views.js";
+export interface PluginPageServices {
+    readonly version: 1;
+    readonly tasks?: TaskReadServiceV1;
+    readonly taskEdit?: TaskEditServiceV1;
+    readonly todoLegacyRecovery?: TodoLegacyRecoveryServiceV1;
+    readonly sourceCommands?: SourceCommandServiceV1;
+    readonly sourceAdmin?: SourceAdminServiceV1;
+    readonly taskViews?: TaskViewsReadServiceV1;
+    readonly runs?: RunReadServiceV1;
+    readonly runInspect?: RunInspectServiceV1;
+    readonly downloads?: DownloadServiceV1;
+    readonly clarifications?: ClarificationReadServiceV1;
+    readonly clarificationCommands?: ClarificationCommandServiceV1;
+    readonly suggestedContacts?: SuggestedContactAdminServiceV1;
+    readonly pullRequests?: PullRequestReadServiceV1;
+    readonly pullRequestInspect?: PullRequestInspectServiceV1;
+    readonly pullRequestCommands?: PullRequestCommandServiceV1;
+    readonly communication?: CommunicationServiceV1;
+    readonly terminal?: TerminalServiceV1;
+    readonly campaigns?: CampaignServiceV1;
+    readonly jiraSettings?: JiraSettingsServiceV1;
+    readonly githubSettings?: GithubSettingsServiceV1;
+    readonly profile?: ProfileServiceV1;
+    readonly localGit?: LocalGitServiceV1;
+    readonly communicationCommands?: CommunicationCommandServiceV1;
+    readonly activity?: ActivityReadServiceV1;
+    readonly runCommands?: RunCommandServiceV1;
+    readonly usage: {
+        query(input: UsageQuery, signal?: AbortSignal): Promise<UsageSnapshot>;
+    };
+    readonly outcomes: {
+        summary(repo: string | null, days: OutcomeWindow, signal?: AbortSignal): Promise<OutcomeSummary>;
+        assessment(runId: string, input: AssessmentInput, signal?: AbortSignal): Promise<OutcomeAssessment>;
+    };
+    readonly pricing: {
+        estimate(input: UsageQuery, signal?: AbortSignal): Promise<PricingEstimate | null>;
+    };
+}

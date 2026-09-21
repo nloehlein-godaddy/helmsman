@@ -7,32 +7,14 @@ import type Database from 'better-sqlite3';
 import { storeConnection } from './store-connection';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-export interface WebhookRoute { repo: string; event: string; action: string; workflowRef: 'coding@1' | 'review@1' }
 export interface WebhookLaunch { repo: string; workflowRef: string; runId: string; mode: 'freeform' | 'review'; title: string; task?: string; prNumber?: number; trigger?: TriggerProvenanceV1 }
 export class WebhookError extends Error {
   readonly status: number;
   constructor(message: string, status = 400) { super(message); this.status = status; }
 }
-function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-export function parseWebhookRoutes(value: string | undefined): WebhookRoute[] {
-  if (!value) return [];
-  const routes: unknown = JSON.parse(value);
-  if (!Array.isArray(routes) || routes.length > 100) throw new Error('Invalid webhook routes');
-  return routes.map(value => {
-    const route = record(value);
-    if (!route || typeof route.repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(route.repo)
-      || !['issues', 'pull_request'].includes(String(route.event)) || typeof route.action !== 'string'
-      || !['opened', 'labeled', 'synchronize', 'review_requested', 'reopened'].includes(route.action)
-      || (route.event === 'issues' ? route.workflowRef !== 'coding@1' : route.workflowRef !== 'review@1')) throw new Error('Invalid webhook workflow mapping');
-    return route as unknown as WebhookRoute;
-  });
-}
 export function openWebhookIntake(path: string | Database.Database, deps: {
   secret(): string | undefined;
-  routes?: () => WebhookRoute[];
-  captureTrigger?: (signal: AbortSignal) => SelectedTriggerCapture<WebhookTriggerProviderV1> | null;
+  captureTrigger: (signal: AbortSignal) => SelectedTriggerCapture<WebhookTriggerProviderV1> | null;
   credentialHandle?: () => string | null;
   assertWorkflow?: (input: WebhookLaunch) => void;
   verifyLaunch?: (input: WebhookLaunch, trigger: TriggerProvenanceV1) => void | Promise<void>;
@@ -62,7 +44,7 @@ export function openWebhookIntake(path: string | Database.Database, deps: {
   }
   function assertEnabled(): SelectedTriggerCapture<WebhookTriggerProviderV1> {
     try {
-      const capture = deps.captureTrigger?.(AbortSignal.timeout(30_000));
+      const capture = deps.captureTrigger(AbortSignal.timeout(30_000));
       if (!capture || capture.record.settings.enabled === false) throw new Error('disabled');
       capture.assertCurrent(); return capture;
     } catch { throw new WebhookError('Selected webhook trigger is unavailable', 503); }
@@ -85,7 +67,7 @@ export function openWebhookIntake(path: string | Database.Database, deps: {
         const input = JSON.parse(item.payload) as WebhookLaunch;
         if (!input || input.runId !== item.runId || !['review', 'freeform'].includes(input.mode)) throw new Error('Stored webhook launch is invalid');
         const trigger = item.triggerJson ? parseTriggerProvenanceV1(JSON.parse(item.triggerJson)) : null;
-        const capture = trigger || deps.captureTrigger ? assertEnabled() : null;
+        const capture = assertEnabled();
         if (trigger) {
           if (persistenceHash(proposal(input)) !== trigger.proposalHash) throw new Error('Stored webhook proposal changed');
           if (!deps.verifyLaunch) throw new Error('Webhook dispatch verification is unavailable');
@@ -147,37 +129,7 @@ export function openWebhookIntake(path: string | Database.Database, deps: {
     return { runId: input ? runId : null, duplicate: false, ignored: input === null };
   }
   return {
-    receive(raw: Buffer, headers: { signature?: string; delivery?: string; event?: string; values?: Readonly<Record<string, string>> }) {
-      if (deps.captureTrigger) return receiveTriggered(raw, headers);
-      const secret = deps.secret();
-      if (!secret || !(deps.routes?.() ?? []).length) throw new WebhookError('Webhook intake is disabled', 503);
-      if (raw.length > 1_000_000) throw new WebhookError('Webhook payload too large', 413);
-      const signature = headers.signature;
-      if (!signature || !/^sha256=[a-f\d]{64}$/i.test(signature)) throw new WebhookError('Invalid webhook signature', 401);
-      const expected = createHmac('sha256', secret).update(raw).digest();
-      if (!timingSafeEqual(expected, Buffer.from(signature.slice(7), 'hex'))) throw new WebhookError('Invalid webhook signature', 401);
-      if (!headers.delivery || !/^[a-z\d_-]{1,128}$/i.test(headers.delivery)) throw new WebhookError('Invalid delivery ID');
-      const digest = createHash('sha256').update(raw).digest('hex');
-      const prior = sql.prepare('SELECT digest, runId FROM webhook_deliveries WHERE delivery = ?').get(headers.delivery) as { digest: string; runId: string } | undefined;
-      if (prior) {
-        if (prior.digest !== digest) throw new WebhookError('Delivery ID reused for a different payload', 409);
-        return { runId: prior.runId, duplicate: true };
-      }
-      let body: Record<string, unknown> | null;
-      try { body = record(JSON.parse(raw.toString('utf8'))); } catch { throw new WebhookError('Invalid webhook JSON'); }
-      const repo = record(body?.repository)?.full_name;
-      const route = (deps.routes?.() ?? []).find(route => route.repo.toLowerCase() === String(repo).toLowerCase() && route.event === headers.event && route.action === body?.action);
-      if (!route || !deps.allowedRepos().some(repo => repo.toLowerCase() === route.repo.toLowerCase())) throw new WebhookError('No configured workflow for this event', 422);
-      const entity = record(route.event === 'issues' ? body?.issue : body?.pull_request);
-      if (!entity || typeof entity.title !== 'string' || entity.title.length > 1000 || !Number.isSafeInteger(entity.number) || Number(entity.number) < 1) throw new WebhookError('Invalid webhook task');
-      const runId = `wh-${createHash('sha256').update(headers.delivery).digest('hex')}`;
-      const input: WebhookLaunch = { repo: route.repo, workflowRef: route.workflowRef, runId, title: entity.title,
-        ...(route.workflowRef === 'review@1' ? { mode: 'review', prNumber: Number(entity.number) }
-          : { mode: 'freeform', task: `${entity.title}\n\n${typeof entity.body === 'string' ? entity.body.slice(0, 100000) : ''}` }) };
-      sql.prepare("INSERT INTO webhook_deliveries (delivery,digest,runId,payload,state) VALUES (?,?,?,?,'pending')")
-        .run(headers.delivery, digest, runId, JSON.stringify(input));
-      return { runId, duplicate: false };
-    },
+    receive: receiveTriggered,
     poll(): Promise<void> { polling ??= scan().finally(() => { polling = null; }); return polling; },
     status() { return sql.prepare('SELECT delivery, runId, state, error FROM webhook_deliveries ORDER BY rowid DESC LIMIT 100').all(); },
     close() { connection.close(); },

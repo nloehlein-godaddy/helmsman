@@ -22,7 +22,7 @@ export interface CampaignDispatcherOptions {
   stop(runId: string): unknown | Promise<unknown>;
   now?: () => number;
   claimTtlMs?: number;
-  captureTrigger?: (signal: AbortSignal) => SelectedTriggerCapture<CampaignTriggerProviderV1> | null;
+  captureTrigger: (signal: AbortSignal) => SelectedTriggerCapture<CampaignTriggerProviderV1> | null;
   retainPins?: ExecutionStore['retainPins'];
   releaseTriggerPins?: ExecutionStore['releaseTriggerPins'];
 }
@@ -48,7 +48,7 @@ export function createCampaignDispatcher(options: CampaignDispatcherOptions): { 
       }
       return;
     }
-    if (item.state === 'claiming' && item.claimToken && item.claimedAt
+    if (item.state === 'claiming' && store.trigger(item.id) && item.claimToken && item.claimedAt
       && now() - Date.parse(item.claimedAt) >= ttl && options.canStart(item.record.repo)) {
       store.releaseClaim(item.id, item.claimToken, 'Previous dispatch was not recorded; retrying the same run ID');
     }
@@ -111,14 +111,6 @@ export function createCampaignDispatcher(options: CampaignDispatcherOptions): { 
     }
     store.completePhases();
     releaseSettledTriggerPins();
-    if (!options.captureTrigger) {
-      for (const candidate of store.queuedTasks()) {
-        if (store.phase(candidate.phaseId)?.state !== 'running' || !options.canStart(candidate.record.repo)) continue;
-        const item = store.claim(candidate.id);
-        if (item) await launchClaimed(item);
-      }
-      return;
-    }
     const triggerController = new AbortController();
     const triggerCapture = options.captureTrigger(triggerController.signal);
     if (!triggerCapture) return;

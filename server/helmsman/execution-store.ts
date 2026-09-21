@@ -146,11 +146,23 @@ export function validateExecutionSnapshot(value: unknown): ExecutionSnapshotInpu
       || Number(schema.minimum) < 0 || Number(schema.maximum) < Number(schema.minimum) || schemaOwners.has(schema.owner)) throw new PersistenceValidationError('Invalid execution schema requirement');
     schemaOwners.add(schema.owner);
   }
+  function publicSourceBinding(record: Record<string, unknown>): boolean {
+    const roles: Readonly<Record<string, string>> = { 'helmsman/pull-request': 'effect', 'helmsman/communication': 'effect', 'helmsman/native-terminal': 'host' };
+    const fields = ['role', 'capability', 'contributionId', 'pluginId', 'artifactHash', 'contractVersion', 'connectionId', 'credentialHandle'];
+    return Object.keys(record).length === fields.length && fields.every(field => Object.hasOwn(record, field))
+      && typeof record.capability === 'string' && Object.hasOwn(roles, record.capability) && record.role === roles[record.capability]
+      && record.contractVersion === 1 && identity(record.pluginId) && identity(record.contributionId)
+      && record.contributionId.startsWith(`${record.pluginId}/`) && typeof record.artifactHash === 'string' && HASH.test(record.artifactHash)
+      && artifacts.get(record.pluginId)?.artifactHash === record.artifactHash
+      && (record.connectionId === null || nonempty(record.connectionId)) && (record.credentialHandle === null || nonempty(record.credentialHandle))
+      && (record.credentialHandle === null || record.connectionId !== null);
+  }
   function rejectSecrets(item: unknown): void {
     if (Array.isArray(item)) { item.forEach(rejectSecrets); return; }
     const record = object(item);
     if (!record) return;
     for (const [name, child] of Object.entries(record)) {
+      if (name === 'capability' && publicSourceBinding(record)) continue;
       if (/^(?:password|secret|api[_-]?key|api[_-]?token|access[_-]?token|authorization|jira[_-]?api[_-]?token|gate[_-]?token|capability)$/i.test(name)) throw new PersistenceValidationError('Execution snapshots cannot contain credential values');
       rejectSecrets(child);
     }

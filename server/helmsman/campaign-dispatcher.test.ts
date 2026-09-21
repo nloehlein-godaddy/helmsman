@@ -20,7 +20,7 @@ function setup(concurrency = 2) {
   const launch = vi.fn((task: CampaignLaunch) => { runs.set(task.runId, { status: 'running' }); return task.runId; });
   const stop = vi.fn((runId: string) => { runs.set(runId, { status: 'stopped' }); });
   const options: CampaignDispatcherOptions = { store, canStart: () => true, getRun: id => runs.get(id) ?? null,
-    launch, stop, now: () => clock, claimTtlMs: 1000 };
+    launch, stop, now: () => clock, claimTtlMs: 1000, captureTrigger: () => fifoCapture(), retainPins: vi.fn() };
   return { store, campaign, phase, tasks, runs, launch, stop, options, advance: () => { clock += 1001; }, dispatcher: createCampaignDispatcher(options) };
 }
 
@@ -159,6 +159,22 @@ describe('campaign dispatcher', () => {
     await createCampaignDispatcher({ ...f.options, captureTrigger: () => null, retainPins: vi.fn() }).poll();
     expect(f.launch).not.toHaveBeenCalled();
   });
+  it('reconciles already claimed legacy tasks without recapture after claim expiry or disablement', async () => {
+    const f = setup(1);
+    const original = f.store.claim(f.tasks[0]!.id)!;
+    f.advance();
+    const captureTrigger = vi.fn(() => fifoCapture());
+    await createCampaignDispatcher({ ...f.options, captureTrigger }).poll();
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(f.store.task(original.id)).toMatchObject({ state: 'claiming', runId: original.runId, claimToken: original.claimToken });
+    expect(f.store.trigger(original.id)).toBeNull();
+    f.runs.set(original.runId, { status: 'succeeded' });
+    await createCampaignDispatcher({ ...f.options, captureTrigger: () => null }).poll();
+    expect(f.store.task(original.id)).toMatchObject({ state: 'succeeded', runId: original.runId });
+    expect(f.store.trigger(original.id)).toBeNull();
+    expect(f.launch).not.toHaveBeenCalled();
+  });
+
   it('starts bounded work with stable IDs and pinned workflow, then fills freed capacity', async () => {
     const f = setup();
     await f.dispatcher.poll();

@@ -26,7 +26,7 @@ function fixture() {
         settings: { marker: generation }, metadata: provider.metadata }, artifacts: [artifact], assertCurrent() { if (!enabled || !current) throw new Error('Selection changed'); } };
   }
   const launch = vi.fn((input: WebhookLaunch) => { admissions.admit({ runId: input.runId, repo: input.repo,
-    request: { trigger: JSON.parse(JSON.stringify(input.trigger)) }, settings: {}, artifacts: input.trigger?.artifacts ?? [] }, 2); return input.runId; });
+    request: { ...(input.trigger ? { trigger: JSON.parse(JSON.stringify(input.trigger)) } : {}) }, settings: {}, artifacts: input.trigger?.artifacts ?? [{ pluginId: 'example.legacy-runtime', artifactHash: 'c'.repeat(64), packageVersion: '1.0.0', requires: [] }] }, 2); return input.runId; });
   const verifyLaunch = vi.fn(async () => {});
   const deps = { secret: () => 'secret', captureTrigger: capture, allowedRepos: () => ['o/r'], canStart: () => allow,
     getRun: (id: string) => { const admission = admissions.get(id); return admission ? { status: admission.state === 'failed' ? 'failed' : 'running' } : null; }, isRunActive: () => false, launch, verifyLaunch,
@@ -38,6 +38,26 @@ function fixture() {
 }
 
 describe('authored webhook trigger durability', () => {
+  it('drains normalized legacy rows with their saved run ID without parsing or inventing provenance', async () => {
+    const f = fixture();
+    const input = { repo: 'o/r', runId: 'wh-original', workflowRef: 'coding@1', mode: 'freeform', title: 'Saved title', task: 'Saved task' };
+    f.persistence.sql.prepare("INSERT INTO webhook_deliveries (delivery,digest,runId,payload,state) VALUES (?,?,?,?,'pending')")
+      .run('legacy-delivery', 'legacy-digest', input.runId, JSON.stringify(input));
+    f.enable(false);
+    await f.open().poll();
+    expect(f.launch).not.toHaveBeenCalled();
+    f.enable(true); f.replace('replacement');
+    await f.open().poll();
+    expect(f.launch).toHaveBeenCalledExactlyOnceWith(input);
+    expect(f.parse).not.toHaveBeenCalled();
+    expect(f.verifyLaunch).not.toHaveBeenCalled();
+    expect(f.persistence.sql.prepare('SELECT triggerJson FROM webhook_deliveries WHERE delivery=?').get('legacy-delivery')).toEqual({ triggerJson: null });
+    f.enable(false);
+    await f.open().poll();
+    expect(f.launch).toHaveBeenCalledTimes(1);
+    expect(f.intake.status()).toMatchObject([{ state: 'launched', runId: input.runId }]);
+  });
+
   it('authenticates duplicate deliveries before returning their retained result', () => {
     const f = fixture(); f.intake.receive(raw, headers());
     expect(() => f.intake.receive(raw, { ...headers(), signature: undefined })).toThrow('signature');

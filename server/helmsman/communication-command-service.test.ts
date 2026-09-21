@@ -144,3 +144,13 @@ describe('durable public communication commands', () => {
     expect(f.invoke).toHaveBeenCalledTimes(1);
   });
 });
+
+it('checks captured PR source freshness at the final durable communication admission', async () => {
+  const f = fixture();
+  const service = createCommunicationCommandService({ ...f.options, async prepareReviewRequest(input) {
+    const prepared = await f.prepareReviewRequest(input);
+    return { ...prepared, assertCurrent() { throw new Error('Captured PR source changed'); } };
+  } });
+  await expect(service.submit(caller, command, null)).rejects.toThrow('Captured PR source changed');
+  expect(f.operations.list()).toHaveLength(0); expect(f.invoke).not.toHaveBeenCalled();
+});

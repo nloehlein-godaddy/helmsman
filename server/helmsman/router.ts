@@ -18,18 +18,13 @@ import { handleSourceAdminApi } from './source-admin-routes';
 import type { SourceAdminServerService } from './source-admin-service';
 import { handleTodoLegacyRecoveryApi } from './todo-legacy-recovery-routes';
 import { TodoConflictError, TodoValidationError } from './todos';
-import { SlackReviewError, type SlackReviewResult } from './slack/review-request';
 import type { Db, RunRow } from './db';
-import type { PrStatus } from '../github';
-import { isGithubRepo, type PrListResponse } from '../pr-lists';
-import type { TriageResponse } from '../triage-endpoint';
-import type { BugsResponse, PrFileDiff } from '../../src/types';
+import { isGithubRepo } from '../pr-lists';
 import type { SlackState } from '../../src/data/slack';
 import { retryIntent, RetryError, type LaunchIntent } from './retry';
 import { ResumeError } from './resume';
 import type { OutcomeService } from './outcome-service';
 import { OutcomeValidationError } from './outcomes';
-import type { CampaignService } from './campaign-service';
 import { ClarificationValidationError, type ClarificationStore } from './clarifications';
 import type { PricingEstimate, UsageQueryService, UsageSnapshot } from '../../src/plugins/usage';
 import { UsageValidationError } from './usage-store';
@@ -125,7 +120,6 @@ export interface RouterDeps {
   pricing?: (snapshot: UsageSnapshot) => Promise<PricingEstimate | null>;
   clarificationGate?: (runId: string, query: URLSearchParams) => boolean;
   outcomes?: OutcomeService;
-  campaigns?: CampaignService;
   publicCampaigns?: CampaignPublicService;
   campaignCaller?: string;
   clarifications?: ClarificationStore;
@@ -133,15 +127,11 @@ export interface RouterDeps {
   profile?: ProfileServerService;
   profileCaller?: string;
   profileSignal?: AbortSignal;
-  slackReviewRequest?: (input: unknown) => Promise<SlackReviewResult>;
   todos?: TodoApi;
   jiraEnabled?: () => boolean;
   outboundUsage?: () => unknown;
   context?: () => { repos: string[]; jiraBaseUrl: string | null; jiraEnabled?: boolean };
-  slack?: { snapshot: () => SlackState; markRead: (id: string) => boolean };
-  dashboard: (repo: string | null) => Promise<{ snapshot: unknown; degraded: string[]; repos: string[]; selectedRepo: string | null }>;
-  triage: (repo: string | null) => Promise<TriageResponse>;
-  bugs: (repo: string | null) => Promise<BugsResponse>;
+  slack?: { snapshot: () => SlackState };
   db: Db;
   canStart: (repo: string) => { ok: boolean; reason?: string };
   launch: (body: LaunchIntent & { retryOf?: string }) => string;
@@ -151,24 +141,10 @@ export interface RouterDeps {
   caps: () => { maxAttempts: number; maxCostUsd: number | null };
   getConfig: () => { config: Record<string, unknown>; overridden: string[]; jiraTokenSet?: boolean };
   setConfig: (key: string, value: string) => { ok: true } | { ok: false; error: string };
-  prStatus: (repo: string, prNumber: number) => Promise<PrStatus | null>;
-  reviewRequestedPrs: (repo: string | null) => Promise<PrListResponse>;
-  repoOpenPrs: (repo: string) => Promise<PrListResponse>;
   integrationSettings?: IntegrationSettingsServerService;
   integrationSettingsCaller?: string;
   publicLocalGit?: LocalGitServerService;
   localGitCaller?: string;
-  localGit?: (repo: string) => Promise<ApiResult>;
-  localGitAction?: (repo: string, body: unknown) => Promise<ApiResult>;
-  prDiff: (repo: string, prNumber: number) => Promise<PrFileDiff[] | null>;
-  submitReview: (
-    repo: string,
-    prNumber: number,
-    event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT',
-    body: string,
-    requestId?: string,
-    expectedHeadSha?: string,
-  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   terminal?: TerminalServerService;
   terminalCaller?: string;
 }
@@ -233,32 +209,17 @@ export async function handleApi(
   }
   const campaignResult = await handleCampaignPublicApi({ method, path, query, body: _body, caller: deps.campaignCaller, service: deps.publicCampaigns });
   if (campaignResult) return campaignResult;
-  if (deps.publicCampaigns && (path === '/api/campaigns' || path.startsWith('/api/campaigns/'))) return { status: 410, json: { error: 'Use scoped campaign services.' } };
-  if (path.startsWith('/api/campaigns') && deps.campaigns) return deps.campaigns.handle(path, method, query, _body);
+  if (path === '/api/campaigns' || path.startsWith('/api/campaigns/')) return { status: 410, json: { error: 'Use scoped campaign services.' } };
   if (path.startsWith('/api/clarifications') || path === '/api/trusted-contacts') {
-    if (deps.publicClarifications && method !== 'GET') return { status: 410, json: { error: 'Use the versioned clarification command or suggested-contact service. Worker ingestion requires its retained attempt channel.' } };
+    if (method !== 'GET') return { status: 410, json: { error: 'Use the versioned clarification command or suggested-contact service. Worker ingestion requires its retained attempt channel.' } };
     const store = deps.clarifications;
     if (!store) return { status: 503, json: { error: 'Clarifications unavailable' } };
     try {
       store.timeoutDue(); store.cleanupOrphans();
       const repo = query.get('repo');
       if (repo !== null && !isGithubRepo(repo)) throw new ClarificationValidationError('Invalid galleon');
-      if (path === '/api/clarifications' && method === 'POST') {
-        if (!_body || typeof _body !== 'object' || !('runId' in _body) || typeof _body.runId !== 'string') throw new ClarificationValidationError('Provide a run ID');
-        const run = deps.db.getRun(_body.runId);
-        if (!run || repo && run.repo.toLowerCase() !== repo.toLowerCase()) throw new ClarificationValidationError('Run is not in the selected galleon');
-        const { runId, ...record } = _body;
-        return { status: 201, json: store.ingestQuestion(runId, { ...record, kind: 'question' }) };
-      }
       if (path === '/api/clarifications' && method === 'GET') return { status: 200, json: { clarifications: store.list(repo) } };
       if (path === '/api/trusted-contacts' && method === 'GET') return { status: 200, json: { contacts: store.contacts() } };
-      if (path === '/api/trusted-contacts' && method === 'POST') return { status: 201, json: store.saveContact(_body) };
-      const answer = path.match(/^\/api\/clarifications\/([a-z\d_-]{1,128})\/answer$/i);
-      if (answer && method === 'POST') {
-        const question = store.list(repo).find(question => question.id === answer[1]);
-        if (!question) return { status: 404, json: { error: 'Clarification not found in selected galleon' } };
-        return { status: 200, json: store.answer(question.id, _body) };
-      }
       return { status: 404, json: { error: 'Clarification route not found' } };
     } catch (error) {
       if (error instanceof ClarificationValidationError) return { status: 400, json: { error: error.message } };
@@ -290,16 +251,7 @@ export async function handleApi(
       throw error;
     }
   }
-  if (path === '/api/slack/review-request' && method === 'POST') {
-    if (deps.communicationCommands) return { status: 410, json: { error: 'Use the public communication command service.' } };
-    if (!deps.slackReviewRequest) return { status: 503, json: { error: 'Slack review requests are unavailable.' } };
-    try {
-      return { status: 200, json: await deps.slackReviewRequest(_body) };
-    } catch (error) {
-      if (error instanceof SlackReviewError) return { status: error.status, json: { error: error.message, uncertain: error.uncertain } };
-      return { status: 502, json: { error: 'Slack review request failed. Check Slack before retrying.', uncertain: true } };
-    }
-  }
+  if (path === '/api/slack/review-request') return { status: 410, json: { error: 'Use the public communication command service.' } };
   const todoMatch = path.match(/^\/api\/todos\/(TODO-[1-9]\d*)$/);
   if (path === '/api/todos' || todoMatch) {
     if (!deps.todos) return { status: 503, json: { error: 'Todos unavailable.' } };
@@ -344,20 +296,9 @@ export async function handleApi(
     } };
   }
   const slackRead = path.match(/^\/api\/slack\/notifications\/([a-z\d_-]{1,128})\/read$/i);
-  if (slackRead && method === 'POST') {
-    if (deps.communication) return { status: 410, json: { error: 'Use the scoped communication notification service.' } };
-    const ok = deps.slack?.markRead(slackRead[1]) ?? false;
-    return { status: ok ? 200 : 404, json: ok ? { ok: true } : { error: 'notification not found' } };
-  }
-  if (path === '/api/dashboard' && method === 'GET') {
-    const payload = await deps.dashboard(query.get('repo'));
-    return { status: 200, json: payload };
-  }
-  if (path === '/api/triage' && method === 'GET') {
-    return { status: 200, json: await deps.triage(query.get('repo')) };
-  }
-  if (path === '/api/bugs' && method === 'GET') {
-    return { status: 200, json: await deps.bugs(query.get('repo')) };
+  if (slackRead) return { status: 410, json: { error: 'Use the scoped communication notification service.' } };
+  if (['/api/dashboard', '/api/triage', '/api/bugs'].includes(path)) {
+    return { status: 410, json: { error: 'Use the versioned task, task-view and run-read services.' } };
   }
   if (path === '/api/agents' && method === 'GET') {
     return { status: 200, json: { runs: deps.db.listRuns(50).map((row) => toRunSummary(row, deps.db)), autoClaim: deps.autoClaimRepos(), caps: deps.caps() } };
@@ -504,84 +445,18 @@ export async function handleApi(
     if (b.key === 'AGENT_ADAPTER' || b.key === 'AGENT_CMD') return { status: 410, json: { error: 'Use `helmsman plugins configure <plugin-id> …`, then `helmsman plugins select-agent <plugin/id>`.' } };
     if (b.key.startsWith('PRE_PR_')) return { status: 410, json: { error: 'Configure the selected workflow plugin; select reviewers with helmsman plugins select-agent-reviewers.' } };
     if (b.key === 'AUTO_CLAIM_INTERVAL_MS') return { status: 410, json: { error: 'Configure intervalMs on the selected scheduling plugin.' } };
-    if (deps.integrationSettings && /^(?:JIRA_|GITHUB_)/.test(b.key)) return { status: 410, json: { error: 'Use revision-checked integration settings; live Jira source settings belong to Source settings.' } };
-    if (deps.communication && b.key.startsWith('SLACK_')) return { status: 410, json: { error: 'Use revision-checked communication settings.' } };
+    if (/^(?:JIRA_|GITHUB_)/.test(b.key)) return { status: 410, json: { error: 'Use revision-checked integration settings; live Jira source settings belong to Source settings.' } };
+    if (b.key.startsWith('SLACK_')) return { status: 410, json: { error: 'Use revision-checked communication settings.' } };
     const r: { ok: true } | { ok: false; error: string } = deps.setConfig(b.key, b.value);
     return r.ok ? { status: 200, json: { ok: true } } : { status: 400, json: { error: r.error } };
   }
-  if (path === '/api/pr/review-requests' && method === 'GET') {
-    const repo: string | null = query.get('repo');
-    if (repo !== null && !isGithubRepo(repo)) return { status: 400, json: { error: 'Galleon must be owner/name' } };
-    return { status: 200, json: await deps.reviewRequestedPrs(repo) };
+  if (['/api/pr', '/api/pr/diff', '/api/pr/open', '/api/pr/review-requests'].includes(path)) {
+    return { status: 410, json: { error: 'Use the versioned pull request read and inspection services.' } };
   }
-  if (path === '/api/pr/open' && method === 'GET') {
-    const repo: string | null = query.get('repo');
-    if (!repo || !isGithubRepo(repo)) return { status: 400, json: { error: 'Galleon must be owner/name' } };
-    return { status: 200, json: await deps.repoOpenPrs(repo) };
-  }
+  if (path === '/api/pr/review') return { status: 410, json: { error: 'Use the public pull request command service.' } };
   const localGitResult = await handleLocalGitApi({ method, path, query, body: _body, caller: deps.localGitCaller, service: deps.publicLocalGit });
   if (localGitResult) return localGitResult;
-  if (deps.publicLocalGit && path === '/api/repo/local') return { status: 410, json: { error: 'Use scoped Local Git services.' } };
-  if (path === '/api/repo/local' && method === 'POST') {
-    const body = _body && typeof _body === 'object' && !Array.isArray(_body) ? _body as Record<string, unknown> : null;
-    if (typeof body?.repo !== 'string' || !isGithubRepo(body.repo)) return { status: 400, json: { error: 'Galleon must be owner/name' } };
-    if (!deps.localGitAction) return { status: 503, json: { error: 'Local Git actions are unavailable.' } };
-    return deps.localGitAction(body.repo, body);
-  }
-  if (path === '/api/repo/local' && method === 'GET') {
-    const repo = query.get('repo');
-    if (!repo || !isGithubRepo(repo)) return { status: 400, json: { error: 'Galleon must be owner/name' } };
-    return deps.localGit ? deps.localGit(repo) : { status: 503, json: { error: 'Local Git is unavailable.' } };
-  }
-  if (path === '/api/pr' && method === 'GET') {
-    const repo: string | null = query.get('repo');
-    const numRaw: string | null = query.get('number');
-    const n: number = Number(numRaw);
-    if (!repo || !numRaw || !Number.isFinite(n)) {
-      return { status: 400, json: { error: 'Galleon and PR number required' } };
-    }
-    const s: PrStatus | null = await deps.prStatus(repo, n);
-    return s ? { status: 200, json: s } : { status: 404, json: { error: 'PR not found or GitHub not configured' } };
-  }
-  if (path === '/api/pr/diff' && method === 'GET') {
-    const repo: string | null = query.get('repo');
-    const numRaw: string | null = query.get('number');
-    const n: number = Number(numRaw);
-    if (!repo || !numRaw || !Number.isFinite(n)) {
-      return { status: 400, json: { error: 'Galleon and PR number required' } };
-    }
-    const files: PrFileDiff[] | null = await deps.prDiff(repo, n);
-    return files ? { status: 200, json: { files } } : { status: 404, json: { error: 'PR diff not found or GitHub not configured' } };
-  }
-  if (path === '/api/pr/review' && method === 'POST') {
-    if (deps.pullRequestCommands) return { status: 410, json: { error: 'Use the public pull request command service.' } };
-    const b: { repo?: string; number?: number; event?: string; body?: string; requestId?: string; expectedHeadSha?: string } | null = _body as
-      | { repo?: string; number?: number; event?: string; body?: string; requestId?: string; expectedHeadSha?: string }
-      | null;
-    const EVENTS: string[] = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'];
-    if (
-      typeof b?.repo !== 'string' ||
-      typeof b?.number !== 'number' ||
-      !Number.isSafeInteger(b.number) || b.number < 1 ||
-      b.requestId !== undefined && (typeof b.requestId !== 'string' || !/^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i.test(b.requestId)) ||
-      b.expectedHeadSha !== undefined && (typeof b.expectedHeadSha !== 'string' || !/^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(b.expectedHeadSha)) ||
-      typeof b?.event !== 'string' ||
-      !EVENTS.includes(b.event)
-    ) {
-      return { status: 400, json: { error: 'Galleon, PR number, and a valid event are required' } };
-    }
-    if ((b.event === 'REQUEST_CHANGES' || b.event === 'COMMENT') && (typeof b.body !== 'string' || b.body.trim() === '')) {
-      return { status: 400, json: { error: 'body required for this review event' } };
-    }
-    const r: { ok: true } | { ok: false; error: string } = await deps.submitReview(
-      b.repo,
-      b.number,
-      b.event as 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT',
-      b.body ?? '',
-      ...(b.expectedHeadSha ? [b.requestId, b.expectedHeadSha] : b.requestId ? [b.requestId] : []),
-    );
-    return r.ok ? { status: 200, json: { ok: true } } : { status: 400, json: { error: r.error } };
-  }
+  if (path === '/api/repo/local') return { status: 410, json: { error: 'Use scoped Local Git services.' } };
   const terminalResult = await handleTerminalApi({ method, path, query, body: _body, caller: deps.terminalCaller, service: deps.terminal });
   if (terminalResult) return terminalResult;
   if (path.startsWith('/api/cmux/')) return { status: 410, json: { error: 'Use scoped terminal services.' } };

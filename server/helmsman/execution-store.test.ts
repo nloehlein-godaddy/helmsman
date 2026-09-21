@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openExecutionStore, type AttemptLease, type ExecutionSnapshotInput, type ExecutionStore } from './execution-store';
+import { validateExecutionSnapshot, openExecutionStore, type AttemptLease, type ExecutionSnapshotInput, type ExecutionStore } from './execution-store';
 import { openPersistence, type Persistence } from './persistence';
 
 let root: string;
@@ -228,4 +228,24 @@ it('releases source obligation pins only after authoritative settled source evid
   expect(() => store.releaseSourceClaimPins(claimId)).toThrow(/Unsettled/);
   persistence.sql.prepare('UPDATE work_claims SET json=? WHERE id=?').run(JSON.stringify({ id: claimId, state: 'settled', settlement: { claimId, disposition: 'released' } }), claimId);
   store.releaseSourceClaimPins(claimId); expect(store.pins()).toHaveLength(0);
+});
+
+describe('public source bindings in retained execution evidence', () => {
+  it.each(['helmsman/pull-request', 'helmsman/communication', 'helmsman/native-terminal'])('accepts %s only as a complete artifact-bound public contract', capability => {
+    const input = snapshot(); const source = { ...input.bindings[0]!, role: capability === 'helmsman/native-terminal' ? 'host' : 'effect', capability,
+      contributionId: 'example.host/source', connectionId: 'connection', credentialHandle: 'opaque-handle' };
+    expect(() => validateExecutionSnapshot({ ...input, task: { pullRequestSource: { binding: source } },
+      settings: { trigger: { source: { bindings: [source] } }, triggerReviewSource: { binding: source } } })).not.toThrow();
+    for (const invalid of [{ capability }, { ...source, artifactHash: 'f'.repeat(64) }, { ...source, contractVersion: 2 },
+      { ...source, contributionId: 'different.plugin/source' }, { ...source, role: 'workflow' }, { ...source, extra: true }]) {
+      expect(() => validateExecutionSnapshot({ ...input, task: { source: invalid } })).toThrow('credential values');
+    }
+  });
+  it('still rejects raw capabilities, secret-looking contracts and secrets nested beside valid public bindings', () => {
+    const input = snapshot(); const source = { ...input.bindings[0]!, role: 'effect', capability: 'helmsman/pull-request', contributionId: 'example.host/source' };
+    for (const task of [{ capability: 'private-worker-token' }, { ...source, capability: 'helmsman/private-token' },
+      { source, secret: 'private' }, { source, nested: { capability: 'private' } }]) {
+      expect(() => validateExecutionSnapshot({ ...input, task })).toThrow('credential values');
+    }
+  });
 });

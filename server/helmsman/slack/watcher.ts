@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { isGithubRepo } from '../../pr-lists';
 import type { CommunicationReviewTriggerProviderV1 } from '../../../src/plugins/trigger';
 import type { ExecutionStore } from '../execution-store';
 import { persistenceHash } from '../persistence';
@@ -7,24 +6,11 @@ import { parseTriggerProvenanceV1, triggerDependencyPins, type TriggerProvenance
 import { runReviewTrigger, type CommunicationReviewSourceCapture, type SelectedTriggerCapture } from '../trigger-runtime';
 import type { ReviewNotificationProposal, SlackHealth, SlackSourceState, SlackStore } from './store';
 
-export interface SlackMessage {
-  channelId: string;
-  ts: string;
-  permalink: string;
-  author: string;
-  prUrls: string[];
-}
-
-export interface SlackSource {
-  scan(options: { since: string | null }): Promise<{ messages: SlackMessage[]; complete: boolean }>;
-}
-
 export interface SlackWatcherOptions {
   store: SlackStore;
   clientId: string;
   channelId: string;
   channelName: string;
-  source: SlackSource;
   allowedRepos: () => readonly string[];
   canLaunch: (repo: string) => boolean;
   getRun: (runId: string) => unknown;
@@ -32,7 +18,7 @@ export interface SlackWatcherOptions {
   launch: (input: { repo: string; prNumber: number; mode: 'review'; runId: string; headSha?: string; workflowRef?: string; trigger?: TriggerProvenanceV1 }) => string;
   now?: () => string;
   intervalMs?: number;
-  captureTrigger?: (signal: AbortSignal) => SelectedTriggerCapture<CommunicationReviewTriggerProviderV1> | null;
+  captureTrigger: (signal: AbortSignal) => SelectedTriggerCapture<CommunicationReviewTriggerProviderV1> | null;
   captureSource?: (signal: AbortSignal) => CommunicationReviewSourceCapture;
   defaultWorkflowRef?: () => string;
   verifyProposal?: (proposal: ReviewNotificationProposal, trigger: TriggerProvenanceV1) => void | Promise<void>;
@@ -43,27 +29,6 @@ export interface SlackWatcherOptions {
 export interface SlackWatcher {
   poll(): Promise<void>;
   health(): SlackHealth;
-}
-
-export function parsePullRequestUrl(value: unknown): { repo: string; prNumber: number; prUrl: string } | null {
-  if (typeof value !== 'string' || !/^https:\/\/github\.com\//i.test(value)) return null;
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.port || url.username || url.password) return null;
-    const match = /^\/([a-z\d](?:[a-z\d-]*[a-z\d])?)\/([a-z\d_.-]+)\/pull\/([1-9]\d*)\/?$/i.exec(url.pathname);
-    if (!match) return null;
-    const prNumber = Number(match[3]);
-    if (!Number.isSafeInteger(prNumber)) return null;
-    const repo = `${match[1]}/${match[2]}`.toLowerCase();
-    if (!isGithubRepo(repo)) return null;
-    return { repo, prNumber, prUrl: `https://github.com/${repo}/pull/${prNumber}` };
-  } catch { return null; }
-}
-
-function timestamp(value: unknown): number | null {
-  if (typeof value !== 'string' || !/^\d{10,}\.\d{1,6}$/.test(value)) return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
 }
 
 function errorMessage(error: unknown): string {
@@ -80,7 +45,6 @@ export function createSlackWatcher(options: SlackWatcherOptions): SlackWatcher {
     intervalMs, lastSuccessAt: null, error: 'Waiting for first scan',
   });
   state.health = { ...state.health, enabled: true, channelName: options.channelName, intervalMs };
-  const activatedTs = Date.parse(state.activatedAt) / 1000;
   let pending: Promise<void> | null = null;
 
   const communicationRows = (status: 'queued' | 'launched') => store.notificationsByStatus(status).filter(notification => {
@@ -121,6 +85,7 @@ export function createSlackWatcher(options: SlackWatcherOptions): SlackWatcher {
           }
           continue;
         }
+        if (!capture) continue;
         let trigger: TriggerProvenanceV1 | undefined;
         if (notification.trigger) {
           if (!capture || !notification.proposal || !options.verifyProposal) continue;
@@ -163,51 +128,11 @@ export function createSlackWatcher(options: SlackWatcherOptions): SlackWatcher {
     }
   }
 
-  async function scan(): Promise<void> {
-    state.health = { ...state.health, status: 'scanning', error: null };
-    store.saveSource(state);
-    try {
-      const cursorTs = timestamp(state.cursor) ?? activatedTs;
-      const since = Math.max(activatedTs, cursorTs - 300).toFixed(6);
-      const result = await options.source.scan({ since });
-      if (!result || !Array.isArray(result.messages) || typeof result.complete !== 'boolean') throw new Error('Invalid Slack scan response');
-      let nextCursor = cursorTs;
-      for (const message of result.messages) {
-        const ts = timestamp(message?.ts);
-        if (!message || message.channelId !== options.channelId || ts === null || ts < activatedTs) continue;
-        nextCursor = Math.max(nextCursor, ts);
-        for (const value of Array.isArray(message.prUrls) ? message.prUrls : []) {
-          const pr = parsePullRequestUrl(value);
-          if (!pr) continue;
-          const id = createHash('sha256').update(JSON.stringify([key, message.channelId, message.ts, pr.prUrl])).digest('hex');
-          const createdAt = now();
-          store.insertNotification(key, {
-            id, ...pr, sourceUrl: typeof message.permalink === 'string' ? message.permalink : '',
-            author: typeof message.author === 'string' ? message.author : 'Unknown',
-            channelName: options.channelName, status: 'queued', runId: `slack-${id}`,
-            createdAt, updatedAt: createdAt, readAt: null, error: null,
-          });
-        }
-      }
-      if (result.complete) {
-        state.cursor = nextCursor.toFixed(6);
-        state.health = { ...state.health, status: 'healthy', lastSuccessAt: now(), error: null };
-      } else {
-        state.health = { ...state.health, status: 'partial', error: 'Slack scan was incomplete; cursor retained for retry' };
-      }
-    } catch (error) {
-      state.health = { ...state.health, status: 'unavailable', error: errorMessage(error) };
-    } finally {
-      store.saveSource(state);
-      await drainQueue(null);
-    }
-  }
-
   async function scanTriggered(): Promise<void> {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]);
     let capture: SelectedTriggerCapture<CommunicationReviewTriggerProviderV1> | null;
-    try { capture = options.captureTrigger?.(signal) ?? null; }
+    try { capture = options.captureTrigger(signal); }
     catch (error) {
       await drainQueue(null);
       state.health = { ...state.health, status: 'unavailable', error: errorMessage(error) };
@@ -252,7 +177,7 @@ export function createSlackWatcher(options: SlackWatcherOptions): SlackWatcher {
 
   return {
     poll() {
-      pending ??= (options.captureTrigger ? scanTriggered() : scan()).finally(() => { pending = null; });
+      pending ??= scanTriggered().finally(() => { pending = null; });
       return pending;
     },
     health() { return { ...state.health }; },

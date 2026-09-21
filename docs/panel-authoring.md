@@ -1,6 +1,6 @@
 # Composable pages and panels
 
-Build against the distribution's `@helmsman/plugin-sdk`. Packages bundle their browser dependencies and use public services; private application imports are rejected at installation. The shipped examples are `src/plugins/helm` and `src/plugins/backlog`. Independent implementations live in `src/plugins/helm-alternative` and `src/plugins/backlog-alternative`.
+Build against the distribution's `@helmsman/plugin-sdk`. Packages bundle their browser dependencies and use public services; private application imports are rejected at installation. Start with `examples/plugins/scope-panel` in the release and the [release-only quickstart](plugin-quickstart.md). Full implementations ship in `plugin-sources/helm` and `plugin-sources/backlog`; independent alternatives ship in `plugin-sources/helm-alternative` and `plugin-sources/backlog-alternative`. These correspond to `src/plugins/*` in the source checkout. Follow the [stable SDK compatibility policy](plugin-compatibility.md).
 
 ## Package declarations
 
@@ -74,7 +74,7 @@ Declare `helmsman/source-command` version 1 for `context.services.sourceCommands
 
 Declare `helmsman/task-views-read` version 1 for `context.services.taskViews`. Triage groups are separate source-owned queries with bounded pagination, filters, update timestamps and independently qualified related-run metadata. Bugs exposes nullable metrics with approximation and sample coverage, actual due dates and an observation timestamp. An unavailable metric is not zero. The timestamp describes the current observation, not a historical Jira snapshot. Service inputs and returned refs remain bound to the exact source selection.
 
-The temporary `helmsman/todo-legacy-recovery` version 1 service is `context.services.todoLegacyRecovery`. It owns enumeration of old browser requests, receipt lookup and explicit terminal acknowledgment. Pending summaries exclude draft contents. Nonempty old journals require an explicit All-galleons scope because legacy moves and deletes do not reliably encode their origin. Ask users to check the saved identity; never reissue it through `sourceCommands`. Preserve blocked, pending and unrecorded entries. Only dismiss a confirmed terminal result after saving affected drafts or an explicit user dismissal.
+The recovery-only `helmsman/todo-legacy-recovery` version 1 service (deprecated for new integrations; see [removal criteria](plugin-compatibility.md#deprecation-and-retained-recovery)) is `context.services.todoLegacyRecovery`. It owns enumeration of old browser requests, receipt lookup and explicit terminal acknowledgment. Pending summaries exclude draft contents. Nonempty old journals require an explicit All-galleons scope because legacy moves and deletes do not reliably encode their origin. Ask users to check the saved identity; never reissue it through `sourceCommands`. Preserve blocked, pending and unrecorded entries. Only dismiss a confirmed terminal result after saving affected drafts or an explicit user dismissal.
 
 ## Source administration
 

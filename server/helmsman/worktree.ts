@@ -38,11 +38,19 @@ async function removeWorktreeForBranch(repoDir: string, branch: string): Promise
   }
 }
 
-export async function createWorktreeFromBranch(agentsRoot: string, repo: string, runId: string, branch: string): Promise<Worktree> {
+export async function createWorktreeFromBranch(agentsRoot: string, repo: string, runId: string, branch: string, expectedHeadSha?: string): Promise<Worktree> {
   const repoDir: string = join(agentsRoot, repoBasename(repo));
+  if (expectedHeadSha !== undefined) {
+    if (!/^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(expectedHeadSha)) throw new Error('Invalid retained PR head');
+    await run('git', ['check-ref-format', `refs/heads/${branch}`]);
+    await run('git', ['-C', repoDir, 'fetch', '--no-tags', 'origin', `refs/heads/${branch}`], { maxBuffer: 1024 * 1024 * 16 });
+    const fetched = await run('git', ['-C', repoDir, 'rev-parse', '--verify', 'FETCH_HEAD^{commit}']);
+    if (fetched.stdout.trim().toLowerCase() !== expectedHeadSha.toLowerCase()) throw new Error('PR branch changed after preparation');
+  }
   await run('git', ['-C', repoDir, 'worktree', 'prune']).catch(() => undefined);
   await removeWorktreeForBranch(repoDir, branch);
-  await run('git', ['-C', repoDir, 'fetch', 'origin', `+${branch}:${branch}`], { maxBuffer: 1024 * 1024 * 16 });
+  if (expectedHeadSha !== undefined) await run('git', ['-C', repoDir, 'branch', '-f', '--', branch, expectedHeadSha]);
+  else await run('git', ['-C', repoDir, 'fetch', 'origin', `+${branch}:${branch}`], { maxBuffer: 1024 * 1024 * 16 });
   const path: string = join(repoDir, '.worktrees', runId);
   await run('git', ['-C', repoDir, 'worktree', 'add', path, branch], { maxBuffer: 1024 * 1024 * 16 });
   return { path, branch };

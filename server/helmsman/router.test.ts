@@ -1,39 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { handleApi, type RouterDeps } from './router';
 import { openTodoStore, type TodoStore } from './todos';
-import { SlackReviewError } from './slack/review-request';
 import { ResumeError } from './resume';
-import type { PrStatus } from '../github';
-import type { BugsResponse } from '../../src/types';
 import { openDb, type RunRow } from './db';
 import { createUsageQueryService } from './usage-service';
 import { CapabilityResolutionError } from './plugins/backend';
 import { aggregateOutcomes } from './outcomes';
 
-const samplePrStatus: PrStatus = {
-  number: 5,
-  repo: 'o/r',
-  state: 'open',
-  draft: false,
-  merged: false,
-  headRefName: 'feat/x',
-  headSha: 'abc123',
-  reviewDecision: 'REVIEW_REQUIRED',
-  comments: 0,
-  checks: { passed: 1, failed: 0, pending: 0 },
-  reviews: { requested: 0, approved: 0, changesRequested: 0, commented: 0 },
-  url: 'https://github.com/o/r/pull/5',
-};
-
 const deps: RouterDeps = {
-  dashboard: async (repo) => ({ snapshot: { repo: repo ?? 'all' }, degraded: [], repos: ['o/r'], selectedRepo: repo }),
-  triage: async (repo) => ({
-    groups: { unassignedBacklog: [], unassignedTodo: [], mineOpen: [] },
-    degraded: false,
-    selectedRepo: repo,
-    jiraBaseUrl: 'https://x.atlassian.net',
-  }),
-  bugs: async (): Promise<BugsResponse> => ({ cards: [], degraded: false, generatedAt: '', latestWindow: '', previousWindow: '' }),
   db: {
     listRuns: () => [{ id: 'r1', ticketId: 'T-1', repo: 'o/r', adapter: 'claude-code', status: 'running', attempt: 1, prNumber: null, startedAt: 'x', endedAt: null, costUsd: null, worktreePath: null }],
     latestReviewVerdict: () => null,
@@ -46,19 +20,13 @@ const deps: RouterDeps = {
   caps: () => ({ maxAttempts: 3, maxCostUsd: 5 }),
   getConfig: () => ({ config: { AGENT_MAX_ATTEMPTS: 1 }, overridden: ['AGENT_MAX_ATTEMPTS'], jiraTokenSet: true }),
   setConfig: (_key: string, _value: string) => ({ ok: true }),
-  prStatus: async (_repo: string, _prNumber: number) => samplePrStatus,
-  reviewRequestedPrs: async () => ({ prs: [], degraded: false, truncated: false }),
-  repoOpenPrs: async () => ({ prs: [], degraded: false, truncated: false }),
-  localGit: async () => ({ status: 200, json: { repo: 'o/r', path: '/agents/r', branches: [], worktrees: [], error: null } }),
-  prDiff: async (_repo: string, _prNumber: number) => [{ filename: 'a.ts', status: 'modified', additions: 1, deletions: 0, patch: '@@ x @@' }],
-  submitReview: async (_repo: string, _prNumber: number, _event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', _body: string) => ({ ok: true as const }),
+
 };
 
 describe('handleApi', () => {
-  it('retires legacy clarification writes when durable services are active without touching compatibility state', async () => {
+  it('retires legacy clarification writes without touching compatibility state when the plugin service is absent', async () => {
     const timeoutDue = vi.fn(); const cleanupOrphans = vi.fn(); const answer = vi.fn(); const saveContact = vi.fn(); const ingestQuestion = vi.fn();
-    const local = { ...deps, publicClarifications: {} as NonNullable<RouterDeps['publicClarifications']>,
-      clarifications: { timeoutDue, cleanupOrphans, answer, saveContact, ingestQuestion } as unknown as RouterDeps['clarifications'] };
+    const local = { ...deps, clarifications: { timeoutDue, cleanupOrphans, answer, saveContact, ingestQuestion } as unknown as RouterDeps['clarifications'] };
     for (const path of ['/api/clarifications', '/api/clarifications/question-1/answer', '/api/trusted-contacts']) {
       expect((await handleApi('POST', path, new URLSearchParams(), { runId: 'r1', answer: 'yes' }, local))?.status).toBe(410);
     }
@@ -191,26 +159,10 @@ describe('handleApi', () => {
     expect(runPage).not.toHaveBeenCalled();
   });
 
-  it('posts Slack review requests only from the explicit endpoint and preserves uncertain delivery errors', async () => {
-    const body = { repo: 'o/r', prNumber: 5, requestId: 'request-id' };
-    const receipt = { ok: true as const, channel: 'airo-editing', mention: 'airo-editing-squad', permalink: null };
-    const request = vi.fn().mockResolvedValue(receipt);
-    expect(await handleApi('POST', '/api/slack/review-request', new URLSearchParams(), body, { ...deps, slackReviewRequest: request }))
-      .toEqual({ status: 200, json: receipt });
-    expect(request).toHaveBeenCalledWith(body);
-    expect(await handleApi('POST', '/api/slack/review-request', new URLSearchParams(), body, deps))
-      .toMatchObject({ status: 503 });
-    request.mockRejectedValue(new SlackReviewError('Check Slack before retrying.', 502, true));
-    expect(await handleApi('POST', '/api/slack/review-request', new URLSearchParams(), body, { ...deps, slackReviewRequest: request }))
-      .toEqual({ status: 502, json: { error: 'Check Slack before retrying.', uncertain: true } });
-  });
-
   it('loads navigation context from local configuration', async () => {
     const value = { repos: ['o/r'], jiraBaseUrl: 'https://x.atlassian.net' };
-    const dashboard = vi.fn();
-    expect(await handleApi('GET', '/api/context', new URLSearchParams(), null, { ...deps, dashboard, context: () => value }))
+    expect(await handleApi('GET', '/api/context', new URLSearchParams(), null, { ...deps, context: () => value }))
       .toEqual({ status: 200, json: value });
-    expect(dashboard).not.toHaveBeenCalled();
   });
 
   it('exposes external usage without generating external requests', async () => {
@@ -220,85 +172,26 @@ describe('handleApi', () => {
     expect(outboundUsage).toHaveBeenCalledTimes(1);
   });
 
-  it('routes explicit local Git actions and preserves safety rejections', async () => {
-    const localGitAction = vi.fn().mockResolvedValue({ status: 409, json: { error: 'Worktree is in use.' } });
-    const body = { repo: 'o/r', action: 'delete-worktree', path: '/agents/r/.worktrees/run', expectedCommit: 'a'.repeat(40) };
-    expect(await handleApi('POST', '/api/repo/local', new URLSearchParams(), body, { ...deps, localGitAction }))
-      .toEqual({ status: 409, json: { error: 'Worktree is in use.' } });
-    expect(localGitAction).toHaveBeenCalledWith('o/r', body);
-    for (const invalid of [null, [], { repo: '../outside' }, { repo: 1 }]) {
-      expect((await handleApi('POST', '/api/repo/local', new URLSearchParams(), invalid, { ...deps, localGitAction }))?.status).toBe(400);
-    }
-    expect(localGitAction).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns durable Slack state and marks only existing notifications read', async () => {
-    const snapshot = { health: { enabled: false, status: 'disabled' as const, channelName: 'airo-editing', intervalMs: 300000, lastSuccessAt: null, error: null }, notifications: [] };
-    const markRead = vi.fn((id: string) => id === 'known');
-    const withSlack = { ...deps, slack: { snapshot: () => snapshot, markRead } };
-    expect(await handleApi('GET', '/api/slack', new URLSearchParams(), null, withSlack)).toEqual({ status: 200, json: snapshot });
-    expect(await handleApi('POST', '/api/slack/notifications/known/read', new URLSearchParams(), null, withSlack)).toEqual({ status: 200, json: { ok: true } });
-    expect((await handleApi('POST', '/api/slack/notifications/missing/read', new URLSearchParams(), null, withSlack))?.status).toBe(404);
-    expect((await handleApi('GET', '/api/slack/notifications/known/read', new URLSearchParams(), null, withSlack))?.status).toBe(404);
-    expect(markRead).toHaveBeenCalledTimes(2);
-  });
-  it('routes local checkout requests and preserves unknown-repository responses', async () => {
-    const response = { status: 404, json: { error: 'Galleon is not configured.' } };
-    const localGit = vi.fn().mockResolvedValue(response);
-    expect(await handleApi('GET', '/api/repo/local', new URLSearchParams({ repo: 'o/r' }), null, { ...deps, localGit })).toEqual(response);
-    expect(localGit).toHaveBeenCalledWith('o/r');
-  });
-
-  it.each(['', 'owner', 'o/..', '../repo', 'o/r/extra', '/tmp/repo', 'o/r?x=y'])('rejects invalid local checkout repo %s', async (repo) => {
-    const localGit = vi.fn();
-    expect((await handleApi('GET', '/api/repo/local', new URLSearchParams({ repo }), null, { ...deps, localGit }))?.status).toBe(400);
-    expect(localGit).not.toHaveBeenCalled();
-  });
-
-  it('routes review requests globally or for a selected repository and preserves partial status', async () => {
-    const result = { prs: [], degraded: true, truncated: true };
-    const reviewRequestedPrs = vi.fn().mockResolvedValue(result);
-    for (const repo of [null, 'o/r']) {
-      const response = await handleApi('GET', '/api/pr/review-requests', new URLSearchParams(repo ? { repo } : {}), null, { ...deps, reviewRequestedPrs });
-      expect(reviewRequestedPrs).toHaveBeenLastCalledWith(repo);
-      expect(response).toEqual({ status: 200, json: result });
-    }
-  });
-
-  it('routes repository open PRs and validates required repository names', async () => {
-    const repoOpenPrs = vi.fn().mockResolvedValue({ prs: [], degraded: false, truncated: false });
-    const response = await handleApi('GET', '/api/pr/open', new URLSearchParams('repo=o/r'), null, { ...deps, repoOpenPrs });
-    expect(response?.status).toBe(200);
-    expect(repoOpenPrs).toHaveBeenCalledWith('o/r');
-    for (const repo of ['', 'owner', 'o/r/extra', 'o/..', 'o/r?state=closed']) {
-      for (const path of ['/api/pr/open', '/api/pr/review-requests']) {
-        expect((await handleApi('GET', path, new URLSearchParams({ repo }), null, deps))?.status).toBe(400);
+  it.each([false, true])('retires private feature endpoints without invoking former dependencies (services present: %s)', async servicesPresent => {
+    const legacy = vi.fn(() => { throw new Error('Retired implementation must not execute'); });
+    const local = { ...deps, dashboard: legacy, triage: legacy, bugs: legacy, prStatus: legacy, prDiff: legacy,
+      reviewRequestedPrs: legacy, repoOpenPrs: legacy, submitReview: legacy, localGit: legacy, localGitAction: legacy,
+      slackReviewRequest: legacy, campaigns: { handle: legacy }, slack: { snapshot: legacy, markRead: legacy },
+      ...(servicesPresent ? { publicCampaigns: {}, publicLocalGit: {}, pullRequestCommands: {}, communication: {}, communicationCommands: {} } : {}) } as unknown as RouterDeps;
+    for (const path of ['/api/dashboard', '/api/triage', '/api/bugs', '/api/pr', '/api/pr/diff', '/api/pr/open',
+      '/api/pr/review-requests', '/api/pr/review', '/api/repo/local', '/api/campaigns', '/api/campaigns/example/start',
+      '/api/slack/review-request', '/api/slack/notifications/known/read']) {
+      for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {
+        expect((await handleApi(method, path, new URLSearchParams({ repo: 'o/r', number: '5' }), { repo: 'o/r' }, local))?.status, `${method} ${path}`).toBe(410);
       }
     }
-    expect((await handleApi('GET', '/api/pr/open', new URLSearchParams(), null, deps))?.status).toBe(400);
+    expect(legacy).not.toHaveBeenCalled();
   });
 
-  it('serves the dashboard with the repo query', async () => {
-    const r = await handleApi('GET', '/api/dashboard', new URLSearchParams('repo=o/r'), null, deps);
-    expect(r?.status).toBe(200);
-    expect((r?.json as { selectedRepo: string }).selectedRepo).toBe('o/r');
-  });
-
-  it('serves triage groups with the repo query', async () => {
-    const r = await handleApi('GET', '/api/triage', new URLSearchParams('repo=o/r'), null, deps);
-    expect(r?.status).toBe(200);
-    expect((r?.json as { selectedRepo: string }).selectedRepo).toBe('o/r');
-    expect((r?.json as { groups: unknown }).groups).toBeDefined();
-  });
-
-  it('routes GET /api/bugs to the bugs dep with the repo query', async () => {
-    let seen: string | null | undefined;
-    const res = await handleApi('GET', '/api/bugs', new URLSearchParams('repo=o/a'), null, {
-      ...deps,
-      bugs: async (repo: string | null) => { seen = repo; return { cards: [], degraded: false, generatedAt: 'now', latestWindow: 'a', previousWindow: 'b' }; },
-    });
-    expect(seen).toBe('o/a');
-    expect(res).toEqual({ status: 200, json: { cards: [], degraded: false, generatedAt: 'now', latestWindow: 'a', previousWindow: 'b' } });
+  it('preserves read-only Slack diagnostics without restoring notification writes', async () => {
+    const snapshot = { health: { enabled: false, status: 'disabled' as const, channelName: 'reviews', intervalMs: 300000, lastSuccessAt: null, error: null }, notifications: [] };
+    expect(await handleApi('GET', '/api/slack', new URLSearchParams(), null, { ...deps, slack: { snapshot: () => snapshot } })).toEqual({ status: 200, json: snapshot });
+    expect(await handleApi('GET', '/api/slack', new URLSearchParams(), null, deps)).toMatchObject({ status: 200, json: { health: { enabled: false, status: 'disabled' }, notifications: [] } });
   });
 
   it('lists runs', async () => {
@@ -575,114 +468,17 @@ describe('config routes', () => {
   });
 
   it('rejects updates to a non-editable config key', async () => {
-    const setConfig = vi.fn(() => ({ ok: false as const, error: 'not an editable config key: JIRA_API_TOKEN' }));
+    const setConfig = vi.fn(() => ({ ok: false as const, error: 'not an editable config key: UNKNOWN_KEY' }));
     const configDeps = { ...deps, setConfig } as unknown as RouterDeps;
-    const r = await handleApi('PUT', '/api/config', new URLSearchParams(), { key: 'JIRA_API_TOKEN', value: 'x' }, configDeps);
+    const r = await handleApi('PUT', '/api/config', new URLSearchParams(), { key: 'UNKNOWN_KEY', value: 'x' }, configDeps);
     expect(r?.status).toBe(400);
-    expect(r?.json).toEqual({ error: 'not an editable config key: JIRA_API_TOKEN' });
+    expect(r?.json).toEqual({ error: 'not an editable config key: UNKNOWN_KEY' });
   });
 
   it('rejects an update missing key', async () => {
     const r = await handleApi('PUT', '/api/config', new URLSearchParams(), { value: '3' }, deps);
     expect(r?.status).toBe(400);
     expect(r?.json).toEqual({ error: 'key and value required' });
-  });
-});
-
-describe('GET /api/pr', () => {
-  it('returns the PR status for a repo and number', async () => {
-    const r = await handleApi('GET', '/api/pr', new URLSearchParams('repo=o/r&number=5'), null, deps);
-    expect(r?.status).toBe(200);
-    expect(r?.json).toEqual(samplePrStatus);
-  });
-
-  it('rejects a request missing number', async () => {
-    const r = await handleApi('GET', '/api/pr', new URLSearchParams('repo=o/r'), null, deps);
-    expect(r?.status).toBe(400);
-    expect(r?.json).toEqual({ error: 'Galleon and PR number required' });
-  });
-
-  it('rejects a request with a non-numeric number', async () => {
-    const r = await handleApi('GET', '/api/pr', new URLSearchParams('repo=o/r&number=x'), null, deps);
-    expect(r?.status).toBe(400);
-    expect(r?.json).toEqual({ error: 'Galleon and PR number required' });
-  });
-
-  it('rejects a request missing repo', async () => {
-    const r = await handleApi('GET', '/api/pr', new URLSearchParams('number=5'), null, deps);
-    expect(r?.status).toBe(400);
-    expect(r?.json).toEqual({ error: 'Galleon and PR number required' });
-  });
-
-  it('returns 404 when the PR is not found or GitHub is not configured', async () => {
-    const notFoundDeps = { ...deps, prStatus: async (_repo: string, _n: number) => null } as unknown as RouterDeps;
-    const r = await handleApi('GET', '/api/pr', new URLSearchParams('repo=o/r&number=5'), null, notFoundDeps);
-    expect(r?.status).toBe(404);
-    expect(r?.json).toEqual({ error: 'PR not found or GitHub not configured' });
-  });
-
-  it('GET /api/pr/diff returns the per-file diff', async () => {
-    const r = await handleApi('GET', '/api/pr/diff', new URLSearchParams('repo=o/r&number=5'), null, deps);
-    expect(r?.status).toBe(200);
-    expect(r?.json).toEqual({ files: [{ filename: 'a.ts', status: 'modified', additions: 1, deletions: 0, patch: '@@ x @@' }] });
-  });
-
-  it('GET /api/pr/diff validates params and 404s when unavailable', async () => {
-    expect((await handleApi('GET', '/api/pr/diff', new URLSearchParams('repo=o/r'), null, deps))?.status).toBe(400);
-    const nullDeps = { ...deps, prDiff: async (_r: string, _n: number) => null } as unknown as RouterDeps;
-    const r = await handleApi('GET', '/api/pr/diff', new URLSearchParams('repo=o/r&number=5'), null, nullDeps);
-    expect(r?.status).toBe(404);
-  });
-
-  it('never leaks the GitHub token in the response', async () => {
-    const r = await handleApi('GET', '/api/pr', new URLSearchParams('repo=o/r&number=5'), null, deps);
-    expect(JSON.stringify(r?.json)).not.toContain('GITHUB_TOKEN');
-  });
-});
-
-describe('POST /api/pr/review', () => {
-  it('closes legacy admission when public review commands own publication', async () => {
-    const submitReview = vi.fn();
-    const response = await handleApi('POST', '/api/pr/review', new URLSearchParams(),
-      { repo: 'o/r', number: 5, event: 'APPROVE', body: '' },
-      { ...deps, submitReview, pullRequestCommands: {} } as unknown as RouterDeps);
-    expect(response?.status).toBe(410); expect(submitReview).not.toHaveBeenCalled();
-  });
-  it('submits an approve review and returns ok', async () => {
-    const submitReview = vi.fn(async (_repo: string, _n: number, _event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', _body: string) => ({ ok: true as const }));
-    const reviewDeps = { ...deps, submitReview } as unknown as RouterDeps;
-    const r = await handleApi('POST', '/api/pr/review', new URLSearchParams(), { repo: 'o/r', number: 5, event: 'APPROVE', body: '' }, reviewDeps);
-    expect(submitReview).toHaveBeenCalledWith('o/r', 5, 'APPROVE', '');
-    expect(r?.status).toBe(200);
-    expect(r?.json).toEqual({ ok: true });
-  });
-
-  it('rejects a COMMENT review with an empty body', async () => {
-    const r = await handleApi('POST', '/api/pr/review', new URLSearchParams(), { repo: 'o/r', number: 5, event: 'COMMENT', body: '' }, deps);
-    expect(r?.status).toBe(400);
-  });
-
-  it('rejects a REQUEST_CHANGES review with an empty body', async () => {
-    const r = await handleApi('POST', '/api/pr/review', new URLSearchParams(), { repo: 'o/r', number: 5, event: 'REQUEST_CHANGES', body: '' }, deps);
-    expect(r?.status).toBe(400);
-  });
-
-  it('rejects an invalid event', async () => {
-    const r = await handleApi('POST', '/api/pr/review', new URLSearchParams(), { repo: 'o/r', number: 5, event: 'BOGUS', body: '' }, deps);
-    expect(r?.status).toBe(400);
-  });
-
-  it('rejects a request missing number', async () => {
-    const r = await handleApi('POST', '/api/pr/review', new URLSearchParams(), { repo: 'o/r', event: 'APPROVE', body: '' }, deps);
-    expect(r?.status).toBe(400);
-  });
-
-  it('propagates a submitReview failure as a 400 with the error', async () => {
-    const submitReview = async (_repo: string, _n: number, _event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', _body: string) => ({ ok: false as const, error: 'nope' });
-    const reviewDeps = { ...deps, submitReview } as unknown as RouterDeps;
-    const r = await handleApi('POST', '/api/pr/review', new URLSearchParams(), { repo: 'o/r', number: 5, event: 'APPROVE', body: '' }, reviewDeps);
-    expect(r?.status).toBe(400);
-    expect(r?.json).toEqual({ error: 'nope' });
   });
 });
 
@@ -813,16 +609,8 @@ it('returns terminal Todo rejection evidence only for durable source command rej
   expect(await handleApi('PUT', '/api/todos/TODO-1', query, { title: 'Wanted' }, local)).toEqual({ status: 409, json: { error: 'Unknown delivery' } });
 });
 
- it.each(['GET', 'POST'])('retires legacy Local Git %s when its public service is active', async method => {
-  const localGit = vi.fn(); const localGitAction = vi.fn();
-  const publicLocalGit = {} as NonNullable<RouterDeps['publicLocalGit']>;
-  expect((await handleApi(method, '/api/repo/local', new URLSearchParams({ repo: 'o/r' }), { repo: 'o/r', action: 'refresh-remotes' }, { ...deps, publicLocalGit, localGit, localGitAction }))?.status).toBe(410);
-  expect(localGit).not.toHaveBeenCalled(); expect(localGitAction).not.toHaveBeenCalled();
-});
-
-it.each(['JIRA_API_TOKEN', 'JIRA_ENABLED', 'JIRA_PROJECT', 'JIRA_ASSIGNEE', 'JIRA_JQL', 'GITHUB_REPO', 'GITHUB_PR_AUTHOR', 'GITHUB_REVIEW_WATCH_ENABLED'])('retires legacy %s writes without echoing values', async key => {
+it.each(['JIRA_API_TOKEN', 'JIRA_ENABLED', 'JIRA_PROJECT', 'JIRA_ASSIGNEE', 'JIRA_JQL', 'GITHUB_REPO', 'GITHUB_PR_AUTHOR', 'GITHUB_REVIEW_WATCH_ENABLED', 'SLACK_ENABLED', 'SLACK_WATCH_ENABLED'])('retires legacy %s writes without echoing values', async key => {
   const setConfig = vi.fn();
-  const integrationSettings = {} as NonNullable<RouterDeps['integrationSettings']>;
-  const result = await handleApi('PUT', '/api/config', new URLSearchParams(), { key, value: 'fixture-secret-never-return' }, { ...deps, integrationSettings, setConfig });
+  const result = await handleApi('PUT', '/api/config', new URLSearchParams(), { key, value: 'fixture-secret-never-return' }, { ...deps, setConfig });
   expect(result?.status).toBe(410); expect(JSON.stringify(result)).not.toContain('fixture-secret-never-return'); expect(setConfig).not.toHaveBeenCalled();
 });

@@ -10,6 +10,8 @@ export interface TriggerPullRequestReadCapture {
   binding: ProviderBinding;
   artifacts: readonly ArtifactBinding[];
   revision: string;
+  repos?: readonly string[];
+  settings?: Readonly<Record<string, import('../../src/plugins/backend').PluginJson>>;
   provider: PullRequestProviderV1;
   context: PullRequestProviderContextV1;
   assertCurrent(): void;
