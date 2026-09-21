@@ -1,3 +1,4 @@
+import { beginCoordinatorStage } from './coordinator-settlement';
 import { spawn, execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import { mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises';
@@ -113,10 +114,15 @@ export async function assertClarificationReady(task: AgentTask, runId: string, f
 export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, cwd: string, emit: (event: AgentEvent) => void,
   signal: AbortSignal, timeoutMs = STAGE_TIMEOUT): Promise<void> {
   if (signal.aborted) throw new Error('Voyage stopped');
-  const isolated = usesIsolatedExecution(task) ? await prepareExecutionHostStage(adapter, task, cwd) : undefined;
-  const command = isolated?.command ?? adapter.buildCommand(task);
+  const stageSettled = beginCoordinatorStage();
+  let isolated: Awaited<ReturnType<typeof prepareExecutionHostStage>> | undefined;
+  let prepared = false;
+  let containmentFailed = false;
   let success = false;
   try {
+    isolated = usesIsolatedExecution(task) ? await prepareExecutionHostStage(adapter, task, cwd) : undefined;
+    prepared = true;
+    const command = isolated?.command ?? adapter.buildCommand(task);
     await new Promise<void>((done, reject) => {
     const grouped = process.platform !== 'win32';
     const child = spawn(command.cmd, command.args, { cwd, env: process.env, detached: grouped, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -127,7 +133,10 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
         if (grouped && child.pid) process.kill(-child.pid, signal);
         else child.kill(signal);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException)?.code !== 'ESRCH') failure ??= error instanceof Error ? error : new Error(String(error));
+        if ((error as NodeJS.ErrnoException)?.code !== 'ESRCH') {
+          containmentFailed = true;
+          failure ??= error instanceof Error ? error : new Error(String(error));
+        }
       }
     };
     const stop = (message: string) => {
@@ -182,7 +191,10 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
     if (signal.aborted) abort();
     });
     success = true;
-  } finally { await isolated?.cleanup(success); }
+  } finally {
+    await isolated?.cleanup(success);
+    if (prepared && !containmentFailed) stageSettled();
+  }
 }
 
 export function stageEventEmitter(adapter: AgentAdapter | string, task: AgentTask, emit: (event: AgentEvent) => void): (event: AgentEvent) => void {

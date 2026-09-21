@@ -1,3 +1,4 @@
+import { acknowledgeCoordinatorSettlement } from './coordinator-settlement';
 import type { AgentEvent } from './agents/adapter';
 import { runPrePrRuntime } from './pre-pr-runtime';
 import { validatePublicationConnection } from './publication-client';
@@ -16,3 +17,5 @@ try {
   emit({ kind: 'error', text: error instanceof Error ? error.message : String(error) });
   process.exitCode = 1;
 }
+
+await acknowledgeCoordinatorSettlement();

@@ -254,7 +254,7 @@ it.skipIf(process.platform === 'win32')('lets a staged coordinator settle its se
   const coordinator = `
     const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(stage)}], { detached: true, stdio: 'ignore' });
     process.on('SIGTERM', () => setTimeout(() => child.kill('SIGKILL'), 5200));
-    child.on('exit', () => process.exit(1));
+    child.on('exit', () => process.send({ kind: 'helmsman-coordinator-settled', version: 1 }, () => process.exit(1)));
   `;
   const spec = { ...base, args: ['-e', coordinator], coordinator: true };
   const provider = createDetachedExecutionHost();
@@ -267,7 +267,7 @@ it.skipIf(process.platform === 'win32')('lets a staged coordinator settle its se
   expect(await readFile(join(spec.cwd, 'stage-ticks'), 'utf8')).toBe(before);
 }, 12000);
 
-it.skipIf(process.platform === 'win32')('does not invent stage settlement after a coordinator crashes', async () => {
+it.skipIf(process.platform === 'win32').each(['signal', 'exception', 'exit'] as const)('does not invent stage settlement after a coordinator %s', async crash => {
   const base = await fixture();
   const stage = `
     const fs = require('node:fs');
@@ -277,7 +277,7 @@ it.skipIf(process.platform === 'win32')('does not invent stage settlement after 
   const coordinator = `
     const fs = require('node:fs');
     require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(stage)}], { detached: true, stdio: 'ignore' });
-    const wait = setInterval(() => { if (fs.existsSync('stage-ticks')) process.kill(process.pid, 'SIGKILL'); }, 10);
+    const wait = setInterval(() => { if (fs.existsSync('stage-ticks')) { ${crash === 'signal' ? "process.kill(process.pid, 'SIGKILL');" : crash === 'exception' ? "throw new Error('Unexpected coordinator exception');" : "process.exit(1);"} } }, 10);
   `;
   const spec = { ...base, args: ['-e', coordinator], coordinator: true };
   const provider = createDetachedExecutionHost();
@@ -290,4 +290,24 @@ it.skipIf(process.platform === 'win32')('does not invent stage settlement after 
   expect(await readFile(join(spec.cwd, 'stage-ticks'), 'utf8')).not.toBe(before);
   await new Promise(resolve => setTimeout(resolve, 1250));
   expect(existsSync(spec.exitPath)).toBe(false);
+});
+
+it.skipIf(process.platform === 'win32').each([0, 3])('accepts explicit settlement from real stage runtime after worker exit %s', async code => {
+  const base = await fixture();
+  const runtime = join(process.cwd(), 'server/helmsman/pre-pr-runtime.ts');
+  const settlement = join(process.cwd(), 'server/helmsman/coordinator-settlement.ts');
+  const coordinator = `
+    import { executePrePrStage } from ${JSON.stringify(runtime)};
+    import { acknowledgeCoordinatorSettlement } from ${JSON.stringify(settlement)};
+    try {
+      await executePrePrStage({ id: 'fixture', buildCommand: () => ({ cmd: process.execPath, args: ['-e', 'process.exit(${code})'] }), parseLine: () => null },
+        { repo: 'org/repo', ticketId: 'fixture', title: 'Fixture', jiraBaseUrl: '' }, process.cwd(), () => {}, new AbortController().signal);
+    } catch { process.exitCode = 1; }
+    await acknowledgeCoordinatorSettlement();
+  `;
+  const spec = { ...base, args: ['--import', import.meta.resolve('tsx'), '--input-type=module', '-e', coordinator], coordinator: true };
+  const provider = createDetachedExecutionHost();
+  const ref = await provider.launch(spec);
+  await settled(spec, provider, ref);
+  expect(JSON.parse(await readFile(spec.exitPath, 'utf8')).exitCode).toBe(code === 0 ? 0 : 1);
 });

@@ -33,11 +33,16 @@ function supervise() {
   process.on('SIGINT', () => terminate('SIGINT'));
   process.on('disconnect', () => terminate('SIGTERM'));
   const fd = openSync(spec.logPath, 'a');
-  const worker = spawn(spec.cmd, spec.args ?? [], { cwd: spec.cwd, stdio: ['ignore', fd, fd] });
-  worker.once('exit', code => settle(code ?? 1, !spec.coordinator || code !== null));
+  let acknowledged = false;
+  const worker = spawn(spec.cmd, spec.args ?? [], { cwd: spec.cwd, stdio: spec.coordinator ? ['ignore', fd, fd, 'ipc'] : ['ignore', fd, fd] });
+  worker.on('message', message => {
+    if (message?.kind === 'helmsman-coordinator-settled' && message.version === 1) acknowledged = true;
+  });
+  worker.once('exit', code => settle(code ?? 1, !spec.coordinator || acknowledged && code !== null));
   worker.once('error', error => {
     try { writeFileSync(spec.logPath, `run-wrapper: cannot start ${spec.cmd}: ${error.message}\n`, { flag: 'a' }); } catch {}
-    settle(127);
+    if (!worker.pid) settle(127);
+    else terminate('SIGTERM');
   });
 }
 

@@ -1,3 +1,4 @@
+import { acknowledgeCoordinatorSettlement } from './coordinator-settlement';
 import type { AgentEvent, AgentTask } from './agents/adapter';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -51,3 +52,5 @@ try {
   process.off('SIGINT', stop);
   process.off('SIGHUP', stop);
 }
+
+await acknowledgeCoordinatorSettlement();
