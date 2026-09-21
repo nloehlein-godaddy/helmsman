@@ -100,15 +100,21 @@ export function createGithubReviewWatcher(options: GithubReviewWatcherOptions): 
     }
   }
 
-  async function drainCaptured(capture: SelectedTriggerCapture<PullRequestReviewTriggerProviderV1> | null): Promise<void> {
+  function reconcileCapturedReceipts(): void {
     recover();
     for (const notification of reviewRows('queued')) {
       if (recoverQueued(notification)) {
         if (notification.trigger && notification.runId && options.getRun(notification.runId)) {
           try { options.releaseTriggerPins?.({ store: 'review', rowId: notification.id }); } catch { }
         }
-        continue;
       }
+    }
+  }
+
+  async function drainCaptured(capture: SelectedTriggerCapture<PullRequestReviewTriggerProviderV1>,
+    source: PullRequestReviewSourceCapture, observed: ReadonlySet<string>): Promise<void> {
+    for (const notification of reviewRows('queued')) {
+      if (!observed.has(`${notification.repo.toLowerCase()}#${notification.prNumber}`)) continue;
       const repo = options.allowedRepos().find(value => value.toLowerCase() === notification.repo.toLowerCase());
       if (!repo) {
         store.updateNotification(notification.id, 'blocked', now(), `Galleon ${notification.repo} is not configured`);
@@ -120,13 +126,14 @@ export function createGithubReviewWatcher(options: GithubReviewWatcherOptions): 
         let headSha: string;
         let workflowRef: string | undefined;
         if (notification.trigger) {
-          if (!capture || !notification.proposal || !options.verifyProposal) continue;
+          if (!notification.proposal || !options.verifyProposal) continue;
           trigger = parseTriggerProvenanceV1(notification.trigger);
           if (trigger.instanceId !== capture.instanceId || persistenceHash(notification.proposal) !== trigger.proposalHash) throw new Error('Captured review trigger is no longer current');
           try {
-            capture.assertCurrent();
+            capture.assertCurrent(); source.assertCurrent();
+            if (persistenceHash(trigger.source) !== persistenceHash(source.source)) throw new Error('Recorded review source changed');
             await options.verifyProposal(notification.proposal, trigger);
-            capture.assertCurrent();
+            capture.assertCurrent(); source.assertCurrent();
           } catch (error) {
             store.updateNotification(notification.id, 'queued', now(), message(error));
             continue;
@@ -142,7 +149,7 @@ export function createGithubReviewWatcher(options: GithubReviewWatcherOptions): 
         const token = randomUUID();
         if (!store.claimDispatch(notification.id, token, now())) continue;
         try {
-          capture?.assertCurrent();
+          capture.assertCurrent(); source.assertCurrent();
           const current = store.getNotification(notification.id);
           if (!current || current.status !== 'queued' || current.runId !== notification.runId) continue;
           const existing = options.findExistingReview?.(repo, notification.prNumber, headSha);
@@ -263,16 +270,15 @@ export function createGithubReviewWatcher(options: GithubReviewWatcherOptions): 
   }
 
   async function scanTriggered(): Promise<void> {
+    reconcileCapturedReceipts();
     const signal = AbortSignal.timeout(30_000);
     let capture: SelectedTriggerCapture<PullRequestReviewTriggerProviderV1> | null;
     try { capture = options.captureTrigger?.(signal) ?? null; }
     catch (error) {
-      await drainCaptured(null);
       state.health = { ...state.health, status: 'unavailable', error: message(error) };
       store.saveSource(state);
       return;
     }
-    await drainCaptured(capture);
     state.health = { ...state.health, enabled: capture !== null, status: capture ? 'scanning' : 'disabled', error: null };
     store.saveSource(state);
     if (!capture) return;
@@ -299,17 +305,18 @@ export function createGithubReviewWatcher(options: GithubReviewWatcherOptions): 
         capture.assertCurrent(); source.assertCurrent();
       }, retainPins: options.retainPins });
       state.cursor = null; state.health = nextState.health;
-      if (result.complete) {
-        const observed = new Set(notifications.map(item => item.notification.id));
+      reconcileCapturedReceipts();
+      const observed = new Set(result.observedRequested?.items.map(item => `${item.repo.toLowerCase()}#${item.number}`) ?? []);
+      if (result.observedRequested?.quality === 'complete' && !result.observedRequested.truncated) {
         for (const notification of reviewRows('queued')) {
-          if (!notification.trigger || observed.has(notification.id)) continue;
+          if (!notification.trigger || observed.has(`${notification.repo.toLowerCase()}#${notification.prNumber}`)) continue;
           const trigger = parseTriggerProvenanceV1(notification.trigger);
           if (trigger.instanceId !== capture.instanceId || persistenceHash(trigger.source) !== persistenceHash(source.source)) continue;
           store.updateNotification(notification.id, 'blocked', now(), 'Review request was removed');
           try { options.releaseTriggerPins?.({ store: 'review', rowId: notification.id }); } catch { }
         }
       }
-      await drainCaptured(capture);
+      await drainCaptured(capture, source, observed);
     } catch (error) {
       state.health = { ...state.health, status: 'unavailable', error: message(error) };
       store.saveSource(state);

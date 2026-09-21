@@ -25,6 +25,7 @@ export interface CampaignStore {
   task(id: string): CampaignTask | null;
   retryTask(id: string): CampaignTask;
   queuedTasks(): CampaignTask[];
+  claimableTasks(): CampaignTask[];
   activeTasks(): CampaignTask[];
   claim(id: string): CampaignTask | null;
   trigger(id: string): unknown | null;
@@ -192,6 +193,13 @@ export function openCampaignStore(path: string | Database.Database, options: { n
   const task = (key: string) => read<CampaignTask>('campaign_tasks', key);
   const phases = (key: string) => rows<CampaignPhase>('campaign_phases', 'WHERE campaignId = ? ORDER BY position', [id(key)]);
   const tasks = (key: string) => rows<CampaignTask>('campaign_tasks', 'WHERE phaseId = ? ORDER BY rowid', [id(key)]);
+  const activeTasks = () => rows<CampaignTask>('campaign_tasks', "WHERE state IN ('claiming', 'running') ORDER BY rowid");
+  function canClaim(current: CampaignTask, active: CampaignTask[]): boolean {
+    if (current.state !== 'queued' || phase(current.phaseId)?.state !== 'running') return false;
+    const campaign = get(current.campaignId);
+    return !!campaign && active.filter(item => item.campaignId === current.campaignId).length < campaign.concurrency
+      && !active.some(item => item.record.repo.toLowerCase() === current.record.repo.toLowerCase());
+  }
   function saveTask(item: CampaignTask): void {
     sql.prepare('UPDATE campaign_tasks SET state = ?, runId = ?, claimToken = ?, payload = ? WHERE id = ?')
       .run(item.state, item.runId, item.claimToken, JSON.stringify(item), item.id);
@@ -302,7 +310,11 @@ export function openCampaignStore(path: string | Database.Database, options: { n
       return next;
     }).immediate,
     queuedTasks: () => rows<CampaignTask>('campaign_tasks', "WHERE state = 'queued' ORDER BY rowid"),
-    activeTasks: () => rows<CampaignTask>('campaign_tasks', "WHERE state IN ('claiming', 'running') ORDER BY rowid"),
+    claimableTasks() {
+      const active = activeTasks();
+      return rows<CampaignTask>('campaign_tasks', "WHERE state = 'queued' ORDER BY rowid").filter(item => canClaim(item, active));
+    },
+    activeTasks,
     trigger(key) {
       const row = sql.prepare('SELECT triggerJson FROM campaign_tasks WHERE id = ?').get(id(key)) as { triggerJson: string | null } | undefined;
       if (!row?.triggerJson) return null;
@@ -311,12 +323,7 @@ export function openCampaignStore(path: string | Database.Database, options: { n
     },
     claim: sql.transaction((key: string): CampaignTask | null => {
       const current = task(key);
-      if (!current || current.state !== 'queued' || phase(current.phaseId)?.state !== 'running') return null;
-      const campaign = get(current.campaignId);
-      if (!campaign) return null;
-      const active = rows<CampaignTask>('campaign_tasks', "WHERE state IN ('claiming', 'running')");
-      if (active.filter(item => item.campaignId === current.campaignId).length >= campaign.concurrency
-        || active.some(item => item.record.repo.toLowerCase() === current.record.repo.toLowerCase())) return null;
+      if (!current || !canClaim(current, activeTasks())) return null;
       const claimed: CampaignTask = { ...current, state: 'claiming', claimToken: randomUUID(), claimedAt: now(), updatedAt: now() };
       saveTask(claimed);
       return claimed;
@@ -325,26 +332,16 @@ export function openCampaignStore(path: string | Database.Database, options: { n
       const captured = sql.prepare('SELECT triggerJson FROM campaign_tasks WHERE id = ?').get(id(key)) as { triggerJson: string | null } | undefined;
       if (!captured?.triggerJson) return null;
       const current = task(key);
-      if (!current || current.state !== 'queued' || phase(current.phaseId)?.state !== 'running') return null;
-      const campaign = get(current.campaignId);
-      if (!campaign) return null;
-      const active = rows<CampaignTask>('campaign_tasks', "WHERE state IN ('claiming', 'running')");
-      if (active.filter(item => item.campaignId === current.campaignId).length >= campaign.concurrency
-        || active.some(item => item.record.repo.toLowerCase() === current.record.repo.toLowerCase())) return null;
+      if (!current || !canClaim(current, activeTasks())) return null;
       const claimed: CampaignTask = { ...current, state: 'claiming', claimToken: randomUUID(), claimedAt: now(), updatedAt: now() };
       saveTask(claimed);
       return claimed;
     }).immediate,
     claimTriggered: sql.transaction((input: { id: string; attempt: number; trigger: unknown; pins: readonly ArtifactPin[]; assertCurrent(): void; retainPins(pins: readonly ArtifactPin[]): void }): CampaignTask | null => {
       const current = task(input?.id);
-      if (!current || current.state !== 'queued' || current.attempt !== input.attempt || phase(current.phaseId)?.state !== 'running') return null;
+      if (!current || current.attempt !== input.attempt || !canClaim(current, activeTasks())) return null;
       const prior = sql.prepare('SELECT triggerJson FROM campaign_tasks WHERE id = ?').get(current.id) as { triggerJson: string | null } | undefined;
       if (prior?.triggerJson) return null;
-      const campaign = get(current.campaignId);
-      if (!campaign) return null;
-      const active = rows<CampaignTask>('campaign_tasks', "WHERE state IN ('claiming', 'running')");
-      if (active.filter(item => item.campaignId === current.campaignId).length >= campaign.concurrency
-        || active.some(item => item.record.repo.toLowerCase() === current.record.repo.toLowerCase())) return null;
       const trigger = object(input.trigger);
       if (!trigger || !Array.isArray(input.pins)) throw new CampaignValidationError('Invalid campaign trigger capture');
       input.assertCurrent();

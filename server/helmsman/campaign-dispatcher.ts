@@ -90,8 +90,8 @@ export function createCampaignDispatcher(options: CampaignDispatcherOptions): { 
     }
   }
 
-  function eligible(): CampaignTask[] {
-    return store.queuedTasks().filter(candidate => store.phase(candidate.phaseId)?.state === 'running'
+  function eligible(attempted: Set<string>): CampaignTask[] {
+    return store.claimableTasks().filter(candidate => !attempted.has(candidate.id)
       && options.canStart(candidate.record.repo) && !options.getRun(candidate.runId));
   }
 
@@ -122,12 +122,14 @@ export function createCampaignDispatcher(options: CampaignDispatcherOptions): { 
     const triggerController = new AbortController();
     const triggerCapture = options.captureTrigger(triggerController.signal);
     if (!triggerCapture) return;
+    const attempted = new Set<string>();
     for (;;) {
-      const captured = eligible().find(item => store.trigger(item.id));
+      const captured = eligible(attempted).find(item => store.trigger(item.id));
       if (captured) {
         const provenance = parseTriggerProvenanceV1(store.trigger(captured.id));
         const compatible = provenance.instanceId === triggerCapture.instanceId;
         triggerCapture.assertCurrent();
+        attempted.add(captured.id);
         const item = store.claimCaptured(captured.id);
         if (!item) continue;
         if (!compatible) {
@@ -138,7 +140,7 @@ export function createCampaignDispatcher(options: CampaignDispatcherOptions): { 
         await launchClaimed(item);
         continue;
       }
-      const queued = eligible().filter(item => !store.trigger(item.id));
+      const queued = eligible(attempted).filter(item => !store.trigger(item.id));
       if (!queued.length) break;
       const offset = windowOffset % queued.length;
       const rotated = [...queued.slice(offset), ...queued.slice(0, offset)];
@@ -173,9 +175,10 @@ export function createCampaignDispatcher(options: CampaignDispatcherOptions): { 
           || persistenceHash({ current, campaign, phase }) !== sourceRevision) throw new Error('Campaign changed before trigger capture');
       };
       if (!options.retainPins) throw new Error('Campaign trigger pin retention is unavailable');
+      attempted.add(selected.id);
       const item = store.claimTriggered({ id: selected.id, attempt: selected.attempt, trigger: decision.trigger,
         pins: triggerDependencyPins(decision.trigger, 'campaign', selected.id), assertCurrent, retainPins: options.retainPins });
-      if (!item) break;
+      if (!item) continue;
       windowOffset = 0;
       await launchClaimed(item);
     }

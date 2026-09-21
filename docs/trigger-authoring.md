@@ -16,6 +16,8 @@ A `CampaignTriggerProviderV1` synchronously chooses one opaque `candidateId` fro
 
 Use only the current input. Do not retain a cursor or mark work claimed. Helmsman reloads and revalidates the chosen candidate, records provenance with the existing claim transaction, and rebuilds the snapshot after every claim.
 
+Candidate projection uses the same campaign concurrency and galleon exclusion checks as the atomic claim. A rejected claim is skipped for the remainder of that poll so it cannot block other eligible campaigns.
+
 ## Review discovery
 
 A review watcher declares either `source: 'communication'` or `source: 'pull-request'`. That discriminator controls its invocation context.
@@ -23,6 +25,8 @@ A review watcher declares either `source: 'communication'` or `source: 'pull-req
 Communication watchers can read scoped messages and exact pull-request details. Proposal `eventId` values must come from observed messages, and `targetId` values must come from details returned during the same invocation. Return a timestamp cursor only after a complete scan. When a required detail is unavailable or the message scan is incomplete, return `complete: false` without advancing the cursor.
 
 Pull-request watchers can read the selected provider's requested-review list and exact details. Their proposals use `eventId: null` and `nextCursor: null`. Partial, degraded, or truncated list results are incomplete. Filter closed, merged, and draft pull requests, and never infer a head SHA from a list item; only detail results carry the exact target revision.
+
+Core records requested-review membership separately from policy proposals. Queued reviews require positive membership in the current scan before a new admission. A complete source list retires removed requests; partial or failed scans preserve unobserved requests without launching them. Replacement policy filters govern new proposals and do not cancel a retained decision for a request still present. Existing-run receipts reconcile even while intake is disabled.
 
 Check `context.signal` around every asynchronous read and stop promptly when aborted. Helmsman also validates observed handles, bounds reads and output, fences selection and source revisions, deduplicates events, rechecks the exact pull-request head before dispatch, and owns cursor persistence.
 

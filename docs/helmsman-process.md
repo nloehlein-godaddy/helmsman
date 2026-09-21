@@ -429,7 +429,7 @@ Trigger extraction is active, pending final acceptance. The roles `campaign`, `s
 ```mermaid
 flowchart TD
     Select[Selected trigger + immutable settings] --> Input{Trigger kind}
-    Input -->|Campaign| Candidates[Bounded eligible candidate handles]
+    Input -->|Campaign| Candidates[Bounded eligible candidate handles<br/>Campaign concurrency and galleon exclusion]
     Input -->|Review| Reads[Selected communication / browser / PR providers<br/>Capture source revisions and observed event / target handles]
     Input -->|Webhook| Auth[Core credential + raw-body HMAC<br/>Authenticate before duplicate lookup]
     Candidates --> Policy[Bounded plugin choice, scan or parse]
@@ -438,7 +438,7 @@ flowchart TD
     Policy --> Fence{Selection, settings, source and handles current?}
     Fence -->|No or disabled| Block[Discard stale result<br/>No cursor advance or new admission]
     Fence -->|Yes| Store[Existing claim / enqueue transaction<br/>Normalized proposal + provenance + dependency pins<br/>Stable event dedupe and complete-scan cursor]
-    Store --> Guard{Original proposal, source, exact head,<br/>workflow, capacity and existing-run checks}
+    Store --> Guard{Original proposal, source, exact head,<br/>current requested-review membership,<br/>workflow, capacity and existing-run checks}
     Guard -->|Allowed| Admit[Guarded admission with original run ID<br/>Verified dependency-pin handoff]
     Guard -->|Blocked| Retain[Keep original queued identity and evidence]
     Admit --> Reconcile[Existing-run receipts and reconciliation<br/>Continue after policy disablement]
@@ -446,6 +446,8 @@ flowchart TD
 ```
 
 Campaign capture occurs at claim, not import; an unclaimed imported intent may receive its first policy decision after cutover. Already claimed legacy tasks reconcile the original run. Watch proposals and complete-scan cursor updates are atomic. Partial or stale scans never advance the cursor. Dedupe keys exclude policy versions, settings and selections; accepted proposals never run through replacement policy. Authenticated ignored webhook events also retain their digest, so later routes cannot reinterpret duplicates.
+
+Campaign candidates share the atomic claim's concurrency and galleon checks; rejected claims are skipped for the rest of the poll. Requested reviews dispatch only after positive source-list membership. Complete source lists retire removed requests independently of policy filtering; partial or failed scans retain unobserved queued work without launching it.
 
 Legacy watch flags and webhook routes seed settings once. Slack/GitHub watch forms expose read-only status and direct operators to the selected trigger plugin. `HELMSMAN_WEBHOOK_SECRET` seeds a core slot once; rotate or clear through `PUT /api/webhooks/github/credential` with `{secret:string}`. Empty clears intake credentials; secrets never enter plugin settings. See [trigger authoring](trigger-authoring.md) and [webhook setup](webhooks.md).
 

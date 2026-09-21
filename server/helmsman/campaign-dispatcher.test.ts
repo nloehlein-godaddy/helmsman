@@ -24,7 +24,106 @@ function setup(concurrency = 2) {
   return { store, campaign, phase, tasks, runs, launch, stop, options, advance: () => { clock += 1001; }, dispatcher: createCampaignDispatcher(options) };
 }
 
+function fifoCapture(): SelectedTriggerCapture<CampaignTriggerProviderV1> {
+  const artifact = { pluginId: 'example.trigger', artifactHash: 'a'.repeat(64), packageVersion: '1.0.0', requires: [] };
+  const provider: CampaignTriggerProviderV1 = { metadata: { version: 1, label: 'FIFO', kind: 'campaign', intervalMs: 1000 },
+    select: input => input.candidates[0] ? { candidateId: input.candidates[0].candidateId } : null };
+  return { instanceId: 'campaign', selectionRevision: 'revision-1', provider, artifacts: [artifact],
+    record: { version: 1, binding: { providerId: 'example.trigger/watch', pluginId: 'example.trigger', artifactHash: artifact.artifactHash, contractVersion: 1 },
+      origin: 'external', settings: {}, metadata: provider.metadata }, assertCurrent() {} };
+}
+
+function addCampaign(store: CampaignStore, repo: string) {
+  const campaign = store.create({ name: 'Independent', repo, workflowRef: 'coding@v1', concurrency: 1 });
+  const phase = store.createPhase(campaign.id, { name: 'Phase' });
+  const preview = store.previewImport({ phaseId: phase.id, format: 'jsonl', content: '{"task":"Independent"}' });
+  const tasks = store.confirmImport(preview.id);
+  store.setPhaseState(phase.id, 'start');
+  return tasks[0]!;
+}
+
 describe('campaign dispatcher', () => {
+  it('refreshes campaign claim capacity without starving an independent campaign', async () => {
+    const f = setup(1);
+    const independent = addCampaign(f.store, 'org/d');
+    const capture = fifoCapture();
+    const select = vi.spyOn(capture.provider, 'select');
+    const dispatcher = createCampaignDispatcher({ ...f.options, captureTrigger: () => capture, retainPins: vi.fn() });
+    await dispatcher.poll();
+    await dispatcher.poll();
+    expect(f.launch.mock.calls.map(([task]) => task.runId)).toEqual([f.tasks[0]!.runId, independent.runId]);
+    expect(select.mock.calls[1]?.[0].candidates.map(task => task.taskId)).toEqual([independent.id]);
+    expect(f.store.task(f.tasks[1]!.id)?.state).toBe('queued');
+  });
+
+  it('excludes galleons with active work in another campaign using case-insensitive matching', async () => {
+    const f = setup(1);
+    const conflicting = addCampaign(f.store, 'ORG/A');
+    const independent = addCampaign(f.store, 'org/d');
+    const capture = fifoCapture();
+    const select = vi.spyOn(capture.provider, 'select');
+    await createCampaignDispatcher({ ...f.options, captureTrigger: () => capture, retainPins: vi.fn() }).poll();
+    expect(f.launch.mock.calls.map(([task]) => task.runId)).toEqual([f.tasks[0]!.runId, independent.runId]);
+    expect(select.mock.calls[1]?.[0].candidates.map(task => task.taskId)).toEqual([independent.id]);
+    expect(f.store.task(conflicting.id)?.state).toBe('queued');
+  });
+
+  it('leaves retained work queued when its campaign is full and dispatches other campaigns', async () => {
+    const f = setup(1);
+    const capture = fifoCapture();
+    f.launch.mockImplementationOnce(task => task.runId);
+    const dispatcher = createCampaignDispatcher({ ...f.options, captureTrigger: () => capture, retainPins: vi.fn() });
+    await dispatcher.poll();
+    const retained = f.store.task(f.tasks[0]!.id)!;
+    expect(f.store.releaseClaim(retained.id, retained.claimToken!)).toBe(true);
+    expect(f.store.claim(f.tasks[1]!.id)).not.toBeNull();
+    const independent = addCampaign(f.store, 'org/d');
+    const claimCaptured = vi.spyOn(f.store, 'claimCaptured').mockImplementation(() => { throw new Error('Unclaimable retained task was offered'); });
+    await dispatcher.poll();
+    expect(claimCaptured).not.toHaveBeenCalled();
+    expect(f.launch.mock.calls.map(([task]) => task.runId)).toEqual([retained.runId, independent.runId]);
+    expect(f.store.task(retained.id)?.state).toBe('queued');
+  });
+
+  it('attempts a rejected retained claim once per poll and continues to other campaigns', async () => {
+    const f = setup(1);
+    const capture = fifoCapture();
+    f.launch.mockImplementationOnce(task => task.runId);
+    const dispatcher = createCampaignDispatcher({ ...f.options, captureTrigger: () => capture, retainPins: vi.fn() });
+    await dispatcher.poll();
+    const retained = f.store.task(f.tasks[0]!.id)!;
+    expect(f.store.releaseClaim(retained.id, retained.claimToken!)).toBe(true);
+    const independent = addCampaign(f.store, 'org/d');
+    let attempts = 0;
+    const claimCaptured = vi.spyOn(f.store, 'claimCaptured').mockImplementation(() => {
+      if (++attempts > 1) throw new Error('Repeated rejected claim in one poll');
+      return null;
+    });
+    await dispatcher.poll();
+    expect(claimCaptured).toHaveBeenCalledExactlyOnceWith(retained.id);
+    expect(f.launch.mock.calls.map(([task]) => task.runId)).toEqual([retained.runId, f.tasks[1]!.runId, independent.runId]);
+    expect(f.store.task(retained.id)?.state).toBe('queued');
+    claimCaptured.mockRestore();
+    f.runs.set(f.tasks[1]!.runId, { status: 'succeeded' });
+    await dispatcher.poll();
+    expect(f.launch.mock.calls.at(-1)?.[0].runId).toBe(retained.runId);
+    expect(f.store.task(retained.id)?.state).toBe('running');
+  });
+
+  it('continues after a rejected new claim and retries that candidate in a later poll', async () => {
+    const f = setup(1);
+    const independent = addCampaign(f.store, 'org/d');
+    const capture = fifoCapture();
+    const claim = vi.spyOn(f.store, 'claimTriggered').mockReturnValueOnce(null);
+    const dispatcher = createCampaignDispatcher({ ...f.options, captureTrigger: () => capture, retainPins: vi.fn() });
+    await dispatcher.poll();
+    expect(claim.mock.calls.map(([input]) => input.id)).toEqual([f.tasks[0]!.id, f.tasks[1]!.id, independent.id]);
+    expect(f.launch.mock.calls.map(([task]) => task.runId)).toEqual([f.tasks[1]!.runId, independent.runId]);
+    f.runs.set(f.tasks[1]!.runId, { status: 'succeeded' });
+    await dispatcher.poll();
+    expect(f.launch.mock.calls.at(-1)?.[0].runId).toBe(f.tasks[0]!.runId);
+  });
+
   it('captures an alternative trigger choice before claiming and launches the retained proposal', async () => {
     const f = setup(1);
     const artifact = { pluginId: 'example.trigger', artifactHash: 'a'.repeat(64), packageVersion: '1.0.0', requires: [] };

@@ -24,32 +24,121 @@ function setup(overrides: Partial<GithubReviewWatcherOptions> = {}) {
   return { store, fetchRequested, fetchPr, launch, active, options, watcher: createGithubReviewWatcher(options) };
 }
 
+
+function setupTriggered() {
+  const f = setup();
+  const artifact = { pluginId: 'example.github-trigger', artifactHash: 'e'.repeat(64), packageVersion: '1.0.0', requires: [] };
+  const controls: { busy: boolean; filter: boolean; capture: SelectedTriggerCapture<PullRequestReviewTriggerProviderV1> | null } = { busy: true, filter: false, capture: null };
+  const provider: PullRequestReviewTriggerProviderV1 = {
+    metadata: { version: 1, label: 'Requested reviews', kind: 'review-watch', source: 'pull-request', intervalMs: 1000 },
+    async scan(input, context) {
+      const batch = await context.requested();
+      const candidate = batch.items[0];
+      const target = candidate && !controls.filter ? await context.detail(candidate) : null;
+      return { proposals: target ? [{ eventId: null, targetId: target.targetId, workflowRef: input.defaultWorkflowRef,
+        sourceUrl: target.url, author: 'GitHub', channelName: 'GitHub requested reviews' }] : [], nextCursor: null,
+        complete: batch.quality === 'complete' && !batch.truncated };
+    },
+  };
+  const capture: SelectedTriggerCapture<PullRequestReviewTriggerProviderV1> = {
+    instanceId: 'github-review', selectionRevision: 'revision-1', provider, artifacts: [artifact],
+    record: { version: 1, binding: { providerId: 'example.github-trigger/watch', pluginId: 'example.github-trigger', artifactHash: artifact.artifactHash, contractVersion: 1 },
+      origin: 'external', settings: { filter: false }, metadata: provider.metadata }, assertCurrent() {},
+  };
+  controls.capture = capture;
+  const source = {
+    kind: 'pull-request' as const, source: { sourceKey: 'github-review-requests', revision: 'source-1', bindings: [] }, artifacts: [], assertCurrent() {},
+    requested: vi.fn<PullRequestReviewSourceCapture['requested']>().mockResolvedValue({ items: [{ repo: 'org/repo', number: 42 }], quality: 'complete', truncated: false }),
+    detail: vi.fn<PullRequestReviewSourceCapture['detail']>().mockResolvedValue({ repo: 'org/repo', number: 42, headSha: head, title: 'Update', url: 'https://github.com/org/repo/pull/42', status: 'open', draft: false }),
+  };
+  const retainPins = vi.fn();
+  const releaseTriggerPins = vi.fn();
+  const options: GithubReviewWatcherOptions = { ...f.options, canLaunch: () => !controls.busy,
+    captureTrigger: () => controls.capture, captureSource: () => source, defaultWorkflowRef: () => 'review@1',
+    verifyProposal: vi.fn(), retainPins, releaseTriggerPins };
+  return { ...f, controls, capture, source, options, retainPins, releaseTriggerPins, watcher: createGithubReviewWatcher(options) };
+}
+
 describe('GitHub requested review watcher', () => {
   it('persists a source-bound requested-review proposal and launches its exact head', async () => {
-    const f = setup();
-    const artifact = { pluginId: 'example.github-trigger', artifactHash: 'e'.repeat(64), packageVersion: '1.0.0', requires: [] };
-    const provider: PullRequestReviewTriggerProviderV1 = { metadata: { version: 1, label: 'Requested reviews', kind: 'review-watch', source: 'pull-request', intervalMs: 1000 },
-      async scan(input, context) {
-        const batch = await context.requested();
-        const target = await context.detail(batch.items[0]!);
-        return { proposals: target ? [{ eventId: null, targetId: target.targetId, workflowRef: input.defaultWorkflowRef,
-          sourceUrl: target.url, author: 'GitHub', channelName: 'GitHub requested reviews' }] : [], nextCursor: null,
-          complete: batch.quality === 'complete' && !batch.truncated };
-      } };
-    const capture: SelectedTriggerCapture<PullRequestReviewTriggerProviderV1> = { instanceId: 'github-review', selectionRevision: 'revision-1', provider,
-      artifacts: [artifact], record: { version: 1, binding: { providerId: 'example.github-trigger/watch', pluginId: 'example.github-trigger', artifactHash: artifact.artifactHash, contractVersion: 1 },
-        origin: 'external', settings: {}, metadata: provider.metadata }, assertCurrent() {} };
-    const source: PullRequestReviewSourceCapture = { kind: 'pull-request', source: { sourceKey: 'github-review-requests', revision: 'source-1', bindings: [] }, artifacts: [], assertCurrent() {},
-      async requested() { return { items: [{ repo: 'org/repo', number: 42 }], quality: 'complete', truncated: false }; },
-      async detail() { return { repo: 'org/repo', number: 42, headSha: head, title: 'Update', url: 'https://github.com/org/repo/pull/42', status: 'open', draft: false }; } };
-    const retainPins = vi.fn();
-    const watcher = createGithubReviewWatcher({ ...f.options, captureTrigger: () => capture, captureSource: () => source,
-      defaultWorkflowRef: () => 'review@1', verifyProposal: vi.fn(), retainPins, releaseTriggerPins: vi.fn() });
-    await watcher.poll();
+    const f = setupTriggered();
+    f.controls.busy = false;
+    await f.watcher.poll();
     expect(f.launch).toHaveBeenCalledWith(expect.objectContaining({ headSha: head, workflowRef: 'review@1', trigger: expect.objectContaining({ instanceId: 'github-review' }) }));
     expect(f.store.listNotifications()[0]).toMatchObject({ proposal: { repo: 'org/repo', number: 42, headSha: head }, trigger: { selectionRevision: 'revision-1' } });
-    expect(retainPins).toHaveBeenCalledWith([expect.objectContaining({ ownerId: expect.stringMatching(/^trigger:review:/) })]);
+    expect(f.retainPins).toHaveBeenCalledWith([expect.objectContaining({ ownerId: expect.stringMatching(/^trigger:review:/) })]);
   });
+
+  it('retires removed captured requests before admitting them despite unchanged open PR detail', async () => {
+    const f = setupTriggered();
+    await f.watcher.poll();
+    f.controls.busy = false;
+    f.source.requested.mockResolvedValue({ items: [], quality: 'complete', truncated: false });
+    await f.watcher.poll();
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(f.store.listNotifications()[0]).toMatchObject({ status: 'blocked', error: 'Review request was removed' });
+    expect(f.releaseTriggerPins).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['partial', 'degraded', 'truncated', 'failed'] as const)('preserves absent captured requests on a %s list and resumes the original run after recovery', async (condition) => {
+    const f = setupTriggered();
+    await f.watcher.poll();
+    const original = f.store.listNotifications()[0]!;
+    f.controls.busy = false;
+    if (condition === 'failed') f.source.requested.mockRejectedValueOnce(new Error('offline'));
+    else f.source.requested.mockResolvedValueOnce({ items: [], quality: condition === 'truncated' ? 'partial' : condition, truncated: condition === 'truncated' });
+    await f.watcher.poll();
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(f.store.getNotification(original.id)).toMatchObject({ status: 'queued', trigger: original.trigger, runId: original.runId });
+    expect(f.releaseTriggerPins).not.toHaveBeenCalled();
+    await f.watcher.poll();
+    expect(f.launch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ runId: original.runId, trigger: original.trigger }));
+  });
+
+  it('preserves captured decisions through restart and replacement policy filtering while allowing positively observed partial membership', async () => {
+    const f = setupTriggered();
+    await f.watcher.poll();
+    const original = f.store.listNotifications()[0]!;
+    f.controls.filter = true;
+    f.controls.capture = { ...f.capture, selectionRevision: 'revision-2', record: { ...f.capture.record,
+      binding: { ...f.capture.record.binding, providerId: 'example.replacement/watch', pluginId: 'example.replacement' }, settings: { filter: true } } };
+    const restarted = createGithubReviewWatcher(f.options);
+    await restarted.poll();
+    expect(f.store.getNotification(original.id)).toMatchObject({ status: 'queued', proposal: original.proposal, trigger: original.trigger, runId: original.runId });
+    expect(f.releaseTriggerPins).not.toHaveBeenCalled();
+    f.controls.busy = false;
+    f.source.requested.mockResolvedValueOnce({ items: [{ repo: 'org/repo', number: 42 }], quality: 'partial', truncated: true });
+    await restarted.poll();
+    expect(f.launch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ runId: original.runId, headSha: head, workflowRef: 'review@1', trigger: original.trigger }));
+    expect(f.store.getNotification(original.id)).toMatchObject({ status: 'launched', proposal: original.proposal, trigger: original.trigger });
+  });
+
+  it('does not infer source removal or membership from a policy that skips discovery', async () => {
+    const f = setupTriggered();
+    await f.watcher.poll();
+    f.controls.busy = false;
+    f.capture.provider.scan = async () => ({ proposals: [], nextCursor: null, complete: false });
+    await f.watcher.poll();
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(f.store.listNotifications()[0]?.status).toBe('queued');
+    expect(f.releaseTriggerPins).not.toHaveBeenCalled();
+  });
+
+  it.each(['disabled', 'unavailable', 'failed-scan'] as const)('reconciles durable receipts while %s without dispatching or requiring membership', async (condition) => {
+    const f = setupTriggered();
+    await f.watcher.poll();
+    const original = f.store.listNotifications()[0]!;
+    f.options.getRun = id => id === original.runId ? { status: 'succeeded' } : null;
+    f.controls.busy = false;
+    if (condition === 'disabled') f.controls.capture = null;
+    else if (condition === 'unavailable') f.options.captureTrigger = () => { throw new Error('unavailable'); };
+    else f.source.requested.mockRejectedValueOnce(new Error('offline'));
+    await f.watcher.poll();
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(f.store.getNotification(original.id)?.status).toBe('launched');
+    expect(f.releaseTriggerPins).toHaveBeenCalledWith({ store: 'review', rowId: original.id });
+  });
+
   it('launches currently pending reviews on the initial poll once per revision', async () => {
     const { watcher, launch, store } = setup();
     await watcher.poll();

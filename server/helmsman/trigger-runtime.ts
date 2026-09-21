@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
+import { parseTriggerRequestedBatchV1 } from '../../src/plugins/trigger';
 import type {
   CampaignTriggerCandidateV1, CampaignTriggerProviderV1, CommunicationReviewTriggerContextV1, CommunicationReviewTriggerProviderV1,
   PullRequestReviewTriggerContextV1, PullRequestReviewTriggerProviderV1, ReviewTriggerInputV1, ReviewTriggerProviderV1,
-  TriggerMessageV1, TriggerReviewTargetV1, WebhookTriggerInputV1, WebhookTriggerProviderV1,
+  TriggerMessageV1, TriggerRequestedBatchV1, TriggerReviewTargetV1, WebhookTriggerInputV1, WebhookTriggerProviderV1,
 } from '../../src/plugins/trigger';
 import type { ArtifactBinding, ProviderBinding } from './execution-store';
 import { persistenceHash } from './persistence';
@@ -98,7 +99,7 @@ export async function runReviewTrigger(input: {
   defaultWorkflowRef: string;
   capturedAt: string;
   signal?: AbortSignal;
-}): Promise<{ captures: readonly { proposal: ReviewNotificationProposal; trigger: TriggerProvenanceV1; event: TriggerMessageV1 | null }[]; nextCursor: string | null; complete: boolean }> {
+}): Promise<{ captures: readonly { proposal: ReviewNotificationProposal; trigger: TriggerProvenanceV1; event: TriggerMessageV1 | null }[]; nextCursor: string | null; complete: boolean; observedRequested: TriggerRequestedBatchV1 | null }> {
   assertCapture(input.capture, 'review-watch');
   input.source.assertCurrent();
   if (input.capture.record.metadata.kind !== 'review-watch' || input.capture.record.metadata.source !== input.source.kind) throw new Error('Review trigger source does not match the selected provider');
@@ -107,6 +108,7 @@ export async function runReviewTrigger(input: {
   const signal = AbortSignal.any([controller.signal, ...(input.signal ? [input.signal] : [])]);
   const events = new Map<string, TriggerMessageV1>();
   const targets = new Map<string, TriggerReviewTargetV1>();
+  let observedRequested: TriggerRequestedBatchV1 | null = null;
   const activatedTimestamp = Date.parse(input.activatedAt) / 1000;
   let maximumObservedTimestamp = Math.max(activatedTimestamp, Number(input.cursor ?? activatedTimestamp));
   const reviewInput: ReviewTriggerInputV1 = Object.freeze({ version: 1, activatedAt: input.activatedAt,
@@ -144,8 +146,9 @@ export async function runReviewTrigger(input: {
     const source = input.source;
     context = Object.freeze({ source: 'pull-request' as const, signal, detail,
       requested: async () => {
-        const batch = await source.requested();
+        const batch = parseTriggerRequestedBatchV1(await source.requested());
         source.assertCurrent(); input.capture.assertCurrent(); signal.throwIfAborted();
+        observedRequested = batch;
         return batch;
       } });
   }
@@ -174,7 +177,7 @@ export async function runReviewTrigger(input: {
         source: input.source.source, input: { reviewInput, event, target }, proposal, capturedAt: input.capturedAt });
       return Object.freeze({ proposal, trigger, event });
     });
-    return Object.freeze({ captures, nextCursor: result.nextCursor, complete: result.complete });
+    return Object.freeze({ captures, nextCursor: result.nextCursor, complete: result.complete, observedRequested });
   } finally {
     clearTimeout(timer); controller.abort();
   }
