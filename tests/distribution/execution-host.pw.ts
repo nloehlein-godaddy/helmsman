@@ -52,7 +52,13 @@ buildCommand(input){return {cmd:${JSON.stringify(process.execPath)},args:[${JSON
     const response = await request.post(`${origin}/api/agents/launch`, { data: { mode: 'freeform', repo: 'org/a', task: 'Keep this isolated fixture worker active until the operator stops it.' } });
     expect(response.ok(), await response.text()).toBe(true); runId = (await response.json()).runId;
     const inspect = () => host.script('inspect-host.mjs', `import Database from ${moduleUrl('node_modules/better-sqlite3/lib/index.js')};const db=new Database(process.env.HELMSMAN_DB,{readonly:true});try{console.log(JSON.stringify({attempt:db.prepare('SELECT leaseExpiresAt,leaseGeneration FROM execution_attempts WHERE runId=?').get(${JSON.stringify(runId)}),run:db.prepare('SELECT * FROM runs WHERE id=?').get(${JSON.stringify(runId)}),snapshots:db.prepare('SELECT json FROM execution_snapshots WHERE runId=?').all(${JSON.stringify(runId)}).map(row=>JSON.parse(row.json)),events:db.prepare('SELECT kind,text FROM run_events WHERE runId=?').all(${JSON.stringify(runId)})}));}finally{db.close();}`).then(value => JSON.parse(value));
-    await expect.poll(() => readFile(marker, 'utf8').then(JSON.parse).catch(() => null), { timeout: 25_000 }).toMatchObject({ input: { stage: 'implement' } });
+    try { await expect.poll(() => readFile(marker, 'utf8').then(JSON.parse).catch(() => null), { timeout: 25_000 }).toMatchObject({ input: { stage: 'implement' } }); }
+    catch (error) {
+      const state = await inspect();
+      cleanupReference = state.run?.hostRef ? JSON.parse(state.run.hostRef)?.reference : undefined;
+      const output = state.run?.logPath ? await readFile(state.run.logPath, 'utf8').catch(() => '') : '';
+      throw new Error(`${String(error)}\nRun: ${JSON.stringify(state)}\nWorker: ${output}\nServer: ${host.output()}`);
+    }
     const initial = await inspect(); expect(initial.run.status).toBe('running'); expect(initial.run.hostKind).toBe('plugin');
     const task = JSON.parse(initial.run.taskJson); const hostRef = JSON.parse(initial.run.hostRef); cleanupReference = hostRef.reference;
     expect(hostRef).toMatchObject({ kind: 'plugin', providerId });
@@ -73,7 +79,7 @@ const handle=await loadRetainedExecutionHostProvider({...saved.task.hostRuntime,
     await expect.poll(() => host.output(), { timeout: 10_000 }).toContain('reattached 1 run(s)');
     const restored = await inspect(); expect(restored.run.status).toBe('running'); expect(restored.snapshots).toEqual(initial.snapshots);
     expect(JSON.parse(restored.run.hostRef)).toEqual(hostRef); expect(JSON.parse(restored.run.taskJson).executionHost).toEqual(task.executionHost);
-    const stopped = await request.post(`${origin}/api/agents/${runId}/stop`); expect(stopped.ok()).toBe(true); const stopResult = await stopped.json(); expect(stopResult).toEqual({ stopped: true });
+    const stopped = await request.post(`${origin}/api/agents/${runId}/stop`, { data: {} }); expect(stopped.ok()).toBe(true); const stopResult = await stopped.json(); expect(stopResult).toEqual({ stopped: true });
     try { await expect.poll(async () => (await inspect()).run.status, { timeout: 25_000 }).toBe('stopped'); }
     catch (error) { throw new Error(`${String(error)}\nStop response: ${JSON.stringify(stopResult)}\nAttempt: ${JSON.stringify((await inspect()).attempt)}\nNow: ${new Date().toISOString()}\nRun events: ${JSON.stringify((await inspect()).events)}\nServer: ${host.output()}`); }
     const stoppedState = await inspect(); expect(stoppedState.snapshots).toEqual(initial.snapshots);
@@ -84,8 +90,17 @@ const handle=await loadRetainedExecutionHostProvider({...saved.task.hostRuntime,
     await expect(host.script('corrupt-host.mjs', `import {readFileSync} from 'node:fs';const saved=JSON.parse(readFileSync(${JSON.stringify(savedPath)},'utf8'));const {loadRetainedExecutionHostProvider}=await import(${moduleUrl('server/helmsman/execution-host-retained-loader.js')});await loadRetainedExecutionHostProvider({...saved.task.hostRuntime,record:saved.task.executionHost});`)).rejects.toThrow();
     expect(host.output()).not.toContain('Source checkout is unavailable');
   } finally {
-    if (runId && origin) await request.post(`${origin}/api/agents/${runId}/stop`).catch(() => {});
-    if (cleanupReference) await host.script('cleanup-owned-host.mjs', `import {readExecutionHostLaunchReceipt,isExecutionHostProcessOwned} from '@helmsman/plugin-sdk/node';const ref=${JSON.stringify(cleanupReference)};const receipt=await readExecutionHostLaunchReceipt(ref.identity);if(receipt?.pid===ref.state.pid&&receipt.processStart===ref.state.processStart&&await isExecutionHostProcessOwned(receipt.pid,receipt.processStart))process.kill(receipt.pid,'SIGTERM');`).catch(() => {});
+    if (runId && origin) await request.post(`${origin}/api/agents/${runId}/stop`, { data: {} }).catch(() => {});
+    await host.stop();
+    if (cleanupReference) await host.script('cleanup-owned-host.mjs', `import {readExecutionHostLaunchReceipt,isExecutionHostProcessOwned} from '@helmsman/plugin-sdk/node';
+const ref=${JSON.stringify(cleanupReference)};
+if(await isExecutionHostProcessOwned(ref.state.pid,ref.state.processStart)){
+  const receipt=await readExecutionHostLaunchReceipt(ref.identity);
+  if(receipt?.pid!==ref.state.pid||receipt.processStart!==ref.state.processStart)throw new Error('Fixture wrapper ownership changed; retaining fixture files');
+  try{process.kill(receipt.pid,'SIGTERM');}catch(error){if(error?.code!=='ESRCH')throw error;}
+  for(let attempt=0;attempt<200&&await isExecutionHostProcessOwned(receipt.pid,receipt.processStart);attempt++)await new Promise(resolve=>setTimeout(resolve,50));
+  if(await isExecutionHostProcessOwned(receipt.pid,receipt.processStart))throw new Error('Fixture wrapper did not settle; retaining fixture files');
+}`);
     await host.close();
   }
 });
