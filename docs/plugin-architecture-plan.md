@@ -4,7 +4,7 @@ Delivery update: implementation has resumed under the revised delivery cadence. 
 
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
-Status: Phases A–E are complete and pushed. Phase F scheduling is complete through `dd98bf9`; SDK-only agent extraction is accepted and pushed through `c5576ed`; execution-host extraction is active. Execution-host and workflow extraction, triggers, and Phase G remain pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.
+Status: Phases A–E are complete and pushed. Phase F scheduling is complete through `dd98bf9`; SDK-only agent extraction is accepted and pushed through `c5576ed`; execution-host extraction is accepted through `5849a30`. Native terminal adapters, workflows, triggers, and Phase G remain pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 
@@ -184,7 +184,7 @@ For each extraction, preserve behavior through one active implementation path. V
 
 `helmsman/execution-host@1` captures one exact provider, its settings and immutable nonsecret run configuration. Local detached/cmux/WezTerm and Docker packages implement launch, native ownership discovery, stop and optional isolated stages through the same public contract. Node receipt helpers are exported only from the SDK's `/node` entry. Core retains reservations, receipt verification, workspace protection and publication authority. Missing ownership or retained artifacts blocks recovery; changes to defaults and enablement cannot substitute another host.
 
-The current increment includes Docker child stages, not just top-level selection. Native terminal interaction, workflow definitions and remaining triggers follow. Acceptance and review remain open; this is not a Phase F completion claim.
+The current increment includes Docker child stages, not just top-level selection. Native terminal interaction, workflow definitions and remaining triggers follow. Execution-host acceptance and independent correction review are complete through `5849a30`; this is not a Phase F completion claim.
 
 ## 6. Define lifecycle, persistence, and recovery protocols
 

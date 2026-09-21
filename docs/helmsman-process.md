@@ -305,7 +305,7 @@ flowchart TD
     Exit --> Recovery
 ```
 
-Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent extraction has passed focused and installed acceptance checks; execution-host extraction is active; workflow, native terminal and trigger extraction remain Phase F work.
+Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent extraction has passed focused and installed acceptance checks; execution-host extraction is accepted; workflow, native terminal and trigger extraction remain Phase F work.
 
 ## Execution-host selection and recovery
 
