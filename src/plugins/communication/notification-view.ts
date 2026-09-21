@@ -53,7 +53,7 @@ export class NotificationView implements PluginPageInstance {
   update(next: State) { if (this.disposed) return; const changed = this.state.repo !== next.repo || this.state.visible !== next.visible || 'activity' in this.state && 'activity' in next && this.state.activity !== next.activity; if ('activity' in this.state) this.state.activity.signal.removeEventListener('abort', this.cancel); if (this.state.repo !== next.repo) { this.snapshot = null; this.error = ''; } this.state = next; if ('activity' in next) next.activity.signal.addEventListener('abort', this.cancel, { once: true }); if (changed) { this.cancel(); void this.refresh(); } this.draw(); }
   refresh = async () => {
     if (!this.active()) return; this.cancelReads(); const generation = this.generation; const controller = new AbortController(); this.controller = controller;
-    try { const result = await this.context.services!.communication!.notifications({ version: 1, repo: this.state.repo, limit: 50 }, controller.signal);
+    try { const result = await this.context.services!.communication!.notifications({ version: 1, repo: this.state.repo, limit: 256 }, controller.signal);
       if (!this.active(generation)) return;
       if (result?.status !== 'available' || result.value?.version !== 1 || !Array.isArray(result.value.notifications) || !validHealth(result.value.health) || result.value.githubHealth !== null && !validHealth(result.value.githubHealth) || result.value.notifications.some(item => !validItem(item) || this.state.repo !== null && item.repo.toLowerCase() !== this.state.repo.toLowerCase())) throw new Error('Notifications unavailable. Showing retained notifications.');
       this.snapshot = result.value; this.error = '';

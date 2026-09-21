@@ -18,7 +18,7 @@ node /absolute/path/to/release/server/helmsman/plugins/cli.js select-communicati
 
 Contributions declare `helmsman/communication@1` for reads and settings. `CommunicationServiceV1` provides:
 
-- `notifications({ version: 1, repo, limit })`, returning bounded notifications, independent Slack and GitHub health, result quality, and an unread count;
+- `notifications({ version: 1, repo, limit })`, with a limit from 1 through `COMMUNICATION_LIMITS.notifications` (256), returning bounded notifications, independent Slack and GitHub health, result quality, and an unread count;
 - `markRead({ repo, id })`, scoped to the notification's galleon;
 - `settings()`, returning the global communication values, current displayed destination, and a revision; and
 - `saveSettings({ expectedRevision, values })`, which conditionally replaces the global values.
@@ -90,3 +90,5 @@ Core Recovery dispatches public communication operations through their retained 
 The distribution ships `release/plugin-sources/communication` and `release/plugin-sources/slack`. Copy either directory outside the checkout, install the copied SDK and TypeScript, and run its build. Pack the resulting `dist` directory through the compiled CLI. Rename reserved `helmsman.*` frontend package IDs and their self-referencing initial-layout contribution IDs before installing an external copy. A backend copy also needs a nonreserved package/provider ID.
 
 The communication production gate denies access to application source, compiles and installs the frontend and backend packages against only the distributed SDK, selects both frontend slots and a communication provider, and runs the real server. It covers lost browser responses without duplicate delivery, retained receipts, settings conflicts, desktop/mobile rendering, provider disablement, restart, and selected-page unavailability. This proves standalone frontend and backend builds through the public contracts; it does not turn trusted plugin code into a sandbox.
+
+Review delivery requires the workspace and review destination; watcher channel fields are required only for scans. Proven failures before a send remain retryable under the retained operation. Failures after an attempted send remain uncertain and never authorize automatic replay. Historical success receipts remain available; preparing another request is an explicit presentation action and sends nothing until the user presses Send again. The server still enforces its cooldown.

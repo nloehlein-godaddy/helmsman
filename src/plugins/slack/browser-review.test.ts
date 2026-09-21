@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSlackBrowserReviewSender, inspectSlackReviewPage, markSlackReviewChannel, markSlackReviewGroup } from './browser-review';
 import type { SlackBrowserTransport } from './browser';
+import type { CommunicationProviderContextV1, CommunicationReviewRequestV1 } from '../communication-provider';
+import { slackCommunicationProvider } from './provider';
 
 const config = { clientId: 'ET123', channelId: 'C123', channelName: 'reviews', surface: 'surface:4' };
 const input = { repo: 'owner/repo', prNumber: 42, requestId: '11111111-1111-4111-8111-111111111111', channel: 'reviews', mention: 'reviewers' };
@@ -116,5 +118,46 @@ describe('Slack extracted sender send boundary', () => {
     expect(beforeSend).toHaveBeenCalledOnce();
     const send = browser.commands.findIndex(args => args[3]?.includes('function sendPreparedSlackReview'));
     expect(send).toBeGreaterThan(-1);
+  });
+});
+
+
+describe('Slack provider delivery outcomes', () => {
+  function providerFixture(options: Parameters<typeof fakeBrowser>[0] = {}) {
+    const browser = fakeBrowser(options);
+    const destination = { providerId: 'helmsman.slack/slack', artifactHash: 'a'.repeat(64), workspace: 'ET123', channel: 'reviews', mention: 'reviewers', connectionId: 'browser-connection' };
+    const context: CommunicationProviderContextV1 = { signal: new AbortController().signal, destination, surface: 'surface:4', watchedChannel: { id: '', name: '' }, beforeSend: vi.fn(async () => {}), browser: {
+      tree: async () => JSON.parse(await browser.transport(['--id-format', 'both', 'tree', '--all', '--json'])),
+      focus: async ({ surface }) => { await browser.transport(['rpc', 'surface.focus', JSON.stringify({ surface_id: surface })]); },
+      evaluate: async ({ surface, script }) => JSON.parse(await browser.transport(['browser', surface, 'eval', script])),
+      click: async ({ surface, selector }) => { await browser.transport(['browser', surface, 'click', selector]); },
+      fill: async ({ surface, selector, value }) => { await browser.transport(['browser', surface, 'fill', selector, value]); },
+      wait: async () => {},
+    } };
+    const request: CommunicationReviewRequestV1 = { id: 'operation-1', contentHash: 'b'.repeat(64), caller: 'helmsman.communication/review-request', requestId: input.requestId, repo: input.repo, number: input.prNumber, destination };
+    return { browser, context, request };
+  }
+  it('sends with watcher disabled and unconfigured, while scans still require a channel', async () => {
+    const f = providerFixture();
+    await expect(slackCommunicationProvider.prepareReviewRequest({ repo: input.repo, number: input.prNumber }, f.context)).resolves.toMatchObject({ workspace: 'ET123' });
+    await expect(slackCommunicationProvider.invokeReviewRequest(f.request, f.context)).resolves.toMatchObject({ status: 'acknowledged' });
+    expect(f.browser.sendCount).toBe(1); expect(f.context.beforeSend).toHaveBeenCalledOnce();
+    await expect(slackCommunicationProvider.scanReviewRequests({ since: null }, f.context)).rejects.toThrow('watched channel');
+  });
+  it('keeps proven draft conflicts retryable without claiming an uncertain send', async () => {
+    const f = providerFixture({ draft: 'User draft' });
+    await expect(slackCommunicationProvider.invokeReviewRequest(f.request, f.context)).resolves.toMatchObject({ status: 'definitely-not-applied', retryable: true });
+    expect(f.browser.sendCount).toBe(0); expect(f.context.beforeSend).not.toHaveBeenCalled();
+  });
+  it('keeps missing browser surfaces retryable', async () => {
+    const f = providerFixture(); const context = { ...f.context, browser: { ...f.context.browser, tree: async () => ({}) } };
+    await expect(slackCommunicationProvider.invokeReviewRequest(f.request, context)).resolves.toMatchObject({ status: 'definitely-not-applied', retryable: true });
+    expect(f.browser.sendCount).toBe(0);
+  });
+  it('preserves uncertainty after a send loses its response and never resends during reconciliation', async () => {
+    const f = providerFixture({ sendError: true });
+    await expect(slackCommunicationProvider.invokeReviewRequest(f.request, f.context)).resolves.toMatchObject({ status: 'unknown' });
+    await expect(slackCommunicationProvider.reconcileReviewRequest(f.request, f.context)).resolves.toMatchObject({ status: 'unknown' });
+    expect(f.browser.sendCount).toBe(1);
   });
 });

@@ -60,13 +60,12 @@ export function markSlackReviewGroup(doc: Document, handle: string): { id: strin
   return { id: options[0].id, handle };
 }
 
-export function createSlackBrowserReviewSender(config: SlackBrowserConfig, transport: SlackBrowserTransport, options: { beforeSend?: () => Promise<void> } = {}): { send(input: ReviewInput): Promise<ReviewResult> } {
+export function createSlackBrowserReviewSender(config: Pick<SlackBrowserConfig, 'clientId' | 'surface'>, transport: SlackBrowserTransport, options: { beforeSend?: () => Promise<void> } = {}): { send(input: ReviewInput): Promise<ReviewResult> } {
   return { send: input => (async () => {
     let attempted = false;
     let restore: (() => Promise<void>) | undefined;
     try {
-      if (!/^[A-Z\d]{3,32}$/.test(config.clientId) || !/^[CG][A-Z\d]{2,31}$/.test(config.channelId)
-        || !/^[a-z\d_-]{1,80}$/.test(config.channelName)) throw new SlackReviewError('Configure the authenticated Slack browser workspace and channel.', 503);
+      if (!/^[A-Z\d]{3,32}$/.test(config.clientId)) throw new SlackReviewError('Configure the authenticated Slack browser workspace.', 503);
       if (!input || typeof input.repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(input.repo) || !Number.isSafeInteger(input.prNumber) || input.prNumber < 1
         || !/^[a-f\d-]{36}$/i.test(input.requestId) || !/^(?:[CG][A-Z\d]{2,31}|[a-z\d_-]{1,80})$/.test(input.channel)
         || !/^[a-z\d_-]{1,80}$/.test(input.mention)) throw new SlackReviewError('Use a valid PR, channel name or ID, and Slack user group handle.', 400);
@@ -113,11 +112,6 @@ export function createSlackBrowserReviewSender(config: SlackBrowserConfig, trans
           ? { id, name: view.name } : null;
       };
       let channel = currentChannel();
-      if (!channel && workspace(view).pathname.endsWith('/search') && [config.channelId, config.channelName].includes(input.channel)) {
-        await click('[data-qa="tab_rail_home_button"]');
-        view = await poll(state, value => !workspace(value).pathname.endsWith('/search') && value.editors === 1 && !!value.channelId);
-        channel = currentChannel();
-      }
       if (!channel) {
         await click('[data-qa="top_nav_search"]');
         await transport(['browser', surface, 'wait', '--selector', '[role="combobox"][aria-label="Query"]', '--timeout-ms', '10000']);

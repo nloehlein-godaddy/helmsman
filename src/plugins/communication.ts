@@ -123,7 +123,7 @@ export interface CommunicationServiceV1 {
 
 export const COMMUNICATION_LIMITS: Readonly<{ responseBytes: number; notifications: number; text: number }> = Object.freeze({
   responseBytes: 512 * 1024,
-  notifications: 500,
+  notifications: 256,
   text: 2_048,
 });
 

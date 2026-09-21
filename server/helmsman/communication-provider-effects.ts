@@ -92,7 +92,7 @@ export function createCommunicationProviderEffects(options: {
   }
   function context(binding: ProviderBinding, configured: CommunicationDestinationV1, signal: AbortSignal, beforeSend: () => Promise<void>): CommunicationProviderContextV1 {
     const session = options.session(binding, configured, signal);
-    if (!session || (session.surface !== null && !text(session.surface, 512)) || !text(session.watchedChannel?.id, 128) || !text(session.watchedChannel?.name, 128) || !session.browser) throw new Error('Communication browser session is unavailable.');
+    if (!session || (session.surface !== null && !text(session.surface, 512)) || typeof session.watchedChannel?.id !== 'string' || session.watchedChannel.id.length > 128 || typeof session.watchedChannel?.name !== 'string' || session.watchedChannel.name.length > 128 || !session.browser) throw new Error('Communication browser session is unavailable.');
     return Object.freeze({ signal, destination: configured, surface: session.surface, watchedChannel: Object.freeze({ id: session.watchedChannel.id, name: session.watchedChannel.name }), browser: session.browser, beforeSend });
   }
   async function prepareReviewRequestCore(input: { readonly repo: string; readonly number: number; readonly expectedDestination: CommunicationDestinationV1 }, signal = new AbortController().signal) {

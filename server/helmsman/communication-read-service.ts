@@ -1,5 +1,5 @@
 import type { CommunicationDestinationV1 } from '../../src/plugins/communication-provider';
-import { parseCommunicationNotificationsV1, parseCommunicationSettingsValuesV1, type CommunicationNotificationsV1,
+import { COMMUNICATION_LIMITS, parseCommunicationNotificationsV1, parseCommunicationSettingsValuesV1, type CommunicationNotificationsV1,
   type CommunicationSettingsSnapshotV1, type CommunicationSettingsValuesV1 } from '../../src/plugins/communication';
 import type { SlackState } from '../../src/data/slack';
 import { parseTaskRepo } from '../../src/plugins/tasks';
@@ -30,7 +30,7 @@ export function createCommunicationReadService(options: CommunicationReadServerO
   }
   return Object.freeze({
     notifications(caller: string, input: { version: 1; repo: string | null; limit: number }, scopeRepo: string | null): CommunicationNotificationsV1 {
-      if (input?.version !== 1 || !Number.isSafeInteger(input?.limit) || input.limit < 1 || input.limit > 256)
+      if (input?.version !== 1 || !Number.isSafeInteger(input?.limit) || input.limit < 1 || input.limit > COMMUNICATION_LIMITS.notifications)
         throw new ClarificationServiceError(400, 'invalid-response');
       const allowed = scope(caller, scopeRepo, input.repo === null ? null : parseTaskRepo(input.repo));
       const snapshot = options.snapshot();

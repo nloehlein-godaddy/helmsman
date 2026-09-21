@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createCommunicationReadService } from './communication-read-service';
 import { handleCommunicationApi } from './communication-routes';
 import type { Persistence } from './persistence';
-import type { CommunicationSettingsValuesV1 } from '../../src/plugins/communication';
+import { COMMUNICATION_LIMITS, type CommunicationSettingsValuesV1 } from '../../src/plugins/communication';
 
 function fixture() {
   let values: CommunicationSettingsValuesV1 = { enabled: false, watchEnabled: false, clientId: '', channelId: '', channelName: '', browserSurface: '', reviewChannel: '', reviewMention: '' };
@@ -29,6 +29,12 @@ describe('communication notification and settings authority', () => {
     expect(f.service.markRead(caller, { repo: 'org/b', id: 'voyage-one' }, 'org/b').id).toBe('voyage-one');
     f.service.markRead(caller, { repo: 'org/b', id: 'voyage-one' }, 'org/b');
     expect(f.markRead).toHaveBeenCalledTimes(1);
+  });
+  it('enforces the published notification bound through HTTP', () => {
+    const { service } = fixture();
+    const request = (limit: number) => handleCommunicationApi({ method: 'GET', path: '/api/communication/notifications', query: new URLSearchParams({ version: '1', limit: String(limit) }), caller, service });
+    expect(request(COMMUNICATION_LIMITS.notifications)?.status).toBe(200);
+    expect(request(COMMUNICATION_LIMITS.notifications + 1)?.status).toBe(400);
   });
   it('saves empty settings under revision comparison and rejects stale writes', () => {
     const f = fixture(); const original = f.service.settings(caller, null);

@@ -85,7 +85,7 @@ export function surfaceSelection(tree: unknown, target: string): { surface: stri
   return null;
 }
 
-export function findSlackBrowserSurface(tree: unknown, config: SlackBrowserConfig): string {
+export function findSlackBrowserSurface(tree: unknown, config: Pick<SlackBrowserConfig, 'clientId'>): string {
   const candidates = new Set<string>();
   const root = object(tree);
   for (const window of Array.isArray(root?.windows) ? root.windows : []) {
