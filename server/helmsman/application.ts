@@ -1,3 +1,5 @@
+import { createTerminalService } from './terminal-service';
+import { createNativeTerminalRuntime, terminalContributionEnabled } from './terminal-runtime';
 import { createCommunicationRuntime, communicationContributionEnabled } from './communication-runtime';
 import { createCommunicationReadService } from './communication-read-service';
 import { createCommunicationCommandService } from './communication-command-service';
@@ -117,8 +119,7 @@ import { repositoryScope } from './repository-scope';
 import { AutoClaimScheduler, type BacklogItem } from './scheduler';
 import { ConfigStore, publicConfig, WRITABLE_SECRET_KEYS } from './config-store';
 import { launchIntentJson, RetryError, type LaunchIntent } from './retry';
-import { createBridge, type Bridge } from './cmux/bridge';
-import { createWezTermBridge } from './wezterm/bridge';
+import type { Bridge } from './cmux/bridge';
 import { openSlackStore } from './slack/store';
 import { openVoyageNotifications } from './voyage-notifications';
 import { createSlackWatcher, type SlackWatcher } from './slack/watcher';
@@ -300,18 +301,25 @@ const runCommands = createApplicationRunCommands({ store: openRunCommandStore(pe
 // cmux is macOS-only; wezterm is the cross-platform terminal driving the same
 // panel. TERM_BRIDGE forces one, otherwise take whichever suits the platform.
 const termBridge: string = process.env.TERM_BRIDGE ?? (process.platform === 'win32' ? 'wezterm' : 'cmux');
-const cmux: Bridge = termBridge === 'wezterm' ? createWezTermBridge() : createBridge();
+const nativeTerminal = createNativeTerminalRuntime(termBridge);
+const cmux: Bridge = nativeTerminal.bridge;
 process.stdout.write(`terminal bridge: ${termBridge}\n`);
-const cmuxClients = new Set<ServerResponse>();
-let cmuxWatchOff: (() => void) | null = null;
-function ensureCmuxWatch(): void {
-  if (cmuxWatchOff) return;
-  cmuxWatchOff = cmux.watchEvents(() => {
-    for (const res of cmuxClients) res.write(`data: ${JSON.stringify({ kind: 'cmux-tabs-changed' })}\n\n`);
-  });
-}
+const terminal = createTerminalService({ persistence, bridge: cmux, sessionIdentity: nativeTerminal.sessionIdentity,
+  repos: applicationRepos,
+  roots: () => [...applicationRepos().map(repo => ({ repo, path: join(AGENTS_ROOT, repoBasename(repo)) })),
+    ...db.listRuns(10_000).flatMap(run => run.worktreePath && applicationRepos().includes(run.repo) ? [{ repo: run.repo, path: run.worktreePath }] : [])],
+  authorize: caller => {
+    if (!terminalContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden');
+  },
+  async pasteImage(surface, dataBase64, mimeType) {
+    const extension = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' }[mimeType];
+    if (!extension) return { ok: false, error: 'Unsupported image type' };
+    const file = join(tmpdir(), `helmsman-clip-${randomUUID()}.${extension}`);
+    await writeFile(file, Buffer.from(dataBase64, 'base64'));
+    return cmux.send(surface, `${file} `, false);
+  },
+});
 
-// RUN_HOST opts a run into a visible terminal instead of a detached process.
 const RUN_HOSTS: ReadonlyArray<HostRef['kind']> = ['cmux', 'wezterm', 'detached', 'docker'];
 const runHost = RUN_HOSTS.find((k) => k === process.env.RUN_HOST) ?? null;
 const DOCKER_WORKSPACES = join(AGENTS_ROOT, '.helmsman-docker-workspaces');
@@ -1216,14 +1224,6 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     }
     if (await handleRunInspectExport(req, res, url, runInspect)) return;
     if (await handleRunLog(req, res, url.pathname, db, bus)) return;
-    if (url.pathname === '/api/cmux/events' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify({ kind: 'connected' })}\n\n`);
-      cmuxClients.add(res);
-      ensureCmuxWatch();
-      req.on('close', () => cmuxClients.delete(res));
-      return;
-    }
     const hasBody: boolean = req.method === 'POST' || req.method === 'PUT';
     const body: unknown = hasBody ? await readBody(req) : null;
     if (url.pathname === '/api/recovery' || url.pathname === '/api/recovery/actions') {
@@ -1235,7 +1235,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
     }
-    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
+    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/terminal/') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
       && (req.headers['content-type']?.split(';')[0] !== 'application/json'
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
       res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
@@ -1250,6 +1250,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,

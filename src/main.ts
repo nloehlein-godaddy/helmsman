@@ -17,11 +17,9 @@ import { PluginPageHost } from './plugins/page-host';
 import type { PluginPageState } from './plugins/sdk';
 import { mountCampaigns } from './renderCampaigns';
 import { LOCAL_POLL_MS } from './data/live';
-import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderCmuxView, renderConfigView } from './render';
+import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderConfigView } from './render';
 import { fetchAgents, type RunSummary } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
-import { selectSurface, isPolling, providerOf, parseCmuxTabs, type CmuxTabView, type PanelState } from './logic/cmuxPanel';
-import { mapKeyEvent, type CmuxKeyIntent } from './logic/cmuxKeys';
 import { applyTheme, loadThemeId, saveThemeId } from './data/themes';
 import {
   loadRepoScope,
@@ -29,18 +27,6 @@ import {
   loadCollapsed,
   saveCollapsed,
 } from './logic/prefs';
-
-const CMUX_SCREEN_POLL_MS: number = 2_000;
-const CMUX_SCREEN_UNAVAILABLE: string = 'Screen unavailable — tab has no rendered output yet.';
-
-interface CmuxScreenPayload {
-  surface?: string;
-  text?: string;
-}
-
-interface CmuxEventPayload {
-  kind?: string;
-}
 
 export class DashboardView {
   private readonly root: HTMLElement;
@@ -67,12 +53,10 @@ export class DashboardView {
   private refreshPending: { repo: string | null; promise: Promise<void> } | null = null;
   private lastLocalRefresh: number = -Infinity;
   private readonly onVisibilityChange = (): void => {
-    this.syncCmuxPolling();
     this.paintHeaderContribution();
     if (this.isPluginPage()) this.paintPluginPage();
     if (!document.hidden) {
       void this.refresh(false);
-      if (this.view === 'cmux') void this.handleCmuxTabsChanged();
     }
   };
   private view: PageView = parseRoute(new URL('/helm', window.location.origin)).view;
@@ -84,21 +68,9 @@ export class DashboardView {
   private localGitOperations = new Map<string, Promise<void>>();
   private readonly onResize = (): void => { this.revealActiveTab(); };
   private readonly onPopState = (): void => { void this.navigate(parseRoute(new URL(window.location.href)), 'none'); };
-  private cmuxConnected: boolean = false;
-  private cmuxTabsError: string | null = null;
-  private cmuxTabsSeq = 0;
-  private cmuxTabs: CmuxTabView[] = [];
-  private cmuxPanelState: PanelState = { selectedSurface: null };
-  private cmuxScreen: string = '';
-  private cmuxScreenTimer: ReturnType<typeof setInterval> | null = null;
-  private cmuxScreenPending: boolean = false;
-  private cmuxEventSource: EventSource | null = null;
-  private cmuxCapturing: boolean = false;
-  private readonly onCaptureKeydown = (event: KeyboardEvent): void => this.handleCaptureKeydown(event);
   private themeId: string = loadThemeId();
   private greetingName: string | null = null;
   private configSaves: number = 0;
-  private pendingViewActions: number = 0;
   private jiraEnabled: boolean = true;
   private campaigns: ReturnType<typeof mountCampaigns> | null = null;
   private unsubscribePages: (() => void) | null = null;
@@ -152,8 +124,6 @@ export class DashboardView {
         if (this.isPluginPage()) this.paintPluginPage();
       }
     }, { capture: true, signal: this.rootEvents.signal });
-    this.root.addEventListener('submit', (event: SubmitEvent): void => this.handleSubmit(event), { signal: this.rootEvents.signal });
-    this.root.addEventListener('paste', (event: ClipboardEvent): void => void this.handlePasteImage(event), { signal: this.rootEvents.signal });
 
     this.headerContribution = new AuxiliaryPageHost(this.pluginPresentationState(), {
       slotId: NOTIFICATION_HEADER_SLOT, registry: appPages, modules: appPageModules,
@@ -220,25 +190,14 @@ export class DashboardView {
   private syncPirateToggle(): void {
     const toggle = this.root.querySelector<HTMLButtonElement>('[data-pirate-mode]');
     if (toggle) {
-      toggle.disabled = this.configSaves > 0 || this.pendingViewActions > 0;
+      toggle.disabled = this.configSaves > 0;
       toggle.setAttribute('aria-pressed', String(isPirateMode()));
       toggle.title = `Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}`;
     }
   }
 
-  private async withStableView(action: () => Promise<void>): Promise<void> {
-    ++this.pendingViewActions;
-    this.syncPirateToggle();
-    try {
-      await action();
-    } finally {
-      --this.pendingViewActions;
-      this.syncPirateToggle();
-    }
-  }
-
   private changePirateMode(enabled: boolean): void {
-    if (this.configSaves > 0 || this.pendingViewActions > 0) return;
+    if (this.configSaves > 0) return;
     const controls = (): Map<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> => {
       const result = new Map<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>();
       const occurrences = new Map<string, number>();
@@ -293,11 +252,8 @@ export class DashboardView {
     ++this.refreshSeq;
     ++this.localGitSeq;
     window.removeEventListener('popstate', this.onPopState);
-    this.stopCmuxScreenPoll();
-    this.stopCapture();
     this.campaigns?.destroy();
     this.campaigns = null;
-    this.cmuxEventSource?.close();
   }
 
   private updateAddress(route: AppRoute, history: 'push' | 'replace' | 'none' = 'push'): void {
@@ -309,7 +265,7 @@ export class DashboardView {
   }
 
   private async navigate(route: AppRoute, history: 'push' | 'replace' | 'none' = 'push'): Promise<void> {
-    if (route.view === 'runs' || route.view === 'prs') route = parseRoute(new URL(routeHref(route), window.location.origin));
+    if (route.view === 'runs' || route.view === 'prs' || route.view === 'cmux') route = parseRoute(new URL(routeHref(route), window.location.origin));
     if (this.view === 'campaigns' && route.view !== 'campaigns') {
       this.campaigns?.destroy();
       this.campaigns = null;
@@ -317,9 +273,6 @@ export class DashboardView {
     if (this.presentationSelection && (route.run !== this.presentationSelection.locator.runId
       || this.presentationSelection.locator.kind === 'run' && route.runRepo !== this.presentationSelection.locator.repo)) this.presentationSelection = null;
     const seq = ++this.routeSeq;
-    this.stopCmuxScreenPoll();
-    this.stopCapture();
-    this.cmuxCapturing = false;
     const scope = route.repo;
     const scopeChanged = this.selectedRepo !== scope;
     if (route.view !== 'outcomes' && route.view !== 'plugin') {
@@ -337,10 +290,6 @@ export class DashboardView {
     this.selectedRepo = scope;
     saveRepoScope(scope);
     this.view = route.view;
-    if (route.view === 'cmux') {
-      this.cmuxPanelState = { selectedSurface: null };
-      this.cmuxScreen = '';
-    }
     this.updateAddress(route, history);
     if (route.pane) this.collapsed.delete(`${route.view}:${route.pane === 'tabs' ? 'list' : route.pane === 'screen' ? 'detail' : route.pane}`);
     if (!route.run) this.presentationSelection = null;
@@ -353,14 +302,6 @@ export class DashboardView {
       await this.loadUiConfig();
       if (seq !== this.routeSeq) return;
       void this.loadLocalGit();
-    }
-    else if (route.view === 'cmux') {
-      await this.loadCmuxTabs();
-      if (seq !== this.routeSeq) return;
-      this.cmuxPanelState = { selectedSurface: this.cmuxTabs.some(tab => tab?.surfaceRef === route.surface) ? route.surface : null };
-      this.ensureCmuxEvents();
-      await this.pollCmuxScreen();
-      this.syncCmuxPolling();
     }
     if (seq !== this.routeSeq) return;
     if (route.view !== 'config') this.paint();
@@ -376,23 +317,6 @@ export class DashboardView {
 
   }
 
-  private bindPaneLinks(): void {
-    const selectors: Record<string, string> = this.view === 'cmux' ? { tabs: '[data-collapse-id="cmux:list"]', screen: '[data-collapse-id="cmux:detail"]' } : {};
-    for (const [pane, selector] of Object.entries(selectors)) {
-      const found = this.root.querySelector<HTMLElement>(selector);
-      const panel = found?.closest<HTMLElement>('.panel, .faceplate');
-      if (!panel) continue;
-      panel.dataset.pane = pane;
-      const head = panel.querySelector('.panel-head, .faceplate-head');
-      if (!head || head.querySelector('.pane-link')) continue;
-      const link = document.createElement('a');
-      link.className = 'pane-link app-link';
-      link.href = routeHref({ ...this.route, view: this.view, pane, repo: this.selectedRepo });
-      link.textContent = '↗';
-      link.setAttribute('aria-label', `Link to ${panel.querySelector('.panel-title, .faceplate-title')?.textContent ?? pane}`);
-      head.append(link);
-    }
-  }
 
   refresh(force: boolean = true): Promise<void> {
     if (!force && document.hidden) return Promise.resolve();
@@ -546,6 +470,7 @@ export class DashboardView {
         panelInstance: this.route.panelInstance ?? null,
         panelContribution: this.route.panelContribution ?? null,
         panelRouteState: this.panelRouteState(),
+        terminal: this.route.surface || this.route.pane === 'tabs' || this.route.pane === 'screen' ? { version: 1, surface: this.route.surface, pane: this.route.pane === 'tabs' || this.route.pane === 'screen' ? this.route.pane : null } : null,
         pullRequest: this.route.pr && pullRequestRepo ? { version: 1, repo: pullRequestRepo, number: this.route.pr, mode: this.route.mode } : null,
       };
       this.pageHost.show(page.contributionId, module, state);
@@ -575,10 +500,6 @@ export class DashboardView {
       } else void this.campaigns.refresh();
       this.bindHeadControls();
       this.rehomeRunViewer();
-      return;
-    }
-    if (this.view === 'cmux') {
-      this.paintCmux();
       return;
     }
     if (this.view === 'config') {
@@ -690,28 +611,11 @@ export class DashboardView {
 
   private bindHeadControls(): void {
     this.revealActiveTab();
-    this.bindPaneLinks();
   }
 
   private paintHeaderContribution(): void {
     this.headerContribution.update({ ...this.pluginPresentationState(), presentation: null });
     this.headerContribution.rehome(this.root.querySelector<HTMLElement>('.helm-controls'));
-  }
-
-  private paintCmux(): void {
-    this.mountPage(renderCmuxView({
-      connected: this.cmuxConnected,
-      error: this.cmuxTabsError,
-      tabs: this.cmuxTabs,
-      selectedSurface: this.cmuxPanelState.selectedSurface,
-      screen: this.cmuxScreen,
-      isCapturing: this.cmuxCapturing,
-      repos: this.repos,
-      selectedRepo: this.selectedRepo,
-      themeId: this.themeId,
-      collapsed: this.collapsed,
-    }));
-    this.bindHeadControls();
   }
 
   private paintLocalGit(): void {
@@ -856,353 +760,6 @@ export class DashboardView {
     this.bindHeadControls();
   }
 
-  private async loadCmuxTabs(): Promise<void> {
-    const seq = ++this.cmuxTabsSeq;
-    try {
-      const res: Response = await fetch('/api/cmux/tabs', { signal: AbortSignal.timeout(10_000) });
-      const data = res.ok ? parseCmuxTabs(await res.json()) : null;
-      if (seq !== this.cmuxTabsSeq || this.destroyed) return;
-      if (!data) throw new Error('Terminal tabs unavailable');
-      this.cmuxConnected = data.connected;
-      this.cmuxTabs = data.tabs;
-      this.cmuxTabsError = null;
-    } catch {
-      if (seq !== this.cmuxTabsSeq || this.destroyed) return;
-      this.cmuxTabsError = 'Terminal tabs could not be refreshed. Check the Helmsman connection and try again.';
-      return;
-    }
-    const surface: string | null = this.cmuxPanelState.selectedSurface;
-    const stillExists: boolean = surface !== null && this.cmuxTabs.some((t) => t.surfaceRef === surface);
-    if (surface !== null && !stillExists) {
-      this.cmuxPanelState = { selectedSurface: null };
-      this.cmuxScreen = '';
-    }
-  }
-
-  private ensureCmuxEvents(): void {
-    if (this.cmuxEventSource) return;
-    const src: EventSource = new EventSource('/api/cmux/events');
-    src.onmessage = (m: MessageEvent<string>): void => {
-      let msg: CmuxEventPayload = {};
-      try {
-        msg = JSON.parse(m.data) as CmuxEventPayload;
-      } catch {
-        return;
-      }
-      if (msg?.kind === 'cmux-tabs-changed') void this.handleCmuxTabsChanged();
-    };
-    this.cmuxEventSource = src;
-  }
-
-  private cmuxSnapshotSignature(): string {
-    const tabsPart: string = this.cmuxTabs
-      .map((t) => `${t.surfaceRef}${t.surfaceTitle}${t.workspaceTitle}${t.type}`)
-      .join('');
-    return JSON.stringify([this.cmuxConnected, this.cmuxTabsError, tabsPart]);
-  }
-
-  private async handleCmuxTabsChanged(): Promise<void> {
-    if (document.hidden || this.view !== 'cmux') return;
-    const prevSignature: string = this.cmuxSnapshotSignature();
-    await this.loadCmuxTabs();
-    if (this.view !== 'cmux') return;
-    if (this.cmuxSnapshotSignature() !== prevSignature) {
-      this.repaintCmuxPreservingInput();
-    }
-    this.syncCmuxPolling();
-  }
-
-  private repaintCmuxPreservingInput(): void {
-    const prevInput: HTMLInputElement | null = this.root.querySelector<HTMLInputElement>('.cmux-input');
-    const hadFocus: boolean = document.activeElement === prevInput;
-    const screenFocused = document.activeElement === this.root.querySelector('.cmux-screen');
-    const previousSurface = this.root.querySelector<HTMLElement>('.cmux-tab.is-selected')?.dataset.surface;
-    const value: string = prevInput?.value ?? '';
-    const selectionStart: number | null = prevInput?.selectionStart ?? null;
-    const selectionEnd: number | null = prevInput?.selectionEnd ?? null;
-
-    this.paint();
-
-    if (!previousSurface || previousSurface !== this.cmuxPanelState.selectedSurface) return;
-    if (screenFocused) this.root.querySelector<HTMLElement>('.cmux-screen')?.focus({ preventScroll: true });
-    if (!value && !hadFocus) return;
-    const nextInput: HTMLInputElement | null = this.root.querySelector<HTMLInputElement>('.cmux-input');
-    if (!nextInput) return;
-    nextInput.value = value;
-    if (hadFocus) {
-      nextInput.focus();
-      if (selectionStart !== null && selectionEnd !== null) {
-        nextInput.setSelectionRange(selectionStart, selectionEnd);
-      }
-    }
-  }
-
-  private syncCmuxPolling(): void {
-    if (!document.hidden && this.view === 'cmux' && this.cmuxConnected && isPolling(this.cmuxPanelState)) {
-      this.restartCmuxScreenPoll();
-    } else {
-      this.stopCmuxScreenPoll();
-    }
-  }
-
-  private restartCmuxScreenPoll(): void {
-    this.stopCmuxScreenPoll();
-    this.cmuxScreenTimer = setInterval(() => void this.pollCmuxScreen(), CMUX_SCREEN_POLL_MS);
-  }
-
-  private stopCmuxScreenPoll(): void {
-    if (this.cmuxScreenTimer !== null) {
-      clearInterval(this.cmuxScreenTimer);
-      this.cmuxScreenTimer = null;
-    }
-  }
-
-  private async pollCmuxScreen(): Promise<void> {
-    const surface: string | null = this.cmuxPanelState.selectedSurface;
-    if (!surface || this.view !== 'cmux' || document.hidden || this.cmuxScreenPending) return;
-    this.cmuxScreenPending = true;
-    try {
-      const res: Response = await fetch(`/api/cmux/screen?surface=${encodeURIComponent(surface)}&lines=40`);
-      if (this.view !== 'cmux' || this.cmuxPanelState.selectedSurface !== surface) return;
-      if (res.status === 404) {
-        if (this.cmuxScreen === CMUX_SCREEN_UNAVAILABLE) return;
-        this.cmuxScreen = CMUX_SCREEN_UNAVAILABLE;
-        this.setCmuxScreenText(this.cmuxScreen);
-        return;
-      }
-      if (!res.ok) return;
-      const data: CmuxScreenPayload = (await res.json()) as CmuxScreenPayload;
-      if (this.view !== 'cmux' || this.cmuxPanelState.selectedSurface !== surface) return;
-      this.cmuxScreen = data?.text ?? '';
-      this.setCmuxScreenText(this.cmuxScreen);
-    } catch {
-      return;
-    } finally {
-      this.cmuxScreenPending = false;
-    }
-  }
-
-  private setCmuxScreenText(text: string): void {
-    const pre: HTMLElement | null = this.root.querySelector<HTMLElement>('.cmux-screen');
-    if (pre) pre.textContent = text;
-  }
-
-  private async handleCmuxTabClick(btn: HTMLButtonElement): Promise<void> {
-    const surface: string | undefined = btn.dataset.surface;
-    if (!surface) return;
-    this.cmuxPanelState = selectSurface(this.cmuxPanelState, surface);
-    this.updateAddress({ ...this.route, view: 'cmux', surface: this.cmuxPanelState.selectedSurface, pane: 'screen' });
-    this.cmuxScreen = '';
-    this.paint();
-    await this.pollCmuxScreen();
-    this.syncCmuxPolling();
-  }
-
-  private showCmuxError(message: string): void {
-    const detail: HTMLElement | null = this.root.querySelector<HTMLElement>('.cmux-detail');
-    if (!detail) return;
-    let errEl: HTMLDivElement | null = detail.querySelector<HTMLDivElement>('.cmux-error');
-    if (!errEl) {
-      errEl = document.createElement('div');
-      errEl.className = 'cmux-error';
-      errEl.setAttribute('role', 'alert');
-      detail.appendChild(errEl);
-    }
-    errEl.textContent = message;
-  }
-
-  private clearCmuxError(): void {
-    this.root.querySelector<HTMLElement>('.cmux-error')?.remove();
-  }
-
-  private async handleCmuxAction(btn: HTMLButtonElement): Promise<void> {
-    const action: string | undefined = btn.dataset.action;
-    const surface: string | null = this.cmuxPanelState.selectedSurface;
-    if (!action || !surface) return;
-    const tab: CmuxTabView | undefined = this.cmuxTabs.find((t) => t.surfaceRef === surface);
-    if (!tab) return;
-    btn.disabled = true;
-    try {
-      const res: Response = await fetch('/api/cmux/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ surface, provider: providerOf(tab), action }),
-      });
-      if (!res.ok) {
-        const errBody: { error?: string } = await res.json().catch(() => ({}) as { error?: string });
-        this.showCmuxError(errBody?.error ?? 'Action failed.');
-        return;
-      }
-      this.clearCmuxError();
-      await this.pollCmuxScreen();
-    } catch {
-      this.showCmuxError('Action failed.');
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  private async handleCmuxSend(form: HTMLFormElement): Promise<void> {
-    const surface: string | null = this.cmuxPanelState.selectedSurface;
-    const input: HTMLInputElement | null = form.querySelector<HTMLInputElement>('.cmux-input');
-    if (!surface || !input) return;
-    const text: string = input.value;
-    if (text.trim() === '') return;
-    try {
-      const res: Response = await fetch('/api/cmux/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ surface, text, enter: true }),
-      });
-      if (!res.ok) {
-        const errBody: { error?: string } = await res.json().catch(() => ({}) as { error?: string });
-        this.showCmuxError(errBody?.error ?? 'Send failed.');
-        return;
-      }
-      this.clearCmuxError();
-      input.value = '';
-      await this.pollCmuxScreen();
-    } catch {
-      this.showCmuxError('Send failed.');
-    }
-  }
-
-  private async handlePasteImage(event: ClipboardEvent): Promise<void> {
-    if (this.view !== 'cmux') return;
-    const surface: string | null = this.cmuxPanelState.selectedSurface;
-    if (!surface) return;
-    const items: DataTransferItemList | undefined = event.clipboardData?.items;
-    if (!items) return;
-    const imageItem: DataTransferItem | undefined = Array.from(items).find((i) => i.type.startsWith('image/'));
-    if (!imageItem) return;
-    const file: File | null = imageItem.getAsFile();
-    if (!file) return;
-    event.preventDefault();
-    const ext: string = file.type.split('/')[1] ?? 'png';
-    let dataBase64: string;
-    try {
-      dataBase64 = await this.blobToBase64(file);
-    } catch {
-      this.showCmuxError('Could not read pasted image.');
-      return;
-    }
-    try {
-      const res: Response = await fetch('/api/cmux/paste-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ surface, dataBase64, ext }),
-      });
-      if (!res.ok) {
-        const errBody: { error?: string } = await res.json().catch(() => ({}) as { error?: string });
-        this.showCmuxError(errBody?.error ?? 'Image paste failed.');
-        return;
-      }
-      this.clearCmuxError();
-      await this.pollCmuxScreen();
-    } catch {
-      this.showCmuxError('Image paste failed.');
-    }
-  }
-
-  private blobToBase64(blob: Blob): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
-      const reader: FileReader = new FileReader();
-      reader.onerror = (): void => reject(new Error('read failed'));
-      reader.onload = (): void => {
-        const result: string = String(reader.result);
-        const comma: number = result.indexOf(',');
-        resolve(comma >= 0 ? result.slice(comma + 1) : result);
-      };
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  private handleCmuxCaptureToggle(): void {
-    this.cmuxCapturing = !this.cmuxCapturing;
-    if (this.cmuxCapturing) this.startCapture();
-    else this.stopCapture();
-    this.repaintCmuxPreservingInput();
-    this.root.querySelector<HTMLElement>(this.cmuxCapturing ? '.cmux-screen' : '[data-cmux-capture]')?.focus();
-  }
-
-  private startCapture(): void {
-    document.addEventListener('keydown', this.onCaptureKeydown);
-  }
-
-  private stopCapture(): void {
-    document.removeEventListener('keydown', this.onCaptureKeydown);
-  }
-
-  private handleCaptureKeydown(event: KeyboardEvent): void {
-    if (this.view !== 'cmux' || !this.cmuxCapturing) return;
-    if (event.key === 'Escape' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
-      event.preventDefault();
-      this.handleCmuxCaptureToggle();
-      return;
-    }
-    if (!(event.target instanceof HTMLElement) || !event.target.matches('.cmux-screen')) return;
-    const surface: string | null = this.cmuxPanelState.selectedSurface;
-    if (!surface) return;
-    const intent: CmuxKeyIntent = mapKeyEvent(event);
-    if (intent.kind === 'ignore') return;
-    event.preventDefault();
-    if (intent.kind === 'key') void this.sendCmuxKey(surface, intent.token);
-    else void this.sendCmuxText(surface, intent.text);
-  }
-
-  private async handleCmuxKeyPad(btn: HTMLButtonElement): Promise<void> {
-    const key: string | undefined = btn.dataset.key;
-    const surface: string | null = this.cmuxPanelState.selectedSurface;
-    if (!key || !surface) return;
-    await this.sendCmuxKey(surface, key);
-  }
-
-  private async sendCmuxKey(surface: string, key: string): Promise<void> {
-    try {
-      const res: Response = await fetch('/api/cmux/key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ surface, key }),
-      });
-      if (!res.ok) {
-        const errBody: { error?: string } = await res.json().catch(() => ({}) as { error?: string });
-        this.showCmuxError(errBody?.error ?? 'Key failed.');
-        return;
-      }
-      this.clearCmuxError();
-      await this.pollCmuxScreen();
-    } catch {
-      this.showCmuxError('Key failed.');
-    }
-  }
-
-  private async sendCmuxText(surface: string, text: string): Promise<void> {
-    try {
-      const res: Response = await fetch('/api/cmux/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ surface, text, enter: false }),
-      });
-      if (!res.ok) {
-        const errBody: { error?: string } = await res.json().catch(() => ({}) as { error?: string });
-        this.showCmuxError(errBody?.error ?? 'Send failed.');
-        return;
-      }
-      this.clearCmuxError();
-      await this.pollCmuxScreen();
-    } catch {
-      this.showCmuxError('Send failed.');
-    }
-  }
-
-  private handleSubmit(event: SubmitEvent): void {
-    if (event.defaultPrevented) return;
-    const target: EventTarget | null = event.target;
-    if (!(target instanceof HTMLFormElement) || !target.classList.contains('cmux-send')) return;
-    event.preventDefault();
-    void this.withStableView(() => this.handleCmuxSend(target));
-  }
-
   private handleClick(event: MouseEvent): void {
     if (event.defaultPrevented) return;
     const target: EventTarget | null = event.target;
@@ -1229,35 +786,6 @@ export class DashboardView {
         saveCollapsed(this.collapsed);
         this.paint();
       }
-      return;
-    }
-
-    if (target.closest('[data-cmux-refresh]')) {
-      void this.handleCmuxTabsChanged();
-      return;
-    }
-
-    const cmuxTabBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.cmux-tab');
-    if (cmuxTabBtn) {
-      void this.handleCmuxTabClick(cmuxTabBtn);
-      return;
-    }
-
-    const cmuxActionBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.cmux-action');
-    if (cmuxActionBtn) {
-      void this.withStableView(() => this.handleCmuxAction(cmuxActionBtn));
-      return;
-    }
-
-    const cmuxCaptureToggle: HTMLButtonElement | null = target.closest<HTMLButtonElement>('[data-cmux-capture]');
-    if (cmuxCaptureToggle) {
-      this.handleCmuxCaptureToggle();
-      return;
-    }
-
-    const cmuxKeypadBtn: HTMLButtonElement | null = target.closest<HTMLButtonElement>('.cmux-keypad-btn');
-    if (cmuxKeypadBtn) {
-      void this.handleCmuxKeyPad(cmuxKeypadBtn);
       return;
     }
 

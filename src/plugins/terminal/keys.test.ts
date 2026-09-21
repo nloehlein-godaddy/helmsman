@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapKeyEvent } from './cmuxKeys';
+import { mapKeyEvent } from './keys';
 
 interface KeyEventLike {
   key: string;

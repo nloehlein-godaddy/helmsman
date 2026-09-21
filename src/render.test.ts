@@ -1,10 +1,8 @@
 import { term } from './logic/terminology';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CONFIG_HELP, renderCmuxView, renderConfigView, renderAppShell } from './render';
+import { CONFIG_HELP, renderConfigView, renderAppShell } from './render';
 import { EDITABLE_KEYS } from '../server/helmsman/config-store';
-import type { CmuxViewState } from './render';
 import type { UiConfig } from './data/config';
-import type { CmuxTabView } from './logic/cmuxPanel';
 import { DEFAULT_THEME_ID, THEMES } from './data/themes';
 import { appPages, TODOS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_SLOT, TRIAGE_PAGE_ID, BUGS_PAGE_SLOT, BUGS_PAGE_ID } from './plugins/builtins';
 
@@ -164,116 +162,6 @@ describe('application views', () => {
   });
 });
 
-function cmuxTabFixture(over: Partial<CmuxTabView> = {}): CmuxTabView {
-  return {
-    windowRef: 'win-1',
-    workspaceRef: 'ws-1',
-    workspaceTitle: 'helmsman',
-    surfaceRef: 'surface-1',
-    surfaceTitle: 'main',
-    type: 'shell',
-    cwd: '/repo',
-    selected: false,
-    ...over,
-  };
-}
-
-function cmuxStateFixture(over: Partial<CmuxViewState> = {}): CmuxViewState {
-  return {
-    connected: true,
-    tabs: [cmuxTabFixture()],
-    selectedSurface: null,
-    screen: '',
-    isCapturing: false,
-    repos: [],
-    selectedRepo: null,
-    themeId: DEFAULT_THEME_ID,
-    ...over,
-  };
-}
-
-describe('renderCmuxView', () => {
-  it('renders a not-connected note and no tab list when disconnected', () => {
-    const html: string = renderCmuxView(cmuxStateFixture({ connected: false, tabs: [cmuxTabFixture()] }));
-    expect(html.toLowerCase()).toContain('not connected');
-    expect(html).not.toContain('cmux-tab"');
-  });
-
-  it('renders the tab list with title and workspace/type meta', () => {
-    const html: string = renderCmuxView(cmuxStateFixture());
-    expect(html).toContain('data-surface="surface-1"');
-    expect(html).toContain('main');
-    expect(html).toContain('helmsman');
-    expect(html).toContain('shell');
-  });
-
-  it('marks the selected tab and shows a prompt to select one when nothing is selected', () => {
-    const html: string = renderCmuxView(cmuxStateFixture());
-    expect(html).toContain('Select a tab');
-    expect(html).not.toContain('is-selected');
-  });
-
-  it('shows the screen, send form, and only universal actions for a non-agent tab when selected', () => {
-    const html: string = renderCmuxView(
-      cmuxStateFixture({ selectedSurface: 'surface-1', screen: 'hello world' }),
-    );
-    expect(html).toContain('is-selected');
-    expect(html).toContain('cmux-screen');
-    expect(html).toContain('hello world');
-    expect(html).toContain('cmux-send');
-    expect(html).toContain('data-action="enter"');
-    expect(html).toContain('data-action="escape"');
-    expect(html).toContain('data-action="interrupt"');
-    expect(html).not.toContain('data-action="continue"');
-    expect(html).not.toContain('data-action="stop"');
-    expect(html).not.toContain('data-action="approve"');
-  });
-
-  it('adds agent actions when the selected tab is an agent-session', () => {
-    const html: string = renderCmuxView(
-      cmuxStateFixture({
-        tabs: [cmuxTabFixture({ surfaceRef: 'agent-1', type: 'agent-session' })],
-        selectedSurface: 'agent-1',
-        screen: '',
-      }),
-    );
-    expect(html).toContain('data-action="continue"');
-    expect(html).toContain('data-action="stop"');
-    expect(html).toContain('data-action="approve"');
-  });
-
-  it('escapes malicious tab titles and screen content', () => {
-    const payload: string = '<img src=x onerror=alert(1)>';
-    const html: string = renderCmuxView(
-      cmuxStateFixture({
-        tabs: [cmuxTabFixture({ surfaceTitle: payload })],
-        selectedSurface: 'surface-1',
-        screen: payload,
-      }),
-    );
-    expect(html).not.toContain('<img');
-    expect(html).toContain('&lt;img');
-  });
-
-  it('renders a no-tabs note when the tab list is empty', () => {
-    const html: string = renderCmuxView(cmuxStateFixture({ tabs: [] }));
-    expect(html.toLowerCase()).toContain('no terminal tabs');
-  });
-
-  it('gives the list and detail panels collapse buttons with stable ids', () => {
-    const html: string = renderCmuxView(cmuxStateFixture({ selectedSurface: 'surface-1' }));
-    expect(html).toContain('data-collapse-id="cmux:list"');
-    expect(html).toContain('data-collapse-id="cmux:detail"');
-  });
-
-  it('marks a cmux panel collapsed when its id is in the set', () => {
-    const el: HTMLElement = document.createElement('div');
-    el.innerHTML = renderCmuxView(cmuxStateFixture({ selectedSurface: 'surface-1', collapsed: new Set(['cmux:list']) }));
-    expect(el.querySelector('.cmux-list.is-collapsed')).not.toBeNull();
-    expect(el.querySelector('.cmux-detail.is-collapsed')).toBeNull();
-  });
-});
-
 it('links to authored communication settings with the header scope', () => {
   const root = document.createElement('div');
   root.innerHTML = renderConfigView({ config: { SLACK_ENABLED: 'false' }, overridden: [] }, { repos: ['org/repo'], selectedRepo: 'org/repo', themeId: DEFAULT_THEME_ID });
@@ -330,34 +218,6 @@ describe('accessible configuration states', () => {
     expect(el.querySelector<HTMLInputElement>('#config-AGENT_ADAPTER')?.value).toBe('codex');
     expect(el.querySelector<HTMLButtonElement>('[data-config-retry]')?.disabled).toBe(true);
   });
-});
-
-it('describes how keyboard users can release Terminal capture', () => {
-  const el = root();
-  el.innerHTML = renderCmuxView(cmuxStateFixture({ selectedSurface: 'surface-1', isCapturing: true }));
-  for (const control of el.querySelectorAll('.cmux-capture-toggle, .cmux-screen')) {
-    expect(document.getElementById(control.getAttribute('aria-describedby') ?? '')?.textContent).toContain('Shift+Escape');
-  }
-});
-
-
-it('provides a retry action for Terminal failure without hiding cached terminal tabs', () => {
-  const el = root();
-  el.innerHTML = renderCmuxView(cmuxStateFixture({ selectedSurface: 'surface-1', screen: 'last output', error: 'Terminal tabs could not be refreshed.' }));
-  expect(el.querySelector('[role="alert"]')?.textContent).toContain('Terminal tabs could not be refreshed.');
-  expect(el.querySelector('[data-cmux-refresh]')?.textContent).toBe('Try again');
-  expect(el.querySelector('.cmux-tab')).not.toBeNull();
-  expect(el.querySelector('.cmux-screen')?.textContent).toBe('last output');
-});
-
-it('distinguishes Terminal disconnect from a failed connection check', () => {
-  const el = root();
-  el.innerHTML = renderCmuxView(cmuxStateFixture({ connected: false }));
-  expect(el.querySelector('[role="status"]')?.textContent).toContain('Terminal not connected');
-  expect(el.querySelector('[data-cmux-refresh]')).not.toBeNull();
-  el.innerHTML = renderCmuxView(cmuxStateFixture({ connected: false, error: 'Could not check terminal connection.' }));
-  expect(el.querySelector('[role="alert"]')?.textContent).toContain('Could not check terminal connection');
-  expect(el.textContent).not.toContain('Terminal not connected');
 });
 
 describe('plugin page shell', () => {

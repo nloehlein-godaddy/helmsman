@@ -1,3 +1,5 @@
+import terminalPage from './terminal/page';
+import terminalPanel from './terminal/panel';
 import communicationPage from './communication/page';
 import notificationHeader from './communication/header';
 import notificationsPanel from './communication/notifications';
@@ -60,9 +62,9 @@ export function syncBuiltinFrontend(entries: readonly BuiltinFrontendCatalogEntr
     const cleanups: (() => void)[] = [];
     if (manifest.id === 'helmsman.costs') cleanups.push(appPageModules.register(COSTS_PAGE_ID, costsPage));
     if (manifest.id === 'helmsman.helm') cleanups.push(appPageModules.register(HELM_PAGE_ID, helmPage));
-    const page = { 'helmsman.communication': communicationPage, 'helmsman.runs': runsPage, 'helmsman.compat-pr': compatibilityPrPage, 'helmsman.clarifications': clarificationsPage, 'helmsman.compat-clarifications': compatibilityClarificationsPage, 'helmsman.run-viewer': runViewerPage, 'helmsman.run-history': runHistoryPage, 'helmsman.todos-ui': todosPage, 'helmsman.triage': triagePage, 'helmsman.bugs': bugsPage, 'helmsman.source-settings': sourceSettingsPage }[manifest.id];
+    const page = { 'helmsman.terminal': terminalPage, 'helmsman.communication': communicationPage, 'helmsman.runs': runsPage, 'helmsman.compat-pr': compatibilityPrPage, 'helmsman.clarifications': clarificationsPage, 'helmsman.compat-clarifications': compatibilityClarificationsPage, 'helmsman.run-viewer': runViewerPage, 'helmsman.run-history': runHistoryPage, 'helmsman.todos-ui': todosPage, 'helmsman.triage': triagePage, 'helmsman.bugs': bugsPage, 'helmsman.source-settings': sourceSettingsPage }[manifest.id];
     if (page) cleanups.push(appPageModules.register(`${manifest.id}/page`, page));
-    const panel = { 'helmsman.compat-pr': compatibilityPrPanel, 'helmsman.clarifications': clarificationsPanel, 'helmsman.suggested-contacts': suggestedContactsPanel, 'helmsman.run-viewer': runViewerPanel, 'helmsman.run-history': runHistoryPanel, 'helmsman.todos-ui': todosPanel, 'helmsman.triage': triagePanel, 'helmsman.bugs': bugsPanel, 'helmsman.source-settings': sourceSettingsPanel, 'helmsman.backlog': backlogPanel, 'helmsman.running': runningPanel, 'helmsman.recent': recentPanel,
+    const panel = { 'helmsman.terminal': terminalPanel, 'helmsman.compat-pr': compatibilityPrPanel, 'helmsman.clarifications': clarificationsPanel, 'helmsman.suggested-contacts': suggestedContactsPanel, 'helmsman.run-viewer': runViewerPanel, 'helmsman.run-history': runHistoryPanel, 'helmsman.todos-ui': todosPanel, 'helmsman.triage': triagePanel, 'helmsman.bugs': bugsPanel, 'helmsman.source-settings': sourceSettingsPanel, 'helmsman.backlog': backlogPanel, 'helmsman.running': runningPanel, 'helmsman.recent': recentPanel,
       'helmsman.underway': underwayPanel, 'helmsman.newrun': newRunPanel, 'helmsman.repoprs': repoPrsPanel,
       'helmsman.shipped': shippedPanel, 'helmsman.activity': activityPanel }[manifest.id];
     if (panel) {

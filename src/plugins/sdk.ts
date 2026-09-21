@@ -1,3 +1,6 @@
+import type { TerminalRouteV1 } from './terminal-route';
+export * from './terminal';
+export * from './terminal-route';
 import type { PluginPageServices } from './services';
 import type { PresentationLocatorV1, PullRequestRouteV1 } from './presentation';
 export * from './presentation';
@@ -75,6 +78,7 @@ export interface PageResolution {
 }
 
 export interface PluginPageState {
+  readonly terminal?: TerminalRouteV1 | null;
   readonly pullRequest?: PullRequestRouteV1 | null;
   readonly presentation?: PresentationLocatorV1 | null;
   readonly repo: string | null;

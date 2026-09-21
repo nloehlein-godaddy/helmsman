@@ -1,6 +1,6 @@
-export type CmuxKeyIntent = { kind: 'key'; token: string } | { kind: 'text'; text: string } | { kind: 'ignore' };
+export type TerminalKeyIntent = { kind: 'key'; token: string } | { kind: 'text'; text: string } | { kind: 'ignore' };
 
-export interface CmuxKeyEventLike {
+export interface TerminalKeyEventLike {
   key: string;
   ctrlKey: boolean;
   altKey: boolean;
@@ -8,7 +8,7 @@ export interface CmuxKeyEventLike {
   shiftKey: boolean;
 }
 
-const NAMED_CMUX_KEYS: Record<string, string> = {
+const NAMED_TERMINAL_KEYS: Record<string, string> = {
   ArrowUp: 'up',
   ArrowDown: 'down',
   ArrowLeft: 'left',
@@ -23,12 +23,12 @@ const NAMED_CMUX_KEYS: Record<string, string> = {
   PageDown: 'pagedown',
 };
 
-export function mapKeyEvent(e: CmuxKeyEventLike): CmuxKeyIntent {
+export function mapKeyEvent(e: TerminalKeyEventLike): TerminalKeyIntent {
   if (e.metaKey) return { kind: 'ignore' };
   if (e.ctrlKey && e.key.length === 1 && /^[a-zA-Z]$/.test(e.key)) {
     return { kind: 'key', token: `ctrl+${e.key.toLowerCase()}` };
   }
-  const named: string | undefined = NAMED_CMUX_KEYS[e.key];
+  const named: string | undefined = NAMED_TERMINAL_KEYS[e.key];
   if (named) return { kind: 'key', token: named };
   if (e.key.length === 1 && !e.ctrlKey && !e.altKey) return { kind: 'text', text: e.key };
   return { kind: 'ignore' };

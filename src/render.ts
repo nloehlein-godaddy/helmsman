@@ -8,8 +8,6 @@ import { escapeHtml as esc } from './logic/html';
 import { PRE_PR_CONFIG_KEYS, PRE_PR_SETTING_DEFINITIONS } from './logic/prePrSettings';
 
 import type { UiConfig } from './data/config';
-import type { CmuxTabView } from './logic/cmuxPanel';
-import { providerOf } from './logic/cmuxPanel';
 import { THEMES } from './data/themes';
 
 
@@ -36,16 +34,6 @@ const ICON_LOCK: string =
   '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.4" y="7" width="9.2" height="6.4" rx="1.4"/><path d="M5.5 7V5.1a2.5 2.5 0 0 1 5 0V7"/></svg>'
 
 const ICON_PIRATE_FLAG = '<svg viewBox="0 0 36 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 4v32M5 8c9-7 17 7 26 0v21c-9 7-17-7-26 0"/><path d="M17 11.5c-3 0-4.5 1.8-4.5 4.2 0 1.5.8 2.8 2.1 3.4v2h4.8v-2c1.3-.6 2.1-1.9 2.1-3.4 0-2.4-1.5-4.2-4.5-4.2Z"/><circle cx="15.1" cy="16" r=".7" fill="currentColor" stroke="none"/><circle cx="18.9" cy="16" r=".7" fill="currentColor" stroke="none"/><path d="m16.2 18.5.8-1 .8 1M17 19.8v1.3m-5 2.1 10 4m0-4-10 4m-1-4.7 1 .7-.3 1.1m10.3 2.2 1 .7-.3 1.1m-.7-5.8-1 .7.3 1.1m-10.3 2.2-1 .7.3 1.1"/></svg>';
-
-const ICON_COLLAPSE: string =
-  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>'
-
-const ICON_EXPAND: string =
-  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>'
-
-function surfaceCollapseBtn(id: string, label: string, collapsed: boolean): string {
-  return `<button class="surface-collapse" type="button" data-collapse-id="${esc(id)}" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(label)}">${collapsed ? ICON_EXPAND : ICON_COLLAPSE}</button>`;
-}
 
 const ICON_INFO: string =
   '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v3.4" stroke-linecap="round"/><circle cx="8" cy="4.9" r="0.5" fill="currentColor" stroke="none"/></svg>'
@@ -290,120 +278,5 @@ export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): stri
         </div>
       </section>
       ${prePrConfigPanel(uiConfig)}
-`);
-}
-
-interface CmuxActionSpec {
-  action: string;
-  label: string;
-}
-
-const CMUX_UNIVERSAL_ACTIONS: CmuxActionSpec[] = [
-  { action: 'enter', label: 'Enter' },
-  { action: 'escape', label: 'Esc' },
-  { action: 'interrupt', label: 'Ctrl-C' },
-];
-
-const CMUX_AGENT_ACTIONS: CmuxActionSpec[] = [
-  { action: 'continue', label: 'Continue' },
-  { action: 'stop', label: 'Stop' },
-  { action: 'approve', label: 'Approve' },
-];
-
-function cmuxActionsFor(tab: CmuxTabView): CmuxActionSpec[] {
-  return providerOf(tab) ? [...CMUX_UNIVERSAL_ACTIONS, ...CMUX_AGENT_ACTIONS] : CMUX_UNIVERSAL_ACTIONS;
-}
-
-interface CmuxNavKeySpec {
-  key: string;
-  label: string;
-}
-
-const CMUX_NAV_KEYS: CmuxNavKeySpec[] = [
-  { key: 'up', label: '&#8593;' },
-  { key: 'down', label: '&#8595;' },
-  { key: 'left', label: '&#8592;' },
-  { key: 'right', label: '&#8594;' },
-  { key: 'tab', label: 'Tab' },
-  { key: 'escape', label: 'Esc' },
-];
-
-export interface CmuxViewState {
-  connected: boolean;
-  error?: string | null;
-  tabs: CmuxTabView[];
-  selectedSurface: string | null;
-  screen: string;
-  isCapturing: boolean;
-  repos: string[];
-  selectedRepo: string | null;
-  themeId: string;
-  collapsed?: Set<string>;
-}
-
-export function renderCmuxView(state: CmuxViewState): string {
-  const opts: HelmHeadOpts = {
-    active: 'cmux',
-    repos: state.repos,
-    selectedRepo: state.selectedRepo,
-    themeId: state.themeId,
-    readout: null,
-  };
-  const intro = '<header class="page-intro"><h1>Terminal</h1><p>View and control an existing terminal session. Text and keys are sent directly to the selected tab.</p></header>';
-  const error = state.error ? `<div class="cmux-load-error degraded-banner" role="alert">${esc(state.error)} <button type="button" data-cmux-refresh>Try again</button></div>` : '';
-  if (!state.connected) {
-    return renderAppShell(opts, `${intro}${error}${state.error ? '' : '<div class="panel empty-note" role="status">Terminal not connected. Open your configured terminal app, then refresh. <button type="button" data-cmux-refresh>Refresh</button></div>'}`);
-  }
-
-  const list: string = state.tabs.length
-    ? state.tabs
-        .map(
-          (t) => `
-      <button class="cmux-tab${t.surfaceRef === state.selectedSurface ? ' is-selected' : ''}" type="button" data-surface="${esc(t.surfaceRef)}" aria-pressed="${t.surfaceRef === state.selectedSurface}">
-        <span class="cmux-tab-title">${esc(t.surfaceTitle)}</span>
-        <span class="cmux-tab-meta mono">${esc(t.workspaceTitle)} &middot; ${esc(t.type)}</span>
-      </button>`,
-        )
-        .join('')
-    : '<div class="empty-note" role="status">No terminal tabs available. Open a terminal tab in your configured terminal app, then refresh. <button type="button" data-cmux-refresh>Refresh</button></div>';
-
-  const selected: CmuxTabView | null = state.tabs.find((t) => t.surfaceRef === state.selectedSurface) ?? null;
-
-  const detail: string = selected
-    ? `
-      <div class="cmux-capture-row">
-        <button class="cmux-capture-toggle${state.isCapturing ? ' is-active' : ''}" type="button"${state.isCapturing ? ' aria-describedby="cmux-capture-help"' : ''} data-cmux-capture aria-pressed="${state.isCapturing ? 'true' : 'false'}">${state.isCapturing ? 'Stop keyboard control' : 'Control with keyboard'}</button>
-        ${state.isCapturing ? `<span class="cmux-capture-hint" id="cmux-capture-help">Keys go directly to ${esc(selected.surfaceTitle)} while the screen has focus. Press Shift+Escape to stop keyboard control.</span>` : ''}
-      </div>
-      <pre class="cmux-screen mono${state.isCapturing ? ' is-capturing' : ''}" tabindex="0"${state.isCapturing ? ' aria-describedby="cmux-capture-help"' : ''} aria-label="Screen output from ${esc(selected.surfaceTitle)}">${esc(state.screen)}</pre>
-      <div class="cmux-keypad">
-        ${CMUX_NAV_KEYS.map((k) => `<button class="cmux-keypad-btn" type="button" data-key="${esc(k.key)}" aria-label="Send ${esc(k.key)} key" title="Send ${esc(k.key)} key">${k.label}</button>`).join('')}
-      </div>
-      <form class="cmux-send">
-        <label class="interface-field">Send text to ${esc(selected.surfaceTitle)}<input class="cmux-input" name="text" placeholder="Command or message" autocomplete="off" /></label>
-        <button type="submit">Send + Enter</button>
-      </form>
-      <div class="cmux-actions">
-        ${cmuxActionsFor(selected)
-          .map((a) => `<button class="cmux-action" type="button" data-action="${esc(a.action)}">${esc(a.label)}</button>`)
-          .join('')}
-      </div>`
-    : '<div class="empty-note">Select a tab to view its screen.</div>';
-
-  const collapsed: Set<string> = state.collapsed ?? new Set();
-  const listCollapsed: boolean = collapsed.has('cmux:list');
-  const detailCollapsed: boolean = collapsed.has('cmux:detail');
-  return renderAppShell(opts, `
-    ${intro}${error}
-    <div class="cmux-body">
-      <div class="panel cmux-list${listCollapsed ? ' is-collapsed' : ''}">
-        <div class="panel-head"><span class="panel-title">Terminal tabs</span>${surfaceCollapseBtn('cmux:list', 'Terminal tabs', listCollapsed)}</div>
-        <div class="cmux-list-body">${list}</div>
-      </div>
-      <div class="panel cmux-detail${detailCollapsed ? ' is-collapsed' : ''}">
-        <div class="panel-head"><span class="panel-title">Terminal screen</span>${surfaceCollapseBtn('cmux:detail', 'Terminal screen', detailCollapsed)}</div>
-        <div class="cmux-detail-body">${detail}</div>
-      </div>
-    </div>
 `);
 }

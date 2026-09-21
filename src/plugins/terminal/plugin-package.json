@@ -1,0 +1,83 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.terminal",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Terminal",
+        "slots": [
+          "helmsman/terminal-page"
+        ],
+        "panes": [
+          "tabs",
+          "screen"
+        ],
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ],
+        "composition": {
+          "id": "helmsman/terminal-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/terminal-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "terminal",
+                "contributionId": "helmsman.terminal/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "terminal"
+                  ],
+                  "activeInstanceId": "terminal",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Terminal",
+        "contract": {
+          "id": "helmsman/terminal-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/terminal",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

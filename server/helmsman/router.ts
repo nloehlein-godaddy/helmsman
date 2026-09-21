@@ -1,3 +1,5 @@
+import { handleTerminalApi } from './terminal-routes';
+import type { TerminalServerService } from './terminal-service';
 import { handleCommunicationApi } from './communication-routes';
 import { handleCommunicationCommandApi } from './communication-command-routes';
 import type { CommunicationReadServerService } from './communication-read-service';
@@ -154,6 +156,8 @@ export interface RouterDeps {
     requestId?: string,
     expectedHeadSha?: string,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  terminal?: TerminalServerService;
+  terminalCaller?: string;
   cmuxListTabs: () => Promise<{ connected: boolean; tabs: CmuxTab[] }>;
   cmuxReadScreen: (surface: string, lines: number) => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
   cmuxSend: (surface: string, text: string, enter: boolean) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -560,6 +564,9 @@ export async function handleApi(
     );
     return r.ok ? { status: 200, json: { ok: true } } : { status: 400, json: { error: r.error } };
   }
+  const terminalResult = await handleTerminalApi({ method, path, query, body: _body, caller: deps.terminalCaller, service: deps.terminal });
+  if (terminalResult) return terminalResult;
+  if (deps.terminal && path.startsWith('/api/cmux/')) return { status: 410, json: { error: 'Use scoped terminal services.' } };
   if (path === '/api/cmux/tabs' && method === 'GET') {
     return { status: 200, json: await deps.cmuxListTabs() };
   }

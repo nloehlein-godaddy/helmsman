@@ -204,6 +204,31 @@ flowchart TD
 
 The cooldown covers callers even when a UUID is reused. Disablement blocks new admission but retains pinned public and legacy operation resolvers. An uncertain send cannot be proved by matching the same or another PR URL in Slack; only its exact retained receipt or an explicit Core Recovery resolution can settle it. Browser primitives remain a core execution adapter for Phase F, while the Slack package owns DOM and policy. See [Communication authoring](communication-authoring.md).
 
+## Terminal presentation and durable controls
+
+```mermaid
+flowchart TD
+    Alias[Terminal or cmux alias] --> Page[Selected terminal composition<br/>One authored panel by default]
+    Page --> Scope{Panel target}
+    Scope -->|Header galleon| Repo[Repository-owned surfaces]
+    Scope -->|Explicit All| Global[Configured galleon terminals<br/>and unassociated surfaces]
+    Repo --> List
+    Global --> List
+    List[Visible list poll every 2 seconds<br/>Bounded tabs, actions and exact revisions] --> Screen[Selected screen poll every 2 seconds<br/>At most 40 lines of bounded plain text]
+    Screen --> Capture[Explicit keyboard control only<br/>Polling never captures keys]
+    List --> Control[User chooses bounded text, key,<br/>server action or image paste]
+    Control --> Serialize[Serialize browser controls]
+    Serialize --> Journal[Journal exact UUID, target revision and input]
+    Journal --> Durable[Core bridge admits durable command<br/>Same ID never automatically replayed]
+    Durable --> Receipt{Terminal receipt}
+    Receipt -->|Succeeded or rejected| Save[Save result locally<br/>Then acknowledge journal]
+    Receipt -->|Pending or recovery-required| Inspect[Keep original input<br/>Inspect screen and exact receipt]
+    Inspect --> Check[Receipt check is read-only<br/>It never sends input]
+    Check --> Resume[User records inspection<br/>Then explicitly resumes later controls]
+```
+
+Hidden, replaced, scope-changed and disposed panels abort polling. A target includes its observed bridge/session and surface revision; stale, ambiguous or foreign targets are unavailable rather than rebound. Titles never establish repository ownership. The public service has no terminal-input retry API: inspection acknowledgment never resends retained input or confirms delivery. Missing or unreadable browser evidence prevents controls and never creates a replacement request. Phase E uses the existing core terminal bridge; extracting cmux, WezTerm or another execution implementation remains Phase F work. Tests use a mock fixture and do not touch a native terminal. See [Terminal authoring](terminal-authoring.md).
+
 ## Conditional panel-state saves
 
 Authored question/contact panels use conditional panel-state saves. This behavior passed independent package and production acceptance and is pushed as 773cce4:

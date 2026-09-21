@@ -1,3 +1,4 @@
+import type { TerminalServiceV1 } from './terminal';
 import type { CommunicationServiceV1 } from './communication';
 import type { CommunicationCommandServiceV1 } from './communication-command';
 import type { PullRequestCommandServiceV1 } from './pull-request-command';
@@ -38,6 +39,7 @@ export interface PluginPageServices {
   readonly pullRequestInspect?: PullRequestInspectServiceV1;
   readonly pullRequestCommands?: PullRequestCommandServiceV1;
   readonly communication?: CommunicationServiceV1;
+  readonly terminal?: TerminalServiceV1;
   readonly communicationCommands?: CommunicationCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;

@@ -12,6 +12,8 @@ The independently buildable `helmsman.compat-clarifications/page` recovery packa
 
 The independently buildable Communication package supplies the selected notification header and `/communication` composition with replaceable notifications, review-request, and settings panels. It uses scoped notification projection, revision-checked global settings, and a caller-owned durable command journal. The separately built Slack backend owns Slack DOM and delivery policy while core retains the provider artifact, destination, operation, and bounded browser primitives. See [Communication authoring](communication-authoring.md).
 
+Terminal extraction supplies a selected `helmsman/terminal-page` composition for `/terminal` and `/cmux`, accepting `helmsman/terminal-panel@1`. Its page and panel use only the public `helmsman/terminal@1` service. Header scope remains authoritative; an explicit panel `All` selection includes configured galleon terminals and unassociated surfaces without changing the header. Reads and controls retain exact surface revisions. See [Terminal authoring](terminal-authoring.md).
+
 ## Try the external sample
 
 From the Helmsman checkout:
@@ -75,6 +77,8 @@ Open `/plugins/example.triage/page`. For another package, choose its own non-res
 These E3 packages are registered builtin defaults for `/todos`, `/triage`, `/bugs` and `/source-settings`. Their aliases follow explicit page selections; disabled or unavailable selections remain unavailable without fallback. Core `/config` links to Source settings and retains its own runtime controls. External variants remain independently buildable and installable using the renamed descriptors above. Default task-page cutover is reviewed and pushed. See [panel contracts](panel-authoring.md), [task-source services](task-source-authoring.md), and the [completion ledger](plugin-implementation-progress.md).
 
 Communication uses two frontend slots and one backend selection. Use `select helmsman/communication-page ID`, `select helmsman/notification-header ID`, and `select-communication ID`. The page accepts `helmsman/communication-panel@1`; copied panels keep separate contribution-scoped drafts and journals. Disabled or missing selections remain unavailable, while admitted operations keep their pinned backend artifact for recovery.
+
+Terminal uses one frontend page slot. Use `select helmsman/terminal-page ID`; `/terminal` and `/cmux` resolve that same selection. The page accepts `helmsman/terminal-panel@1`. Copied panels keep separate control journals and saved results. A disabled or missing selection remains unavailable, while server receipts and unresolved obligations remain retained.
 
 ## Author contract
 

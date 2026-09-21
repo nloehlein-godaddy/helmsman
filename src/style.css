@@ -300,13 +300,6 @@ html, body {
 }
 .surface-collapse:hover { color: var(--accent); }
 .surface-collapse svg { width: 14px; height: 14px; }
-.cmux-list .panel-head .surface-collapse,
-.cmux-detail .panel-head .surface-collapse { margin-left: auto; }
-.cmux-list.is-collapsed .cmux-list-body,
-.cmux-detail.is-collapsed .cmux-detail-body { display: none; }
-.cmux-list.is-collapsed, .cmux-detail.is-collapsed { overflow: visible; }
-
-
 .slot-tabs { display: flex; gap: 2px; }
 .slot-tab {
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
@@ -330,7 +323,7 @@ html, body {
 .throughput-label { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-faint); }
 .spark-wrap { margin-top: 2px; }
 
-/* legacy panel shell (cmux list/detail, empty notes) */
+/* panel shell */
 .panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 .panel-head {
   display: flex; align-items: center; gap: 10px;
@@ -526,47 +519,9 @@ select { text-transform: none; }
   .helm-readout { grid-column: 1 / -1; grid-row: 2; }
 }
 
-/* ---------- cmux control view (now a helm page) ---------- */
 .view-toggle { flex: 0 0 auto; }
 
 .underway-list .launch-btn { margin-inline-start: auto; }
-.cmux-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; flex: 1; min-height: 0; }
-.cmux-list { display: flex; flex-direction: column; padding: 6px 0; overflow-y: auto; }
-.cmux-tab {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  width: 100%; text-align: left; text-transform: none;
-  padding: 8px 14px; border: none; border-bottom: 1px solid var(--line-faint);
-  border-radius: 0; background: transparent; color: var(--text);
-}
-.cmux-tab:hover { background: rgba(245, 166, 35, 0.06); color: var(--text); border-color: var(--line-faint); }
-.cmux-tab.is-selected { background: rgba(245, 166, 35, 0.12); box-shadow: inset 3px 0 0 var(--accent); }
-.cmux-tab.is-selected .cmux-tab-title { color: var(--accent); }
-.cmux-tab-title { font-size: 12.5px; color: var(--text); }
-.cmux-tab-meta { font-size: 10px; color: var(--text-faint); }
-.cmux-detail { display: flex; flex-direction: column; gap: 12px; padding: 14px; min-height: 0; }
-.cmux-screen {
-  flex: 1; min-height: 320px; max-height: 60vh; overflow-y: auto;
-  margin: 0; padding: 10px; background: var(--panel-2); border: 1px solid var(--line);
-  color: var(--text); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
-}
-.cmux-send { display: flex; gap: 8px; }
-.cmux-input { flex: 1; }
-.cmux-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.cmux-error { color: var(--bad); font-size: 11px; }
-.cmux-capture-row { display: flex; align-items: center; gap: 10px; }
-.cmux-capture-toggle {
-  padding: 6px 12px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--panel-2); color: var(--text);
-}
-.cmux-capture-toggle.is-active { background: rgba(245, 166, 35, 0.15); border-color: var(--accent); color: var(--accent); }
-.cmux-capture-hint { font-size: 11px; color: var(--accent); }
-.cmux-screen.is-capturing { outline: 2px solid var(--accent); outline-offset: -1px; }
-.cmux-keypad { display: flex; gap: 6px; flex-wrap: wrap; }
-.cmux-keypad-btn {
-  min-width: 40px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--panel-2); color: var(--text); font-size: 12px;
-}
-.cmux-keypad-btn:hover { background: rgba(245, 166, 35, 0.06); }
 
 /* ---------- footer ---------- */
 .app-footer {
@@ -622,7 +577,6 @@ select { text-transform: none; }
   .config-error { grid-column: 1 / -1; }
   .config-key { overflow-wrap: anywhere; }
   .config-input { min-width: 0; width: 100%; }
-  .cmux-body { grid-template-columns: 1fr; }
 }
 
 /* ---------- departure sequence ---------- */
@@ -838,8 +792,7 @@ select { text-transform: none; }
 
 .interface-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; color: var(--text-dim); }
 .interface-field :is(input, textarea, select) { width: 100%; box-sizing: border-box; }
-.tuning > .interface-field, .cmux-send > .interface-field { flex: 1; }
-.cmux-send { align-items: end; }
+.tuning > .interface-field { flex: 1; }
 .page-intro { padding: 16px 14px; }
 .page-intro h1 { margin: 0 0 8px; font: 700 18px var(--mono); }
 .page-intro p { margin: 0; max-width: 72ch; line-height: 1.6; color: var(--text-dim); }

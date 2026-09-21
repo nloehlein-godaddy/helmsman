@@ -30,7 +30,6 @@ async function setup(path = '/helm?repo=org/a', degraded: string[] = []) {
     if (url.pathname === '/api/repo/local') return json({ repo: url.searchParams.get('repo'), path: '/repo', branches: [], worktrees: [], error: null });
     if (url.pathname === '/api/triage') return json({ groups: { unassignedBacklog: [], unassignedTodo: [], mineOpen: [] }, degraded: false, selectedRepo: url.searchParams.get('repo'), jiraBaseUrl: null });
     if (url.pathname === '/api/bugs') return json({ cards: [], degraded: false, generatedAt: '', latestWindow: '', previousWindow: '' });
-    if (url.pathname === '/api/cmux/tabs') return json({ connected: false, tabs: [] });
     return new Response(null, { status: 404 });
   }));
   const root = document.querySelector<HTMLElement>('#app')!;
@@ -74,7 +73,7 @@ describe('persistent app shell', () => {
     for (const page of ['prs', 'runs', 'triage', 'bugs', 'config', 'cmux', 'dashboard']) {
       await switchTo(page);
       selectors.forEach((selector, i) => expect(root.querySelector(selector), `${page}: ${selector}`).toBe(elements[i]));
-      expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe(['dashboard', 'triage', 'bugs', 'runs', 'prs'].includes(page) ? 'plugin' : page);
+      expect(root.querySelector('.helm')?.getAttribute('data-page')).toBe(['dashboard', 'triage', 'bugs', 'runs', 'prs', 'cmux'].includes(page) ? 'plugin' : page);
       expect(root.querySelector('#page-content')?.getAttribute('aria-labelledby')).toBe(`page-tab-${page}`);
       expect(root.querySelectorAll('.page-tab[aria-selected="true"]')).toHaveLength(1);
       expect(root.querySelector('[data-fleet-count="running"]')?.textContent).toBe('1');

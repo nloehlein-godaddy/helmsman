@@ -1,6 +1,6 @@
 # Experimental usage and pricing plugins
 
-This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution primitives remain Phase F work; broader compatibility retirement is still pending.
+This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution primitives remain Phase F work; broader compatibility retirement is still pending.
 
 ## Build an independent package
 
@@ -50,6 +50,12 @@ A backend may provide `helmsman/communication@1`, declare the same local ID unde
 The provider prepares a destination, explicitly invokes or reconciles a retained request, and scans incoming review messages. Preparation and scans cannot send. Invocation must cross `beforeSend()` immediately before its mutation; reconciliation remains read-only. Only an exact workspace/channel/mention/connection receipt proves acknowledgment. A matching PR URL elsewhere in Slack is not a request receipt and cannot justify replay or completion.
 
 Core supplies bounded Slack-browser tree, focus, evaluation, click, fill, and wait primitives with workspace, surface, timeout, and cancellation guards. The standalone Slack package owns DOM selectors, drafts, navigation, group resolution, message policy, receipt recognition, and scanning. This preserves a future Phase F execution-adapter seam without placing Slack policy in core. See [Communication authoring](communication-authoring.md) for the full contract and independent build flow.
+
+## Terminal bridge boundary
+
+`helmsman/terminal@1` is a host service for authored frontend presentation, not a backend provider contract. The Phase E implementation adapts the existing core terminal coordination to bounded, revision-checked list, screen, control, receipt, pending, and acknowledgment methods. Installed packages cannot register a native terminal implementation or access cmux/WezTerm directly.
+
+The selected page preserves header scope; explicit panel `All` includes configured galleon terminals and unassociated surfaces. Controls retain the exact target revision and durable request identity. Receipt lookup is read-only and the service exposes no retry method. An unknown outcome requires inspection and explicit acknowledgment before later controls resume; the retained input is never resent. Phase F owns extracting replaceable cmux, WezTerm, and other execution implementations. See [Terminal authoring](terminal-authoring.md).
 
 ## Measured usage and estimates
 

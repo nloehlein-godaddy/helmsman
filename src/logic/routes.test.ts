@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { appPages, CLARIFICATIONS_PAGE_ID, CLARIFICATIONS_PAGE_SLOT, clarificationsManifest, compatibilityClarificationsManifest, RUNS_PAGE_ID, RUNS_PAGE_SLOT, runsManifest, PR_PAGE_ID, PR_PAGE_SLOT, compatibilityPrManifest } from '../plugins/builtins';
+import { terminalManifest } from '../plugins/frontend-manifests';
+import { TERMINAL_PAGE_ID, TERMINAL_PAGE_SLOT } from '../plugins/page-slots';
 import { parseRoute, routeHref, type AppRoute, type PageView } from './routes';
 
 const parse = (href: string) => parseRoute(new URL(href, 'https://helmsman.example'));
@@ -33,7 +35,7 @@ describe('routes', () => {
 
   it.each([
     ['/', 'plugin'], ['/helm', 'plugin'], ['/triage', 'plugin'],
-    ['/terminal', 'cmux'], ['/terminal/', 'cmux'], ['/cmux', 'cmux'], ['/bugs', 'plugin'], ['/prs', 'plugin'], ['/pr', 'plugin'],
+    ['/terminal', 'plugin'], ['/terminal/', 'plugin'], ['/cmux', 'plugin'], ['/bugs', 'plugin'], ['/prs', 'plugin'], ['/pr', 'plugin'],
     ['/config', 'config'], ['/runs', 'plugin'], ['/runs/', 'plugin'], ['/unknown', 'dashboard'],
     ['/todos', 'plugin'], ['/todos/', 'plugin'],
   ])('resolves %s to %s', (path, view) => {
@@ -310,5 +312,28 @@ describe('authored PR alias', () => {
     expect(parse(routeHref(route))).toEqual(route);
     expect(parse('/config?repo=org/header&slackPrRepo=org/..&slackPr=42').slackPr).toBeUndefined();
     expect(parse('/prs?slackPrRepo=org/target&slackPr=42').slackPr).toBeUndefined();
+  });
+});
+
+
+describe('authored terminal routes', () => {
+  it('preserves native target hints, exact panels and header scope through authored replacements', () => {
+    const cleanup = appPages.register(terminalManifest);
+    const remove = appPages.register({ ...terminalManifest, id: 'example.terminal' });
+    try {
+      const direct = parse(`/plugins/${TERMINAL_PAGE_ID}?repo=org/header&surface=0&pane=screen&panel=custom`);
+      expect(direct).toMatchObject({ view: 'plugin', repo: 'org/header', surface: '0', pane: 'screen', panelInstance: 'custom' });
+      expect(parse(routeHref(direct))).toEqual(direct);
+      appPages.select(TERMINAL_PAGE_SLOT, 'example.terminal/page');
+      const selected = parse('/cmux?repo=org/header&surface=surface:15&pane=screen');
+      expect(selected).toMatchObject({ pluginPage: 'example.terminal/page', repo: 'org/header', surface: 'surface:15', panelInstance: 'terminal' });
+      expect(parse(routeHref(selected))).toEqual(selected);
+      const copied = parse('/plugins/example.terminal/page?repo=org/header&surface=surface:15');
+      expect(copied).toMatchObject({ surface: 'surface:15', panelInstance: 'terminal' });
+      expect(parse(routeHref(copied))).toEqual(copied);
+      remove();
+      expect(parse('/terminal?repo=org/header&surface=surface:15&pane=screen')).toMatchObject({ view: 'plugin', pluginPage: 'example.terminal/page', repo: 'org/header', surface: 'surface:15', pane: 'screen' });
+      expect(appPages.resolvePath('/terminal')?.page).toBeNull();
+    } finally { appPages.select(TERMINAL_PAGE_SLOT, null); remove(); cleanup(); }
   });
 });

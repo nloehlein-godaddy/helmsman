@@ -157,6 +157,23 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <p class="limit-note">Backend disablement blocks new admission while pinned public and legacy operation resolvers remain available for obligations. Browser primitives remain a core execution adapter for Phase F; Slack DOM and policy stay in the package. See <a href="communication-authoring.md">Communication authoring</a>.</p>
 </section>
+<section aria-labelledby="terminal-heading">
+<h2 class="section-heading" id="terminal-heading">Terminal presentation and durable controls</h2>
+<p class="section-intro">The Terminal and cmux aliases resolve the same selected authored composition. Its default layout contains one panel using the public terminal service; saved copied, missing and empty layouts remain authoritative.</p>
+<div class="host-options">
+<article class="flow-step"><h3>Header galleon</h3><p>List only repository-owned surfaces permitted by the inherited header scope.</p></article>
+<article class="flow-step"><h3>Explicit All</h3><p>List configured galleon terminals and unassociated surfaces. Exclude ambiguous ownership and preserve header scope.</p></article>
+</div>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<div class="flow-step flow-common"><h3>Visible list and screen polling</h3><p>Poll the bounded tab list and selected screen every two seconds while visible. Screens contain at most 40 lines of bounded plain text. Targets retain their observed bridge/session and surface revisions; stale, ambiguous or foreign targets are unavailable. Titles never establish repository ownership. Keyboard control starts only through an explicit user action; polling never captures keys.</p></div>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<div class="flow-step flow-common"><h3>Bounded control → serialized browser action → exact journal</h3><p>Accept one text, key, declared server action or image paste at a time. Journal the UUID, target revision and exact input before the core bridge admits a durable command. The same ID is never replayed automatically.</p></div>
+<div class="host-options">
+<article class="flow-step"><h3>Succeeded or rejected</h3><p>Save the terminal result locally before acknowledging the browser journal. Durable server receipts remain inspectable.</p></article>
+<article class="flow-step"><h3>Pending or recovery-required</h3><p>Keep the original request. Inspect the screen and exact receipt, then record that inspection to resume later controls. Receipt checks and inspection acknowledgment never resend retained input or confirm delivery; there is no retry API.</p></article>
+</div>
+<p class="limit-note">Hidden, replaced, scope-changed and disposed panels abort polling. Missing or unreadable browser evidence prevents controls and never creates a replacement request. Phase E retains the core terminal bridge; replaceable cmux, WezTerm and other execution implementations remain Phase F work. Tests use a mock fixture without touching a native terminal. See <a href="terminal-authoring.md">Terminal authoring</a>.</p>
+</section>
 <section aria-labelledby="conditional-state-heading">
 <h2 class="section-heading" id="conditional-state-heading">Conditional panel-state saves</h2>
 <p class="section-intro">Authored question/contact panels use conditional saves. This behavior passed independent package and production acceptance and is pushed as 773cce4.</p>

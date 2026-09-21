@@ -41,6 +41,18 @@ function setup(module: PluginPanelModule) {
 afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); });
 
 describe('page-owned composition', () => {
+  it('mounts a terminal service consumer through the public composition boundary', async () => {
+    let context: PluginPanelContext | undefined;
+    const { host, first, registry, unregister } = setup({ mount(_element, value) {
+      context = value; return { update() {}, dispose() {} };
+    } });
+    unregister();
+    registry.register({ ...manifest, panels: [{ ...manifest.panels[0], requires: [{ id: 'helmsman/terminal', version: 1 }] }] });
+    await host.service.mount('first', first); await settle();
+    expect(context?.services.terminal?.version).toBe(1);
+    expect(context?.state.repo).toBe('org/header');
+  });
+
   it('updates header hints while preserving an explicit panel scope and its active reads', async () => {
     const states: PluginPanelState[] = [];
     const { host, second } = setup({ mount(_element, context) {
@@ -183,7 +195,7 @@ describe('page-owned composition', () => {
       return { update(state) { states.set(state.instanceId, state); }, dispose() {} };
     } });
     const routeState = { version: 1, value: { legacyTicket: 'TASK-42' } };
-    host.update({ ...page, pullRequest: { version: 1, repo: 'org/pr', number: 42, mode: 'review' }, panelInstance: 'first', panelRouteState: {
+    host.update({ ...page, pullRequest: { version: 1, repo: 'org/pr', number: 42, mode: 'review' }, terminal: { version: 1, surface: 'surface:15', pane: 'screen' }, panelInstance: 'first', panelRouteState: {
       'example.backlog/panel': routeState, 'other.plugin/panel': { version: 1, value: 'private' },
     } });
     await host.service.mount('first', first); await host.service.mount('second', second); await settle();
@@ -191,6 +203,8 @@ describe('page-owned composition', () => {
     expect(states.get('second')?.routeState).toBeNull();
     expect(states.get('first')?.pullRequest).toEqual({ version: 1, repo: 'org/pr', number: 42, mode: 'review' });
     expect(states.get('second')?.pullRequest).toBeNull();
+    expect(states.get('first')?.terminal).toEqual({ version: 1, surface: 'surface:15', pane: 'screen' });
+    expect(states.get('second')?.terminal).toBeNull();
     expect(states.get('first')?.panelRouteState).toBeUndefined();
     host.update({ ...page, panelInstance: 'first', panelRouteState: {
       'example.backlog/panel': { version: 1, value: { legacyTicket: 'TASK-43' } },
@@ -315,7 +329,7 @@ describe('page-owned composition', () => {
     let context!: PluginPanelContext;
     const f = setup({ mount(_element, supplied) { context = supplied; return { update() {}, dispose() {} }; } });
     await f.host.service.mount('first', f.first);
-    expect(Object.keys(context.services).sort()).toEqual(['activity', 'clarificationCommands', 'clarifications', 'communication', 'communicationCommands', 'downloads', 'pullRequestCommands', 'pullRequestInspect', 'pullRequests', 'runCommands', 'runInspect', 'runs', 'sourceAdmin', 'sourceCommands', 'suggestedContacts', 'taskEdit', 'taskViews', 'tasks', 'todoLegacyRecovery', 'version']);
+    expect(Object.keys(context.services).sort()).toEqual(['activity', 'clarificationCommands', 'clarifications', 'communication', 'communicationCommands', 'downloads', 'pullRequestCommands', 'pullRequestInspect', 'pullRequests', 'runCommands', 'runInspect', 'runs', 'sourceAdmin', 'sourceCommands', 'suggestedContacts', 'taskEdit', 'taskViews', 'tasks', 'terminal', 'todoLegacyRecovery', 'version']);
     f.host.update({ ...page, visible: false });
     await expect(context.services.tasks?.discover()).rejects.toMatchObject({ name: 'AbortError' });
     await expect(context.services.taskEdit?.discover()).rejects.toMatchObject({ name: 'AbortError' });

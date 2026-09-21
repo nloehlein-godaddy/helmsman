@@ -1,3 +1,4 @@
+import { createHostTerminalService } from './terminal-service';
 import { createHostCommunicationService } from './communication-service';
 import { createHostCommunicationCommandService } from './communication-command-service';
 import { createHostPullRequestCommandService } from './pull-request-command-service';
@@ -192,7 +193,7 @@ export class PluginCompositionHost {
     const contribution = this.options.registry.get(instance.contributionId);
     const compatible = contribution && this.options.definition.accepts.some(contract =>
       contract.id === contribution.contract.id && contract.version === contribution.contract.version)
-      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
+      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/terminal', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
     const module = compatible ? this.options.registry.getModule(instance.contributionId) : null;
     if (panel.module !== module || panel.contributionId !== instance.contributionId) {
       panel.host?.dispose(); panel.host = null;
@@ -216,6 +217,7 @@ export class PluginCompositionHost {
       ?? this.layout?.instances.find(value => value.contributionId === state.panelContribution);
     const acceptsRoute = !state.panelInstance && !state.panelContribution || routeTarget?.instanceId === instance.instanceId;
     state.pullRequest = acceptsRoute ? state.pullRequest : null;
+    state.terminal = acceptsRoute ? state.terminal : null;
     const routeState = acceptsRoute ? state.panelRouteState?.[instance.contributionId] ?? null : null;
     if (panel.host) { panel.host.update(state, savedState, routeState); return; }
     panel.host = new PluginPanelHost(panel.container, module, state, savedState, {
@@ -232,6 +234,7 @@ export class PluginCompositionHost {
         clarifications: createHostClarificationReadService(lifetime, { scope: activity, caller: instance.contributionId }),
         clarificationCommands: createHostClarificationCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
+        terminal: createHostTerminalService(lifetime, { scope: activity, caller: instance.contributionId }),
         communication: createHostCommunicationService(lifetime, { scope: activity, caller: instance.contributionId }),
         communicationCommands: createHostCommunicationCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope: activity, caller: instance.contributionId }),

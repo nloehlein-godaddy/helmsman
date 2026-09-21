@@ -1,3 +1,4 @@
+import { parseTerminalRouteV1, sameTerminalRouteV1 } from './terminal-route';
 import type { PanelActivityV1, PanelOpaqueStateV1, PanelScopeV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PluginPanelServicesV1 } from './composition';
 import type { PluginPageState } from './sdk';
 import { parsePullRequestRouteV1, samePullRequestRouteV1, parsePresentationLocatorV1, samePresentationLocatorV1, scopedPresentationLocatorV1, type PresentationLocatorV1 } from './presentation';
@@ -32,7 +33,7 @@ export class PluginPanelHost {
     this.container = container;
     this.options = options;
     if (!state.visible) this.scope.abort();
-    this.state = Object.freeze({ ...state, ...(state.pullRequest === undefined ? {} : { pullRequest: parsePullRequestRouteV1(state.pullRequest) }), ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }), panelRouteState: undefined, instanceId: options.instanceId, savedState, routeState,
+    this.state = Object.freeze({ ...state, ...(state.terminal === undefined ? {} : { terminal: parseTerminalRouteV1(state.terminal) }), ...(state.pullRequest === undefined ? {} : { pullRequest: parsePullRequestRouteV1(state.pullRequest) }), ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }), panelRouteState: undefined, instanceId: options.instanceId, savedState, routeState,
       activity: Object.freeze({ epoch: 0, signal: this.scope.signal, active: state.visible, repo: state.repo }) });
     this.element.dataset.panelInstance = options.instanceId;
     this.element.hidden = !state.visible;
@@ -78,7 +79,7 @@ export class PluginPanelHost {
     const previous = this.state;
     if (previous.repo === state.repo && previous.headerRepo === state.headerRepo && previous.visible === state.visible && previous.themeId === state.themeId
       && previous.pirateMode === state.pirateMode && previous.pane === state.pane && previous.panelInstance === state.panelInstance
-      && previous.panelContribution === state.panelContribution && samePresentationLocatorV1(previous.presentation, state.presentation) && samePullRequestRouteV1(previous.pullRequest, state.pullRequest)
+      && previous.panelContribution === state.panelContribution && samePresentationLocatorV1(previous.presentation, state.presentation) && samePullRequestRouteV1(previous.pullRequest, state.pullRequest) && sameTerminalRouteV1(previous.terminal, state.terminal)
       && previous.savedState === savedState && JSON.stringify(previous.routeState) === JSON.stringify(routeState)) return;
     const changed = previous.repo !== state.repo || previous.visible !== state.visible;
     if (changed) {
@@ -86,7 +87,7 @@ export class PluginPanelHost {
       this.scope = new AbortController();
       if (!state.visible) this.scope.abort();
     }
-    this.state = Object.freeze({ ...state, ...(state.pullRequest === undefined ? {} : { pullRequest: parsePullRequestRouteV1(state.pullRequest) }), ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }), panelRouteState: undefined, instanceId: this.options.instanceId, savedState, routeState,
+    this.state = Object.freeze({ ...state, ...(state.terminal === undefined ? {} : { terminal: parseTerminalRouteV1(state.terminal) }), ...(state.pullRequest === undefined ? {} : { pullRequest: parsePullRequestRouteV1(state.pullRequest) }), ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }), panelRouteState: undefined, instanceId: this.options.instanceId, savedState, routeState,
       activity: changed ? Object.freeze({ epoch: previous.activity.epoch + 1, signal: this.scope.signal,
         active: state.visible, repo: state.repo }) : previous.activity });
     this.element.hidden = !state.visible;

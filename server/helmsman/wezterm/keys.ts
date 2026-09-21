@@ -4,7 +4,7 @@
  * terminal would have produced, and written as literal text.
  *
  * Two vocabularies arrive here:
- *   - lowercase tokens from the browser (`src/logic/cmuxKeys.ts`): `enter`,
+ *   - lowercase tokens from the browser (`src/plugins/terminal/keys.ts`): `enter`,
  *     `escape`, `ctrl+c`, …
  *   - cmux CLI key names from `cmux/actions.ts`: `Enter`, `Escape`, `C-c`, `y`
  * Both are accepted so the wezterm bridge is a drop-in for the cmux one.
