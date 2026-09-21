@@ -12,10 +12,14 @@ function text(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maximum && !/[\u0000-\u001f\u007f]/.test(value);
 }
 
+function taskText(value: unknown, maximum: number): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= maximum && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
+}
+
 function source(value: unknown): value is SchedulingSourceV1 {
   if (!value || typeof value !== 'object') return false;
   const item = value as Partial<SchedulingSourceV1>;
-  return text(item.instanceId, 160) && text(item.sourceId, 160) && text(item.label, 256);
+  return taskText(item.instanceId, 160) && taskText(item.sourceId, 160) && taskText(item.label, 240);
 }
 
 function candidate(value: unknown, expectedSourceId: string): value is SchedulingCandidateV1 {
@@ -24,9 +28,9 @@ function candidate(value: unknown, expectedSourceId: string): value is Schedulin
   const ref = item.ref;
   if (!ref || typeof ref !== 'object') return false;
   const workRef = ref as { sourceId?: unknown; externalId?: unknown };
-  return text(item.candidateId, 128) && text(item.revision, 256) && text(item.displayKey, 512)
-    && text(item.title, 4096) && (item.priority === null || typeof item.priority === 'number' && Number.isFinite(item.priority))
-    && workRef.sourceId === expectedSourceId && text(workRef.externalId, 512);
+  return text(item.candidateId, 128) && taskText(item.revision, 512) && taskText(item.displayKey, 240)
+    && taskText(item.title, 240) && (item.priority === null || typeof item.priority === 'number' && Number.isFinite(item.priority))
+    && workRef.sourceId === expectedSourceId && taskText(workRef.externalId, 512);
 }
 
 function orderedSources(input: SchedulingInputV1): readonly SchedulingSourceV1[] {

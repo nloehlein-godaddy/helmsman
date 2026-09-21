@@ -13,6 +13,11 @@ describe('round-robin scheduling provider', () => {
     expect(list.mock.calls.map(([value]) => value.instanceId)).toEqual(['b']);
   });
 
+  it('accepts task-source revision bounds and preserved whitespace', async () => {
+    const list = vi.fn(async () => ({ items: [{ ...item('candidate', 'a'), revision: 'r'.repeat(512), title: 'Multi\nline\ttitle', displayKey: 'T\t1' }], nextCursor: null }));
+    await expect(roundRobinSchedulingProvider.select(input([source('a')]), { signal: new AbortController().signal, list })).resolves.toEqual({ candidateId: 'candidate' });
+  });
+
   it('scans pages and skips unavailable sources', async () => {
     const list = vi.fn(async ({ instanceId, cursor }: { instanceId: string; cursor: string | null }) => {
       if (instanceId === 'a') throw new Error('unavailable');
