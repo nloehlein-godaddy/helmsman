@@ -48,8 +48,11 @@ else process.exit(1);
     let origin = await host.start();
     let lostCommand: { command: { requestId: string; target: { repo: string; surfaceRef: string }; operation: unknown } } | null = null;
     let loseResponse = true;
+    let dropBeforeDelivery = false;
+    let undelivered: unknown = null;
     await page.route('**/api/terminal/control', async route => {
       const submitted = route.request().postDataJSON() as { command: { requestId: string; target: { repo: string; surfaceRef: string }; operation: unknown } };
+      if (dropBeforeDelivery) { undelivered = submitted; dropBeforeDelivery = false; await route.abort('failed'); return; }
       const response = await route.fetch();
       expect(response.ok()).toBe(true);
       if (loseResponse) { lostCommand = submitted; loseResponse = false; await route.abort('failed'); }
@@ -84,6 +87,25 @@ else process.exit(1);
     const afterKey = JSON.parse(await readFile(statePath, 'utf8')) as { sends: { kind: string; surface: string; value: string }[] };
     expect(afterKey.sends.at(-1)).toEqual({ kind: 'send-key', surface: 'surface:1', value: 'right' });
 
+    await expect(terminal.getByRole('button', { name: 'Send + Enter', exact: true })).toBeEnabled();
+    dropBeforeDelivery = true;
+    await terminal.getByLabel('Send text to A terminal').fill('never delivered');
+    await terminal.getByRole('button', { name: 'Send + Enter', exact: true }).click();
+    await expect(terminal.getByRole('button', { name: 'Check original receipt', exact: true })).toBeVisible();
+    await terminal.getByRole('button', { name: 'Check original receipt', exact: true }).click();
+    await expect(terminal.getByRole('button', { name: 'Resume controls after inspection', exact: true })).toBeEnabled();
+    await terminal.getByRole('button', { name: 'Resume controls after inspection', exact: true }).click();
+    await expect(terminal.getByRole('button', { name: 'Send + Enter', exact: true })).toBeEnabled();
+    expect(undelivered).not.toBeNull();
+    const delayed = await request.post(`${origin}/api/terminal/control`, {
+      headers: { 'x-helmsman-contribution': 'example.authored-terminal/panel' }, data: undelivered,
+    });
+    expect(delayed.status()).toBe(200);
+    expect(await delayed.json()).toMatchObject({ status: 'recovery-required', input: { operation: { text: 'never delivered' } } });
+    expect((JSON.parse(await readFile(statePath, 'utf8')) as { sends: unknown[] }).sends).toHaveLength(3);
+    await terminal.getByRole('button', { name: 'Send right key', exact: true }).click();
+    await expect.poll(async () => (JSON.parse(await readFile(statePath, 'utf8')) as { sends: unknown[] }).sends.length).toBe(4);
+
     await terminal.getByRole('button', { name: 'Show all terminals', exact: true }).click();
     await expect(terminal).toContainText('Scope: All terminals');
     await expect(terminal.getByRole('button', { name: /Unattached terminal/ })).toBeVisible();
@@ -116,7 +138,7 @@ else process.exit(1);
     const receipt = await request.get(`${origin}/api/terminal/receipts/${requestId}?repo=org%2Fa&scopeRepo=org%2Fa`, { headers: { 'x-helmsman-contribution': 'example.authored-terminal/panel' } });
     expect(receipt.status()).toBe(200);
     expect(await receipt.json()).toMatchObject({ requestId, status: 'succeeded', input: { target: { repo: 'org/a', surfaceRef: 'surface:1' }, operation: { kind: 'text', text: 'lost exact text', enter: true } } });
-    expect((JSON.parse(await readFile(statePath, 'utf8')) as { sends: unknown[] }).sends).toHaveLength(3);
+    expect((JSON.parse(await readFile(statePath, 'utf8')) as { sends: unknown[] }).sends).toHaveLength(4);
     await page.goto(`${origin}/terminal?repo=org/a`);
     await expect(terminal.getByRole('button', { name: /A terminal/ })).toBeVisible();
 

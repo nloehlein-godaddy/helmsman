@@ -72,6 +72,7 @@ export interface TerminalServiceV1 {
   screen(input: { readonly target: TerminalTargetV1; readonly lines: number }, signal?: AbortSignal): Promise<ClarificationReadResultV1<TerminalScreenV1>>;
   control(input: TerminalControlInputV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<TerminalControlReceiptV1>>;
   receipt(input: TerminalReceiptQueryV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<TerminalControlReceiptV1 | null>>;
+  inspect(input: TerminalReceiptQueryV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<TerminalControlReceiptV1>>;
   pending(signal?: AbortSignal): Promise<readonly TerminalPendingV1[]>;
   acknowledge(input: TerminalReceiptQueryV1, signal?: AbortSignal): Promise<void>;
 }

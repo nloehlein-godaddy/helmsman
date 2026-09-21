@@ -27,7 +27,7 @@ export async function handleTerminalApi(input: {
       if (input.query.has('version')) throw new ClarificationServiceError(400, 'invalid-response');
       return { status: 200, json: service.receipt(input.caller, parseTerminalReceiptQueryV1({ repo: input.query.get('repo'), requestId: match[1] }), parseTerminalRepo(input.query.get('scopeRepo'))) };
     }
-    if (input.path !== '/api/terminal/screen' && input.path !== '/api/terminal/control') return { status: 404, json: { reason: 'not-found' } };
+    if (input.path !== '/api/terminal/screen' && input.path !== '/api/terminal/control' && input.path !== '/api/terminal/inspect') return { status: 404, json: { reason: 'not-found' } };
     method('POST');
     if (input.query.size) throw new ClarificationServiceError(400, 'invalid-response');
     const body = clarificationObject(input.body);
@@ -36,7 +36,8 @@ export async function handleTerminalApi(input: {
       return { status: 200, json: await service.screen(input.caller, { target: parseTerminalTargetV1(body.target), lines: parseTerminalLines(body.lines) }, parseTerminalRepo(body.scopeRepo)) };
     }
     clarificationFields(body, ['command', 'scopeRepo']);
-    return { status: 200, json: await service.control(input.caller, parseTerminalControlCommandV1(body.command), parseTerminalRepo(body.scopeRepo)) };
+    const command = parseTerminalControlCommandV1(body.command); const scopeRepo = parseTerminalRepo(body.scopeRepo);
+    return { status: 200, json: input.path === '/api/terminal/inspect' ? service.inspect(input.caller, command, scopeRepo) : await service.control(input.caller, command, scopeRepo) };
   } catch (error) {
     if (error instanceof ClarificationServiceError) return { status: error.status, json: { reason: error.reason } };
     if (error instanceof SourceContractValidationError || error instanceof TaskSourceValidationError || error instanceof SyntaxError || error instanceof RangeError)

@@ -87,3 +87,33 @@ it('bounds malformed keys/text/images while preserving supported keyboard tokens
   for (const operation of [{ kind: 'key', key: '--surface' }, { kind: 'text', text: 'x'.repeat(TERMINAL_LIMITS.text + 1), enter: false }, { kind: 'image', mimeType: 'text/html', dataBase64: 'AAAA' }, { kind: 'image', mimeType: 'image/png', dataBase64: 'a===' }])
     expect(() => parseTerminalControlInputV1({ ...input, operation })).toThrow();
 });
+
+it('explicit inspection uses only the original journal command, records its fence, and permits acknowledgment after inspection', async () => {
+  const f = setup(); const command = await f.journal.reserve(input); const query = { repo: 'org/a', requestId: command.requestId };
+  f.fetcher.mockResolvedValueOnce(Response.json(null));
+  expect(await f.service.receipt(query)).toMatchObject({ status: 'available', value: null });
+  await expect(f.service.acknowledge(query)).rejects.toThrow();
+  f.fetcher.mockImplementationOnce(async (url, init) => {
+    expect(url).toBe('/api/terminal/inspect'); expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ command, scopeRepo: 'org/a' });
+    return Response.json(receipt(command, 'recovery-required'));
+  });
+  expect(await f.service.inspect(query)).toMatchObject({ status: 'available', value: { input, status: 'recovery-required' } });
+  expect((await f.journal.pending())[0]?.receipt?.status).toBe('recovery-required');
+  await f.service.acknowledge(query); expect(await f.journal.pending()).toEqual([]);
+  expect(await f.service.inspect(query)).toMatchObject({ status: 'unavailable', reason: 'not-found' });
+  expect(f.fetcher).toHaveBeenCalledTimes(2);
+});
+
+it('inspection keeps active sends pending and preserves original input after inspection response loss', async () => {
+  const f = setup(); const command = await f.journal.reserve(input); const query = { repo: 'org/a', requestId: command.requestId };
+  f.fetcher.mockResolvedValueOnce(Response.json(receipt(command, 'pending')));
+  expect(await f.service.inspect(query)).toMatchObject({ status: 'available', value: { status: 'pending' } });
+  await expect(f.service.acknowledge(query)).rejects.toThrow();
+  f.fetcher.mockRejectedValueOnce(new Error('inspection response lost'));
+  expect(await f.service.inspect(query)).toMatchObject({ status: 'unavailable', reason: 'connection-failed' });
+  const reloaded = createHostTerminalService(new AbortController().signal, { ...f.options, journal: createTerminalCommandJournal(caller, { indexedDB: f.indexedDB }) });
+  f.fetcher.mockImplementationOnce(async (url, init) => { expect(String(url)).toContain('/api/terminal/receipts/'); expect(init?.method).toBe('GET'); return Response.json(receipt(command, 'recovery-required')); });
+  expect(await reloaded.receipt(query)).toMatchObject({ status: 'available', value: { status: 'recovery-required' } });
+  expect((await reloaded.pending())[0]?.command).toEqual(command);
+});

@@ -105,3 +105,40 @@ it('validates stored receipt integrity and the owned migration schema', async ()
   f.persistence.sql.prepare('UPDATE terminal_control_receipts SET hash=?').run('0'.repeat(64));
   expect(() => f.service.receipt(caller, { repo: 'org/a', requestId }, 'org/a')).toThrow('integrity');
 });
+
+it('explicit inspection fences absent controls against late delivery and restart without native dispatch', async () => {
+  const f = setup(); const command = await f.command(); const query = { repo: 'org/a', requestId };
+  expect(f.service.receipt(caller, query, 'org/a')).toBeNull();
+  const inspected = f.service.inspect(caller, command, 'org/a');
+  expect(inspected).toMatchObject({ status: 'recovery-required', input: { target: command.target } });
+  expect(f.bridge.send).not.toHaveBeenCalled();
+  expect(await f.service.control(caller, command, 'org/a')).toEqual(inspected);
+  const restarted = createTerminalService(f.options);
+  expect(restarted.receipt(caller, query, 'org/a')).toEqual(inspected);
+  expect(await restarted.control(caller, command, 'org/a')).toEqual(inspected);
+  expect(() => restarted.inspect(caller, { ...command, operation: { kind: 'key', key: 'Enter' } }, 'org/a')).toThrow('conflict');
+  expect(f.bridge.send).not.toHaveBeenCalled();
+});
+
+it('inspection bypasses a hung control queue, preserves active pending evidence and fences queued work', async () => {
+  const f = setup(); const command = await f.command(); const gate = deferred<{ ok: true }>(); const started = deferred<void>();
+  f.bridge.send.mockImplementationOnce(() => { started.resolve(); return gate.promise; });
+  const first = f.service.control(caller, command, 'org/a'); await started.promise;
+  expect(f.service.inspect(caller, command, 'org/a').status).toBe('pending');
+  const queuedCommand = { ...command, requestId: '10000000-0000-4000-8000-000000000002' };
+  const queued = f.service.control(caller, queuedCommand, 'org/a');
+  const inspected = f.service.inspect(caller, queuedCommand, 'org/a');
+  expect(inspected.status).toBe('recovery-required'); expect(f.bridge.send).toHaveBeenCalledTimes(1);
+  gate.resolve({ ok: true }); const success = await first; expect(await queued).toEqual(inspected);
+  expect(f.service.inspect(caller, command, 'org/a')).toEqual(success); expect(f.bridge.send).toHaveBeenCalledTimes(1);
+});
+
+it('inspection also fences a control already awaiting live validation and enforces its HTTP body scope', async () => {
+  const f = setup(); const command = await f.command(); const gate = deferred<{ connected: boolean; tabs: CmuxTab[] }>(); const started = deferred<void>();
+  f.bridge.listTabs.mockImplementationOnce(() => { started.resolve(); return gate.promise; });
+  const delayed = f.service.control(caller, command, 'org/a'); await started.promise;
+  const result = await handleTerminalApi({ caller, service: f.service, method: 'POST', path: '/api/terminal/inspect', query: new URLSearchParams(), body: { command, scopeRepo: 'org/a' } });
+  expect(result).toMatchObject({ status: 200, json: { status: 'recovery-required' } });
+  gate.resolve({ connected: true, tabs: [f.tab] }); expect(await delayed).toEqual(result?.json); expect(f.bridge.send).not.toHaveBeenCalled();
+  expect(await handleTerminalApi({ caller, service: f.service, method: 'POST', path: '/api/terminal/inspect', query: new URLSearchParams(), body: { command, scopeRepo: 'org/b' } })).toMatchObject({ status: 404 });
+});

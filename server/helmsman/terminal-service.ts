@@ -182,6 +182,20 @@ export function createTerminalService(options: TerminalServerOptions) {
       };
       queued++; const result = queue.then(execute).finally(() => { queued--; }); queue = result.catch(() => undefined); return result;
     },
+    inspect(caller: string, value: TerminalControlCommandV1, scopeRepo: string | null): TerminalControlReceiptV1 {
+      const command = parseTerminalControlCommandV1(value); scope(caller, command.target.repo, scopeRepo);
+      const input = JSON.stringify(command);
+      return persistence.transaction(() => {
+        const saved = row(caller, command.requestId);
+        if (saved) {
+          if (saved.input !== input) throw new ClarificationServiceError(409, 'conflict');
+          return receiptOf(caller, { repo: command.target.repo, requestId: command.requestId }, saved);
+        }
+        const fenced = receipt(command, 'recovery-required', 'No terminal dispatch was recorded. This request is now blocked from dispatch; inspect the terminal before acknowledging');
+        sql.prepare('INSERT INTO terminal_control_receipts VALUES (?,?,?,?,?,?)').run(caller, command.requestId, input, JSON.stringify(fenced), owner, persistenceHash({ caller, command, receipt: fenced, owner }));
+        return fenced;
+      });
+    },
     receipt(caller: string, value: TerminalReceiptQueryV1, scopeRepo: string | null): TerminalControlReceiptV1 | null {
       const query = parseTerminalReceiptQueryV1(value); scope(caller, query.repo, scopeRepo); const saved = row(caller, query.requestId);
       if (!saved) return null;

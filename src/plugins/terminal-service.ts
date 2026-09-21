@@ -70,6 +70,14 @@ export function createHostTerminalService(lifetime: AbortSignal, options: Clarif
       if (!retained) return clarificationUnavailable('not-found');
       return receipt(input, call);
     },
+    async inspect(value, signal) {
+      const input = parseTerminalReceiptQueryV1(value); const call = operation(signal);
+      if (!allowed(call, input.repo)) return clarificationUnavailable('forbidden');
+      const command = await journal.retained(input, call.signal); call.check(); call.signal.throwIfAborted();
+      if (!command) return clarificationUnavailable('not-found');
+      const result = await record(await call.request('/api/terminal/inspect', data => parseTerminalControlReceiptV1(data, command), { command, scopeRepo: call.scope.repo }), call);
+      return result.status === 'unavailable' ? result : result.value === null ? clarificationUnavailable('invalid-response') : clarificationAvailable(result.value);
+    },
     async pending(signal) {
       const call = operation(signal); const entries = await journal.pending(call.signal); call.check();
       return Object.freeze(entries.filter(entry => allowed(call, entry.command.target.repo)));

@@ -224,7 +224,8 @@ flowchart TD
     Receipt -->|Succeeded or rejected| Save[Save result locally<br/>Then acknowledge journal]
     Receipt -->|Pending or recovery-required| Inspect[Keep original input<br/>Inspect screen and exact receipt]
     Inspect --> Check[Receipt check is read-only<br/>It never sends input]
-    Check --> Resume[User records inspection<br/>Then explicitly resumes later controls]
+    Check --> Fence[Explicit inspection records original command<br/>Missing receipt fences delayed delivery; never sends]
+    Fence --> Resume[Save inspected evidence<br/>Then explicitly resume later controls]
 ```
 
 Hidden, replaced, scope-changed and disposed panels abort polling. A target includes its observed bridge/session and surface revision; stale, ambiguous or foreign targets are unavailable rather than rebound. Titles never establish repository ownership. The public service has no terminal-input retry API: inspection acknowledgment never resends retained input or confirms delivery. Missing or unreadable browser evidence prevents controls and never creates a replacement request. Phase E uses the existing core terminal bridge; extracting cmux, WezTerm or another execution implementation remains Phase F work. Tests use a mock fixture and do not touch a native terminal. See [Terminal authoring](terminal-authoring.md).
