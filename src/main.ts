@@ -6,13 +6,10 @@ import { loadProfile } from './data/profile';
 import { getContext } from './data/context';
 import { emptyLocalGit, fetchLocalGit, updateLocalGit, type LocalGitAction, type LocalGitState } from './data/localGit';
 import { renderLocalGit } from './renderLocalGit';
-import { fetchSlack, markSlackNotificationRead, unavailableSlack, type SlackState } from './data/slack';
-import { renderSlack } from './renderSlack';
-import { SlackReviewSession } from './slack-review-session';
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
-import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, PR_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUNS_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, NOTIFICATION_HEADER_SLOT, PR_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUNS_PAGE_SLOT } from './plugins/builtins';
 import { appPageModules, disableBuiltinPageModules, syncBuiltinFrontend } from './plugins/builtin-modules';
 import { AppCompositionFactory } from './plugins/app-composition';
 import { loadPluginCatalog } from './plugins/runtime';
@@ -48,7 +45,7 @@ interface CmuxEventPayload {
 export class DashboardView {
   private readonly root: HTMLElement;
   private readonly rootEvents = new window.AbortController();
-  private readonly slackReviews = new SlackReviewSession();
+  private readonly headerContribution: AuxiliaryPageHost;
   private readonly auxiliary: AuxiliaryPageHost;
   private presentationSelection: { locator: Exclude<PresentationLocatorV1, { kind: 'pull-request' }>; scopeRepo: string | null } | null = null;
   private destroyed = false;
@@ -71,6 +68,7 @@ export class DashboardView {
   private lastLocalRefresh: number = -Infinity;
   private readonly onVisibilityChange = (): void => {
     this.syncCmuxPolling();
+    this.paintHeaderContribution();
     if (this.isPluginPage()) this.paintPluginPage();
     if (!document.hidden) {
       void this.refresh(false);
@@ -102,11 +100,6 @@ export class DashboardView {
   private configSaves: number = 0;
   private pendingViewActions: number = 0;
   private jiraEnabled: boolean = true;
-  private slack: SlackState = unavailableSlack();
-  private slackOpen: boolean = false;
-  private slackError: string | null = null;
-  private slackSeq: number = 0;
-  private slackReads = new Set<string>();
   private campaigns: ReturnType<typeof mountCampaigns> | null = null;
   private unsubscribePages: (() => void) | null = null;
   private unsubscribePageModules: (() => void) | null = null;
@@ -115,16 +108,9 @@ export class DashboardView {
 
   constructor(root: HTMLElement) {
     this.root = root;
-    this.slackReviews.subscribe(() => { if (!this.destroyed) this.paintSlackReviewRequests(); });
     applyTheme(this.themeId);
     this.root.addEventListener('click', (event: MouseEvent): void => this.handleClick(event), { signal: this.rootEvents.signal });
     this.root.addEventListener('keydown', (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && this.slackOpen) {
-        this.slackOpen = false;
-        this.paintSlack();
-        this.root.querySelector<HTMLButtonElement>('[data-slack-toggle]')?.focus();
-        return;
-      }
       const tab = event.target;
       if (tab instanceof HTMLAnchorElement && tab.matches('.page-tab')) {
         const tabs = Array.from(this.root.querySelectorAll<HTMLAnchorElement>('.page-tab'));
@@ -169,6 +155,12 @@ export class DashboardView {
     this.root.addEventListener('submit', (event: SubmitEvent): void => this.handleSubmit(event), { signal: this.rootEvents.signal });
     this.root.addEventListener('paste', (event: ClipboardEvent): void => void this.handlePasteImage(event), { signal: this.rootEvents.signal });
 
+    this.headerContribution = new AuxiliaryPageHost(this.pluginPresentationState(), {
+      slotId: NOTIFICATION_HEADER_SLOT, registry: appPages, modules: appPageModules,
+      navigate: href => this.navigatePluginHref(href),
+      loadingMessage: () => term('loadingPluginPage'), errorMessage: () => term('failedPluginPage'),
+      unavailableMessage: () => '',
+    });
     this.auxiliary = new AuxiliaryPageHost(this.pluginPresentationState(), {
       slotId: RUN_VIEWER_PAGE_SLOT, registry: appPages, modules: appPageModules,
       createComposition: (id, owner, state) => this.compositions.create(id, owner, state,
@@ -263,7 +255,7 @@ export class DashboardView {
     const pageScroll = this.root.querySelector('#page-content')?.scrollTop ?? 0;
     setPirateMode(enabled);
     this.paint();
-    this.paintSlack();
+    this.paintHeaderContribution();
     this.updateAddress(this.route, 'replace');
     const template = document.createElement('template');
     template.innerHTML = renderAppShell(this.shellOptions(), '');
@@ -291,6 +283,7 @@ export class DashboardView {
     this.pageHost?.dispose();
     this.pageHost = null;
     this.auxiliary.dispose();
+    this.headerContribution.dispose();
     this.compositions.dispose();
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -299,13 +292,11 @@ export class DashboardView {
     ++this.routeSeq;
     ++this.refreshSeq;
     ++this.localGitSeq;
-    ++this.slackSeq;
     window.removeEventListener('popstate', this.onPopState);
     this.stopCmuxScreenPoll();
     this.stopCapture();
     this.campaigns?.destroy();
     this.campaigns = null;
-    this.slackReviews.dispose();
     this.cmuxEventSource?.close();
   }
 
@@ -354,7 +345,7 @@ export class DashboardView {
     if (route.pane) this.collapsed.delete(`${route.view}:${route.pane === 'tabs' ? 'list' : route.pane === 'screen' ? 'detail' : route.pane}`);
     if (!route.run) this.presentationSelection = null;
     this.paint();
-    if (scopeChanged) this.paintSlack();
+    if (scopeChanged) this.paintHeaderContribution();
     if (scopeChanged) await this.refresh(false);
     if (seq !== this.routeSeq) return;
     if (this.isPluginPage() && !this.isRunViewerPage()) await this.pageHost?.refresh();
@@ -422,12 +413,10 @@ export class DashboardView {
     const localDue = force || now - this.lastLocalRefresh >= LOCAL_POLL_MS;
     if (localDue) this.lastLocalRefresh = now;
     const seq: number = ++this.refreshSeq;
-    const slackSeq = ++this.slackSeq;
     const repo: string | null = this.selectedRepo;
-    const [agents, , slack, context] = await Promise.all([
+    const [agents, , context] = await Promise.all([
       localDue ? fetchAgents() : null,
       force ? this.loadUiConfig(false) : null,
-      localDue ? fetchSlack() : undefined,
       localDue ? getContext() : null,
     ]);
     if (seq !== this.refreshSeq || repo !== this.selectedRepo) return;
@@ -443,14 +432,7 @@ export class DashboardView {
       this.uiConfig.config.JIRA_ENABLED = String(this.jiraEnabled);
     }
     this.syncShell();
-    if (localDue && slackSeq === this.slackSeq) {
-      this.slack = slack ?? {
-        ...this.slack,
-        health: { ...this.slack.health, status: 'unavailable', error: 'Notifications unavailable. Showing saved notifications.' },
-        ...(this.slack.githubHealth ? { githubHealth: { ...this.slack.githubHealth, status: 'unavailable' as const, error: 'Notifications unavailable.' } } : {}),
-      };
-      this.paintSlack();
-    }
+    if (force) await this.headerContribution.refresh();
     if (this.view === 'config' && force) {
       this.paintConfig();
       void this.loadLocalGit();
@@ -641,7 +623,7 @@ export class DashboardView {
     if (!next) return;
     if (!this.root.querySelector('.helm-head')) {
       this.root.innerHTML = renderAppShell(this.shellOptions(), '');
-      this.paintSlack();
+      this.paintHeaderContribution();
     }
     const content = this.root.querySelector<HTMLElement>('#page-content');
     this.auxiliary.park();
@@ -649,7 +631,6 @@ export class DashboardView {
     if (content && this.contentView !== this.view) content.scrollTop = 0;
     this.contentView = this.view;
     this.syncShell();
-    this.paintSlackReviewRequests();
   }
 
   private syncShell(): void {
@@ -704,6 +685,7 @@ export class DashboardView {
     const greeting = shell.querySelector('[data-greeting]');
     if (nextGreeting && greeting) greeting.replaceWith(nextGreeting);
     else if (nextGreeting) shell.querySelector('.nameplate-scope')?.append(nextGreeting);
+    this.paintHeaderContribution();
   }
 
   private bindHeadControls(): void {
@@ -711,67 +693,9 @@ export class DashboardView {
     this.bindPaneLinks();
   }
 
-  private paintSlack(): void {
-    const controls = this.root.querySelector('.helm-controls');
-    if (!controls) return;
-    let center = controls.querySelector<HTMLElement>('.slack-center');
-    if (!center) {
-      center = document.createElement('div');
-      center.className = 'slack-center';
-      controls.append(center);
-    }
-    const focused = document.activeElement;
-    const focusReadId = focused instanceof HTMLElement && center.contains(focused) ? focused.dataset.slackRead : undefined;
-    const focusToggle = focused instanceof HTMLElement && center.contains(focused) && focused.hasAttribute('data-slack-toggle');
-    const scrollTop = center.querySelector('.slack-popover')?.scrollTop ?? 0;
-    const template = document.createElement('template');
-    template.innerHTML = renderSlack(this.slack, this.slackOpen, this.slackError, undefined, this.selectedRepo);
-    const nextToggle = template.content.querySelector<HTMLButtonElement>('[data-slack-toggle]');
-    const nextPopover = template.content.querySelector<HTMLElement>('.slack-popover');
-    const toggle = center.querySelector<HTMLButtonElement>('[data-slack-toggle]');
-    const currentPopover = center.querySelector<HTMLElement>('.slack-popover');
-    if (!toggle || !currentPopover || !nextToggle || !nextPopover) center.replaceChildren(...template.content.childNodes);
-    else {
-      toggle.className = nextToggle.className;
-      toggle.setAttribute('aria-expanded', nextToggle.getAttribute('aria-expanded') ?? 'false');
-      toggle.setAttribute('aria-label', nextToggle.getAttribute('aria-label') ?? 'Notifications');
-      if (toggle.innerHTML !== nextToggle.innerHTML) toggle.innerHTML = nextToggle.innerHTML;
-      currentPopover.hidden = nextPopover.hidden;
-      if (currentPopover.innerHTML !== nextPopover.innerHTML) currentPopover.innerHTML = nextPopover.innerHTML;
-    }
-    const popover = center.querySelector('.slack-popover');
-    if (popover) popover.scrollTop = scrollTop;
-    for (const button of center.querySelectorAll<HTMLButtonElement>('[data-slack-read]')) {
-      button.disabled = this.slackReads.has(button.dataset.slackRead ?? '');
-    }
-    if (focusReadId !== undefined) {
-      const button = Array.from(center.querySelectorAll<HTMLButtonElement>('[data-slack-read]')).find(item => item.dataset.slackRead === focusReadId);
-      (button ?? center.querySelector<HTMLButtonElement>('[data-slack-toggle]'))?.focus({ preventScroll: true });
-    } else if (focusToggle) center.querySelector<HTMLButtonElement>('[data-slack-toggle]')?.focus({ preventScroll: true });
-  }
-
-  private paintSlackReviewRequests(): void {
-    this.slackReviews.paint(this.root, String(this.uiConfig.config?.SLACK_ENABLED) !== 'false');
-  }
-
-  private async sendSlackReviewRequest(button: HTMLButtonElement): Promise<void> {
-    const repo = button.dataset.repo; const number = Number(button.dataset.number);
-    if (!repo || !Number.isSafeInteger(number) || number < 1) return;
-    await this.slackReviews.request({ repo, number });
-  }
-
-  private async readSlackNotification(id: string): Promise<void> {
-    if (this.slackReads.has(id)) return;
-    this.slackReads.add(id);
-    this.slackError = null;
-    this.paintSlack();
-    const ok = await markSlackNotificationRead(id);
-    this.slackReads.delete(id);
-    if (ok) {
-      ++this.slackSeq;
-      this.slack = { ...this.slack, notifications: this.slack.notifications.map(item => item.id === id ? { ...item, readAt: new Date().toISOString() } : item) };
-    } else this.slackError = 'Could not mark notification read. Try again.';
-    this.paintSlack();
+  private paintHeaderContribution(): void {
+    this.headerContribution.update({ ...this.pluginPresentationState(), presentation: null });
+    this.headerContribution.rehome(this.root.querySelector<HTMLElement>('.helm-controls'));
   }
 
   private paintCmux(): void {
@@ -928,15 +852,6 @@ export class DashboardView {
       const field = [...this.root.querySelectorAll<HTMLElement>('[data-source-id]')].find(row => row.dataset.sourceId === sourceFocusId)
         ?.querySelector<HTMLElement>(`[data-source-field="${sourceFocusField}"]`);
       field?.focus({ preventScroll: true });
-    }
-    const slackRepo = this.route.slackPrRepo; const slackPr = this.route.slackPr;
-    if (slackRepo && slackPr) {
-      const content = this.root.querySelector('#page-content');
-      const section = document.createElement('section');
-      section.className = 'panel slack-review-settings';
-      section.innerHTML = `<h2>${escapeHtml(term('requestSlackReview'))}</h2><p>${escapeHtml(slackRepo)} #${slackPr}</p><div data-slack-review-control data-repo="${escapeHtml(slackRepo)}" data-number="${slackPr}"><button type="button" data-slack-review-request data-repo="${escapeHtml(slackRepo)}" data-number="${slackPr}">${escapeHtml(term('requestSlackReview'))}</button><span class="slack-review-result" role="status"></span></div>`;
-      content?.prepend(section);
-      this.paintSlackReviewRequests();
     }
     this.bindHeadControls();
   }
@@ -1297,28 +1212,6 @@ export class DashboardView {
       if (!pirateToggle.disabled) this.changePirateMode(!isPirateMode());
       return;
     }
-    const slackReview = target.closest<HTMLButtonElement>('[data-slack-review-request]');
-    if (slackReview) {
-      event.preventDefault();
-      if (!slackReview.disabled) void this.sendSlackReviewRequest(slackReview);
-      return;
-    }
-    if (target.closest('[data-slack-toggle], [data-slack-close]')) {
-      this.slackOpen = target.closest('[data-slack-close]') ? false : !this.slackOpen;
-      this.paintSlack();
-      this.root.querySelector<HTMLButtonElement>('[data-slack-toggle]')?.focus({ preventScroll: true });
-      return;
-    }
-    const slackRead = target.closest<HTMLButtonElement>('[data-slack-read]');
-    if (slackRead?.dataset.slackRead) {
-      void this.readSlackNotification(slackRead.dataset.slackRead);
-      return;
-    }
-    if (this.slackOpen && !target.closest('.slack-center')) {
-      this.slackOpen = false;
-      this.paintSlack();
-    }
-
     const link = target.closest<HTMLAnchorElement>('a.view-toggle, a.app-link');
     if (link) {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

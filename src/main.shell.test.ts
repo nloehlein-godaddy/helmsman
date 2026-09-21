@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
+import { syncBuiltinFrontend } from './plugins/builtin-modules';
 import { loadDashboard } from './data/mock';
 import { LOCAL_POLL_MS } from './data/live';
 import type { RunSummary } from './data/agents';
@@ -24,7 +25,7 @@ async function setup(path = '/helm?repo=org/a', degraded: string[] = []) {
       return json({ runs: filtered.slice(offset, offset + 25), total: filtered.length, limit: 25, offset });
     }
     if (url.pathname === '/api/config') return json({ config: { MAX_ATTEMPTS: '1' }, overridden: [] });
-    if (url.pathname === '/api/slack') return json({ health: { enabled: false, status: 'disabled', channelName: 'airo-editing', intervalMs: 300_000, lastSuccessAt: null, error: null }, notifications: [] });
+    if (url.pathname === '/api/communication/notifications') return json({ version: 1, quality: 'complete', unread: 0, githubHealth: null, health: { enabled: false, status: 'disabled', channelName: 'airo-editing', intervalMs: 300_000, lastSuccessAt: null, error: null }, notifications: [] });
     if (url.pathname === '/api/pr/open' || url.pathname === '/api/pr/review-requests') return json({ prs: [], degraded: false, truncated: false });
     if (url.pathname === '/api/repo/local') return json({ repo: url.searchParams.get('repo'), path: '/repo', branches: [], worktrees: [], error: null });
     if (url.pathname === '/api/triage') return json({ groups: { unassignedBacklog: [], unassignedTodo: [], mineOpen: [] }, degraded: false, selectedRepo: url.searchParams.get('repo'), jiraBaseUrl: null });
@@ -46,6 +47,7 @@ async function setup(path = '/helm?repo=org/a', degraded: string[] = []) {
 
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
+  syncBuiltinFrontend([{ id: 'helmsman.communication', version: '0.1.0', hash: 'a'.repeat(64), enabled: true }], false);
   localStorage.clear();
   vi.useFakeTimers();
   vi.setSystemTime('2026-09-17T21:00:00Z');
@@ -55,6 +57,7 @@ beforeEach(() => {
 afterEach(() => {
   view?.destroy();
   view = null;
+  syncBuiltinFrontend([], false);
   vi.unstubAllGlobals();
   vi.useRealTimers();
   localStorage.clear();

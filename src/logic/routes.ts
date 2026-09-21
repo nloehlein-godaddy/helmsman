@@ -1,7 +1,7 @@
 import { validRepo } from './repo';
 import { parseTaskRepo } from '../plugins/tasks';
 import { LEGACY_PAGE_ALIASES, LEGACY_PAGE_PATHS } from './pagePaths';
-import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, PR_PAGE_ID, PR_PAGE_SLOT, RUNS_PAGE_ID, RUNS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_ID } from '../plugins/builtins';
+import { appPages, COMMUNICATION_PAGE_SLOT, COMMUNICATION_PAGE_ID, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, PR_PAGE_ID, PR_PAGE_SLOT, RUNS_PAGE_ID, RUNS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_ID } from '../plugins/builtins';
 import { isContributionId } from '../plugins/manifest';
 
 export type PageView = keyof typeof LEGACY_PAGE_PATHS | 'outcomes' | 'plugin';
@@ -74,6 +74,17 @@ function isSurfaceRef(value: string | null): boolean {
 
 export function parseRoute(url: URL): AppRoute {
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if (pathname === '/config') {
+    const target = validRepo(url.searchParams.get('slackPrRepo'));
+    const number = positiveInteger(url.searchParams.get('slackPr'));
+    if (target && number) {
+      const next = new URL('/communication', url.origin);
+      const header = validRepo(url.searchParams.get('repo'));
+      if (header) next.searchParams.set('repo', header);
+      next.searchParams.set('prRepo', target); next.searchParams.set('pr', String(number));
+      return parseRoute(next);
+    }
+  }
   const plugin = appPages.resolvePath(pathname);
   const legacy = (Object.keys(LEGACY_PAGE_PATHS) as (keyof typeof LEGACY_PAGE_PATHS)[])
     .find(page => LEGACY_PAGE_PATHS[page] === pathname);
@@ -84,7 +95,8 @@ export function parseRoute(url: URL): AppRoute {
   const repo = validRepo(params.get('repo'));
   const runsPage = plugin?.slotId === RUNS_PAGE_SLOT || plugin?.page?.composition?.id === RUNS_PAGE_SLOT || plugin?.contributionId === RUNS_PAGE_ID;
   const prPage = plugin?.slotId === PR_PAGE_SLOT || plugin?.page?.composition?.id === PR_PAGE_SLOT || plugin?.contributionId === PR_PAGE_ID;
-  const supportsPrPanel = view === 'prs' || view === 'runs' || runsPage || prPage;
+  const communicationPage = plugin?.slotId === COMMUNICATION_PAGE_SLOT || plugin?.page?.composition?.id === COMMUNICATION_PAGE_SLOT || plugin?.contributionId === COMMUNICATION_PAGE_ID;
+  const supportsPrPanel = view === 'prs' || view === 'runs' || runsPage || prPage || communicationPage;
   const slackPrRepo = view === 'config' ? validRepo(params.get('slackPrRepo')) : null;
   const slackPr = slackPrRepo ? positiveInteger(params.get('slackPr')) : null;
   const prRepo = supportsPrPanel ? validRepo(params.get('prRepo')) : null;
@@ -100,7 +112,7 @@ export function parseRoute(url: URL): AppRoute {
   }
   const validRun = run && /^[a-z\d_-]{1,128}$/i.test(run) && !(plugin && params.has('runRepo') && !runRepo) ? run : null;
   const mode = params.get('mode');
-  const selectedMode = supportsPrPanel && (mode === 'review' || mode === 'rerun') ? mode : null;
+  const selectedMode = !communicationPage && supportsPrPanel && (mode === 'review' || mode === 'rerun') ? mode : null;
   const selectedPr = prTarget ? positiveInteger(params.get('pr')) : null;
   const ticket = params.get('ticket');
   const surface = params.get('surface');
@@ -115,7 +127,8 @@ export function parseRoute(url: URL): AppRoute {
   const runsPanel = runsPage && !explicitInstance ? pane === 'recent' ? { instance: 'run-history', contribution: 'helmsman.run-history/panel' }
     : pane === 'newrun' || selectedPr && pane !== 'tasks' ? { instance: 'pull-request', contribution: 'helmsman.compat-pr/panel' } : null : null;
   const prPanel = prPage && !explicitInstance && (selectedPr || pane && panes.prs.includes(pane)) ? { instance: 'pull-request', contribution: 'helmsman.compat-pr/panel' } : null;
-  const instance = explicitInstance ?? runsPanel?.instance ?? prPanel?.instance ?? locatorPane;
+  const communicationPanel = communicationPage && !explicitInstance && selectedPr ? 'review-request' : null;
+  const instance = explicitInstance ?? runsPanel?.instance ?? prPanel?.instance ?? communicationPanel ?? locatorPane;
   const savedPanelState = panelState(params.get('panelState'));
   const taskPanelState = taskPane ? panelState(JSON.stringify({
     ...(savedPanelState ? JSON.parse(savedPanelState) as Record<string, unknown> : {}),

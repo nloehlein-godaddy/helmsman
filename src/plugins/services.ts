@@ -1,3 +1,5 @@
+import type { CommunicationServiceV1 } from './communication';
+import type { CommunicationCommandServiceV1 } from './communication-command';
 import type { PullRequestCommandServiceV1 } from './pull-request-command';
 import type { ClarificationReadServiceV1 } from './clarification-read';
 import type { ClarificationCommandServiceV1 } from './clarification-command';
@@ -35,6 +37,8 @@ export interface PluginPageServices {
   readonly pullRequests?: PullRequestReadServiceV1;
   readonly pullRequestInspect?: PullRequestInspectServiceV1;
   readonly pullRequestCommands?: PullRequestCommandServiceV1;
+  readonly communication?: CommunicationServiceV1;
+  readonly communicationCommands?: CommunicationCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;
   readonly usage: {

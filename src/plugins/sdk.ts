@@ -24,7 +24,10 @@ export * from './suggested-contact-admin';
 export * from './pull-request-read';
 export * from './pull-request-inspect';
 export * from './pull-request-command';
+export * from './communication';
+export * from './communication-command';
 export * from './pull-request-provider';
+export * from './communication-provider';
 export * from './activity-read';
 export * from './run-command';
 

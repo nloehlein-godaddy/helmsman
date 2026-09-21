@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { parsePluginPackage } from '../../../src/plugins/package';
-import { initializePullRequestProviderDefault, openPluginData, pluginJson, readPullRequestProviderBinding, selectPullRequestProvider, writePluginSettings } from './data';
+import { initializeCommunicationProviderDefault, initializePullRequestProviderDefault, openPluginData, pluginJson, readCommunicationProviderBinding, readPullRequestProviderBinding, selectCommunicationProvider, selectPullRequestProvider, writePluginSettings } from './data';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -68,4 +68,10 @@ it('retains an explicit pull request provider selection without silently replaci
   expect(readPullRequestProviderBinding(root)).toBe('example.alternative/reviews');
   selectPullRequestProvider(root, null);
   expect(readPullRequestProviderBinding(root)).toBeUndefined();
+  initializeCommunicationProviderDefault(root, 'example.slack/slack');
+  expect(readCommunicationProviderBinding(root)).toBe('example.slack/slack');
+  selectCommunicationProvider(root, 'example.alternative/chat');
+  expect(readCommunicationProviderBinding(root)).toBe('example.alternative/chat');
+  selectCommunicationProvider(root, null);
+  expect(readCommunicationProviderBinding(root)).toBeUndefined();
 });

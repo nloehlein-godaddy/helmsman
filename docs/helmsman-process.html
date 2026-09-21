@@ -65,7 +65,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </header>
 <section aria-labelledby="task-plugins-heading">
 <h2 class="section-heading" id="task-plugins-heading">Plugin task presentation and command authority</h2>
-<p class="section-intro">Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads, provisional viewer/history pages and public clarification services are reviewed and pushed through 9142966, including shared-viewer convergence, authored question/contact panels and exact-request retry; execution/policy replacement (F) and compatibility retirement (G) remain pending.</p>
+<p class="section-intro">Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use public plugin services. Task and Communication aliases select registered page implementations; core Config links to the separate Source settings page. The notification header, Communication panels and Slack provider are independently buildable. Execution primitive replacement (F) and compatibility retirement (G) remain pending.</p>
 <div class="flow-step flow-common"><h3>Task alias → selected page → saved composition</h3><p>A disabled or missing selection remains unavailable. Existing layouts and opaque state win, including empty layouts and missing panels. Only an absent composition receives package defaults; Triage imports prior preferences and archives the original values in the same transaction.</p></div>
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="flow-step flow-common"><h3>Header scope → managed task panel</h3><p>Inherit the header galleon or choose an explicit panel override. Bind the exact source instance and revision. The host owns panel lifetime, scope and cancellation.</p></div>
@@ -131,14 +131,31 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </section>
 <section aria-labelledby="pr-publication-heading">
 <h2 class="section-heading" id="pr-publication-heading">PR review publication</h2>
-<div class="flow-step flow-common"><h3>PR alias or Runs → independent panel → explicit scope</h3><p>The selected PR package uses the public provider for the exact head. Header scope remains unchanged. Optional Slack requests open Config without sending automatically.</p></div>
+<div class="flow-step flow-common"><h3>PR alias or Runs → independent panel → explicit scope</h3><p>The selected PR package uses the public provider for the exact head. Header scope remains unchanged. Owned open PRs route to the authored Communication composition, where only explicit Send invokes a request.</p></div>
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="flow-step flow-common"><h3>Caller draft → reserved request → durable operation</h3><p>Read the authenticated actor and pin the provider artifact and connection. Commit the operation before any external mutation, then authorize publication.</p></div>
 <div class="host-options">
 <article class="flow-step"><h3>Proven actor, head and review receipt</h3><p>Save the terminal result before acknowledging the browser journal. Server evidence remains retained.</p></article>
 <article class="flow-step"><h3>Uncertain remote result</h3><p>Keep the original request ID and input for a receipt check or exact retry. Core Recovery resolves blocked obligations with the retained provider, including after disable or restart.</p></article>
 </div>
-<p class="limit-note">See <a href="pull-request-authoring.md">PR authoring</a> for public commands, replacement selection and the temporary Slack boundary.</p>
+<p class="limit-note">See <a href="pull-request-authoring.md">PR authoring</a> for public commands and replacement selection.</p>
+</section>
+<section aria-labelledby="communication-heading">
+<h2 class="section-heading" id="communication-heading">Communication notifications and review requests</h2>
+<p class="section-intro">The notification header and Communication page are selected frontend contributions. The page composes independent notifications, review-request and settings panels; the Slack backend is selected separately.</p>
+<div class="host-options">
+<article class="flow-step"><h3>Scoped notifications</h3><p>Core projects notifications and unread counts to permitted galleons. Hidden panels pause polling; scope changes and disposal cancel active reads. Disabled or unavailable selections remain unavailable without legacy fallback.</p></article>
+<article class="flow-step"><h3>Revision-checked global settings</h3><p>The revision covers values and displayed destination. A conflict keeps the draft. A successful save writes settings only; it never reserves a command or sends a message.</p></article>
+</div>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<div class="flow-step flow-common"><h3>Owned open PR + exact displayed destination → caller journal</h3><p>Capture provider artifact, workspace, channel, mention and connection. Reserve the complete input and UUID before transport. A missing retry entry is unavailable and sends nothing.</p></div>
+<div class="flow-arrow" aria-hidden="true">↓</div>
+<div class="flow-step flow-common"><h3>Cooldown + current destination → pinned durable operation → provider</h3><p>The cooldown applies across callers even when a UUID is reused. Commit caller, command, destination, provider binding and artifact before mutation. Core supplies bounded browser primitives; the Slack package owns DOM, drafts, navigation, message policy and receipt recognition.</p></div>
+<div class="host-options">
+<article class="flow-step"><h3>Exact retained receipt</h3><p>Project the retained PR and destination, save the terminal result, then acknowledge the browser journal.</p></article>
+<article class="flow-step"><h3>Uncertain delivery</h3><p>Keep the original request, destination and artifact for exact retry or Core Recovery. Matching the same or another PR URL in Slack cannot prove this send and cannot authorize replay.</p></article>
+</div>
+<p class="limit-note">Backend disablement blocks new admission while pinned public and legacy operation resolvers remain available for obligations. Browser primitives remain a core execution adapter for Phase F; Slack DOM and policy stay in the package. See <a href="communication-authoring.md">Communication authoring</a>.</p>
 </section>
 <section aria-labelledby="conditional-state-heading">
 <h2 class="section-heading" id="conditional-state-heading">Conditional panel-state saves</h2>

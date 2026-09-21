@@ -1,3 +1,8 @@
+import { createCommunicationRuntime, communicationContributionEnabled } from './communication-runtime';
+import { createCommunicationReadService } from './communication-read-service';
+import { createCommunicationCommandService } from './communication-command-service';
+import { bootstrapCommunicationProviderSelection } from './communication-providers';
+import { builtinCommunications } from './plugins/builtin-communications';
 import { createApplicationClarifications } from './clarification-application';
 import { createApplicationSourceAdmin } from './source-admin-application';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -117,7 +122,6 @@ import { createWezTermBridge } from './wezterm/bridge';
 import { openSlackStore } from './slack/store';
 import { openVoyageNotifications } from './voyage-notifications';
 import { createSlackWatcher, type SlackWatcher } from './slack/watcher';
-import { createSlackBrowserReader } from './slack/browser';
 import { createSlackBrowserReviewSender } from './slack/browser-review';
 import { publicSlackSettings, slackSettings, SLACK_INTERVAL_MS, SLACK_CONFIG_KEYS } from './slack/config';
 import { openSlackReviewRequester, publicSlackReviewSettings, slackReviewSettings } from './slack/review-request';
@@ -173,7 +177,7 @@ const usageStore = openUsageStore(persistence.sql);
 const outcomeStore = openOutcomeStore(persistence.sql, undefined, usageStore);
 const runTelemetry = openRunTelemetry(persistence.sql, usageStore, createOutcomeTelemetrySink(outcomeStore));
 const usageQueries = createUsageQueryService({ db, usage: usageStore });
-const builtinBackends = [builtinPricing, ...builtinTaskSources, ...builtinPullRequests];
+const builtinBackends = [builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -182,6 +186,7 @@ const backendPlugins = await activateBackendPlugins({ root: pluginDirectory(), c
   snapshot: process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1' ? await loadPluginSnapshot(pluginDirectory(), false, pluginCoordinator) : pluginSnapshot,
   usage: usageQueries, builtins: builtinBackends, defaultPricingProvider: 'helmsman.standard-pricing/standard' });
 bootstrapPullRequestProviderSelection(pluginDirectory(), 'helmsman.github/github');
+bootstrapCommunicationProviderSelection(pluginDirectory(), 'helmsman.slack/slack');
 for (const error of backendPlugins.errors) process.stderr.write(`${error}\n`);
 pluginSnapshot = retainActivatedPluginPages(await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator), backendPlugins.activePluginIds());
 const serverPages = createServerPageCatalog(appPages);
@@ -449,18 +454,18 @@ function pullRequestRegistration(binding: ProviderBinding, purpose: 'admission' 
   return backendPlugins.pullRequests.resolve({ providerId: binding.contributionId, pluginId: binding.pluginId, artifactHash: binding.artifactHash,
     contractVersion: 1, connectionId: null, credentialHandle: null }, purpose);
 }
-function pullRequestArtifacts(binding: ProviderBinding): readonly ArtifactBinding[] {
+function providerArtifacts(binding: ProviderBinding): readonly ArtifactBinding[] {
   const result = new Map<string, ArtifactBinding>();
   function visit(pluginId: string, artifactHash: string): void {
     const prior = result.get(pluginId);
-    if (prior) { if (prior.artifactHash !== artifactHash) throw new Error('Pull request artifact closure conflicts'); return; }
+    if (prior) { if (prior.artifactHash !== artifactHash) throw new Error('Provider artifact closure conflicts'); return; }
     const row = persistence.sql.prepare('SELECT json FROM plugin_artifacts WHERE pluginId=? AND artifactHash=?').get(pluginId, artifactHash) as { json: string } | undefined;
     const artifact = row ? (persistedJson(JSON.parse(row.json)) as unknown as { artifact: ArtifactBinding }).artifact : null;
-    if (!artifact || artifact.pluginId !== pluginId || artifact.artifactHash !== artifactHash || !Array.isArray(artifact.requires)) throw new Error('Pull request artifact closure is unavailable');
+    if (!artifact || artifact.pluginId !== pluginId || artifact.artifactHash !== artifactHash || !Array.isArray(artifact.requires)) throw new Error('Provider artifact closure is unavailable');
     result.set(pluginId, artifact);
     for (const dependency of artifact.requires) {
       const hash = pluginCoordinator.state(dependency)?.artifactHash;
-      if (!hash) throw new Error('Pull request artifact dependency is unavailable');
+      if (!hash) throw new Error('Provider artifact dependency is unavailable');
       visit(dependency, hash);
     }
   }
@@ -502,7 +507,7 @@ function assertPullRequestAdmission(): void {
 const pullRequestProviderEffects = createPullRequestProviderEffects({
   registry: backendPlugins.pullRequests,
   selected: selectedPullRequestProvider,
-  artifacts: pullRequestArtifacts,
+  artifacts: providerArtifacts,
   verifyArtifacts: verifyEffectArtifacts,
   http: (binding, signal, mutation) => pullRequestContext(binding, signal, mutation).http,
   authorize: async (binding, operation, context) => {
@@ -544,6 +549,47 @@ const pullRequestCommands = createPullRequestCommandService({ persistence, opera
   assertAdmission: assertPullRequestAdmission,
   prepareReview: pullRequestProviderEffects.prepareReview,
   resolve: pullRequestProviderEffects.resolve,
+});
+const communicationRuntime = createCommunicationRuntime({ root: pluginDirectory(), registry: backendPlugins.communications, operations,
+  env: () => configStore.effectiveEnv(), artifacts: providerArtifacts, verifyArtifacts: verifyEffectArtifacts, assertReviewable: assertCommunicationReviewable });
+async function assertCommunicationReviewable(repo: string, number: number): Promise<void> {
+  const github = configStore.current().github;
+  const pr = github ? await fetchPrStatus(github, repo, number) : null;
+  if (!pr || pr.isOwnPr !== true || pr.state !== 'open' || pr.merged) throw new ClarificationServiceError(409, 'conflict');
+}
+const communicationCommands = createCommunicationCommandService({ persistence, operations, repos: applicationRepos,
+  authorize: caller => {
+    if (!communicationContributionEnabled(pluginSnapshot.catalog, caller, true)) throw new ClarificationServiceError(403, 'forbidden');
+  },
+  assertAdmission: communicationRuntime.assertAdmission,
+  async assertReviewable(repo, number) {
+    await assertCommunicationReviewable(repo, number);
+    const recent = persistence.sql.prepare(`SELECT requestId FROM slack_review_requests WHERE repo = ? COLLATE NOCASE AND prNumber = ?
+      AND createdAt > ? AND status IN ('pending', 'sent', 'uncertain') LIMIT 1`).get(repo, number, Date.now() - 60_000);
+    if (recent) throw new ClarificationServiceError(409, 'conflict');
+  },
+  prepareReviewRequest: communicationRuntime.effects.prepareReviewRequest,
+  resolve: communicationRuntime.effects.resolve,
+});
+const communication = createCommunicationReadService({ persistence, repos: applicationRepos,
+  authorize: caller => {
+    if (!communicationContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden');
+  },
+  snapshot: slackSnapshot,
+  markRead: (id, now) => id.startsWith('voyage-') ? voyageNotifications.markRead(id, now) : slackStore.markRead(id, now),
+  values: () => {
+    const env = configStore.effectiveEnv(); const browser = slackSettings(env); const review = slackReviewSettings(env);
+    return { enabled: review.enabled, watchEnabled: env.SLACK_WATCH_ENABLED === 'true', clientId: browser.clientId,
+      channelId: browser.channelId, channelName: browser.channelName, browserSurface: browser.surface ?? '',
+      reviewChannel: review.channel, reviewMention: review.mention };
+  },
+  destination: communicationRuntime.destination,
+  write: values => {
+    const mapping = { SLACK_ENABLED: String(values.enabled), SLACK_WATCH_ENABLED: String(values.watchEnabled),
+      SLACK_CLIENT_ID: values.clientId, SLACK_CHANNEL_ID: values.channelId, SLACK_CHANNEL_NAME: values.channelName,
+      SLACK_BROWSER_SURFACE: values.browserSurface, SLACK_REVIEW_CHANNEL: values.reviewChannel, SLACK_REVIEW_MENTION: values.reviewMention };
+    for (const [key, value] of Object.entries(mapping)) configStore.setOverride(key, value, () => new Date().toISOString());
+  },
 });
 const runEffects = new Map<string, LegacyRunEffects>();
 function effectsFor(runId: string): LegacyRunEffects {
@@ -669,6 +715,7 @@ function drainEffects(): Promise<void> {
     await slackEffects.drainPending();
     await manualReviewEffects.drainPending();
     await pullRequestCommands.drainPending();
+    await communicationCommands.drainPending();
     await taskSourceRuntime.drain();
   })().catch(error => { process.stderr.write(`Operation recovery failed: ${String(error)}\n`); }).finally(() => { drainingEffects = null; });
   return drainingEffects;
@@ -977,16 +1024,16 @@ let slackTick: Promise<void> | null = null;
 
 function configuredSlackWatcher(): SlackWatcher | null {
   const settings = slackSettings(configStore.effectiveEnv());
-  const key = JSON.stringify(settings);
+  const key = communicationRuntime.scanKey();
   if (key === slackSettingsKey) return slackWatcher;
   slackSettingsKey = key;
-  slackWatcher = settings.enabled && !settings.error ? createSlackWatcher({
-    ...settings, store: slackStore, source: createSlackBrowserReader(settings),
+  slackWatcher = settings.enabled && !settings.error && communicationRuntime.selected() ? createSlackWatcher({
+    ...settings, store: slackStore, source: { scan: input => communicationRuntime.scan(input) },
     allowedRepos: () => {
       const cfg = configStore.current();
       return [...Object.keys(cfg.repoProjectMap), ...(cfg.github?.repo ? [cfg.github.repo] : [])];
     },
-    canLaunch: (repo) => JSON.stringify(slackSettings(configStore.effectiveEnv())) === key
+    canLaunch: (repo) => communicationRuntime.scanKey() === key
       && Boolean(configStore.current().github) && pm.canStart(repo).ok,
     getRun: (id) => db.getRun(id), isRunActive: (id) => pm.hasRun(id), launch,
     intervalMs: SLACK_INTERVAL_MS,
@@ -1106,6 +1153,7 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
   reconcileOperation: async id => {
     const operation = operations.get(id);
     if (operation?.kind === 'task-source.effect') { await dispatchOperation(operations, id, taskSourceRuntime.effects.resolve, { reconcile: operation.requiresReconciliation }); await taskSourceRuntime.drain(); return; }
+    if (operation?.origin.kind === 'public-communication-review-request') { await communicationCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'public-pull-request-review') { await pullRequestCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'manual-review') { await manualReviewEffects.dispatch(id); return; }
     if (operation?.kind === 'slack.review-request') { await slackEffects.dispatch(id); return; }
@@ -1187,7 +1235,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
     }
-    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
+    if ((url.pathname.startsWith('/api/run-commands') || url.pathname.startsWith('/api/source-commands') || url.pathname.startsWith('/api/pull-request-command') || url.pathname.startsWith('/api/communication') || url.pathname.startsWith('/api/todo-legacy-recovery') || url.pathname.startsWith('/api/source-admin')) && req.method === 'POST'
       && (req.headers['content-type']?.split(';')[0] !== 'application/json'
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
       res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
@@ -1202,6 +1250,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,

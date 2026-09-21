@@ -191,6 +191,31 @@ export function initializePullRequestProviderDefault(root: string, provider: str
   finally { sql.close(); }
 }
 
+export function readCommunicationProviderBinding(root: string): string | undefined {
+  const sql = database(root);
+  try {
+    const row = sql.prepare('SELECT provider FROM capability_bindings WHERE capability=?').get('helmsman/communication') as { provider: unknown } | undefined;
+    if (row && !isContributionId(row.provider)) throw new Error('Communication provider binding is invalid.');
+    return row?.provider as string | undefined;
+  } finally { sql.close(); }
+}
+
+export function selectCommunicationProvider(root: string, provider: string | null): void {
+  if (provider !== null && !isContributionId(provider)) throw new Error('Invalid communication provider ID.');
+  const sql = database(root);
+  try {
+    if (provider === null) sql.prepare('DELETE FROM capability_bindings WHERE capability=?').run('helmsman/communication');
+    else sql.prepare('INSERT INTO capability_bindings VALUES(?,?) ON CONFLICT(capability) DO UPDATE SET provider=excluded.provider').run('helmsman/communication', provider);
+  } finally { sql.close(); }
+}
+
+export function initializeCommunicationProviderDefault(root: string, provider: string): void {
+  if (!isContributionId(provider)) throw new Error('Invalid default communication provider.');
+  const sql = database(root);
+  try { sql.prepare('INSERT INTO capability_bindings VALUES(?,?) ON CONFLICT(capability) DO NOTHING').run('helmsman/communication', provider); }
+  finally { sql.close(); }
+}
+
 export function builtinPluginEnabled(root: string, pkg: PluginPackage): boolean {
   const sql = database(root);
   try {

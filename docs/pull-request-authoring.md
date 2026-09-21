@@ -45,4 +45,4 @@ Select a provider with `plugins select-pull-request example.github/github`; `def
 
 Copy `plugin-sources/compat-pr` and `plugin-sources/github` from the distribution, install its SDK and TypeScript, build, pack, install and enable them. Rename the frontend manifest ID and its initial self-references; keep public slot and contract IDs. Use `plugins select helmsman/pr-compatibility-page example.pr/page` to select the copied frontend. See [package installation](plugin-packages.md).
 
-Optional Slack review controls currently open a narrow Config surface using `slackPrRepo` and `slackPr`. That surface retains existing in-memory Slack request identities and performs no send on navigation. Slack extraction is the next delivery milestone; it is not a dependency of the public PR package.
+Optional review-request controls open the selected [Communication page](communication-authoring.md) with an explicit PR target and the existing header scope. Legacy Config links using `slackPrRepo` and `slackPr` resolve to that authored page. Navigation never sends a message; the communication command journal retains new request identities independently of the PR package.

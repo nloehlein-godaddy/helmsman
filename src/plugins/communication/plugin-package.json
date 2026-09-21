@@ -1,0 +1,155 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.communication",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "header",
+        "title": "Notifications",
+        "slots": [
+          "helmsman/notification-header"
+        ],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/communication",
+            "version": 1
+          }
+        ]
+      },
+      {
+        "id": "page",
+        "title": "Communication",
+        "slots": [
+          "helmsman/communication-page"
+        ],
+        "panes": [
+          "notifications",
+          "review-request",
+          "settings"
+        ],
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ],
+        "composition": {
+          "id": "helmsman/communication-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/communication-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "notifications",
+                "contributionId": "helmsman.communication/notifications"
+              },
+              {
+                "instanceId": "review-request",
+                "contributionId": "helmsman.communication/review-request"
+              },
+              {
+                "instanceId": "settings",
+                "contributionId": "helmsman.communication/settings"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "notifications"
+                  ],
+                  "activeInstanceId": "notifications",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "review-request"
+                  ],
+                  "activeInstanceId": "review-request",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "settings"
+                  ],
+                  "activeInstanceId": "settings",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "panels": [
+      {
+        "id": "notifications",
+        "title": "Notifications",
+        "contract": {
+          "id": "helmsman/communication-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/communication",
+            "version": 1
+          }
+        ]
+      },
+      {
+        "id": "review-request",
+        "title": "Slack review requests",
+        "contract": {
+          "id": "helmsman/communication-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/communication",
+            "version": 1
+          },
+          {
+            "id": "helmsman/communication-command",
+            "version": 1
+          }
+        ]
+      },
+      {
+        "id": "settings",
+        "title": "Communication settings",
+        "contract": {
+          "id": "helmsman/communication-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/communication",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "header": "header.js",
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "notifications": "notifications.js",
+    "review-request": "review-request.js",
+    "settings": "settings.js"
+  }
+}

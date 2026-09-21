@@ -25,11 +25,11 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs, Helm, Todos, Triage, Bugs and Source settings use replaceable packages and public services. Task-source providers support Jira and local Todos together. The task packages now own `/todos`, `/triage`, `/bugs` and `/source-settings`; core `/config` links to Source settings and retains runtime configuration, customization and local Git. The default task-page cutover is reviewed and pushed as `d21d9cb`. Remaining feature extractions, interchangeable execution/policy (F), and compatibility retirement (G) remain pending.
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Core `/config` retains runtime configuration, customization and local Git. Interchangeable execution primitives (F) and compatibility retirement (G) remain pending.
 
 Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) run inspection, streamed downloads, provisional viewer/history pages and durable clarification services are reviewed and pushed through `3806090`, including exact-request retry, clarification alias selection and public PR inspection. The [run-inspection contract](docs/run-inspect-authoring.md) and [presentation guide](docs/run-presentation-authoring.md) are available. Shared viewer convergence and authored question/contact panels are delivered; `/runs` now selects an authored composition with history, the public PR panel and the shared auxiliary viewer. The `/prs` alias selects the public PR composition.
 
-The [authored question/contact guide](docs/authored-clarifications.md) describes the selected `/clarifications` composition, conditional draft/result saves and its always-visible compatibility recovery link. Original drafts and pending requests remain under their original caller in the independently buildable recovery package; the alias does not import or replay them. Renamed copies use their own storage namespace and request journals. The [public PR page and provider guide](docs/pull-request-authoring.md) describes independently buildable PR presentation, replaceable GitHub integration and durable manual-review requests. `/prs` and `/pr` select an authored composition. The [Runs package](src/plugins/runs/README.md) composes the public PR and history panels; separate header, PR and run targets remain intact. Optional Slack review requests currently open a narrow Config surface pending the next extraction.
+The [authored question/contact guide](docs/authored-clarifications.md) describes the selected `/clarifications` composition, conditional draft/result saves and its always-visible compatibility recovery link. Original drafts and pending requests remain under their original caller in the independently buildable recovery package; the alias does not import or replay them. Renamed copies use their own storage namespace and request journals. The [public PR page and provider guide](docs/pull-request-authoring.md) describes independently buildable PR presentation, replaceable GitHub integration and durable manual-review requests. `/prs` and `/pr` select an authored composition. The [Runs package](src/plugins/runs/README.md) composes the public PR and history panels; separate header, PR and run targets remain intact. The [Communication authoring guide](docs/communication-authoring.md) covers the selected `/communication` composition, notification header, scoped reads and revision-checked settings, caller-owned exact retry, durable Slack requests, and the independently buildable Slack provider.
 
 ## Stack
 
@@ -565,14 +565,15 @@ Slack text fields are blank by default and the watcher is off. See
 
 ### Requesting reviews in Slack
 
-Your open PRs have a **Request review in Slack** button, also available in an owned
-open PR's details. It posts the canonical PR link and mentions the configured Slack
-user group. Sending is manual; the button reports delivery or an actionable error
-and links to the message when Slack provides a permalink.
+Owned open PRs link to the authored Communication page with that PR selected. Its
+review-request panel displays the exact provider artifact, workspace, channel, group,
+and connection before Send. The caller-scoped browser journal reserves the complete
+request before transport. Lost responses retain that identity for receipt lookup or
+exact Retry; missing journal entries send nothing.
 
-In **Config → Slack review requests**, set the destination channel and review group.
-Defaults are `airo-editing` and `airo-editing-squad`. Use a channel name or ID and
-the user group's handle.
+Configure the destination in **Communication settings**. Defaults are `airo-editing`
+and `airo-editing-squad`. Use a channel name or ID and the user group's handle. Saving
+uses the displayed settings revision and never sends.
 Requests use the signed-in Slack browser, sharing `SLACK_CLIENT_ID` and
 `SLACK_BROWSER_SURFACE` with the Slack reader. Browser reading and sending are
 serialized so they do not interfere. Existing message drafts are preserved.
@@ -584,9 +585,11 @@ Sending works independently of whether automatic Slack watching is enabled.
 | `SLACK_REVIEW_MENTION` | `airo-editing-squad` | User group handle; selected as an actual Slack mention. |
 
 The server verifies that the PR is open and authored by the configured GitHub user.
-Persisted request receipts prevent repeated delivery for the same request ID, and a
-short per-PR cooldown protects against double-clicks and concurrent tabs. If delivery
-cannot be confirmed, check Slack before attempting another request.
+Each request pins its displayed destination and provider artifact. Persisted receipts
+prevent repeated delivery for the same request ID, and a short cooldown applies across
+callers. An uncertain send is never automatically repeated. Finding the same or another
+PR URL in Slack does not prove this request; use its exact retained receipt or Core
+Recovery. See [Communication authoring](docs/communication-authoring.md).
 
 ### Agent execution and server storage
 

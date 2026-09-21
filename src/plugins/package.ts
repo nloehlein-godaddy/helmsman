@@ -3,7 +3,7 @@ import { parseSourceSettingFieldsV1 } from './source-settings';
 import { parsePluginManifest } from './manifest';
 import type { PluginManifest } from './sdk';
 import { isLocalId } from './manifest';
-import type { PluginBackendDefinition, PluginSetting, PullRequestDeclaration, TaskSourceDeclaration } from './backend';
+import type { CommunicationDeclaration, PluginBackendDefinition, PluginSetting, PullRequestDeclaration, TaskSourceDeclaration } from './backend';
 
 export interface PluginPackage {
   readonly packageVersion: 1;
@@ -66,19 +66,22 @@ function record(value: unknown, fields: readonly string[], label: string): Recor
 function parseBackend(value: unknown): PluginBackendDefinition {
   const hasSources = value !== null && typeof value === 'object' && Object.hasOwn(value, 'taskSources');
   const hasPullRequests = value !== null && typeof value === 'object' && Object.hasOwn(value, 'pullRequests');
-  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : [])], 'Backend');
+  const hasCommunications = value !== null && typeof value === 'object' && Object.hasOwn(value, 'communications');
+  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : []), ...(hasCommunications ? ['communications'] : [])], 'Backend');
   if (!isPluginAssetPath(input.entry) || !/\.m?js$/.test(input.entry) || input.storageVersion !== 1) throw new PluginPackageError('Invalid backend entry or storage version.');
   if (!Array.isArray(input.provides) || input.provides.length > 16) throw new PluginPackageError('Invalid backend capabilities.');
   const provides = input.provides.map(value => {
     const item = record(value, ['id', 'version', 'localId'], 'Capability');
-    if (!['helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
-    return Object.freeze({ id: item.id as 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request', version: 1 as const, localId: item.localId });
+    if (!['helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request', 'helmsman/communication'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
+    return Object.freeze({ id: item.id as 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication', version: 1 as const, localId: item.localId });
   });
   if (new Set(provides.map(item => item.localId)).size !== provides.length) throw new PluginPackageError('Duplicate backend capability.');
   const sourceIds = provides.filter(item => item.id === 'helmsman/task-source').map(item => item.localId);
   if (hasSources !== (sourceIds.length > 0)) throw new PluginPackageError('Task sources require matching access declarations.');
   const pullRequestIds = provides.filter(item => item.id === 'helmsman/pull-request').map(item => item.localId);
   if (hasPullRequests !== (pullRequestIds.length > 0)) throw new PluginPackageError('Pull request providers require matching access declarations.');
+  const communicationIds = provides.filter(item => item.id === 'helmsman/communication').map(item => item.localId);
+  if (hasCommunications !== (communicationIds.length > 0)) throw new PluginPackageError('Communication providers require matching access declarations.');
   const taskSources: Record<string, TaskSourceDeclaration> = Object.create(null) as Record<string, TaskSourceDeclaration>;
   if (hasSources) {
     const declarations = record(input.taskSources, sourceIds, 'Task sources');
@@ -124,6 +127,17 @@ function parseBackend(value: unknown): PluginBackendDefinition {
       pullRequests[localId] = Object.freeze({ access: Object.freeze(['core-http']) as unknown as readonly ['core-http'] });
     }
   }
+  const communications: Record<string, CommunicationDeclaration> = Object.create(null) as Record<string, CommunicationDeclaration>;
+  if (hasCommunications) {
+    const declarations = record(input.communications, communicationIds, 'Communication providers');
+    for (const localId of communicationIds) {
+      const declaration = record(declarations[localId], ['access'], 'Communication declaration');
+      if (!Array.isArray(declaration.access) || declaration.access.length !== 1 || declaration.access[0] !== 'browser-session') {
+        throw new PluginPackageError('Communication providers require browser session access.');
+      }
+      communications[localId] = Object.freeze({ access: Object.freeze(['browser-session']) as unknown as readonly ['browser-session'] });
+    }
+  }
   if (!input.settings || typeof input.settings !== 'object' || Array.isArray(input.settings) || Object.keys(input.settings).length > 64) throw new PluginPackageError('Invalid settings schema.');
   const settings: Record<string, PluginSetting> = {};
   for (const key of Object.keys(input.settings).sort()) {
@@ -142,7 +156,8 @@ function parseBackend(value: unknown): PluginBackendDefinition {
   }
   return Object.freeze({ entry: input.entry, provides: Object.freeze(provides), settings: Object.freeze(settings), storageVersion: 1,
     ...(hasSources ? { taskSources: Object.freeze(taskSources) } : {}),
-    ...(hasPullRequests ? { pullRequests: Object.freeze(pullRequests) } : {}) });
+    ...(hasPullRequests ? { pullRequests: Object.freeze(pullRequests) } : {}),
+    ...(hasCommunications ? { communications: Object.freeze(communications) } : {}) });
 }
 
 export function validatePluginSetting(schema: PluginSetting, value: unknown): void {

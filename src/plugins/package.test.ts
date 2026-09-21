@@ -175,3 +175,15 @@ describe('plugin packages', () => {
     expect(isPluginAssetPath(path)).toBe(false);
   });
 });
+
+describe('communication provider packages', () => {
+  it('requires browser-session access declarations for communication providers', () => {
+    const communications = { slack: { access: ['browser-session'] } };
+    const backend = { entry: 'backend.js', storageVersion: 1, settings: {},
+      provides: [{ id: 'helmsman/communication', version: 1, localId: 'slack' }], communications };
+    expect(parsePluginPackage({ ...descriptor(), backend }).backend?.communications?.slack).toEqual({ access: ['browser-session'] });
+    expect(() => parsePluginPackage({ ...descriptor(), backend: { ...backend, communications: { slack: { access: [] } } } })).toThrow();
+    const { communications: _communications, ...missing } = backend;
+    expect(() => parsePluginPackage({ ...descriptor(), backend: missing })).toThrow();
+  });
+});

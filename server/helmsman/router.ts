@@ -1,3 +1,7 @@
+import { handleCommunicationApi } from './communication-routes';
+import { handleCommunicationCommandApi } from './communication-command-routes';
+import type { CommunicationReadServerService } from './communication-read-service';
+import type { CommunicationCommandServerService } from './communication-command-service';
 import { handleClarificationServiceApi } from './clarification-service-routes';
 import type { createApplicationClarifications } from './clarification-application';
 import { handleSourceAdminApi } from './source-admin-routes';
@@ -91,6 +95,9 @@ export interface RouterDeps {
   clarificationCaller?: string;
   runRead?: RunReadServerService;
   runInspect?: RunInspectServerService;
+  communication?: CommunicationReadServerService;
+  communicationCommands?: CommunicationCommandServerService;
+  communicationCaller?: string;
   pullRequestCommands?: PullRequestCommandServerService;
   pullRequestCommandCaller?: string;
   pullRequestRead?: PullRequestReadServerService;
@@ -176,6 +183,10 @@ export async function handleApi(
   if (taskViewsResult) return taskViewsResult;
   const commandResult = await handleRunCommandApi({ method, path, query, body: _body, caller: deps.runCommandCaller, service: deps.runCommands });
   if (commandResult) return commandResult;
+  const communicationResult = handleCommunicationApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.communication });
+  if (communicationResult) return communicationResult;
+  const communicationCommandResult = await handleCommunicationCommandApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.communicationCommands });
+  if (communicationCommandResult) return communicationCommandResult;
   const pullRequestCommandResult = await handlePullRequestCommandApi({ method, path, query, body: _body, caller: deps.pullRequestCommandCaller, service: deps.pullRequestCommands });
   if (pullRequestCommandResult) return pullRequestCommandResult;
   const pullRequestInspectResult = await handlePullRequestInspectApi({ method, path, query, service: deps.pullRequestInspect, signal: deps.pullRequestInspectSignal });
@@ -266,6 +277,7 @@ export async function handleApi(
     }
   }
   if (path === '/api/slack/review-request' && method === 'POST') {
+    if (deps.communicationCommands) return { status: 410, json: { error: 'Use the public communication command service.' } };
     if (!deps.slackReviewRequest) return { status: 503, json: { error: 'Slack review requests are unavailable.' } };
     try {
       return { status: 200, json: await deps.slackReviewRequest(_body) };
@@ -322,6 +334,7 @@ export async function handleApi(
   }
   const slackRead = path.match(/^\/api\/slack\/notifications\/([a-z\d_-]{1,128})\/read$/i);
   if (slackRead && method === 'POST') {
+    if (deps.communication) return { status: 410, json: { error: 'Use the scoped communication notification service.' } };
     const ok = deps.slack?.markRead(slackRead[1]) ?? false;
     return { status: ok ? 200 : 404, json: ok ? { ok: true } : { error: 'notification not found' } };
   }
@@ -473,6 +486,7 @@ export async function handleApi(
     if (typeof b?.key !== 'string' || typeof b?.value !== 'string') {
       return { status: 400, json: { error: 'key and value required' } };
     }
+    if (deps.communication && b.key.startsWith('SLACK_')) return { status: 410, json: { error: 'Use revision-checked communication settings.' } };
     const r: { ok: true } | { ok: false; error: string } = deps.setConfig(b.key, b.value);
     return r.ok ? { status: 200, json: { key: b.key, value: b.value } } : { status: 400, json: { error: r.error } };
   }

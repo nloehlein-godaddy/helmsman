@@ -315,7 +315,7 @@ describe('page-owned composition', () => {
     let context!: PluginPanelContext;
     const f = setup({ mount(_element, supplied) { context = supplied; return { update() {}, dispose() {} }; } });
     await f.host.service.mount('first', f.first);
-    expect(Object.keys(context.services).sort()).toEqual(['activity', 'clarificationCommands', 'clarifications', 'downloads', 'pullRequestCommands', 'pullRequestInspect', 'pullRequests', 'runCommands', 'runInspect', 'runs', 'sourceAdmin', 'sourceCommands', 'suggestedContacts', 'taskEdit', 'taskViews', 'tasks', 'todoLegacyRecovery', 'version']);
+    expect(Object.keys(context.services).sort()).toEqual(['activity', 'clarificationCommands', 'clarifications', 'communication', 'communicationCommands', 'downloads', 'pullRequestCommands', 'pullRequestInspect', 'pullRequests', 'runCommands', 'runInspect', 'runs', 'sourceAdmin', 'sourceCommands', 'suggestedContacts', 'taskEdit', 'taskViews', 'tasks', 'todoLegacyRecovery', 'version']);
     f.host.update({ ...page, visible: false });
     await expect(context.services.tasks?.discover()).rejects.toMatchObject({ name: 'AbortError' });
     await expect(context.services.taskEdit?.discover()).rejects.toMatchObject({ name: 'AbortError' });

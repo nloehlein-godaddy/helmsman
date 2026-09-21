@@ -74,7 +74,7 @@ describe('application views', () => {
   });
 
   it('has help text with an example for every editable config key', () => {
-    for (const key of EDITABLE_KEYS) {
+    for (const key of EDITABLE_KEYS.filter(key => !key.startsWith('SLACK_'))) {
       expect(CONFIG_HELP[key]?.length ?? 0, `missing tooltip for ${key}`).toBeGreaterThan(0);
       expect(CONFIG_HELP[key] ?? '', `missing example for ${key}`).toContain('Example:');
     }
@@ -91,7 +91,7 @@ describe('application views', () => {
     el.innerHTML = renderConfigView(uiConfig, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
 
     const rows: NodeListOf<HTMLElement> = el.querySelectorAll<HTMLElement>('.config-panel:not(.pre-pr-config-panel) .config-row:not(.config-secret-row)');
-    expect(rows.length).toBe(10);
+    expect(rows.length).toBe(2);
     const adapterRow: HTMLElement | null = el.querySelector<HTMLElement>('.config-row[data-key="AGENT_ADAPTER"]');
     expect(adapterRow).not.toBeNull();
     expect(adapterRow!.querySelector<HTMLInputElement>('.config-input')?.value).toBe('claude-code');
@@ -274,19 +274,11 @@ describe('renderCmuxView', () => {
   });
 });
 
-it('groups every Slack setting in one panel with integration and watcher switches', () => {
-  const keys = EDITABLE_KEYS.filter(key => key.startsWith('SLACK_'));
-  const config = Object.fromEntries(keys.map(key => [key, key.endsWith('ENABLED') ? 'false' : 'configured']));
+it('links to authored communication settings with the header scope', () => {
   const root = document.createElement('div');
-  root.innerHTML = renderConfigView({ config, overridden: [] }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
-  const panel = root.querySelector('.slack-review-config');
-  expect(panel).not.toBeNull();
-  for (const key of keys) {
-    expect(root.querySelectorAll(`.config-row[data-key="${key}"]`)).toHaveLength(1);
-    expect(panel?.querySelector(`.config-row[data-key="${key}"]`)).not.toBeNull();
-  }
-  expect(panel?.querySelector<HTMLSelectElement>('#config-SLACK_ENABLED')?.value).toBe('false');
-  expect(panel?.querySelector<HTMLSelectElement>('#config-SLACK_WATCH_ENABLED')?.value).toBe('false');
+  root.innerHTML = renderConfigView({ config: { SLACK_ENABLED: 'false' }, overridden: [] }, { repos: ['org/repo'], selectedRepo: 'org/repo', themeId: DEFAULT_THEME_ID });
+  expect(root.querySelector('a[href="/communication?repo=org%2Frepo"]')).not.toBeNull();
+  expect(root.querySelector('[data-key^="SLACK_"]')).toBeNull();
 });
 
 

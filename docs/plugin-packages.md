@@ -10,6 +10,8 @@ Authored `runs`, `run-viewer` and `run-history` projects provide `/runs`, `/run-
 
 The independently buildable `helmsman.compat-clarifications/page` recovery package owns its renderer, styles and legacy draft store while using durable public services. Its original identity preserves existing requests and raw drafts; renamed copies use their own draft namespace and caller journals. See [the backend clarification boundary](clarification-backend.md), [panel lifecycle and typed selection](panel-authoring.md), and [current acceptance status](plugin-implementation-progress.md).
 
+The independently buildable Communication package supplies the selected notification header and `/communication` composition with replaceable notifications, review-request, and settings panels. It uses scoped notification projection, revision-checked global settings, and a caller-owned durable command journal. The separately built Slack backend owns Slack DOM and delivery policy while core retains the provider artifact, destination, operation, and bounded browser primitives. See [Communication authoring](communication-authoring.md).
+
 ## Try the external sample
 
 From the Helmsman checkout:
@@ -72,6 +74,8 @@ Open `/plugins/example.triage/page`. For another package, choose its own non-res
 
 These E3 packages are registered builtin defaults for `/todos`, `/triage`, `/bugs` and `/source-settings`. Their aliases follow explicit page selections; disabled or unavailable selections remain unavailable without fallback. Core `/config` links to Source settings and retains its own runtime controls. External variants remain independently buildable and installable using the renamed descriptors above. Default task-page cutover is reviewed and pushed. See [panel contracts](panel-authoring.md), [task-source services](task-source-authoring.md), and the [completion ledger](plugin-implementation-progress.md).
 
+Communication uses two frontend slots and one backend selection. Use `select helmsman/communication-page ID`, `select helmsman/notification-header ID`, and `select-communication ID`. The page accepts `helmsman/communication-panel@1`; copied panels keep separate contribution-scoped drafts and journals. Disabled or missing selections remain unavailable, while admitted operations keep their pinned backend artifact for recovery.
+
 ## Author contract
 
 Put `plugin-package.json` and prebuilt browser ESM assets in a clean output directory. The packager includes every regular file under that directory except the descriptor. Bundle framework/runtime dependencies before packing. No dependency installation or package scripts run in Helmsman.
@@ -115,4 +119,4 @@ Unit tests cover archive traversal/size/integrity, atomic publication, persisted
 
 The preview harness uses a production frontend with mocked legacy domain APIs. A separate [distribution harness](distribution.md#acceptance-evidence) copies the runnable server, compiles an independent SDK page, denies source access, and tests real server installation, route reload, and safe-start recovery. The Phase B harness additionally compiles and swaps standalone full/alternative Costs and standard/flat pricing implementations, verifies settings/storage persistence, and preserves measured usage through disable/restart.
 
-The built-in Costs implementation now uses the same public SDK/services as independently compiled packages. Its rendering, terminology and styles are owned by the plugin; the distribution includes its standalone author project. External packages reject private-host and cross-package imports.
+The built-in Costs and Communication implementations use the same public SDK/services as independently compiled packages. Their rendering, terminology and styles are owned by the packages; the distribution includes their standalone author projects and the standalone Slack backend provider. External packages reject private-host and cross-package imports.

@@ -16,7 +16,7 @@ Before building a copied package, rename both `manifest.id` and its self-referen
 
 The generic auxiliary host owns attachment and page lifetime. `/run-viewer` follows the selected viewer slot; a canonical `/plugins/<plugin>/<page>` viewer route opens that exact contribution independently of the slot selection. Navigation between the same viewer contribution's standalone and auxiliary surfaces moves its existing DOM and preserves route pane/panel state, tabs, focus, scroll, paused log windows and command receipts. A synchronous move between visible destinations preserves active reads; hiding, detachment, scope changes and disposal revoke activity. Replacing or disabling a contribution disposes its session and never falls back to another implementation. The host mounts lazily when first attached, so a direct canonical route does not initialize the selected viewer first.
 
-The [public PR package](pull-request-authoring.md) supplies PR details, comparisons, manual reviews and review/rerun launch controls to both Runs and the selected PR page. The shared viewer owns selected runs. Optional Slack controls open a narrow Config surface pending Slack extraction.
+The [public PR package](pull-request-authoring.md) supplies PR details, comparisons, manual reviews and review/rerun launch controls to both Runs and the selected PR page. The shared viewer owns selected runs. Optional Slack controls open the selected [Communication page](communication-authoring.md), preserving header and explicit PR scopes.
 
 
 ```mermaid

@@ -5,13 +5,13 @@ import { join, resolve } from 'node:path';
 import { packPluginDirectory, readPluginArchiveFile } from './artifacts';
 import { validatePluginImports } from './imports';
 import { configurePlugin, createPluginCoordinator, installPlugin, pluginDirectory, readPluginState, resetPluginSettings, selectPluginPage, setPluginEnabled, type PluginCoordinator } from './store';
-import { selectPricingProvider, selectPullRequestProvider } from './data';
+import { selectCommunicationProvider, selectPricingProvider, selectPullRequestProvider } from './data';
 import { openPersistence, registerPersistenceWriter, type Persistence } from '../persistence';
 import { openExecutionStore } from '../execution-store';
 import { openPluginLifecycle } from './lifecycle';
 import { backupPersistenceSet } from '../persistence-backup';
 
-const usage = 'Usage: plugins [--dir STORE] [--db DATABASE] pack DIRECTORY ARCHIVE | install ARCHIVE | enable ID | disable ID | uninstall ID | collect HASH | backup DESTINATION | select SLOT ID|default | configure ID JSON | reset-settings ID [KEY] | select-pricing ID|default | select-pull-request ID|default | list';
+const usage = 'Usage: plugins [--dir STORE] [--db DATABASE] pack DIRECTORY ARCHIVE | install ARCHIVE | enable ID | disable ID | uninstall ID | collect HASH | backup DESTINATION | select SLOT ID|default | configure ID JSON | reset-settings ID [KEY] | select-pricing ID|default | select-pull-request ID|default | select-communication ID|default | list';
 
 export async function pluginCommand(args: string[], options: { coordinate?: boolean; dbPath?: string } = {}): Promise<string> {
   const rest = [...args];
@@ -36,7 +36,7 @@ export async function pluginCommand(args: string[], options: { coordinate?: bool
   let persistence: Persistence | undefined;
   let coordinator: PluginCoordinator | undefined;
   let releaseWriter: (() => void) | undefined;
-  if ((options.coordinate !== false || args.includes('--db') || command === 'uninstall' || command === 'collect') && command && ['install', 'enable', 'disable', 'uninstall', 'collect', 'select', 'configure', 'reset-settings', 'select-pricing', 'select-pull-request'].includes(command)) {
+  if ((options.coordinate !== false || args.includes('--db') || command === 'uninstall' || command === 'collect') && command && ['install', 'enable', 'disable', 'uninstall', 'collect', 'select', 'configure', 'reset-settings', 'select-pricing', 'select-pull-request', 'select-communication'].includes(command)) {
     persistence = openPersistence(dbPath);
     try {
       const executions = openExecutionStore(persistence);
@@ -58,6 +58,10 @@ export async function pluginCommand(args: string[], options: { coordinate?: bool
   if (command === 'select-pull-request' && first && rest.length === 2) {
     selectPullRequestProvider(root, first === 'default' ? null : first);
     return 'Pull request provider selection saved.';
+  }
+  if (command === 'select-communication' && first && rest.length === 2) {
+    selectCommunicationProvider(root, first === 'default' ? null : first);
+    return 'Communication provider selection saved.';
   }
   if (command === 'pack' && first && second && rest.length === 3) {
     const archive = await packPluginDirectory(first);

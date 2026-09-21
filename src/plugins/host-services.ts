@@ -1,3 +1,5 @@
+import { createHostCommunicationService } from './communication-service';
+import { createHostCommunicationCommandService } from './communication-command-service';
 import { createHostPullRequestCommandService } from './pull-request-command-service';
 import { createHostClarificationReadService } from './clarification-read-service';
 import { createHostClarificationCommandService } from './clarification-command-service';
@@ -107,6 +109,8 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
         clarifications: createHostClarificationReadService(lifetime, { scope, caller }),
         clarificationCommands: createHostClarificationCommandService(lifetime, { scope, caller }),
         pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope, caller }),
+        communication: createHostCommunicationService(lifetime, { scope, caller }),
+        communicationCommands: createHostCommunicationCommandService(lifetime, { scope, caller }),
         suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope, caller }),
         sourceAdmin: createHostSourceAdminService(lifetime, { scope, caller }),
         sourceCommands: createHostSourceCommandService(lifetime, { scope, caller }) } : {}) } : {}),

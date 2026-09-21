@@ -77,7 +77,7 @@ function requirements(value: unknown): readonly PluginServiceRequirementV1[] {
   if (!Array.isArray(value) || value.length > 16) throw new PluginManifestError('Invalid required services.');
   const parsed = Array.from(value, raw => {
     const item = record(raw, ['id', 'version'], 'Required service');
-    if (item.version !== 1 || typeof item.id !== 'string' || !['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/activity-read', 'helmsman/run-command', 'helmsman/composition'].includes(item.id)) {
+    if (item.version !== 1 || typeof item.id !== 'string' || !['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/activity-read', 'helmsman/run-command', 'helmsman/composition', 'helmsman/communication', 'helmsman/communication-command'].includes(item.id)) {
       throw new PluginManifestError('Unsupported required service.');
     }
     return Object.freeze({ id: item.id as PluginServiceRequirementV1['id'], version: 1 as const });

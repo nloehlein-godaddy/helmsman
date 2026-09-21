@@ -304,9 +304,9 @@ describe('authored PR alias', () => {
       expect(appPages.resolvePath('/prs')?.page).toBeNull();
     } finally { appPages.select(PR_PAGE_SLOT, null); cleanup(); }
   });
-  it('isolates the temporary Slack settings target from header and PR scopes', () => {
+  it('routes legacy Slack settings targets to the selected communication page without changing header scope', () => {
     const route = parse('/config?repo=org/header&slackPrRepo=org/target&slackPr=42');
-    expect(route).toMatchObject({ view: 'config', repo: 'org/header', slackPrRepo: 'org/target', slackPr: 42, pr: null, prRepo: null });
+    expect(route).toMatchObject({ view: 'plugin', pluginSlot: 'helmsman/communication-page', repo: 'org/header', prRepo: 'org/target', pr: 42, panelInstance: 'review-request' });
     expect(parse(routeHref(route))).toEqual(route);
     expect(parse('/config?repo=org/header&slackPrRepo=org/..&slackPr=42').slackPr).toBeUndefined();
     expect(parse('/prs?slackPrRepo=org/target&slackPr=42').slackPr).toBeUndefined();

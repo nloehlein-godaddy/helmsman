@@ -1,6 +1,6 @@
 # Experimental usage and pricing plugins
 
-This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution and policy providers remain Phase F work; broader feature extraction and compatibility retirement are still pending.
+This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution primitives remain Phase F work; broader compatibility retirement is still pending.
 
 ## Build an independent package
 
@@ -42,6 +42,14 @@ Settings schemas support bounded numbers, bounded strings, and booleans; unknown
 Activation stages registrations and storage writes until success. Failure or timeout discards staged writes, aborts the context, and disposes owned resources. A package containing both pages and a backend publishes its pages/assets only after backend activation succeeds; its selected bindings and installation record survive failure. Runtime/provider failures produce diagnostics without substituting a provider. Safe start skips optional backend composition entirely. Disable denies new work while retained execution and operation pins protect existing obligations; see [Recovery](recovery.md). Follow the CLI restart instruction when changing backend configuration or activation. Safe start intentionally performs no draining or effect reconciliation.
 
 These are trusted modules with host privileges. The APIs and import checks provide an authoring boundary, not a sandbox.
+
+## Communication providers
+
+A backend may provide `helmsman/communication@1`, declare the same local ID under `backend.communications` with `access: ["browser-session"]`, and call `registerCommunication`. Core selects one provider with `select-communication`, captures its binding and artifact before a review request, and keeps them with the durable operation. New work is unavailable when the selected provider, connection, destination, or verified artifact is unavailable. Retained obligations resolve through the pinned provider artifact after disablement or replacement.
+
+The provider prepares a destination, explicitly invokes or reconciles a retained request, and scans incoming review messages. Preparation and scans cannot send. Invocation must cross `beforeSend()` immediately before its mutation; reconciliation remains read-only. Only an exact workspace/channel/mention/connection receipt proves acknowledgment. A matching PR URL elsewhere in Slack is not a request receipt and cannot justify replay or completion.
+
+Core supplies bounded Slack-browser tree, focus, evaluation, click, fill, and wait primitives with workspace, surface, timeout, and cancellation guards. The standalone Slack package owns DOM selectors, drafts, navigation, group resolution, message policy, receipt recognition, and scanning. This preserves a future Phase F execution-adapter seam without placing Slack policy in core. See [Communication authoring](communication-authoring.md) for the full contract and independent build flow.
 
 ## Measured usage and estimates
 

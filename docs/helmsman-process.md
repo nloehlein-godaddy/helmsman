@@ -6,7 +6,7 @@ The flow now includes Moon Units-inspired intake, frozen execution settings, iso
 
 ## Plugin task presentation and command authority
 
-Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads, provisional viewer/history pages and public clarification services are reviewed and pushed through 9142966, including shared-viewer convergence, authored question/contact panels and exact-request retry; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use public plugin services. Task and Communication aliases select registered page implementations; core Config links to the separate Source settings page. The notification header, Communication panels and Slack provider are independently buildable. Interchangeable execution primitives (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
 
 ```mermaid
 flowchart TD
@@ -138,7 +138,7 @@ Answer acceptance does not prove worker consumption. Contacts are global metadat
 
 ## Clarification alias and PR inspection
 
-The clarification alias selects an authored composition; retained compatibility evidence stays under its original identity. PR presentation, inspection and durable review commands use public contracts and a selected backend provider. Optional Slack review controls remain in a narrow Config surface until Slack extraction.
+The clarification alias selects an authored composition; retained compatibility evidence stays under its original identity. PR presentation, inspection and durable review commands use public contracts and selected backend providers. Owned open PRs can route to the authored Communication composition without changing header scope.
 
 ```mermaid
 flowchart TD
@@ -177,10 +177,32 @@ flowchart TD
     Proven -->|Uncertain| Retain[Keep original ID and input for receipt check or retry]
     Retain --> Durable
     Durable --> Recovery[Core Recovery; retained provider obligation]
-    Panel --> Slack[Optional Slack request opens Config<br/>No automatic send]
+    Panel --> Communication[Owned open PR routes to Communication<br/>Explicit Send only]
 ```
 
-See [PR authoring](pull-request-authoring.md) for public commands, replacement selection and the temporary Slack boundary.
+See [PR authoring](pull-request-authoring.md) for public commands and replacement selection.
+
+## Communication notifications and review requests
+
+```mermaid
+flowchart TD
+    Slots[Selected notification header and Communication page] --> Panels[Independent notifications, review-request and settings panels]
+    Panels --> Read[Core projects notifications to permitted galleons]
+    Panels --> Settings[Global settings with values + destination revision]
+    Settings -->|Save| CAS{Revision still current?}
+    CAS -->|No| Draft[Conflict; keep draft]
+    CAS -->|Yes| Store[Save settings only<br/>Never reserve or send]
+    Panels --> Target[Owned open PR + displayed provider artifact<br/>workspace, channel, mention and connection]
+    Target --> Journal[Caller-scoped journal reserves exact UUID and input]
+    Journal --> Durable[Verify cooldown and current destination<br/>Commit pinned operation before send]
+    Durable --> Provider[Slack package owns DOM and send policy<br/>Core supplies bounded browser primitives]
+    Provider --> Receipt{Exact retained receipt?}
+    Receipt -->|Yes| Save[Save terminal result<br/>Then acknowledge journal]
+    Receipt -->|Uncertain| Recovery[Keep original request, destination and artifact<br/>Exact retry or Core Recovery]
+    Recovery -->|Missing journal| NoSend[Unavailable; send nothing]
+```
+
+The cooldown covers callers even when a UUID is reused. Disablement blocks new admission but retains pinned public and legacy operation resolvers. An uncertain send cannot be proved by matching the same or another PR URL in Slack; only its exact retained receipt or an explicit Core Recovery resolution can settle it. Browser primitives remain a core execution adapter for Phase F, while the Slack package owns DOM and policy. See [Communication authoring](communication-authoring.md).
 
 ## Conditional panel-state saves
 

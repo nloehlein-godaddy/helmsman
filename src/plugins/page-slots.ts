@@ -39,11 +39,17 @@ export const RUNS_PAGE_ID = 'helmsman.runs/page';
 export const PR_PAGE_SLOT = 'helmsman/pr-compatibility-page';
 export const PR_PAGE_ID = 'helmsman.compat-pr/page';
 
+export const COMMUNICATION_PAGE_SLOT = 'helmsman/communication-page';
+export const COMMUNICATION_PAGE_ID = 'helmsman.communication/page';
+export const NOTIFICATION_HEADER_SLOT = 'helmsman/notification-header';
+
 interface BuiltinPageSlot extends PageSlot {
   readonly panelContract?: string;
 }
 
 export const builtinPageSlots: readonly BuiltinPageSlot[] = Object.freeze([
+  Object.freeze({ id: COMMUNICATION_PAGE_SLOT, alias: '/communication', defaultContributionId: COMMUNICATION_PAGE_ID, panelContract: 'helmsman/communication-panel' }),
+  Object.freeze({ id: NOTIFICATION_HEADER_SLOT, alias: '/notifications', defaultContributionId: 'helmsman.communication/header' }),
   Object.freeze({ id: PR_PAGE_SLOT, alias: '/prs', aliases: Object.freeze(['/pr']), defaultContributionId: PR_PAGE_ID, panelContract: 'helmsman/pull-request-panel' }),
   Object.freeze({ id: RUNS_PAGE_SLOT, alias: '/runs', defaultContributionId: RUNS_PAGE_ID, panelContract: 'helmsman/run-history-panel' }),
   Object.freeze({ id: CLARIFICATIONS_PAGE_SLOT, alias: CLARIFICATIONS_PAGE_ALIAS, defaultContributionId: CLARIFICATIONS_PAGE_ID, panelContract: CLARIFICATIONS_PANEL_CONTRACT }),

@@ -4,9 +4,9 @@ import { renderDetail, renderList, renderRuns } from './render';
 const detail: PullRequestInspectDetailV1 = { version: 1, target: { repo: 'org/b', number: 42, headSha: 'a'.repeat(40), baseSha: 'b'.repeat(40) }, observedAt: '2026-09-20T12:00:00Z', title: 'Review current work', url: 'https://github.com/org/b/pull/42', status: 'open', draft: false, authorLogin: 'writer', isOwnPr: true, headRefName: 'topic', updatedAt: '2026-09-20T12:00:00Z', comments: 3, checks: { quality: 'complete', passed: 2, failed: 0, pending: 0 }, reviews: { quality: 'complete', approved: 1, changesRequested: 0, commented: 2, requested: 0, viewerReview: 'APPROVED', viewerReviewedAt: '2026-09-19T12:00:00Z', viewerReviewedCommitId: 'c'.repeat(40) } };
 const draft = { body: '', feedback: '', model: '', effort: '' };
 function mount(html: string) { const node = document.createElement('div'); node.innerHTML = html; return node; }
-it('preserves header and explicit PR target in review, rerun and temporary Slack links', () => {
+it('preserves header and explicit PR target in review, rerun and Slack request links', () => {
   const node = mount(renderDetail(detail, draft, 'org/header', false));
-  for (const link of node.querySelectorAll<HTMLAnchorElement>('a.app-link')) { const url = new URL(link.href, 'http://localhost'); expect(url.searchParams.get('repo')).toBe('org/header'); expect(url.searchParams.get(url.pathname === '/config' ? 'slackPrRepo' : 'prRepo')).toBe('org/b'); expect(url.searchParams.get(url.pathname === '/config' ? 'slackPr' : 'pr')).toBe('42'); }
+  for (const link of node.querySelectorAll<HTMLAnchorElement>('a.app-link')) { const url = new URL(link.href, 'http://localhost'); expect(url.searchParams.get('repo')).toBe('org/header'); expect(url.searchParams.get('prRepo')).toBe('org/b'); expect(url.searchParams.get('pr')).toBe('42'); }
   expect(node.textContent).toContain('New commits since review'); expect(node.querySelector('[data-launch="rerun"]')).not.toBeNull();
 });
 it.each([false, null])('does not expose branch-update or Slack publication setup without known ownership %s', isOwnPr => {
