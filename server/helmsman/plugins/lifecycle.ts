@@ -245,6 +245,13 @@ export function openPluginLifecycle(persistence: Persistence, executions: Execut
       const blockers = pinBlockers(pluginId).filter(blocker => executions.pins(pluginId).some(pin => pin.artifactHash === artifactHash && pin.ownerId === blocker.ownerId));
       const row = current(pluginId);
       if (row?.artifactHash === artifactHash) blockers.push({ kind: 'consumer', ownerId: pluginId, reason: 'Artifact is still selected' });
+      for (const intent of pendingPersistenceIntents(persistence)) {
+        if (intent.owner !== `plugin:${pluginId}`) continue;
+        const payload = intent.payload;
+        if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'artifactHash' in payload && payload.artifactHash === artifactHash) {
+          blockers.push({ kind: 'consumer', ownerId: intent.id, reason: 'Artifact is required by a pending plugin projection' });
+        }
+      }
       return { allowed: blockers.length === 0, blockers };
     },
     async validateCheckpointMigration(input) {

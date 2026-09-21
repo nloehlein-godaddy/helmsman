@@ -1,4 +1,5 @@
 // @vitest-environment node
+import Database from 'better-sqlite3';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -68,6 +69,34 @@ describe('coordinated plugin package lifecycle', () => {
     expect(pendingPersistenceIntents(persistence)).toEqual([]);
     expect(coordinator.canActivate(id, installed.hash)).toBe(true);
     expect((await loadPluginSnapshot(plugins, false, coordinator)).artifacts.size).toBe(1);
+  });
+
+  it('retains old artifacts until failed projections settle across disablement, replacement and restart', async () => {
+    const installed = await installPlugin(plugins, archive(), coordinator);
+    await coordinator.change(id, true);
+    const data = new Database(join(plugins, 'plugin-data.sqlite'));
+    try {
+      data.exec("CREATE TRIGGER fail_projection BEFORE INSERT ON plugin_projection_revisions BEGIN SELECT RAISE(FAIL, 'projection storage unavailable'); END");
+      await expect(coordinator.change(id, false)).rejects.toThrow('projection storage unavailable');
+      await expect(installPlugin(plugins, archive('2.0.0'), coordinator)).rejects.toThrow('projection storage unavailable');
+      const replacement = readPluginState(plugins).plugins[0]!;
+      expect(replacement.hash).not.toBe(installed.hash);
+      expect(coordinator.state(id)?.artifactHash).toBe(replacement.hash);
+      expect(pendingPersistenceIntents(persistence)).toHaveLength(2);
+      expect(lifecycle.canCollect(id, installed.hash)).toMatchObject({ allowed: false, blockers: [expect.objectContaining({ reason: 'Artifact is required by a pending plugin projection' })] });
+      await expect(coordinator.collect(installed.hash)).rejects.toThrow('Referenced');
+      expect(await readFile(join(plugins, 'artifacts', `${installed.hash}.json`))).toBeDefined();
+      coordinator.dispose();
+      coordinator = await createPluginCoordinator({ root: plugins, persistence, executions, lifecycle });
+      await expect(coordinator.collect(installed.hash)).rejects.toThrow('Referenced');
+      data.exec('DROP TRIGGER fail_projection');
+      await coordinator.reconcile();
+      await coordinator.change(id, true);
+      expect(pendingPersistenceIntents(persistence)).toEqual([]);
+      expect(coordinator.canActivate(id, replacement.hash)).toBe(true);
+      await coordinator.collect(installed.hash);
+      await expect(readFile(join(plugins, 'artifacts', `${installed.hash}.json`))).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally { data.close(); }
   });
 
   it('observes another CLI connection disabling a live plugin and stops new calls before cleanup', async () => {

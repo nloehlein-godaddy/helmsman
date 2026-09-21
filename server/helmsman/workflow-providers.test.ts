@@ -30,13 +30,39 @@ const source = `export default { activate(context) {
  if (Object.keys(context).sort().join(',') !== 'onDispose,pluginId,registerWorkflow,settings,signal') throw new Error('Unexpected workflow services');
  context.registerWorkflow('policy', { metadata: ${JSON.stringify(metadata)}, renderPrompt() { return context.settings.prompt; }, next() { return {kind:'author',stage:'implement'}; } });
 } };`;
-async function fixture(body = source) {
+async function fixture(body = source, pkg = descriptor()) {
   const root = await temporary();
-  const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: descriptor(), files: [{ path: 'backend.js', base64: Buffer.from(body).toString('base64') }] })));
+  const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: pkg, files: [{ path: 'backend.js', base64: Buffer.from(body).toString('base64') }] })));
   const record = parseWorkflowRetainedProviderV1({ version: 1, binding: { providerId: 'example.workflow/policy', pluginId: 'example.workflow', artifactHash: archive.hash, contractVersion: 1 }, origin: 'external', settings: { prompt: 'retained' }, metadata });
   const artifacts = [{ pluginId: 'example.workflow', artifactHash: archive.hash, packageVersion: '1.0.0', requires: [] }];
   return { root, archive, record, artifacts, load: () => loadRetainedWorkflowProvider({ pluginsRoot: root, runtimeArtifactsRoot: join(root, 'legacy'), record, artifacts }) };
 }
+it('checks the entire retained closure before evaluating the selected compatible provider', async () => {
+  const marker = '__retainedClosureworkflow';
+  const major = Number(process.versions.node.split('.')[0]);
+  try {
+    const f = await fixture(`globalThis.${marker} = true; export default { activate() {} };`);
+    const dependency = await installPluginArtifact(f.root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
+      package: { ...f.archive.package, manifest: { ...f.archive.package.manifest, id: 'example.incompatible' }, node: { minMajor: major + 1, maxMajorExclusive: major + 2 } },
+      files: [...f.archive.files].map(([path, bytes]) => ({ path, base64: Buffer.from(bytes).toString('base64') })),
+    })));
+    const artifacts = [{ ...f.artifacts[0]!, requires: ['example.incompatible'] },
+      { pluginId: 'example.incompatible', artifactHash: dependency.hash, packageVersion: '1.0.0', requires: [] }];
+    await expect(loadRetainedWorkflowProvider({ pluginsRoot: f.root, runtimeArtifactsRoot: f.root, record: f.record, artifacts })).rejects.toThrow('does not support Node');
+    expect(Reflect.get(globalThis, marker)).toBeUndefined();
+  } finally { Reflect.deleteProperty(globalThis, marker); }
+});
+it('blocks retained external code outside its Node range before top-level evaluation', async () => {
+  const marker = '__retainedCompatibilityworkflow';
+  const major = Number(process.versions.node.split('.')[0]);
+  try {
+    for (const node of [{ minMajor: major - 1, maxMajorExclusive: major }, { minMajor: major + 1, maxMajorExclusive: major + 2 }]) {
+      const f = await fixture(`globalThis.${marker} = true;\n${source}`, { ...descriptor(), node });
+      await expect(f.load()).rejects.toThrow('does not support Node');
+      expect(Reflect.get(globalThis, marker)).toBeUndefined();
+    }
+  } finally { Reflect.deleteProperty(globalThis, marker); }
+});
 it('validates mode/executor agreement, settings bounds and workflow-only declarations', () => {
   const pkg = descriptor();
   expect(() => parsePluginPackage({ ...pkg, backend: { ...pkg.backend, provides: [...pkg.backend.provides, { id: 'helmsman/pricing', version: 1, localId: 'price' }] } })).toThrow('workflow-only');

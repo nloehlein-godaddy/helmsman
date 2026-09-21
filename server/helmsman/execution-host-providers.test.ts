@@ -34,13 +34,39 @@ const source = `export default { activate(context) {
  async launch(spec) { return { version: 1, identity: {runId:spec.runId,launchId:spec.launchId,attempt:spec.attempt,receiptPath:spec.receiptPath}, state: {image:context.settings.image} }; },
  async discover() { return {status:'unknown',reason:'Native evidence unavailable'}; }, async isAlive() { throw new Error('Unknown ownership'); }, async stop() { throw new Error('Unknown ownership'); } });
 } };`;
-async function fixture(body = source) {
+async function fixture(body = source, pkg = descriptor()) {
   const root = await temporary();
-  const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: descriptor(), files: [{ path: 'backend.js', base64: Buffer.from(body).toString('base64') }] })));
+  const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: pkg, files: [{ path: 'backend.js', base64: Buffer.from(body).toString('base64') }] })));
   const record = parseExecutionHostRetainedProviderV1({ version: 1, binding: { providerId: 'example.host/host', pluginId: 'example.host', artifactHash: archive.hash, contractVersion: 1 }, origin: 'external', settings: { image: 'retained' }, metadata });
   const artifacts = [{ pluginId: 'example.host', artifactHash: archive.hash, packageVersion: '1.0.0', requires: [] }];
   return { root, archive, record, artifacts, load: () => loadRetainedExecutionHostProvider({ pluginsRoot: root, runtimeArtifactsRoot: join(root, 'legacy'), record, artifacts }) };
 }
+it('checks the entire retained closure before evaluating the selected compatible provider', async () => {
+  const marker = '__retainedClosureexecution_host';
+  const major = Number(process.versions.node.split('.')[0]);
+  try {
+    const f = await fixture(`globalThis.${marker} = true; export default { activate() {} };`);
+    const dependency = await installPluginArtifact(f.root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
+      package: { ...f.archive.package, manifest: { ...f.archive.package.manifest, id: 'example.incompatible' }, node: { minMajor: major + 1, maxMajorExclusive: major + 2 } },
+      files: [...f.archive.files].map(([path, bytes]) => ({ path, base64: Buffer.from(bytes).toString('base64') })),
+    })));
+    const artifacts = [{ ...f.artifacts[0]!, requires: ['example.incompatible'] },
+      { pluginId: 'example.incompatible', artifactHash: dependency.hash, packageVersion: '1.0.0', requires: [] }];
+    await expect(loadRetainedExecutionHostProvider({ pluginsRoot: f.root, runtimeArtifactsRoot: f.root, record: f.record, artifacts })).rejects.toThrow('does not support Node');
+    expect(Reflect.get(globalThis, marker)).toBeUndefined();
+  } finally { Reflect.deleteProperty(globalThis, marker); }
+});
+it('blocks retained external code outside its Node range before top-level evaluation', async () => {
+  const marker = '__retainedCompatibilityexecution_host';
+  const major = Number(process.versions.node.split('.')[0]);
+  try {
+    for (const node of [{ minMajor: major - 1, maxMajorExclusive: major }, { minMajor: major + 1, maxMajorExclusive: major + 2 }]) {
+      const f = await fixture(`globalThis.${marker} = true;\n${source}`, { ...descriptor(), node });
+      await expect(f.load()).rejects.toThrow('does not support Node');
+      expect(Reflect.get(globalThis, marker)).toBeUndefined();
+    }
+  } finally { Reflect.deleteProperty(globalThis, marker); }
+});
 it('requires explicit launch identity, bounded JSON and exactly declared host-only capabilities', async () => {
   for (const invalid of [{ ...spec, launchId: '' }, { ...spec, receiptPath: 'relative' }, { ...spec, attempt: 0 }, { ...spec, args: ['bad\0arg'] }, { ...spec, configuration: { image: 'x'.repeat(65536) } }]) expect(() => parseExecutionHostLaunchSpecV1(invalid)).toThrow();
   const pkg = descriptor();

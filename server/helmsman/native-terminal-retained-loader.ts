@@ -11,6 +11,7 @@ import { persistenceHash } from './persistence';
 import { readPluginArtifact, type PluginArchive } from './plugins/artifacts';
 import { validatePluginImports } from './plugins/imports';
 import { materializePluginBackend } from './plugins/materialize';
+import { assertPluginNodeCompatibility } from './plugins/compatibility';
 
 async function verifyClosure(input: { pluginsRoot: string; runtimeArtifactsRoot: string; artifacts: readonly ArtifactBinding[] }, record: NativeTerminalRetainedProviderV1) {
   if (!Array.isArray(input.artifacts) || input.artifacts.length < 1 || input.artifacts.length > 256) throw new Error('Retained native terminal artifact closure is invalid');
@@ -40,6 +41,7 @@ async function verifyClosure(input: { pluginsRoot: string; runtimeArtifactsRoot:
     } else {
       const archive = await readPluginArtifact(input.pluginsRoot, artifact.artifactHash);
       if (archive.package.manifest.id !== artifact.pluginId || archive.package.manifest.version !== artifact.packageVersion) throw new Error('Retained native terminal artifact identity differs');
+      assertPluginNodeCompatibility(archive.package);
       await validatePluginImports(archive); archives.set(artifact.pluginId, archive);
     }
   }

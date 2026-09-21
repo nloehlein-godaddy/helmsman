@@ -26,18 +26,44 @@ function descriptor(id = 'example.agent') {
 const roots: string[] = []; const runtimes: BackendRuntime[] = [];
 afterEach(async () => { vi.useRealTimers(); await Promise.all(runtimes.splice(0).map(value => value.dispose())); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 async function temporary() { const root = await mkdtemp(join(await realpath(tmpdir()), 'helmsman-agents-')); roots.push(root); return root; }
-async function fixture(body?: string) {
+async function fixture(body?: string, pkg = descriptor()) {
   const root = await temporary();
   const source = body ?? `export default { activate(context) {
     if (Object.keys(context).sort().join(',') !== 'onDispose,pluginId,registerAgent,settings,signal') throw new Error('Unexpected host services');
     context.registerAgent('agent', { metadata: ${JSON.stringify(metadata)}, buildCommand(input) { return { cmd: 'echo', args: [context.settings.commandTemplate, input.prompt] }; },
       parseLine(line) { return { kind: 'result', text: line, outcome: line === 'fail' ? 'failure' : 'success' }; } });
   } };`;
-  const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: descriptor(), files: [{ path: 'backend.js', base64: Buffer.from(source).toString('base64') }] })));
+  const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: pkg, files: [{ path: 'backend.js', base64: Buffer.from(source).toString('base64') }] })));
   const record = parseAgentRetainedProviderV1({ version: 1, binding: { providerId: 'example.agent/agent', pluginId: 'example.agent', artifactHash: archive.hash, contractVersion: 1 }, origin: 'external', settings: { commandTemplate: 'retained' }, metadata });
   const artifacts = [{ pluginId: 'example.agent', artifactHash: archive.hash, packageVersion: '1.0.0', requires: [] }];
   return { root, archive, record, artifacts, load: () => loadRetainedAgentProvider({ pluginsRoot: root, runtimeArtifactsRoot: join(root, 'legacy'), record, artifacts }) };
 }
+it('checks the entire retained closure before evaluating the selected compatible provider', async () => {
+  const marker = '__retainedClosureagent';
+  const major = Number(process.versions.node.split('.')[0]);
+  try {
+    const f = await fixture(`globalThis.${marker} = true; export default { activate() {} };`);
+    const dependency = await installPluginArtifact(f.root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
+      package: { ...f.archive.package, manifest: { ...f.archive.package.manifest, id: 'example.incompatible' }, node: { minMajor: major + 1, maxMajorExclusive: major + 2 } },
+      files: [...f.archive.files].map(([path, bytes]) => ({ path, base64: Buffer.from(bytes).toString('base64') })),
+    })));
+    const artifacts = [{ ...f.artifacts[0]!, requires: ['example.incompatible'] },
+      { pluginId: 'example.incompatible', artifactHash: dependency.hash, packageVersion: '1.0.0', requires: [] }];
+    await expect(loadRetainedAgentProvider({ pluginsRoot: f.root, runtimeArtifactsRoot: f.root, record: f.record, artifacts })).rejects.toThrow('does not support Node');
+    expect(Reflect.get(globalThis, marker)).toBeUndefined();
+  } finally { Reflect.deleteProperty(globalThis, marker); }
+});
+it('blocks retained external code outside its Node range before top-level evaluation', async () => {
+  const marker = '__retainedCompatibilityagent';
+  const major = Number(process.versions.node.split('.')[0]);
+  try {
+    for (const node of [{ minMajor: major - 1, maxMajorExclusive: major }, { minMajor: major + 1, maxMajorExclusive: major + 2 }]) {
+      const f = await fixture(`globalThis.${marker} = true; export default { activate() {} };`, { ...descriptor(), node });
+      await expect(f.load()).rejects.toThrow('does not support Node');
+      expect(Reflect.get(globalThis, marker)).toBeUndefined();
+    }
+  } finally { Reflect.deleteProperty(globalThis, marker); }
+});
 it('bounds commands, rejects core completion events, and preserves explicit unsuccessful results', () => {
   expect(parseAgentEventV1({ kind: 'result', text: 'not successful', outcome: 'failure' })).toMatchObject({ outcome: 'failure' });
   for (const value of [{ kind: 'result', text: 'done' }, { kind: 'run-complete', text: 'done' }, { kind: 'usage', text: '', usage: { inputTokens: -1 } }, { kind: 'log', text: '', costUsd: Infinity }]) expect(() => parseAgentEventV1(value)).toThrow();

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { COSTS_PAGE_SLOT } from '../../src/plugins/builtins';
+import { builtinPageSlots, COSTS_PAGE_SLOT } from '../../src/plugins/page-slots';
 import { createSafeStartServer, safeStartEnabled } from './safe-start';
 
 let root: string;
@@ -126,6 +126,37 @@ describe('safe start recovery server', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ version: 1, safeMode: true, plugins: [], bindings: { [COSTS_PAGE_SLOT]: 'example.broken/page' } });
     expect((await fetch(`${base}/plugin-assets/example.broken/${hash}/page.js`)).status).toBe(404);
+  });
+
+  it('reads every supported binding without evaluating artifacts or modifying stored metadata', async () => {
+    await seed();
+    const path = join(pluginsDir, 'catalog.sqlite');
+    const plugins = new Database(path);
+    const bindings = Object.fromEntries(builtinPageSlots.map(slot => [slot.id, slot.defaultContributionId]));
+    try {
+      plugins.exec('DELETE FROM plugin_bindings');
+      const insert = plugins.prepare('INSERT INTO plugin_bindings VALUES (?, ?)');
+      for (const [slot, contribution] of Object.entries(bindings)) insert.run(slot, contribution);
+    } finally { plugins.close(); }
+    const before = await digest(path);
+    await start();
+    expect(await (await fetch(`${base}/api/plugins/catalog`)).json()).toMatchObject({ safeMode: true, bindings });
+    expect(await (await fetch(`${base}/api/recovery`)).json()).toMatchObject({
+      plugins: [{ id: 'example.broken', hash, enabled: true }], errors: [],
+    });
+    expect(await digest(path)).toBe(before);
+  });
+
+  it.each(['helmsman/unknown-page', 'invalid'])('rejects unsupported stored slot %s without modifying metadata', async slot => {
+    await seed();
+    const path = join(pluginsDir, 'catalog.sqlite');
+    const plugins = new Database(path);
+    try { plugins.prepare('INSERT INTO plugin_bindings VALUES (?, ?)').run(slot, 'example.broken/page'); }
+    finally { plugins.close(); }
+    const before = await digest(path);
+    await start();
+    expect(await (await fetch(`${base}/api/recovery`)).json()).toMatchObject({ plugins: [], errors: ['Stored recovery metadata could not be read. Files were left unchanged.'] });
+    expect(await digest(path)).toBe(before);
   });
 
   it('keeps core recovery available with missing frontend assets and leaves all stored data unchanged', async () => {

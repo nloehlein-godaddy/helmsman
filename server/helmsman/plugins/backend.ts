@@ -9,6 +9,7 @@ import { boundedExecutionHostProvider, createExecutionHostProviderRegistry } fro
 import type { AgentBackendContextV1, AgentProviderV1 } from '../../../src/plugins/agent-provider';
 import { createAgentProviderRegistry } from '../agent-providers';
 import { materializePluginBackend } from './materialize';
+import { assertPluginNodeCompatibility } from './compatibility';
 import type { SchedulingProviderV1 } from '../../../src/plugins/scheduling-provider';
 import { createSchedulingProviderRegistry } from '../scheduling-providers';
 import { persistenceHash } from '../persistence';
@@ -254,8 +255,7 @@ export async function activateBackendPlugins(options: {
     try {
       if (ids.has(id)) throw new Error('Duplicate backend plugin identity.');
       ids.add(id);
-      const node = Number(process.versions.node.split('.')[0]);
-      if (node < pkg.node.minMajor || node >= pkg.node.maxMajorExclusive) throw new Error('Backend Node version is incompatible.');
+      assertPluginNodeCompatibility(pkg);
       data = openPluginData(options.root, pkg);
       const context: PluginBackendContext = Object.freeze({
         pluginId: id, signal: abort.signal, settings: data.settings,

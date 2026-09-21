@@ -31,13 +31,39 @@ const source = `export default { activate(context) {
  context.registerNativeTerminal('native', { metadata: ${JSON.stringify(metadata)}, sessionIdentity() { return context.settings.socket; },
  async listTabs() { return {connected:true,tabs:[]}; }, async readScreen() { return {ok:true,text:context.settings.socket}; }, async send() { return {ok:true}; }, async sendKey() { return {ok:true}; } });
 } };`;
-async function fixture(body = source) {
+async function fixture(body = source, pkg = descriptor()) {
   const root = await temporary();
-  const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: descriptor(), files: [{ path: 'backend.js', base64: Buffer.from(body).toString('base64') }] })));
+  const archive = await installPluginArtifact(root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1, package: pkg, files: [{ path: 'backend.js', base64: Buffer.from(body).toString('base64') }] })));
   const record = parseNativeTerminalRetainedProviderV1({ version: 1, binding: { providerId: 'example.terminal/native', pluginId: 'example.terminal', artifactHash: archive.hash, contractVersion: 1 }, origin: 'external', settings: { socket: 'retained' }, metadata });
   const artifacts = [{ pluginId: 'example.terminal', artifactHash: archive.hash, packageVersion: '1.0.0', requires: [] }];
   return { root, archive, record, artifacts, load: () => loadRetainedNativeTerminalProvider({ pluginsRoot: root, runtimeArtifactsRoot: join(root, 'legacy'), record, artifacts }) };
 }
+it('checks the entire retained closure before evaluating the selected compatible provider', async () => {
+  const marker = '__retainedClosurenative_terminal';
+  const major = Number(process.versions.node.split('.')[0]);
+  try {
+    const f = await fixture(`globalThis.${marker} = true; export default { activate() {} };`);
+    const dependency = await installPluginArtifact(f.root, Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
+      package: { ...f.archive.package, manifest: { ...f.archive.package.manifest, id: 'example.incompatible' }, node: { minMajor: major + 1, maxMajorExclusive: major + 2 } },
+      files: [...f.archive.files].map(([path, bytes]) => ({ path, base64: Buffer.from(bytes).toString('base64') })),
+    })));
+    const artifacts = [{ ...f.artifacts[0]!, requires: ['example.incompatible'] },
+      { pluginId: 'example.incompatible', artifactHash: dependency.hash, packageVersion: '1.0.0', requires: [] }];
+    await expect(loadRetainedNativeTerminalProvider({ pluginsRoot: f.root, runtimeArtifactsRoot: f.root, record: f.record, artifacts })).rejects.toThrow('does not support Node');
+    expect(Reflect.get(globalThis, marker)).toBeUndefined();
+  } finally { Reflect.deleteProperty(globalThis, marker); }
+});
+it('blocks retained external code outside its Node range before top-level evaluation', async () => {
+  const marker = '__retainedCompatibilitynative_terminal';
+  const major = Number(process.versions.node.split('.')[0]);
+  try {
+    for (const node of [{ minMajor: major - 1, maxMajorExclusive: major }, { minMajor: major + 1, maxMajorExclusive: major + 2 }]) {
+      const f = await fixture(`globalThis.${marker} = true;\n${source}`, { ...descriptor(), node });
+      await expect(f.load()).rejects.toThrow('does not support Node');
+      expect(Reflect.get(globalThis, marker)).toBeUndefined();
+    }
+  } finally { Reflect.deleteProperty(globalThis, marker); }
+});
 it('accepts opaque references and rejects malformed native values before side effects', async () => {
   const send = vi.fn(provider.send); const sendKey = vi.fn(provider.sendKey); const readScreen = vi.fn(provider.readScreen);
   const bounded = boundedNativeTerminalProvider({ ...provider, send, sendKey, readScreen });
@@ -84,6 +110,32 @@ it('gives ordinary and retained providers restricted services and captured setti
   const retained = await f.load(); expect(retained.provider.sessionIdentity()).toBe('retained'); await expect(retained.provider.readScreen(surface.surfaceRef, 1)).resolves.toEqual({ ok: true, text: 'retained' });
   await retained.dispose(); await retained.dispose(); await expect(retained.provider.send(surface.surfaceRef, 'hello', true)).rejects.toThrow(); expect(() => retained.provider.sessionIdentity()).toThrow();
   writePluginSettings(f.root, f.archive.package, { socket: 'changed' }); expect(runtime.nativeTerminals.list()).toEqual([]); expect(runtime.nativeTerminals.list('obligation')).toHaveLength(1);
+});
+it('shares retained module code while keeping concurrent activation settings and disposal independent', async () => {
+  const evaluations = '__retainedTerminalEvaluations'; const cleanups = '__retainedTerminalCleanups';
+  const sessions: Array<Awaited<ReturnType<typeof loadRetainedNativeTerminalProvider>>> = [];
+  try {
+    const body = `globalThis.${evaluations} = (globalThis.${evaluations} ?? 0) + 1;\n${source.replace('activate(context) {', `activate(context) { context.onDispose(() => { globalThis.${cleanups} = (globalThis.${cleanups} ?? 0) + 1; });`)}`;
+    const f = await fixture(body);
+    sessions.push(...await Promise.all(Array.from({ length: 8 }, (_, index) => loadRetainedNativeTerminalProvider({ pluginsRoot: f.root, runtimeArtifactsRoot: f.root,
+      record: { ...f.record, settings: { socket: `session-${index}` } }, artifacts: f.artifacts }))));
+    expect(Reflect.get(globalThis, evaluations)).toBe(1);
+    for (const [index, session] of sessions.entries()) expect(session.provider.sessionIdentity()).toBe(`session-${index}`);
+    await sessions[0]!.dispose();
+    expect(() => sessions[0]!.provider.sessionIdentity()).toThrow();
+    expect(sessions[1]!.provider.sessionIdentity()).toBe('session-1');
+    await Promise.all(sessions.map(session => session.dispose()));
+    expect(Reflect.get(globalThis, cleanups)).toBe(8);
+    for (let index = 0; index < 16; index++) {
+      const session = await f.load(); sessions.push(session);
+      expect(session.provider.sessionIdentity()).toBe('retained'); await session.dispose();
+    }
+    expect(Reflect.get(globalThis, evaluations)).toBe(1);
+    expect(Reflect.get(globalThis, cleanups)).toBe(24);
+  } finally {
+    await Promise.all(sessions.map(session => session.dispose()));
+    Reflect.deleteProperty(globalThis, evaluations); Reflect.deleteProperty(globalThis, cleanups);
+  }
 });
 it('blocks corrupted, incomplete and mismatched retained artifacts', async () => {
   const f = await fixture();

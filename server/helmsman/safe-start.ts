@@ -5,7 +5,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 import { isAppPagePath } from '../../src/logic/routes';
-import { COSTS_PAGE_SLOT } from '../../src/plugins/builtins';
+import { isBuiltinPageSlot } from '../../src/plugins/page-slots';
 import { isContributionId, isPluginId } from '../../src/plugins/manifest';
 import { handlePluginRequest } from './plugins/http';
 import type { PluginSnapshot } from './plugins/store';
@@ -72,7 +72,7 @@ function readPlugins(root: string) {
     const bindingRows = hasTable(sql, 'plugin_bindings')
       ? sql.prepare('SELECT slot, contribution FROM plugin_bindings').all() as Row[] : [];
     for (const row of bindingRows) {
-      if (row?.slot !== COSTS_PAGE_SLOT || !isContributionId(row.contribution)) throw new Error('Invalid page binding');
+      if (typeof row?.slot !== 'string' || !isBuiltinPageSlot(row.slot) || !isContributionId(row.contribution)) throw new Error('Invalid page binding');
       bindings[row.slot] = row.contribution;
     }
     return { plugins: rows.map(row => ({ id: row.id as string, hash: row.hash as string, enabled: row.enabled === 1 })), bindings };

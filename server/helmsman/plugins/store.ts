@@ -7,6 +7,7 @@ import { builtinPageSlots, supportsPageSlot } from '../../../src/plugins/fronten
 import { builtinFrontendPackages } from './builtin-frontend';
 import { isContributionId, isPluginId } from '../../../src/plugins/manifest';
 import { installPluginArtifact, parsePluginArchive, readPluginArtifact, type PluginArchive } from './artifacts';
+import { assertPluginNodeCompatibility } from './compatibility';
 import { validatePluginImports } from './imports';
 import { builtinPluginPackage, builtinPluginEnabled, clearPluginSettings, projectPluginData, setBuiltinPluginEnabled, writePluginSettings } from './data';
 import type { PluginPackage } from '../../../src/plugins/package';
@@ -66,16 +67,9 @@ export function readPluginState(root: string): PluginInstallationState {
   } finally { db.close(); }
 }
 
-function compatible(archive: PluginArchive, nodeMajor = Number(process.versions.node.split('.')[0])): void {
-  const range = archive.package.node;
-  if (!Number.isSafeInteger(nodeMajor) || nodeMajor < range.minMajor || nodeMajor >= range.maxMajorExclusive) {
-    throw new Error(`Plugin ${archive.package.manifest.id} does not support Node ${nodeMajor}.`);
-  }
-}
-
 export async function installPlugin(root: string, bytes: Uint8Array, coordinator?: PluginCoordinator): Promise<InstalledPlugin> {
   const parsed = parsePluginArchive(bytes);
-  compatible(parsed);
+  assertPluginNodeCompatibility(parsed.package);
   await validatePluginImports(parsed);
   const current = readPluginState(root).plugins;
   const previous = current.find(plugin => plugin.id === parsed.package.manifest.id);
@@ -111,7 +105,7 @@ export async function setPluginEnabled(root: string, id: string, enabled: boolea
   if (enabled) {
     const archive = await readPluginArtifact(root, plugin.hash);
     if (archive.package.manifest.id !== id) throw new Error('Plugin artifact identity does not match its installation.');
-    compatible(archive);
+    assertPluginNodeCompatibility(archive.package);
     await validatePluginImports(archive);
   }
   const db = database(root);
@@ -184,7 +178,7 @@ export async function loadPluginSnapshot(root: string, safeMode = false, coordin
     try {
       const artifact = await readPluginArtifact(root, plugin.hash);
       if (artifact.package.manifest.id !== plugin.id) throw new Error('Artifact identity mismatch.');
-      compatible(artifact);
+      assertPluginNodeCompatibility(artifact.package);
       await validatePluginImports(artifact);
       artifacts.set(`${plugin.id}/${plugin.hash}`, artifact);
       if (!coordinator || coordinator.canActivate(plugin.id, plugin.hash)) {
