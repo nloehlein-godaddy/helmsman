@@ -44,7 +44,7 @@ const deps: RouterDeps = {
   setAutoClaim: (_repo: string, _enabled: boolean) => {},
   autoClaimRepos: () => ['o/r'],
   caps: () => ({ maxAttempts: 3, maxCostUsd: 5 }),
-  getConfig: () => ({ config: { agentAdapter: 'claude-code', maxAttempts: 1 }, overridden: ['AGENT_MAX_ATTEMPTS'], jiraTokenSet: true }),
+  getConfig: () => ({ config: { AGENT_MAX_ATTEMPTS: 1 }, overridden: ['AGENT_MAX_ATTEMPTS'], jiraTokenSet: true }),
   setConfig: (_key: string, _value: string) => ({ ok: true }),
   prStatus: async (_repo: string, _prNumber: number) => samplePrStatus,
   reviewRequestedPrs: async () => ({ prs: [], degraded: false, truncated: false }),
@@ -552,7 +552,7 @@ describe('config routes', () => {
     const r = await handleApi('GET', '/api/config', new URLSearchParams(), null, deps);
     expect(r?.status).toBe(200);
     expect(r?.json).toEqual({
-      config: { agentAdapter: 'claude-code', maxAttempts: 1 },
+      config: { AGENT_MAX_ATTEMPTS: 1 },
       overridden: ['AGENT_MAX_ATTEMPTS'],
       jiraTokenSet: true,
     });
@@ -569,6 +569,15 @@ describe('config routes', () => {
     expect(setConfig).toHaveBeenCalledWith('AGENT_MAX_ATTEMPTS', '3');
     expect(r?.status).toBe(200);
     expect(r?.json).toEqual({ ok: true });
+  });
+
+  it.each(['AGENT_ADAPTER', 'AGENT_CMD'])('retires %s in favor of plugin configuration', async key => {
+    const setConfig = vi.fn(() => ({ ok: true as const }));
+    const configDeps = { ...deps, setConfig } as unknown as RouterDeps;
+    const r = await handleApi('PUT', '/api/config', new URLSearchParams(), { key, value: 'legacy' }, configDeps);
+    expect(r?.status).toBe(410);
+    expect(r?.json).toEqual({ error: 'Use `helmsman plugins configure <plugin-id> …`, then `helmsman plugins select-agent <plugin/id>`.' });
+    expect(setConfig).not.toHaveBeenCalled();
   });
 
   it('rejects updates to a non-editable config key', async () => {

@@ -304,3 +304,50 @@ export function projectPluginData(root: string, input: { pluginId: string; artif
     });
   } finally { sql.close(); }
 }
+
+export interface AgentProviderSelections { readonly writer: string | null; readonly reviewers: readonly string[] | null; readonly revision: string; }
+function agentSelection(sql: Database.Database): AgentProviderSelections {
+  const row = sql.prepare('SELECT value FROM backend_meta WHERE key=?').get('agent-selection-v1') as { value: string } | undefined;
+  if (!row) return { writer: null, reviewers: null, revision: 'unselected' };
+  const value = pluginJson(JSON.parse(row.value)) as unknown as AgentProviderSelections;
+  if (!value || typeof value !== 'object' || Object.keys(value).length !== 3 || value.writer !== null && !isContributionId(value.writer)
+    || value.reviewers !== null && (!Array.isArray(value.reviewers) || value.reviewers.length > 8 || value.reviewers.some(id => !isContributionId(id)) || new Set(value.reviewers).size !== value.reviewers.length)
+    || typeof value.revision !== 'string' || !/^[a-f\d-]{36}$/.test(value.revision)) throw new Error('Invalid agent provider selection');
+  return value;
+}
+export function readAgentProviderSelection(root: string): AgentProviderSelections {
+  const sql = database(root); try { return agentSelection(sql); } finally { sql.close(); }
+}
+function writeAgentSelection(sql: Database.Database, value: Pick<AgentProviderSelections, 'writer' | 'reviewers'>): void {
+  sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run('agent-selection-v1', JSON.stringify({ ...value, revision: randomUUID() }));
+}
+export function selectAgentProvider(root: string, writer: string | null): void {
+  if (writer !== null && !isContributionId(writer)) throw new Error('Invalid agent provider ID');
+  const sql = database(root);
+  try { immediateTransaction(sql, () => { const current = agentSelection(sql); writeAgentSelection(sql, { writer, reviewers: current.reviewers }); }); } finally { sql.close(); }
+}
+export function selectAgentReviewers(root: string, reviewers: readonly string[] | null): void {
+  if (reviewers !== null && (!Array.isArray(reviewers) || reviewers.length > 8 || reviewers.some(id => !isContributionId(id)) || new Set(reviewers).size !== reviewers.length)) throw new Error('Select distinct agent review providers');
+  const sql = database(root);
+  try { immediateTransaction(sql, () => { const current = agentSelection(sql); writeAgentSelection(sql, { writer: current.writer, reviewers }); }); } finally { sql.close(); }
+}
+export function initializeAgentProviderSelection(root: string, defaults: { writer: string; reviewers: readonly string[] | null }): void {
+  if (!isContributionId(defaults.writer) || defaults.reviewers !== null && (!Array.isArray(defaults.reviewers) || defaults.reviewers.length > 8
+    || defaults.reviewers.some(id => !isContributionId(id)) || new Set(defaults.reviewers).size !== defaults.reviewers.length)) throw new Error('Invalid initial agent provider selection');
+  const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run('agent-selection-initialized-v1', '1').changes;
+    if (first && !sql.prepare('SELECT 1 FROM backend_meta WHERE key=?').get('agent-selection-v1')) writeAgentSelection(sql, defaults);
+  }); } finally { sql.close(); }
+}
+export function initializeCommandAgentSettings(root: string, pkg: PluginPackage, legacyTemplate: string | null): boolean {
+  const field = pkg.backend?.settings.commandTemplate;
+  if (!field || field.type !== 'string') throw new Error('Command agent setting is unavailable');
+  const sql = database(root);
+  try { return immediateTransaction(sql, () => {
+    sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(`command-agent-migrated:${pkg.manifest.id}`, '1');
+    const configured = sql.prepare('SELECT 1 FROM plugin_settings WHERE plugin=? AND key=?').get(pkg.manifest.id, 'commandTemplate');
+    return Boolean(legacyTemplate?.trim()) && !configured;
+  }); } finally { sql.close(); }
+}

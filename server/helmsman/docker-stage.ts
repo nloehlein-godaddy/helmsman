@@ -61,6 +61,8 @@ export async function prepareDockerStage(adapter: AgentAdapter, task: AgentTask,
   if (gateway.protocol !== 'http:' || gateway.hostname !== 'host.docker.internal' || gateway.username || gateway.password
     || gateway.search || gateway.hash || gateway.pathname !== '/') throw new Error('Invalid Docker stage gateway');
   if (!(await lstat(join(cwd, '.git'))).isDirectory()) throw new Error('Docker stage requires a standalone Git clone');
+  const compatibility = adapter.metadata?.docker ?? (adapter.id === 'codex' ? 'openai-responses' : adapter.id === 'claude-code' ? 'anthropic-messages' : null);
+  if (!compatibility) throw new Error('Agent provider does not declare Docker compatibility');
   const root = resolve(config.runtimeRoot ?? tmpdir());
   await mkdir(root, { recursive: true, mode: 0o700 });
   const runtime = await mkdtemp(join(root, 'helmsman-stage-'));
@@ -84,8 +86,10 @@ export async function prepareDockerStage(adapter: AgentAdapter, task: AgentTask,
   };
   try {
     await mkdir(join(runtime, 'home'), { mode: 0o700 });
-    await mkdir(join(runtime, 'codex-home'), { mode: 0o700 });
-    await writeFile(join(runtime, 'codex-home', 'config.toml'), `model_provider = "helmsman"\n[model_providers.helmsman]\nname = "Helmsman"\nbase_url = ${JSON.stringify(`${isolatedGateway}/openai/v1`)}\nenv_key = "HELMSMAN_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\n`, { mode: 0o600 });
+    if (compatibility === 'openai-responses') {
+      await mkdir(join(runtime, 'codex-home'), { mode: 0o700 });
+      await writeFile(join(runtime, 'codex-home', 'config.toml'), `model_provider = "helmsman"\n[model_providers.helmsman]\nname = "Helmsman"\nbase_url = ${JSON.stringify(`${isolatedGateway}/openai/v1`)}\nenv_key = "HELMSMAN_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\n`, { mode: 0o600 });
+    }
     const mapped: AgentTask = { ...task, dockerExecution: undefined,
       skillsPath: task.skillsPath ? '/skills' : undefined,
       reviewOutputPaths: task.review ? { markdown: '/runtime/review.md', comments: '/runtime/review-comments.json' } : undefined,
@@ -120,11 +124,13 @@ export async function prepareDockerStage(adapter: AgentAdapter, task: AgentTask,
       '--workdir', '/worktree', '--network', network,
       '--mount', mount(cwd, '/worktree', task.review || task.prePr?.stage === 'review'), '--mount', mount(runtime, '/runtime'),
       ...(task.skillsPath ? ['--mount', mount(join(task.skillsPath, 'skills'), '/skills/skills', true)] : []),
-      '--env', 'HOME=/runtime/home', '--env', 'CODEX_HOME=/runtime/codex-home',
+      '--env', 'HOME=/runtime/home', ...(compatibility === 'openai-responses' ? ['--env', 'CODEX_HOME=/runtime/codex-home'] : []),
       '--env', 'GIT_AUTHOR_NAME=Helmsman', '--env', 'GIT_AUTHOR_EMAIL=helmsman@localhost',
       '--env', 'GIT_COMMITTER_NAME=Helmsman', '--env', 'GIT_COMMITTER_EMAIL=helmsman@localhost',
-      '--env', `HELMSMAN_CAPABILITY=${config.capability}`, '--env', `ANTHROPIC_API_KEY=${config.capability}`,
-      '--env', `ANTHROPIC_BASE_URL=${isolatedGateway}/anthropic`, '--env', `HELMSMAN_GATEWAY_URL=${isolatedGateway}`,
+      ...(compatibility === 'openai-responses'
+        ? ['--env', `HELMSMAN_CAPABILITY=${config.capability}`]
+        : ['--env', `ANTHROPIC_API_KEY=${config.capability}`, '--env', `ANTHROPIC_BASE_URL=${isolatedGateway}/anthropic`]),
+      '--env', `HELMSMAN_GATEWAY_URL=${isolatedGateway}`,
       '--env', `HELMSMAN_REPO=${task.repo}`,
       '--entrypoint', child.cmd, config.image, ...child.args];
     await control(['network', 'create', '--internal', '--label', `helmsman.runId=${config.runId}`, network]);

@@ -108,3 +108,5 @@ Jira and GitHub settings have independent authored page/panel packages with name
 `plugin-sources/profile` contains the independently buildable header contribution; [profile authoring](profile-authoring.md) documents its global read and optional provider hook. Installed page packages are discoverable through the Pages menu unless their page metadata declares `navigation: false`.
 
 `plugin-sources/scheduling` is the independently buildable round-robin policy. Install alternatives through `select-scheduling`; see [scheduling authoring](scheduling-authoring.md) for bounded discovery, interval migration and admission provenance.
+
+`plugin-sources/agent-codex`, `agent-claude` and `agent-command` contain independently buildable agent backends. The [agent authoring guide](agent-authoring.md) documents their restricted activation context and exact retained execution bindings. After a settled distribution build, run `npx playwright test --config playwright.distribution.config.ts tests/distribution/agent-host.pw.ts` for the source-denied application, restart, retained-settings and full pre-PR continuation scenario.

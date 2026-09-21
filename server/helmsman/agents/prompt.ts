@@ -5,8 +5,10 @@ import { agentAttribution, appendAgentByline } from '../agent-attribution';
 
 const UNATTENDED = 'Working dir = the repo checkout. Fully unattended: do not pause for confirmation; use the clarification protocol when a required human decision blocks safe progress.';
 
-export function buildPrompt(task: AgentTask, runtime: 'codex' | 'claude-code' = 'claude-code'): string {
+export function buildPrompt(task: AgentTask, runtime: string = 'claude-code'): string {
   if (task.prePr) return buildPrePrPrompt(task, runtime);
+  const provider = task.agentSelection ? [task.agentSelection.writer, ...task.agentSelection.reviewers].find(value => value.binding.providerId === runtime) : null;
+  const delegation = provider?.metadata.reviewDelegation ?? (runtime === 'codex' ? 'review-agent-skill' : 'native-subagents');
   const byline = appendAgentByline('', agentAttribution(runtime, task, task.review ? 'review agent' : 'PR author'));
   const attribution = `- End every PR description, review summary, inline comment, and comment/reply you author with this exact standalone byline, outside any code or suggestion fence: ${JSON.stringify(byline)}. Keep it as the final line and do not duplicate it. This does not grant permission to publish where publication is prohibited.`;
   if (task.review && task.prNumber && (task.prBranch || task.prHeadSha)) {
@@ -14,7 +16,7 @@ export function buildPrompt(task: AgentTask, runtime: 'codex' | 'claude-code' = 
       `# Code-review PR #${task.prNumber} (${task.prBranch ? `branch ${task.prBranch}` : `revision ${task.prHeadSha}`})`,
       UNATTENDED,
       clarificationPrompt(task),
-      ...(task.skillsPath ? [`- Use only the pinned skills under ${JSON.stringify(`${task.skillsPath}/skills`)}. Read review-agent/SKILL.md before delegating; do not use or install global skill copies.`] : []),
+      ...(task.skillsPath ? [`- Use only the pinned skills under ${JSON.stringify(`${task.skillsPath}/skills`)}. ${delegation === 'review-agent-skill' ? 'Read review-agent/SKILL.md before delegating; ' : ''}do not use or install global skill copies.`] : []),
       ``,
       `## Review scope`,
       attribution,
@@ -35,9 +37,11 @@ export function buildPrompt(task: AgentTask, runtime: 'codex' | 'claude-code' = 
       ``,
       `## Focused sub-agents`,
       `- Act as the review lead. Delegate independent applicable areas to focused sub-agents: logic/state/structure; acceptance criteria and relevant test coverage; changed UX and accessibility; external effects such as API consumers, persistence, flags, and side effects. Give each a bounded file/call-path scope, the pinned revision, shared PR context, and the materiality rules above. Skip unaffected areas and combine small scopes; do not ask each agent to review the entire PR.`,
-      ...(runtime === 'codex' ? [
-        '- Every Codex review sub-agent must explicitly use $review-agent. Read its installed SKILL.md, then include \`Use $review-agent\` in each delegated task. Apply the skill to the scoped defect review; the lead coordinates and writes the final artifacts. The skill forbids its reviewers from editing files, posting, or delegating further, so keep them as leaf reviewers.',
+      ...(delegation === 'review-agent-skill' ? [
+        '- Every review sub-agent must explicitly use $review-agent. Read its installed SKILL.md, then include \`Use $review-agent\` in each delegated task. Apply the skill to the scoped defect review; the lead coordinates and writes the final artifacts. The skill forbids its reviewers from editing files, posting, or delegating further, so keep them as leaf reviewers.',
         `- If $review-agent or sub-agent tools are unavailable, report that limitation and use COMMENT rather than claiming the required review completed. Do not silently substitute another review skill.`,
+      ] : delegation === 'none' ? [
+        '- This provider declares no review delegation support. The required delegated review cannot complete; disclose this limitation and use COMMENT. Do not claim independent review completed.',
       ] : [
         `- Use this runtime's sub-agent tools for the focused reviews. Review sub-agents are read-only leaf workers: they do not delegate further, edit files, or publish. If delegation is unavailable, disclose the limitation and use COMMENT rather than claiming the required review completed.`,
       ]),

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, open, readFile, rm } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
+import { isContributionId } from '../../src/plugins/manifest';
 
 export interface RunArtifactIdentity {
   runId: string;
@@ -23,17 +24,29 @@ export interface RunArtifactStore {
 }
 
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
+export function artifactReviewerFileId(reviewer: string): string {
+  if (reviewer === 'codex' || reviewer === 'claude-code') return reviewer;
+  if (!isContributionId(reviewer)) throw new Error('Invalid reviewer identity');
+  return `provider-${createHash('sha256').update(reviewer).digest('hex')}`;
+}
+
+export function prePrArtifactFilename(stage: string, round: number, reviewer?: string, corrected = false): string {
+  if (!SAFE_ID.test(stage) || !Number.isSafeInteger(round) || round < 0 || round > 10_000) throw new Error('Invalid pre-PR artifact identity');
+  const suffix = reviewer ? `-${artifactReviewerFileId(reviewer)}` : '';
+  return `${stage}-${round}${suffix}${corrected ? '.corrected' : ''}.json`;
+}
 
 function valid(identity: RunArtifactIdentity): boolean {
   return typeof identity?.runId === 'string' && SAFE_ID.test(identity.runId)
     && typeof identity.stage === 'string' && SAFE_ID.test(identity.stage)
     && Number.isSafeInteger(identity.round) && identity.round >= 0 && identity.round <= 10_000
-    && (identity.reviewer === undefined || (typeof identity.reviewer === 'string' && SAFE_ID.test(identity.reviewer)));
+    && (identity.reviewer === undefined || (typeof identity.reviewer === 'string'
+      && (identity.reviewer === 'codex' || identity.reviewer === 'claude-code' || isContributionId(identity.reviewer))));
 }
 
 function artifactName(identity: RunArtifactIdentity): string {
   if (!valid(identity)) throw new Error('Invalid run artifact identity');
-  return `${identity.stage}.${identity.round}${identity.reviewer ? `.${identity.reviewer}` : ''}`;
+  return `${identity.stage}.${identity.round}${identity.reviewer ? `.${artifactReviewerFileId(identity.reviewer)}` : ''}`;
 }
 
 function paths(root: string, identity: RunArtifactIdentity) {

@@ -3,6 +3,7 @@ import { storeConnection } from './store-connection';
 import type { AgentEvent, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
 import type { UsageRecorder } from './usage-store';
+import { parseAgentSelectionV1 } from './agent-providers';
 
 export interface RunTelemetryCompletion {
   runId: string;
@@ -15,6 +16,21 @@ export interface RunTelemetry {
   complete(run: RunRow): void;
   close(): void;
 }
+
+function providerId(run: RunRow, event: AgentEvent): string {
+  return event.provider ?? run.adapter.replace(/^(?:pre-pr:|docker-review:)/, '');
+}
+
+function costReporting(run: RunRow, task: AgentTask): 'delta' | 'cumulative' {
+  if (run.adapter.startsWith('pre-pr:') || run.adapter.startsWith('docker-review:') || task.review && task.dockerExecution) return 'delta';
+  if (!task.agentSelection) return 'delta';
+  const provider = run.adapter;
+  const selection = parseAgentSelectionV1(task.agentSelection);
+  const retained = [selection.writer, ...selection.reviewers].find(record => record.binding.providerId === provider || record.binding.providerId.endsWith(`/${provider}`));
+  return retained?.metadata.costReporting ?? 'delta';
+}
+
+function validCost(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) && value >= 0; }
 
 export function openRunTelemetry(path: string | Database.Database, usageStore: UsageRecorder, onComplete?: (completion: RunTelemetryCompletion) => void): RunTelemetry {
   const connection = storeConnection(path);
@@ -32,16 +48,22 @@ export function openRunTelemetry(path: string | Database.Database, usageStore: U
   return {
     record(run, task, event, byteOffset) {
       if (!Number.isSafeInteger(byteOffset) || byteOffset < 0) throw new Error('Invalid log offset for telemetry');
-      const provider = event.provider ?? run.adapter.replace(/^pre-pr:/, '');
+      const provider = providerId(run, event);
       const model = event.model ?? task.model ?? null;
       insert.run(run.id, run.attempt, byteOffset, event.kind, provider, model, event.effort ?? task.effort ?? null,
         event.stage ?? null, event.round ?? null, event.eventId ?? null);
-      if (event.usage && Object.keys(event.usage).length || event.costUsd !== undefined) {
-        usageStore.recordUsage({ runId: run.id, attempt: run.attempt, eventId: `log:${byteOffset}`,
-          provider, model, ...event.usage, costUsd: event.costUsd ?? null });
-      }
       const usage = usageStore.listUsage([run.id]);
-      const costs = usage.flatMap(item => item.costUsd === null ? [] : [item.costUsd]);
+      const cumulative = costReporting(run, task) === 'cumulative';
+      const reportedCost = validCost(event.costUsd) && cumulative
+        ? Math.max(0, event.costUsd - usage.filter(item => item.attempt === run.attempt && item.provider === provider && item.costUsd !== null
+          && /^log:\d+$/.test(item.eventId) && Number(item.eventId.slice(4)) < byteOffset)
+          .reduce((sum, item) => sum + (item.costUsd ?? 0), 0))
+        : event.costUsd;
+      if (event.usage && Object.keys(event.usage).length || reportedCost !== undefined) {
+        usageStore.recordUsage({ runId: run.id, attempt: run.attempt, eventId: `log:${byteOffset}`,
+          provider, model, ...event.usage, costUsd: reportedCost ?? null });
+      }
+      const costs = usageStore.listUsage([run.id]).flatMap(item => item.costUsd === null ? [] : [item.costUsd]);
       return costs.length ? costs.reduce((sum, value) => sum + value, 0) : run.costUsd;
     },
     complete(run) {

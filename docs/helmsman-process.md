@@ -290,6 +290,23 @@ flowchart TD
 
 The shipped policy rotates sources; alternatives can choose different ordering and priorities. Restart preserves policy settings and source rotation but resets automatic starts to disabled. Scheduling ends at admission; later disablement does not alter existing execution bindings. See [scheduling authoring](scheduling-authoring.md).
 
+## Agent-provider selection and execution
+
+```mermaid
+flowchart TD
+    Select[Select immutable writer<br/>ordered immutable reviewers] --> Closure[Retain package/artifact closure<br/>nonsecret settings and metadata]
+    Closure --> Core[Core renders prompt and effective model/effort<br/>owns host, workflow, recovery and completion]
+    Core --> Provider[Selected SDK-only agent provider]
+    Provider --> Events[Validated command and event stream]
+    Events --> Failure{Result outcome failure?}
+    Failure -->|Yes| Journal[Persist attempt-scoped failure evidence<br/>Exit 0 still fails]
+    Failure -->|Unknown or success| Exit[Use host exit and workflow gates]
+    Journal --> Recovery[Recovery uses retained selection<br/>never current defaults]
+    Exit --> Recovery
+```
+
+Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent extraction has passed focused and installed acceptance checks; execution-host, workflow and trigger extraction remain Phase F work.
+
 ## Header identity and installed-page discovery
 
 ```mermaid

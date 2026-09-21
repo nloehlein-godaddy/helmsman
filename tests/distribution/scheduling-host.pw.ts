@@ -49,7 +49,7 @@ const plugin: PluginBackendModule = { activate(context) {
     await create('org/b', 'Outside enabled galleon', 'P4');
     await page.goto(`${origin}/config?repo=org/a`);
     await expect(page.locator('#boot')).toHaveCount(0);
-    await expect(page.locator('#config-AGENT_ADAPTER')).toBeVisible();
+    await expect(page.locator('#config-AGENT_ADAPTER')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Config', exact: true })).toBeVisible();
     await expect(page.locator('[data-key="AUTO_CLAIM_INTERVAL_MS"]')).toHaveCount(0);
     for (const [label, width] of [['desktop', 1440], ['mobile', 390]] as const) {

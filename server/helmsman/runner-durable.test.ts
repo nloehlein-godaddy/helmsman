@@ -71,6 +71,34 @@ it('persists preparation before worktree effects and finalizes only after matchi
   expect(f.specs[0]).toMatchObject({ launchId: 'launch-1', attempt: 1 });
 });
 
+it('projects a provider-declared failure even when the durable worker exits zero', async () => {
+  const f = fixture();
+  f.deps.adapter = { id: 'test', buildCommand: () => ({ cmd: 'node', args: [] }), parseLine: line => JSON.parse(line) };
+  f.deps.host.launch = vi.fn(async spec => {
+    f.specs.push(spec);
+    writeFileSync(spec.logPath, JSON.stringify({ kind: 'result', outcome: 'failure', text: 'provider failed' }) + '\n');
+    f.exit(spec, 0);
+    return ref;
+  });
+  await startRun(task, f.deps);
+  expect(f.db.getRun('run1')?.status).toBe('failed');
+  expect(f.sessions[0]?.terminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', exitCode: 0 }));
+});
+
+it('restores a journaled provider failure while attaching a durable execution after its log was consumed', async () => {
+  const f = fixture();
+  const row: RunRow = { id: 'run1', ticketId: task.ticketId, repo: task.repo, adapter: 'test', status: 'running', attempt: 1,
+    prNumber: null, startedAt: '2026-09-20T12:00:00.000Z', endedAt: null, costUsd: null, worktreePath: f.root, taskJson: JSON.stringify(task), logOffset: 128 };
+  const session = f.create(row);
+  writeFileSync(session.paths.logPath, 'already consumed provider result\n');
+  f.db.appendEvent(row.id, 'agent-result-failure:1', 'already consumed provider result', '2026-09-20T12:00:00.000Z');
+  const handshake = await reattachRun(f.db.getRun(row.id)!, f.deps);
+  f.exit({ ...session.paths, runId: row.id, launchId: session.launchId, attempt: 1, cmd: 'node', args: [], cwd: f.root }, 0);
+  if (handshake?.status === 'attached') await handshake.completion;
+  expect(f.db.getRun(row.id)?.status).toBe('failed');
+  expect(session.terminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', exitCode: 0 }));
+});
+
 it('preserves execution and worktree when launch fails with unknown remote success', async () => {
   const f = fixture();
   f.deps.host.launch = vi.fn(async () => { throw new Error('response lost after remote launch'); });

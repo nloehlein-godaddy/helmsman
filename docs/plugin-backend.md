@@ -1,6 +1,6 @@
 # Experimental usage and pricing plugins
 
-This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution primitives remain Phase F work; broader compatibility retirement is still pending.
+This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [agent providers](agent-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution hosts, workflows and remaining triggers remain Phase F work; broader compatibility retirement is still pending.
 
 ## Build an independent package
 
@@ -84,3 +84,7 @@ The independently buildable `local-git` author package provides the selected `/l
 Jira and GitHub settings have independent authored page/panel packages with namespaced schemas, redacted reads and revision-checked global saves. Jira token input never enters browser persistence or response bodies; live Jira configuration stays in Source settings. Core retains configuration storage and credential binding. See [integration settings authoring](integration-settings-authoring.md) for the contracts and [delivery evidence](plugin-implementation-progress.md).
 
 The pull-request provider's optional `profile(context)` method supplies bounded global header identity through the public [profile service](profile-authoring.md). Existing providers without it retain neutral greetings. Credential resolution and selection rechecks stay in core.
+
+## Agent providers
+
+Agent-only packages declare `helmsman/agent@1` and use `AgentBackendModuleV1`. Their restricted context exposes captured settings, registration, cancellation and disposal, with no mutable storage or ordinary backend services. Core retains exact writer/reviewer bindings and artifact closure for every child stage and continuation. Explicit failed results override an exit-zero process, while measured cumulative costs are normalized durably for budgets and pricing. See [agent authoring](agent-authoring.md) for metadata, independent builds, selection and migration.

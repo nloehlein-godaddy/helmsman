@@ -26,6 +26,14 @@ describe('durable pre-PR adapter', () => {
     expect(JSON.parse(adapter.buildCommand(task).args[3] ?? '').settings).toEqual({ reviewerCount: 1, maxRounds: 5, stageTimeoutMinutes: 90 });
   });
 
+  it('advertises normalized delta costs for retained cumulative providers', () => {
+    const metadata = { version: 1 as const, label: 'Provider', defaults: { model: null, effort: null },
+      review: { low: { model: null, effort: null }, medium: { model: null, effort: null }, high: { model: null, effort: null } },
+      reviewSkills: [], reviewDelegation: 'none' as const, supportsPrePr: true, docker: null, costReporting: 'cumulative' as const };
+    const writer = { ...codexAdapter, id: 'example.agent/provider', metadata };
+    expect(prePrAdapter(writer, '/tmp').metadata?.costReporting).toBe('delta');
+  });
+
   it('does not bypass the gate for unsupported adapters or existing PRs', () => {
     expect(() => prePrAdapter(commandAdapter('echo'), '/tmp')).toThrow('requires');
     const adapter = prePrAdapter(codexAdapter, '/tmp');
@@ -49,5 +57,7 @@ describe('durable pre-PR adapter', () => {
       .toMatchObject({ kind: 'usage', eventId: 'turn-1', usage: { inputTokens: 2, outputTokens: 3 }, provider: 'codex', model: 'gpt-6-astra', stage: 'review', round: 2 });
     expect(adapter.parseLine(JSON.stringify({ __helmsmanPrePr: 1, kind: 'usage', text: 'bad', usage: { inputTokens: -1 } })))
       .toEqual({ kind: 'log', text: JSON.stringify({ __helmsmanPrePr: 1, kind: 'usage', text: 'bad', usage: { inputTokens: -1 } }) });
+    expect(adapter.parseLine(JSON.stringify({ __helmsmanPrePr: 1, kind: 'usage', text: 'canonical', provider: 'a'.repeat(193) }))?.provider).toBe('a'.repeat(193));
+    expect(adapter.parseLine(JSON.stringify({ __helmsmanPrePr: 1, kind: 'usage', text: 'oversized', provider: 'a'.repeat(194) }))?.provider).toBeUndefined();
   });
 });

@@ -1,3 +1,5 @@
+import { isContributionId } from '../../src/plugins/manifest';
+
 export interface PrePrPublicationConnection { url: string; token: string; }
 export interface PublicationApproval {
   baseSha: string;
@@ -5,7 +7,7 @@ export interface PublicationApproval {
   branch: string;
   baseBranch: string;
   round: number;
-  reviewers: readonly ('codex' | 'claude-code')[];
+  reviewers: readonly string[];
   metadata: { stage: 'implement' | 'fix'; round: number };
 }
 export interface PublicationRequest { version: 1; kind: 'pre-pr'; approved: PublicationApproval; }
@@ -15,6 +17,8 @@ const object = (value: unknown): Record<string, unknown> | null => value !== nul
 const sha = (value: unknown): value is string => typeof value === 'string' && /^(?:[a-f\d]{40}|[a-f\d]{64})$/.test(value);
 const branch = (value: unknown): value is string => typeof value === 'string' && value.length <= 255 && /^[a-zA-Z0-9][a-zA-Z0-9_./-]*$/.test(value)
   && !value.includes('..') && !value.endsWith('/') && !value.endsWith('.lock') && !value.includes('//');
+const provider = (value: unknown): value is string => typeof value === 'string' && (value === 'codex' || value === 'claude-code'
+  || isContributionId(value));
 
 export function parsePublicationRequest(input: unknown): PublicationRequest {
   const value = object(input);
@@ -24,8 +28,8 @@ export function parsePublicationRequest(input: unknown): PublicationRequest {
     || !approved || Object.keys(approved).some(key => !['baseSha', 'headSha', 'branch', 'baseBranch', 'round', 'reviewers', 'metadata'].includes(key))
     || !sha(approved.baseSha) || !sha(approved.headSha) || approved.baseSha === approved.headSha || !branch(approved.branch) || !branch(approved.baseBranch)
     || !Number.isSafeInteger(approved.round) || Number(approved.round) < 1 || Number(approved.round) > 5
-    || !Array.isArray(approved.reviewers) || approved.reviewers.length < 1 || approved.reviewers.length > 2
-    || new Set(approved.reviewers).size !== approved.reviewers.length || approved.reviewers.some(id => !['codex', 'claude-code'].includes(String(id)))
+    || !Array.isArray(approved.reviewers) || approved.reviewers.length < 1 || approved.reviewers.length > 8
+    || new Set(approved.reviewers).size !== approved.reviewers.length || approved.reviewers.some(id => !provider(id))
     || !metadata || Object.keys(metadata).some(key => !['stage', 'round'].includes(key)) || !['implement', 'fix'].includes(String(metadata.stage))
     || !Number.isSafeInteger(metadata.round) || Number(metadata.round) < 0 || Number(metadata.round) >= Number(approved.round)
     || metadata.stage === 'implement' && metadata.round !== 0 || metadata.stage === 'fix' && metadata.round === 0) throw new Error('Invalid approved publication request');

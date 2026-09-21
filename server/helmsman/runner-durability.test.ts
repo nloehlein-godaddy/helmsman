@@ -3,10 +3,11 @@ import type { AgentTask } from './agents/adapter';
 import { openAdmissionStore } from './admission-store';
 import { openDb, type RunRow } from './db';
 import { openExecutionStore, type ExecutionSnapshotInput } from './execution-store';
-import { openPersistence } from './persistence';
+import { openPersistence, acknowledgePersistenceIntent, pendingPersistenceIntents } from './persistence';
 import { createRunnerDurability } from './runner-durability';
 import { openTodoStore } from './todos';
 import { openOperationStore } from './operations';
+import { openPluginLifecycle } from './plugins/lifecycle';
 
 const artifact = { pluginId: 'helmsman.legacy-runtime', artifactHash: 'a'.repeat(64), packageVersion: '1', requires: [] };
 const task: AgentTask = { repo: 'owner/repo', ticketId: 'TODO-1', title: 'Durability', jiraBaseUrl: '', task: 'Implement' };
@@ -32,6 +33,25 @@ function setup(finalize?: () => void) {
 }
 
 describe('durable admission and runner integration', () => {
+  it('continues an identical retained checkpoint while its plugin drains', async () => {
+    const { persistence, db, executions } = setup();
+    const lifecycle = openPluginLifecycle(persistence, executions);
+    lifecycle.registerArtifact({ artifact, schemas: [] });
+    lifecycle.apply({ id: 'enable-runtime', pluginId: artifact.pluginId, artifactHash: artifact.artifactHash, expectedRevision: 0, desiredEnabled: true, drainDependents: [] });
+    for (const intent of pendingPersistenceIntents(persistence)) for (const target of intent.targets) acknowledgePersistenceIntent(persistence, intent.id, target);
+    lifecycle.recordHealth(artifact.pluginId, artifact.artifactHash, 'active', null);
+    const coordinator = createRunnerDurability({ persistence, db, executions, lifecycle, runsDir: '/runs', maxConcurrency: 1, snapshot, verify: async () => {} });
+    const first = await coordinator.prepare({ ...run, adapter: 'pre-pr:codex' }, task);
+    first.ready('/worktree'); first.terminal({ status: 'failed', exitCode: 1, evidence: { launchId: first.launchId } });
+    first.finalize({ ...db.getRun(run.id)!, status: 'failed' }); first.close();
+    lifecycle.apply({ id: 'disable-runtime', pluginId: artifact.pluginId, artifactHash: artifact.artifactHash, expectedRevision: 1, desiredEnabled: false, drainDependents: [] });
+    expect(() => persistence.transaction(() => lifecycle.assertAdmission(snapshot(run)))).toThrow('denies new admissions');
+    const resumed = await coordinator.prepare({ ...run, adapter: 'pre-pr:codex', attempt: 2 }, { ...task,
+      prePrResume: { baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), branch: 'work', round: 1, reviewerReports: {}, metadataPath: '/metadata' } });
+    expect(db.getRun(run.id)?.attempt).toBe(2);
+    resumed.close();
+  });
+
   it('commits a source claim with its admission and keeps preflight crashes reserved', () => {
     const { persistence, admissions, executions } = setup();
     const todos = openTodoStore(persistence.sql);

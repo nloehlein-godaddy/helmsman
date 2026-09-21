@@ -3,8 +3,11 @@ import type { AgentTask } from './adapter';
 import { agentAttribution, appendAgentByline } from '../agent-attribution';
 import { PRE_PR_REVIEW_SUMMARY_LIMIT } from '../pre-pr-workflow';
 
-export function buildPrePrPrompt(task: AgentTask, runtime: 'codex' | 'claude-code'): string {
+export function buildPrePrPrompt(task: AgentTask, runtime: string): string {
   const stage = task.prePr;
+  const selection = task.agentSelection;
+  const provider = selection ? [selection.writer, ...selection.reviewers].find(value => value.binding.providerId === runtime) : null;
+  const usesReviewSkill = provider ? provider.metadata.reviewDelegation === 'review-agent-skill' : runtime === 'codex';
   if (!stage) throw new Error('Pre-PR stage is required');
   if (!stage.baseSha || !stage.reportPath) throw new Error('Pre-PR base revision and report path are required');
   if (stage.stage === 'review' && !stage.headSha) throw new Error('Pre-PR review head revision is required');
@@ -65,9 +68,11 @@ export function buildPrePrPrompt(task: AgentTask, runtime: 'codex' | 'claude-cod
       '',
       '## Focused sub-agents',
       '- Act as the review lead. Delegate independent applicable areas to focused sub-agents: logic/state/structure; acceptance criteria and relevant test coverage; changed UX and accessibility; external effects such as API consumers, persistence, flags, and side effects. Give each a bounded file/call-path scope, the exact base and head revisions, task context, adversarial remit, and these materiality rules. Skip unaffected areas and combine small scopes; do not have every agent review the entire diff.',
-      ...(runtime === 'codex' ? [
-        '- Every Codex review sub-agent must explicitly use $review-agent. Read its installed SKILL.md and include `Use $review-agent` in every delegated task. Apply it to scoped defect review; keep them as read-only leaf reviewers that cannot edit, publish, or delegate further. The lead reconciles findings and writes the final report.',
+      ...(usesReviewSkill ? [
+        '- Every review sub-agent must explicitly use $review-agent. Read its installed SKILL.md and include `Use $review-agent` in every delegated task. Apply it to scoped defect review; keep them as read-only leaf reviewers that cannot edit, publish, or delegate further. The lead reconciles findings and writes the final report.',
         '- If $review-agent or sub-agent tools are unavailable, report that limitation and use COMMENT rather than claiming the required review completed. Do not silently substitute another review skill.',
+      ] : provider?.metadata.reviewDelegation === 'none' ? [
+        '- This provider declares no review delegation support. The required delegated review cannot complete; disclose this limitation and use COMMENT. Do not claim independent review completed.',
       ] : [
         '- Use this runtime’s sub-agent tools for focused reviews. Reviewers are read-only leaf workers: no further delegation, editing, or publishing. If delegation is unavailable, disclose the limitation and use COMMENT rather than claiming the required review completed.',
       ]),

@@ -7,15 +7,15 @@ export interface AgentAttribution {
   effort: string;
 }
 
-type AgentSettings = Pick<AgentTask, 'model' | 'effort'>;
+type AgentSettings = Pick<AgentTask, 'model' | 'effort' | 'agentSelection'>;
 
 const CODEX_EFFORTS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 const PROVIDER_DEFAULT = 'provider default (not reported)';
 const NOT_REPORTED = 'not reported';
-const MODEL_FIELD = '(?:[a-z0-9][a-z0-9._-]*|provider default \\(not reported\\)|not reported)';
+const MODEL_FIELD = '(?:[a-z0-9][a-z0-9./:+_-]{0,127}|provider default \\(not reported\\)|not reported)';
 const EFFORT_FIELD = '(?:minimal|low|medium|high|xhigh|max|provider default \\(not reported\\)|not reported)';
 const LEGACY_BYLINE = new RegExp(`^_Helmsman (?:review agent|PR author) · model: ${MODEL_FIELD} · effort: ${EFFORT_FIELD}_$`, 'i');
-const BYLINE = new RegExp(`^_Helmsman · ${MODEL_FIELD} - (?:min|low|med|high|xhigh|max|not reported)_$`, 'i');
+const BYLINE = new RegExp(`^_Helmsman · ${MODEL_FIELD} - (?:[a-z0-9][a-z0-9./:+_-]{0,63}|not reported)_$`, 'i');
 
 export function validCodexEffort(effort: string | undefined | null): string | null {
   return typeof effort === 'string' && CODEX_EFFORTS.has(effort) ? effort : null;
@@ -29,6 +29,10 @@ export function codexSettings(task: AgentSettings): { model: string; effort: str
 }
 
 export function agentAttribution(adapterId: string, task: AgentSettings, role: AgentAttribution['role']): AgentAttribution {
+  const providerId = adapterId.replace(/^pre-pr:/, '');
+  const selection = task?.agentSelection;
+  const provider = selection ? [selection.writer, ...selection.reviewers].find(value => value.binding.providerId === providerId) : null;
+  if (provider) return { role, model: task.model ?? provider.metadata.defaults.model ?? NOT_REPORTED, effort: task.effort ?? provider.metadata.defaults.effort ?? NOT_REPORTED };
   if (adapterId === 'codex' || adapterId === 'pre-pr:codex') return { role, ...codexSettings(task) };
   if (adapterId === 'claude-code' || adapterId === 'pre-pr:claude-code') {
     return {
@@ -54,9 +58,8 @@ function unclosedFence(body: string): string | null {
 
 function attributionField(value: string | undefined | null, kind: 'model' | 'effort'): string {
   if (value === PROVIDER_DEFAULT || value === NOT_REPORTED) return NOT_REPORTED;
-  return kind === 'model'
-    ? validModel(typeof value === 'string' ? value : null) ?? NOT_REPORTED
-    : validCodexEffort(value) ?? NOT_REPORTED;
+  const maximum = kind === 'model' ? 128 : 64;
+  return typeof value === 'string' && value.length <= maximum && /^[a-z0-9][a-z0-9./:+_-]*$/i.test(value) ? value : NOT_REPORTED;
 }
 
 export function stripAgentByline(body: string): string {

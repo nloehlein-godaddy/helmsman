@@ -4,7 +4,7 @@ Delivery update: implementation has resumed under the revised delivery cadence. 
 
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
-Status: Phases A–E are complete and pushed. Phase F execution extensions are in implementation; Phase G remains pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.
+Status: Phases A–E are complete and pushed. Phase F scheduling is complete through `dd98bf9`; SDK-only agent extraction is implemented and awaiting validation. Execution-host and workflow extraction, triggers, and Phase G remain pending. The [completion ledger](plugin-implementation-progress.md) tracks the full objective.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 
@@ -171,6 +171,12 @@ Build an external alternative Costs view and a small external pricing provider w
 | **G. SDK stabilization and legacy removal** | Expand templates and author docs, stabilize proven contract versions, enforce deprecation policy, remove remaining legacy switches/import exceptions, and reorganize packages where useful. | An independent author builds frontend and backend plugins from public docs. Every optional shipped feature uses public contracts and has no private host imports. |
 
 A and B form one narrow architectural milestone. Do not wrap every page before delivering it. C is a mandatory gate before task-provider extraction; F extends execution choices rather than introducing recovery safety for the first time.
+
+### F agent-provider extraction (implemented; validation pending)
+
+`helmsman/agent@1` packages register only a process-description provider. Admission retains an immutable writer plus ordered reviewers, exact package/artifact closure, compatible non-secret settings and validated metadata; recovery resolves that retained record rather than a current default. Metadata owns provider defaults, review model/effort policy, skills/delegation, Docker transport and delta-versus-cumulative cost reporting. Core retains prompt rendering, effective settings, workflow/host lifecycle, budget enforcement, recovery and completion authority.
+
+The shipped Codex, Claude Code and command providers are SDK-only packages. Codex declares its review-agent skill; Claude declares native subagents; command has no pre-PR capability and receives only its namespaced template setting. Legacy command text is never copied automatically because it may contain credentials; configure a nonsecret commandTemplate explicitly. Legacy adapter values remain readable for compatibility, but selection has no implicit Codex fallback. A normalized provider result failure is durable attempt evidence and forces failure even after exit zero; unknown remains non-failing. Focused and installed acceptance evidence is recorded in the implementation ledger; this does not complete Phase F.
 
 For each extraction, preserve behavior through one active implementation path. Validate read equivalence with fixtures or shadow reads when useful; never run old and new write paths simultaneously. Cut over admission explicitly. Rollback requires compatible data and retained bindings, not merely changing a feature flag.
 

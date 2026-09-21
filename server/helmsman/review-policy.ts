@@ -1,3 +1,4 @@
+import { parseAgentModelSettingsV1, type AgentProviderMetadataV1 } from '../../src/plugins/agent-provider';
 import type { GithubConfig } from '../config';
 import { isGithubRepo } from '../pr-lists';
 import { validModel, validEffort } from '../../src/logic/agentOptions';
@@ -18,16 +19,20 @@ export function classifyReview(scope: ReviewScope | null): Pick<ReviewChoice, 'c
   return { complexity: 'low', reason: `${scope.changedFiles} files and ${scope.changedLines} changed lines across ${areas.size} areas; default low effort` };
 }
 
-export function selectReviewModel(scope: ReviewScope | null, adapter: string, overrides: { model?: string; effort?: string } = {}): ReviewChoice {
+export function selectReviewModel(scope: ReviewScope | null, adapter: string | AgentProviderMetadataV1, overrides: { model?: string; effort?: string } = {}): ReviewChoice {
   const choice = classifyReview(scope);
-  const defaults = adapter === 'claude-code'
+  const defaults: { model?: string | null; effort?: string | null } = typeof adapter === 'object' ? adapter.review[choice.complexity] : adapter === 'claude-code'
     ? { model: choice.complexity === 'high' ? 'opus' : 'sonnet', effort: choice.complexity === 'low' ? 'low' : choice.complexity === 'high' ? 'high' : 'medium' }
-    : adapter === 'command' ? {}
+    : adapter !== 'codex' ? {}
     : {
       model: { low: 'gpt-5.6-terra', medium: 'gpt-5.6-sol', high: 'gpt-6-astra' }[choice.complexity],
       effort: { low: 'low', medium: 'medium', high: 'high' }[choice.complexity],
     };
-  return { ...choice, model: validModel(overrides.model) ?? defaults.model, effort: validEffort(overrides.effort) ?? defaults.effort };
+  if (typeof adapter === 'object') {
+    const selected = parseAgentModelSettingsV1({ model: overrides.model ?? defaults.model ?? null, effort: overrides.effort ?? defaults.effort ?? null });
+    return { ...choice, model: selected.model ?? undefined, effort: selected.effort ?? undefined };
+  }
+  return { ...choice, model: validModel(overrides.model) ?? defaults.model ?? undefined, effort: validEffort(overrides.effort) ?? defaults.effort ?? undefined };
 }
 
 function record(value: unknown): Record<string, unknown> | null {

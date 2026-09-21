@@ -1,22 +1,26 @@
 import { spawn, execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, open, readFile, rm, stat } from 'node:fs/promises';
-import { basename, delimiter, isAbsolute, join, relative, resolve } from 'node:path';
+import { mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import type { AgentAdapter, AgentEvent, AgentTask } from './agents/adapter';
 import { codexAdapter } from './agents/codex';
 import { claudeCodeAdapter } from './agents/claude-code';
-import { assertReviewSummaryCorrection, parsePrePrReview, PrePrGateError, PrePrSummaryTooLongError, runPrePrWorkflow, type PrePrReviewerId, type PrePrResumeCheckpoint } from './pre-pr-workflow';
+import { assertReviewSummaryCorrection, parsePrePrReview, PrePrGateError, PrePrSummaryTooLongError, runPrePrWorkflow, type PrePrResumeCheckpoint } from './pre-pr-workflow';
 import { selectReviewModel, type ReviewScope } from './review-policy';
 import { agentAttribution } from './agent-attribution';
 import { DEFAULT_PRE_PR_SETTINGS, normalizePrePrSettings, type PrePrSettings } from '../../src/logic/prePrSettings';
-import { createRunArtifactStore } from './artifacts';
+import { createRunArtifactStore, prePrArtifactFilename } from './artifacts';
 import { prepareDockerStage, sanitizeDockerGit } from './docker-stage';
 import { publishApprovedRevision, validatePublicationConnection, type PrePrPublicationConnection } from './publication-client';
+import { parseAgentSelectionV1, type AgentRetainedProviderV1 } from './agent-providers';
+import { loadRetainedAgentProvider } from './agent-retained-loader';
+import { agentProviderAdapter } from './agents/provider';
+import { persistenceHash } from './persistence';
 
 const exec = promisify(execFile);
-const adapters: Record<PrePrReviewerId, AgentAdapter> = { codex: codexAdapter, 'claude-code': claudeCodeAdapter };
+const legacyAdapters: Record<string, AgentAdapter> = { codex: codexAdapter, 'claude-code': claudeCodeAdapter };
 const STAGE_TIMEOUT = DEFAULT_PRE_PR_SETTINGS.stageTimeoutMinutes * 60_000;
 
 export function githubRepository(remote: string): string | null {
@@ -64,13 +68,6 @@ async function recordValidatedReport(runsDir: string, runId: string, identity: {
   const bytes = await readFile(path);
   const store = createRunArtifactStore(join(runsDir, '.artifacts'));
   await store.write({ runId, ...identity }, bytes);
-}
-
-async function installed(command: string): Promise<boolean> {
-  for (const dir of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) {
-    try { await access(join(dir, command), constants.X_OK); if ((await stat(join(dir, command))).isFile()) return true; } catch { /* Try the next PATH entry. */ }
-  }
-  return false;
 }
 
 export async function assertClarificationReady(task: AgentTask, runId: string, fetcher: typeof fetch = fetch): Promise<void> {
@@ -156,6 +153,7 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
       if (!event) return;
       const { prNumber: _prNumber, ...safe } = event;
       if (safe.kind === 'error') failure ??= new Error('Agent reported an error');
+      if (safe.kind === 'result' && safe.outcome === 'failure') failure ??= new Error('Agent reported an unsuccessful result');
       emit(safe);
     };
     const consume = (chunk: string, error: boolean) => {
@@ -184,25 +182,68 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
   } finally { await docker?.cleanup(success); }
 }
 
-export function stageEventEmitter(id: PrePrReviewerId, task: AgentTask, emit: (event: AgentEvent) => void): (event: AgentEvent) => void {
+export function stageEventEmitter(adapter: AgentAdapter | string, task: AgentTask, emit: (event: AgentEvent) => void): (event: AgentEvent) => void {
   let stageCost = 0;
   let costReported = false;
+  const id = typeof adapter === 'string' ? adapter : adapter.id;
+  const costReporting = typeof adapter === 'string' ? (id === 'codex' ? 'delta' : 'cumulative') : adapter.metadata?.costReporting
+    ?? (id === 'codex' ? 'delta' : id === 'claude-code' ? 'cumulative' : undefined);
+  if (!costReporting) throw new Error('Agent provider cost reporting metadata is unavailable');
   const { model, effort } = agentAttribution(id, task, task.review || task.prePr?.stage === 'review' ? 'review agent' : 'PR author');
-  const context = { provider: id, model, effort, stage: task.prePr?.stage ?? (task.review ? 'review' : undefined),
+  const context = { model, effort, stage: task.prePr?.stage ?? (task.review ? 'review' : undefined),
     round: task.prePr?.round ?? (task.review ? 1 : undefined) };
   return event => {
     const { costUsd, ...safe } = event;
     const validCost = Number.isFinite(costUsd) && (costUsd ?? -1) >= 0;
     const nextCost = validCost ? Math.max(stageCost, costUsd ?? 0) : stageCost;
-    const delta = id === 'codex' ? costUsd ?? 0 : nextCost - stageCost;
-    const includeCost = validCost && (id === 'codex' || !costReported || delta > 0);
+    const delta = costReporting === 'delta' ? costUsd ?? 0 : nextCost - stageCost;
+    const includeCost = validCost && (costReporting === 'delta' || !costReported || delta > 0);
     stageCost = nextCost;
     costReported ||= validCost;
-    emit({ ...safe, ...context, ...(includeCost ? { costUsd: delta } : {}) });
+    emit({ ...safe, ...context, provider: safe.provider ?? id, ...(includeCost ? { costUsd: delta } : {}) });
   };
 }
 
-export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrReviewerId; runsDir: string; settings?: PrePrSettings; publication?: PrePrPublicationConnection }, emit: (event: AgentEvent) => void): Promise<number> {
+async function retainedPrePrAdapters(task: AgentTask, legacyWriterId: 'codex' | 'claude-code' | undefined,
+  reviewerCount: number, signal: AbortSignal): Promise<{ writerId: string; reviewerIds: string[]; adapters: Map<string, AgentAdapter>; dispose(): Promise<void> }> {
+  if (!task.agentSelection) {
+    if (!legacyWriterId) throw new Error('Recorded agent selection is required');
+    const reviewerIds = reviewerCount === 1 ? [legacyWriterId] : [legacyWriterId, legacyWriterId === 'codex' ? 'claude-code' : 'codex'];
+    return { writerId: legacyWriterId, reviewerIds, adapters: new Map(reviewerIds.map(id => [id, legacyAdapters[id]!])), dispose: async () => undefined };
+  }
+  const selection = parseAgentSelectionV1(task.agentSelection);
+  const runtime = task.agentRuntime;
+  if (!runtime || !Array.isArray(runtime.artifacts)) throw new Error('Recorded agent runtime is required');
+  const writerId = selection.writer.binding.providerId;
+  const reviewerIds = selection.reviewers.map(record => record.binding.providerId);
+  const writerReviewer = selection.reviewers.find(record => record.binding.providerId === writerId);
+  if (reviewerIds.length !== reviewerCount || !writerReviewer
+    || persistenceHash(writerReviewer) !== persistenceHash(selection.writer)) {
+    throw new PrePrGateError('retained reviewer set must contain the exact writer record and match the retained policy.');
+  }
+  const records = new Map<string, AgentRetainedProviderV1>();
+  for (const record of [selection.writer, ...selection.reviewers]) {
+    if (!record.metadata.supportsPrePr) throw new PrePrGateError(`${record.binding.providerId} does not support the required pre-PR workflow.`);
+    const prior = records.get(record.binding.providerId);
+    if (prior && persistenceHash(prior) !== persistenceHash(record)) throw new PrePrGateError('retained provider identity is ambiguous.');
+    records.set(record.binding.providerId, record);
+  }
+  const handles: Array<{ dispose(): Promise<void> }> = [];
+  const adapters = new Map<string, AgentAdapter>();
+  try {
+    for (const record of records.values()) {
+      const loaded = await loadRetainedAgentProvider({ ...runtime, record, signal });
+      handles.push(loaded);
+      adapters.set(record.binding.providerId, agentProviderAdapter(record, loaded.provider));
+    }
+  } catch (error) {
+    await Promise.allSettled(handles.map(handle => handle.dispose()));
+    throw error;
+  }
+  return { writerId, reviewerIds, adapters, dispose: async () => { await Promise.allSettled(handles.map(handle => handle.dispose())); } };
+}
+
+export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'codex' | 'claude-code'; runsDir: string; settings?: PrePrSettings; publication?: PrePrPublicationConnection }, emit: (event: AgentEvent) => void): Promise<number> {
   const publication = validatePublicationConnection(input.publication);
   const cwd = process.cwd();
   const runId = basename(cwd);
@@ -229,16 +270,11 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
   const validateRemote = async () => {
     if (!remote || !(await matchesRepository(remote))) throw new Error('Selected remote does not match the voyage GitHub galleon');
   };
+  let loaded: Awaited<ReturnType<typeof retainedPrePrAdapters>> | undefined;
   try {
-    if (!adapters[input.writerId]) throw new Error('Unsupported writer CLI');
+    loaded = await retainedPrePrAdapters(input.task, input.writerId, settings.reviewerCount, abort.signal);
+    const { writerId, reviewerIds, adapters } = loaded;
     if (input.task.dockerExecution) await sanitizeDockerGit(cwd, input.task.repo);
-    const reviewerIds: PrePrReviewerId[] = [];
-    for (const id of [input.writerId, input.writerId === 'codex' ? 'claude-code' : 'codex'] as PrePrReviewerId[]) {
-      if (reviewerIds.length >= settings.reviewerCount) break;
-      if (input.task.dockerExecution || await installed(id === 'codex' ? 'codex' : 'claude')) reviewerIds.push(id);
-      else if (id === input.writerId) throw new Error('The writer CLI is unavailable');
-    }
-    if (reviewerIds.length !== settings.reviewerCount) throw new PrePrGateError('The configured reviewer set is unavailable; publication blocked.');
     emit({ kind: 'phase', text: `Pre-PR gate: ${reviewerIds.length} reviewer(s), up to ${settings.maxRounds} rounds, ${settings.stageTimeoutMinutes} minutes per session` });
     const initialHead = await git(['rev-parse', 'HEAD']);
     const branch = await git(['symbolic-ref', '--quiet', '--short', 'HEAD']);
@@ -268,11 +304,13 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
     await mkdir(artifactDir, { recursive: true, mode: 0o700 });
     let metadataPath = '';
     const reviewedRounds = new Map<string, number>();
-    const runStage = async (id: PrePrReviewerId, task: AgentTask, dir: string) => {
-      const forward = stageEventEmitter(id, task, emit);
+    const runStage = async (id: string, task: AgentTask, dir: string) => {
+      const adapter = adapters.get(id);
+      if (!adapter) throw new Error(`Retained agent provider ${id} is unavailable`);
+      const forward = stageEventEmitter(adapter, task, emit);
       forward({ kind: 'phase', text: `Starting ${id} ${task.prePr?.stage ?? 'agent'} stage` });
       try {
-        await executePrePrStage(adapters[id], task, dir, forward, abort.signal, settings.stageTimeoutMinutes * 60_000);
+        await executePrePrStage(adapter, task, dir, forward, abort.signal, settings.stageTimeoutMinutes * 60_000);
       } catch (error) {
         forward({ kind: 'error', text: error instanceof Error ? error.message : 'Agent stage failed' });
         throw error;
@@ -284,13 +322,14 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
       return { baseSha, headSha, branch: await git(['symbolic-ref', '--quiet', '--short', 'HEAD']), clean: !(await git(['status', '--porcelain', '--untracked-files=all'])) };
     };
     const review = async (reviewerId: string, context: { baseSha: string; headSha: string; round: number }, savedReportPath?: string) => {
-      if (reviewerId !== 'codex' && reviewerId !== 'claude-code') throw new Error('Unsupported reviewer');
+      const reviewerAdapter = adapters.get(reviewerId);
+      if (!reviewerAdapter) throw new Error('Retained reviewer is unavailable');
       const scope = localReviewScope(await git(['diff', '--numstat', '--no-renames', '-z', context.baseSha, context.headSha]), context.headSha);
-      const choice = selectReviewModel(scope, reviewerId);
+      const choice = selectReviewModel(scope, reviewerAdapter.metadata ?? reviewerId);
       emit({ kind: 'phase', text: `${reviewerId} review: ${choice.effort} effort — ${choice.reason}` });
       const root = await mkdtemp(join(tmpdir(), 'helmsman-review-'));
       const worktree = join(root, 'checkout');
-      const reportPath = savedReportPath ?? join(artifactDir, `review-${context.round}-${reviewerId}.json`);
+      const reportPath = savedReportPath ?? join(artifactDir, prePrArtifactFilename('review', context.round, reviewerId));
       try {
         if (!savedReportPath) await rm(reportPath, { force: true });
         if (input.task.dockerExecution) {
@@ -315,7 +354,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
         } catch (error) {
           if (!(error instanceof PrePrSummaryTooLongError)) throw error;
           emit({ kind: 'phase', text: `${reviewerId}: ${error.message} Requesting one summary-only correction.` });
-          const correctedPath = join(artifactDir, `review-${context.round}-${reviewerId}.corrected.json`);
+          const correctedPath = join(artifactDir, prePrArtifactFilename('review', context.round, reviewerId, true));
           if (correctedPath === reportPath) throw new PrePrGateError('saved corrected summary is still too long; publication blocked.');
           await rm(correctedPath, { force: true });
           try {
@@ -361,7 +400,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
       for (const reviewer of reviewerIds) {
         const path = checkpoint.reviewerReports[reviewer]!;
         assertArtifactPath(path);
-        if (path !== join(artifactDir, `review-${checkpoint.round}-${reviewer}.json`)) {
+        if (path !== join(artifactDir, prePrArtifactFilename('review', checkpoint.round, reviewer))) {
           throw new PrePrGateError('continuation must use each reviewer’s original report for the checkpoint round.');
         }
         try { parsePrePrReview(await readPrePrReport(path), checkpoint); }
@@ -374,12 +413,12 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
       resume = { baseSha, headSha: initialHead, branch, round: checkpoint.round, reviews };
     }
     return await runPrePrWorkflow(input.task, {
-      writerId: input.writerId, reviewerIds, maxRounds: settings.maxRounds, resume, snapshot, isStopped: () => abort.signal.aborted,
+      writerId, reviewerIds, maxRounds: settings.maxRounds, resume, snapshot, isStopped: () => abort.signal.aborted,
       onPhase: text => emit({ kind: 'phase', text }),
       runAuthor: async (stage, context) => {
-        metadataPath = join(artifactDir, `${stage}-${context.round}.json`);
+        metadataPath = join(artifactDir, prePrArtifactFilename(stage, context.round));
         await rm(metadataPath, { force: true });
-        await runStage(input.writerId, { ...input.task, prePr: { stage, ...context, reportPath: metadataPath } }, cwd);
+        await runStage(writerId, { ...input.task, prePr: { stage, ...context, reportPath: metadataPath } }, cwd);
         parsePrMetadata(await readPrePrReport(metadataPath), input.task);
         await recordValidatedReport(input.runsDir, runId, { stage, round: context.round }, metadataPath);
         if (!(await git(['diff', '--name-only', baseSha, 'HEAD']))) throw new Error('Author produced an empty overall diff');
@@ -394,7 +433,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
         };
         await assertApproved();
         await assertClarificationReady(input.task, runId);
-        const round = reviewedRounds.get(input.writerId);
+        const round = reviewedRounds.get(writerId);
         const metadata = /^(implement|fix)-(\d+)\.json$/.exec(basename(metadataPath));
         if (!round || reviewerIds.some(id => reviewedRounds.get(id) !== round) || !metadata?.[1] || !metadata[2]) throw new Error('Publication review evidence is incomplete');
         return publishApprovedRevision(publication, { version: 1, kind: 'pre-pr', approved: { ...expected, baseBranch, round, reviewers: reviewerIds,
@@ -402,6 +441,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId: PrePrR
       },
     });
   } finally {
+    await loaded?.dispose();
     process.removeListener('SIGTERM', stopped);
     process.removeListener('SIGINT', stopped);
     process.removeListener('SIGHUP', stopped);

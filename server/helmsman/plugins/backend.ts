@@ -1,9 +1,9 @@
+import type { AgentBackendContextV1, AgentProviderV1 } from '../../../src/plugins/agent-provider';
+import { createAgentProviderRegistry } from '../agent-providers';
+import { materializePluginBackend } from './materialize';
 import type { SchedulingProviderV1 } from '../../../src/plugins/scheduling-provider';
 import { createSchedulingProviderRegistry } from '../scheduling-providers';
 import { persistenceHash } from '../persistence';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type { PluginBackendContext, PluginBackendModule, PluginJson, PricingProvider } from '../../../src/plugins/backend';
 import type { PullRequestProviderV1 } from '../../../src/plugins/pull-request-provider';
 import type { CommunicationProviderV1 } from '../../../src/plugins/communication-provider';
@@ -11,7 +11,6 @@ import { validateTaskSourceProvider, type TaskSourceProviderV1 } from '../../../
 import { parsePluginPackage, type PluginPackage } from '../../../src/plugins/package';
 import type { PricingEstimate, UsageQueryService, UsageSnapshot } from '../../../src/plugins/usage';
 import { isContributionId } from '../../../src/plugins/manifest';
-import type { PluginArchive } from './artifacts';
 import { builtinPluginEnabled, initializePricingDefault, openPluginData, readPluginSettings, pluginJson, readPricingBinding } from './data';
 import type { PluginCoordinator, PluginSnapshot } from './store';
 import { createTaskSourceRegistry, type TaskSourceRegistry } from '../task-sources/registry';
@@ -35,6 +34,7 @@ export interface BackendRuntime {
   readonly pullRequests: PullRequestProviderRegistry;
   readonly communications: CommunicationProviderRegistry;
   readonly scheduling: ReturnType<typeof createSchedulingProviderRegistry>;
+  readonly agents: ReturnType<typeof createAgentProviderRegistry>;
   activePluginIds(): readonly string[];
   providers(): readonly string[];
   pricing(input: UsageSnapshot, selections?: PricingSelections): Promise<{ providerId: string; estimate: PricingEstimate | null }>;
@@ -71,21 +71,6 @@ function pricingEstimate(input: unknown, snapshot: UsageSnapshot): PricingEstima
     if (!Number.isFinite(sum) || priced !== value.estimatedUsageEvents || priced > 0 && Math.abs(sum - (value.estimatedUnreportedCostUsd ?? 0)) > Math.max(1e-9, sum * 1e-9)) throw new Error('Pricing details do not match aggregate estimates.');
   }
   return value;
-}
-
-async function materialize(root: string, archive: PluginArchive): Promise<{ href: string; dispose(): Promise<void> }> {
-  const parent = join(root, 'runtime');
-  await mkdir(parent, { recursive: true });
-  const directory = await mkdtemp(join(parent, `${archive.hash}-`));
-  try {
-    for (const [path, bytes] of archive.files) {
-      const target = join(directory, path);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, bytes, { flag: 'wx', mode: 0o600 });
-    }
-    if (!archive.files.has('package.json')) await writeFile(join(directory, 'package.json'), '{"type":"module"}', { flag: 'wx' });
-    return { href: pathToFileURL(join(directory, archive.package.backend!.entry)).href, dispose: () => rm(directory, { recursive: true, force: true }) };
-  } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
 }
 
 export async function activateBackendPlugins(options: {
@@ -133,6 +118,16 @@ export async function activateBackendPlugins(options: {
     if (options.coordinator && !options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) return false;
     try { return schedulingSettings.get(binding.pluginId)?.() === true; } catch { return false; }
   } });
+  const agentSettings = new Map<string, () => boolean>();
+  const agents = createAgentProviderRegistry({ eligible(binding, purpose) {
+    if (disposed || !activeIds.has(binding.pluginId) || purpose === 'admission' && draining.has(binding.pluginId)) return false;
+    if (options.coordinator && !options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) {
+      const state = options.coordinator.state(binding.pluginId);
+      if (purpose !== 'obligation' || !state?.obligationsOnly || state.artifactHash !== binding.artifactHash) return false;
+    }
+    if (purpose === 'obligation') return true;
+    try { return agentSettings.get(binding.pluginId)?.() === true; } catch { return false; }
+  } });
   let bindingInitializationFailed = false;
   async function bounded<T>(work: () => Promise<T>, label: string): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -148,12 +143,12 @@ export async function activateBackendPlugins(options: {
     const canServeOrdinary = () => !options.coordinator || options.coordinator.canActivate(id, artifactHash);
     const canServeObligations = () => {
       const state = options.coordinator?.state(id);
-      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications);
+      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents);
     };
     if (options.coordinator) {
       const state = options.coordinator.state(id);
       if (!options.coordinator.canActivate(id, artifactHash)
-        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications))) return;
+        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents))) return;
     }
     let data: ReturnType<typeof openPluginData> | undefined;
     const abort = new AbortController();
@@ -163,6 +158,7 @@ export async function activateBackendPlugins(options: {
     const pendingSources = new Map<string, TaskSourceProviderV1>();
     const pendingPullRequests = new Map<string, PullRequestProviderV1>();
     const pendingCommunications = new Map<string, CommunicationProviderV1>();
+    const pendingAgents = new Map<string, AgentProviderV1>();
     const pendingScheduling = new Map<string, SchedulingProviderV1>();
     let publishedSources = false;
     let publishedPullRequests = false;
@@ -177,6 +173,7 @@ export async function activateBackendPlugins(options: {
       if (publishedSources) taskSources.removePlugin(id);
       if (publishedPullRequests) pullRequests.removePlugin(id);
       if (publishedCommunications) communications.removePlugin(id);
+      agents.removePlugin(id); agentSettings.delete(id);
       scheduling.removePlugin(id); schedulingSettings.delete(id);
       pluginDrains.delete(id);
       for (const provider of pending.keys()) providers.delete(provider);
@@ -228,6 +225,11 @@ export async function activateBackendPlugins(options: {
           if (pendingPullRequests.has(localId)) throw new Error('Duplicate pull request provider registration.');
           pendingPullRequests.set(localId, provider);
         },
+        registerAgent: (localId: string, provider: AgentProviderV1) => {
+          if (phase !== 'activating' || !pkg.backend?.agents?.[localId] || !pkg.backend.provides.some(item => item.id === 'helmsman/agent' && item.localId === localId)) throw new Error('Undeclared agent provider registration.');
+          if (pendingAgents.has(localId)) throw new Error('Duplicate agent provider registration.');
+          pendingAgents.set(localId, provider);
+        },
         registerScheduling: (localId: string, provider: SchedulingProviderV1) => {
           if (phase !== 'activating' || !pkg.backend?.scheduling?.[localId] || !pkg.backend.provides.some(item => item.id === 'helmsman/scheduling' && item.localId === localId)) throw new Error('Undeclared scheduling provider registration.');
           if (pendingScheduling.has(localId)) throw new Error('Duplicate scheduling provider registration.');
@@ -249,12 +251,13 @@ export async function activateBackendPlugins(options: {
         }
         const module = imported && typeof imported === 'object' && 'default' in imported ? imported.default : null;
         if (!module || typeof module !== 'object' || !('activate' in module) || typeof module.activate !== 'function') throw new Error('Backend entry must default-export an activate module.');
-        await module.activate(context);
+        const activationContext = pkg.backend?.agents ? Object.freeze<AgentBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerAgent: context.registerAgent, onDispose: context.onDispose }) : context;
+        await module.activate(activationContext);
       })();
       await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Backend activation timed out.')), timeoutMs); })]);
-      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
+      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size + pendingAgents.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
       const ordinary = canServeOrdinary();
-      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
+      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
       const sourceRegistrations = [...pendingSources].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Task source registration requires an exact artifact.');
         return taskSources.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, pkg.backend!.taskSources![localId]!, provider);
@@ -280,11 +283,17 @@ export async function activateBackendPlugins(options: {
       });
       schedulingSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
       scheduling.publish(schedulingRegistrations);
+      const agentRegistrations = [...pendingAgents].map(([localId, provider]) => {
+        if (!artifactHash) throw new Error('Agent registration requires an exact artifact.');
+        return agents.stage({ binding: { providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1 }, provider, package: pkg, settings: data!.settings, origin: id.startsWith('helmsman.') ? 'builtin' : 'external' });
+      });
+      agentSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
+      agents.publish(agentRegistrations);
       if (ordinary) data.commit(staged);
       staged.clear();
       for (const [providerId, provider] of pending) providers.set(providerId, provider);
       phase = 'active'; activeIds.add(id); owners.push(cleanup); pluginCleanups.set(id, cleanup);
-      if (pendingSources.size || pendingPullRequests.size || pendingCommunications.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
+      if (pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
       if (options.coordinator && artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'active', null);
       if (options.coordinator?.state(id)?.obligationsOnly) pluginDrains.get(id)?.();
     } catch (error) {
@@ -303,9 +312,9 @@ export async function activateBackendPlugins(options: {
   }
   for (const archive of [...options.snapshot.artifacts.values()].sort((a, b) => a.package.manifest.id.localeCompare(b.package.manifest.id))) {
     if (!archive.package.backend) continue;
-    let extracted: Awaited<ReturnType<typeof materialize>> | undefined;
+    let extracted: Awaited<ReturnType<typeof materializePluginBackend>> | undefined;
     await activate(archive.package, async signal => {
-      extracted = await materialize(options.root, archive);
+      extracted = await materializePluginBackend(options.root, archive);
       if (signal.aborted) { await extracted.dispose(); throw new Error('Backend activation was cancelled.'); }
       return import(extracted.href);
     }, async () => { await extracted?.dispose(); }, archive.hash);
@@ -328,6 +337,7 @@ export async function activateBackendPlugins(options: {
     pullRequests,
     communications,
     scheduling,
+    agents,
     activePluginIds: () => Object.freeze([...activeIds].sort()),
     providers: () => Object.freeze([...providers.keys()].sort()),
     async pricing(snapshot, selections = {}) {

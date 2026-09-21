@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 
 let view: DashboardView | null = null;
-const payload = () => ({ config: { AGENT_ADAPTER: 'codex', AGENT_CMD: 'codex exec', JIRA_ENABLED: 'true' }, overridden: [] });
+const payload = () => ({ config: { AGENT_MAX_ATTEMPTS: 1, AGENT_MAX_COST_USD: 5, JIRA_ENABLED: 'true' }, overridden: [] });
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(done => { resolve = done; });
@@ -21,7 +21,7 @@ async function setup(initial: unknown = payload()) {
         const write = JSON.parse(String(init.body)) as { key: string; value: string };
         writes.push(write);
         if (config && typeof config === 'object' && 'config' in config) {
-          (config as ReturnType<typeof payload>).config[write.key as keyof ReturnType<typeof payload>['config']] = write.value;
+          (config as { config: Record<string, unknown> }).config[write.key] = write.value;
         }
         const response = nextSave;
         nextSave = null;
@@ -79,70 +79,70 @@ describe('Config loading and drafts', () => {
 
   it('keeps drafts, focus, and selection after failed refresh and successful retry', async () => {
     const { root, field, setConfig } = await setup();
-    field('AGENT_CMD').value = 'my unsaved command';
-    field('AGENT_CMD').focus();
-    (field('AGENT_CMD') as HTMLInputElement).setSelectionRange(3, 8);
+    field('AGENT_MAX_COST_USD').value = '7';
+    field('AGENT_MAX_COST_USD').focus();
+    (field('AGENT_MAX_COST_USD') as HTMLInputElement).setSelectionRange(0, 1);
     setConfig(null);
     await view!.refresh();
-    expect(field('AGENT_CMD').value).toBe('my unsaved command');
-    expect(document.activeElement).toBe(field('AGENT_CMD'));
-    expect((field('AGENT_CMD') as HTMLInputElement).selectionStart).toBe(3);
+    expect(field('AGENT_MAX_COST_USD').value).toBe('7');
+    expect(document.activeElement).toBe(field('AGENT_MAX_COST_USD'));
+    expect((field('AGENT_MAX_COST_USD') as HTMLInputElement).selectionStart).toBe(0);
     expect(root.querySelector('[data-config-retry]')).not.toBeNull();
     setConfig(payload());
     root.querySelector<HTMLButtonElement>('[data-config-retry]')!.click();
     await vi.waitFor(() => expect(root.querySelector('[data-config-retry]')).toBeNull());
-    expect(field('AGENT_CMD').value).toBe('my unsaved command');
+    expect(field('AGENT_MAX_COST_USD').value).toBe('7');
   });
 
   it('preserves other drafts and edits made while saving a field', async () => {
     const { field, save, deferSave, writes } = await setup();
     const hold = deferSave();
-    field('AGENT_CMD').value = 'other unsaved value';
-    field('AGENT_ADAPTER').value = 'first edit';
-    save('AGENT_ADAPTER');
-    field('AGENT_ADAPTER').value = 'second edit';
+    field('AGENT_MAX_COST_USD').value = '7';
+    field('AGENT_MAX_ATTEMPTS').value = '2';
+    save('AGENT_MAX_ATTEMPTS');
+    field('AGENT_MAX_ATTEMPTS').value = '3';
     hold.resolve(Response.json({ ok: true }));
-    await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('.config-save[data-key="AGENT_ADAPTER"]')?.disabled).toBe(false));
-    expect(writes).toEqual([{ key: 'AGENT_ADAPTER', value: 'first edit' }]);
-    expect(field('AGENT_ADAPTER').value).toBe('second edit');
-    expect(field('AGENT_CMD').value).toBe('other unsaved value');
+    await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('.config-save[data-key="AGENT_MAX_ATTEMPTS"]')?.disabled).toBe(false));
+    expect(writes).toEqual([{ key: 'AGENT_MAX_ATTEMPTS', value: '2' }]);
+    expect(field('AGENT_MAX_ATTEMPTS').value).toBe('3');
+    expect(field('AGENT_MAX_COST_USD').value).toBe('7');
   });
 
   it('does not apply a stale read after saving a field', async () => {
     const { field, save, deferRead } = await setup();
     const hold = deferRead();
     const refreshing = view!.refresh();
-    field('AGENT_ADAPTER').value = 'updated';
-    save('AGENT_ADAPTER');
-    await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('.config-save[data-key="AGENT_ADAPTER"]')?.disabled).toBe(false));
+    field('AGENT_MAX_ATTEMPTS').value = '2';
+    save('AGENT_MAX_ATTEMPTS');
+    await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('.config-save[data-key="AGENT_MAX_ATTEMPTS"]')?.disabled).toBe(false));
     hold.resolve(Response.json(payload()));
     await refreshing;
-    expect(field('AGENT_ADAPTER').value).toBe('updated');
+    expect(field('AGENT_MAX_ATTEMPTS').value).toBe('2');
     await view!.refresh();
-    expect(field('AGENT_ADAPTER').value).toBe('updated');
+    expect(field('AGENT_MAX_ATTEMPTS').value).toBe('2');
   });
 
   it('preserves failed save feedback through refresh and allows retry', async () => {
     const { root, field, save, deferSave } = await setup();
     const hold = deferSave();
-    field('AGENT_CMD').value = 'unsaved';
-    save('AGENT_CMD');
+    field('AGENT_MAX_COST_USD').value = '7';
+    save('AGENT_MAX_COST_USD');
     hold.resolve(Response.json(null, { status: 500 }));
-    await vi.waitFor(() => expect(field('AGENT_CMD').getAttribute('aria-invalid')).toBe('true'));
+    await vi.waitFor(() => expect(field('AGENT_MAX_COST_USD').getAttribute('aria-invalid')).toBe('true'));
     await view!.refresh();
-    expect(field('AGENT_CMD').value).toBe('unsaved');
-    expect(field('AGENT_CMD').getAttribute('aria-invalid')).toBe('true');
-    expect(root.querySelector('.config-row[data-key="AGENT_CMD"] .config-error')?.textContent).toContain('Save failed');
-    save('AGENT_CMD');
-    await vi.waitFor(() => expect(field('AGENT_CMD').getAttribute('aria-invalid')).toBeNull());
+    expect(field('AGENT_MAX_COST_USD').value).toBe('7');
+    expect(field('AGENT_MAX_COST_USD').getAttribute('aria-invalid')).toBe('true');
+    expect(root.querySelector('.config-row[data-key="AGENT_MAX_COST_USD"] .config-error')?.textContent).toContain('Save failed');
+    save('AGENT_MAX_COST_USD');
+    await vi.waitFor(() => expect(field('AGENT_MAX_COST_USD').getAttribute('aria-invalid')).toBeNull());
   });
 
   it('retains other drafts while legacy Jira settings change without showing an exclusive source toggle', async () => {
     const { root, field, setConfig } = await setup();
-    field('AGENT_CMD').value = 'my unsaved command';
+    field('AGENT_MAX_COST_USD').value = '7';
     setConfig(payload());
     await view!.refresh();
-    expect(field('AGENT_CMD').value).toBe('my unsaved command');
+    expect(field('AGENT_MAX_COST_USD').value).toBe('7');
     expect(root.querySelector('[data-key=JIRA_ENABLED]')).toBeNull();
   });
 });

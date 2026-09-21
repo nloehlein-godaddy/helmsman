@@ -63,11 +63,11 @@ describe('application views', () => {
 
   it('adds a help tooltip to each config key', () => {
     const el: HTMLDivElement = root();
-    const uiConfig: UiConfig = { config: { AGENT_ADAPTER: 'claude-code' }, overridden: [] };
+    const uiConfig: UiConfig = { config: { AGENT_MAX_ATTEMPTS: 2 }, overridden: [] };
     el.innerHTML = renderConfigView(uiConfig, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
-    const hint: HTMLElement | null = el.querySelector<HTMLElement>('.config-row[data-key="AGENT_ADAPTER"] .config-hint');
+    const hint: HTMLElement | null = el.querySelector<HTMLElement>('.config-row[data-key="AGENT_MAX_ATTEMPTS"] .config-hint');
     expect(hint).not.toBeNull();
-    expect(hint?.getAttribute('title')).toContain('claude-code');
+    expect(hint?.getAttribute('title')).toContain('Total attempts');
     expect(hint?.getAttribute('aria-label')).toBe(hint?.getAttribute('title'));
   });
 
@@ -81,7 +81,7 @@ describe('application views', () => {
   it('renders a config row per key, marks overridden keys, and never renders a secret value', () => {
     const el: HTMLDivElement = root();
     const uiConfig: UiConfig = {
-      config: { AGENT_ADAPTER: 'claude-code', AGENT_MAX_ATTEMPTS: 1 },
+      config: { AGENT_MAX_ATTEMPTS: 1, AGENT_MAX_COST_USD: 5 },
       overridden: ['AGENT_MAX_ATTEMPTS'],
       jiraTokenSet: true,
     };
@@ -90,13 +90,18 @@ describe('application views', () => {
 
     const rows: NodeListOf<HTMLElement> = el.querySelectorAll<HTMLElement>('.config-panel:not(.pre-pr-config-panel) .config-row:not(.config-secret-row)');
     expect(rows.length).toBe(2);
-    const adapterRow: HTMLElement | null = el.querySelector<HTMLElement>('.config-row[data-key="AGENT_ADAPTER"]');
-    expect(adapterRow).not.toBeNull();
-    expect(adapterRow!.querySelector<HTMLInputElement>('.config-input')?.value).toBe('claude-code');
     const attemptsRow: HTMLElement | null = el.querySelector<HTMLElement>('.config-row[data-key="AGENT_MAX_ATTEMPTS"]');
     expect(attemptsRow).not.toBeNull();
     expect(attemptsRow!.textContent).toContain('saved override');
-    expect(adapterRow!.textContent).not.toContain('saved override');
+    expect(el.querySelector<HTMLElement>('.config-row[data-key="AGENT_MAX_COST_USD"]')?.textContent).not.toContain('saved override');
+  });
+
+  it('hides retired agent fields from stale configuration payloads', () => {
+    const el = root();
+    el.innerHTML = renderConfigView({ config: { AGENT_ADAPTER: 'codex', AGENT_CMD: 'legacy', AGENT_MAX_ATTEMPTS: 1 }, overridden: ['AGENT_ADAPTER'] }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
+    expect(el.querySelector('[data-key="AGENT_ADAPTER"], [data-key="AGENT_CMD"]')).toBeNull();
+    expect(el.querySelector('[data-key="AGENT_MAX_ATTEMPTS"]')).not.toBeNull();
+    expect(el.textContent).toContain('plugins select-agent');
   });
 
   it('groups pre-PR settings in one panel with bounded numeric inputs and defaults', () => {
@@ -104,7 +109,7 @@ describe('application views', () => {
     el.innerHTML = renderConfigView({ config: {}, overridden: [] }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
     const panel = el.querySelector('.pre-pr-config-panel');
     expect(panel?.textContent).toContain(`active ${term('runs').toLowerCase()} keep their settings`);
-    expect(panel?.textContent).toContain('With only one installed, one reviewer runs');
+    expect(panel?.textContent).toContain('Unavailable selected providers block launch');
     for (const [key, value, min, max] of [
       ['PRE_PR_REVIEWER_COUNT', '2', '1', '2'],
       ['PRE_PR_MAX_ROUNDS', '3', '1', '5'],
@@ -166,7 +171,7 @@ describe('accessible configuration states', () => {
 
   it('connects every setting to its label and error, and makes Save names unambiguous', () => {
     const el = root();
-    el.innerHTML = renderConfigView({ config: { AGENT_ADAPTER: 'codex', 'unknown key': 'value' }, overridden: [] }, opts);
+    el.innerHTML = renderConfigView({ config: { AGENT_MAX_ATTEMPTS: 1, 'unknown key': 'value' }, overridden: [] }, opts);
     for (const row of el.querySelectorAll('.config-row')) {
       const input = row.querySelector<HTMLInputElement | HTMLSelectElement>('.config-input');
       expect(input?.labels?.length).toBe(1);
@@ -178,9 +183,9 @@ describe('accessible configuration states', () => {
     }
     const ids = Array.from(el.querySelectorAll('[id]')).map(element => element.id);
     expect(new Set(ids).size).toBe(ids.length);
-    const adapter = el.querySelector<HTMLInputElement>('#config-AGENT_ADAPTER');
-    const helpIds = adapter?.getAttribute('aria-describedby')?.split(/\s+/) ?? [];
-    expect(helpIds.map(id => document.getElementById(id)?.textContent).join(' ')).toContain(CONFIG_HELP.AGENT_ADAPTER);
+    const attempts = el.querySelector<HTMLInputElement>('#config-AGENT_MAX_ATTEMPTS');
+    const helpIds = attempts?.getAttribute('aria-describedby')?.split(/\s+/) ?? [];
+    expect(helpIds.map(id => document.getElementById(id)?.textContent).join(' ')).toContain(CONFIG_HELP.AGENT_MAX_ATTEMPTS);
   });
 
   it('announces first-load progress without exposing default server settings as loaded values', () => {
@@ -204,9 +209,9 @@ describe('accessible configuration states', () => {
 
   it('keeps previously loaded settings available after a failed refresh and disables duplicate retry', () => {
     const el = root();
-    el.innerHTML = renderConfigView({ config: { AGENT_ADAPTER: 'codex' }, overridden: [] }, { ...opts, error: 'Network unavailable.', loading: true });
+    el.innerHTML = renderConfigView({ config: { AGENT_MAX_ATTEMPTS: 1 }, overridden: [] }, { ...opts, error: 'Network unavailable.', loading: true });
     expect(el.querySelector('[role="alert"]')?.textContent).toContain('Showing the last loaded settings');
-    expect(el.querySelector<HTMLInputElement>('#config-AGENT_ADAPTER')?.value).toBe('codex');
+    expect(el.querySelector<HTMLInputElement>('#config-AGENT_MAX_ATTEMPTS')?.value).toBe('1');
     expect(el.querySelector<HTMLButtonElement>('[data-config-retry]')?.disabled).toBe(true);
   });
 });

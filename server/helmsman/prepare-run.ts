@@ -18,7 +18,7 @@ export interface PrepareExecutionInput {
   reviewSettings: PrePrSettings;
   model?: string;
   effort?: string;
-  provider?: 'codex' | 'claude-code';
+  provider?: string;
   skills?: readonly string[];
   skillsRoots?: readonly string[];
   store?: WorkflowStore;
@@ -73,8 +73,9 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Pr
   try {
     const existingSnapshot = existingId ? store.resolveSnapshot(existingId) : null;
     if (existingId && !existingSnapshot) throw new Error('Saved workflow snapshot is unavailable');
-    const requiredReviewSkill = input.workflow === 'coding' || input.workflow === 'review' || input.task.review || input.task.prePr?.stage === 'review';
-    const requestedSkills = existingSnapshot ? existingSnapshot.skills.map(skill => skill.name) : [...new Set([...(input.skills ?? []), ...(requiredReviewSkill ? ['review-agent'] : [])])];
+    const agentRecords = input.task.agentSelection ? [input.task.agentSelection.writer, ...input.task.agentSelection.reviewers] : null;
+    const requiredReviewSkill = !agentRecords && (input.workflow === 'coding' || input.workflow === 'review' || input.task.review || input.task.prePr?.stage === 'review');
+    const requestedSkills = existingSnapshot ? existingSnapshot.skills.map(skill => skill.name) : [...new Set([...(input.skills ?? []), ...(agentRecords?.flatMap(record => [...record.metadata.reviewSkills, ...(record.metadata.reviewDelegation === 'review-agent-skill' ? ['review-agent'] : [])]) ?? []), ...(requiredReviewSkill ? ['review-agent'] : [])])];
     const roots = input.skillsRoots ?? defaultSkillsRoots();
     const found = await declarations(requestedSkills, roots);
     const verified: VerifiedSkill[] = [];
@@ -83,7 +84,8 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Pr
       || JSON.stringify(existingSnapshot.skills) !== JSON.stringify(found.declarations.sort((a, b) => a.name.localeCompare(b.name))))) {
       throw new Error('Required skills do not match the saved workflow snapshot');
     }
-    const defaults = input.provider === 'codex' ? codexSettings({ model: input.model ?? input.task.model, effort: input.effort ?? input.task.effort }) : { model: input.model ?? input.task.model, effort: input.effort ?? input.task.effort };
+    const metadata = input.task.agentSelection?.writer.metadata;
+    const defaults = metadata ? { model: input.model ?? input.task.model ?? metadata.defaults.model ?? undefined, effort: input.effort ?? input.task.effort ?? metadata.defaults.effort ?? undefined } : input.provider === 'codex' ? codexSettings({ model: input.model ?? input.task.model, effort: input.effort ?? input.task.effort }) : { model: input.model ?? input.task.model, effort: input.effort ?? input.task.effort };
     const snapshot = existingSnapshot ?? store.createSnapshot({ workflowId: input.workflow, model: defaults.model ?? input.model, effort: defaults.effort ?? input.effort,
       promptCodeHash: await promptCodeHash(), reviewSettings: input.reviewSettings as unknown as Record<string, unknown>, skills: found.declarations });
     const skillsPath = join(input.runsDir, `${input.runId}.runtime`);

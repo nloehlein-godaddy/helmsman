@@ -239,6 +239,24 @@ describe('startRun', () => {
     db.close();
   });
 
+  it('fails a zero-exit run when the provider explicitly reports failure', async () => {
+    const db = openDb(':memory:');
+    try {
+      const id = await startRun(task, deps(db, jsonAdapter(), singleAttemptHost([{ kind: 'result', outcome: 'failure', text: 'provider failed' }], true), freshRunsDir()));
+      expect(db.getRun(id)?.status).toBe('failed');
+      expect(db.listEvents(id)).toContainEqual(expect.objectContaining({ kind: 'agent-result-failure:1', text: 'provider failed' }));
+    } finally { db.close(); }
+  });
+
+  it('uses cumulative provider costs without adding each final total', async () => {
+    const db = openDb(':memory:');
+    try {
+      const adapter: AgentAdapter = { ...jsonAdapter(), metadata: { version: 1, label: 'cumulative', defaults: { model: null, effort: null }, review: { low: { model: null, effort: null }, medium: { model: null, effort: null }, high: { model: null, effort: null } }, reviewSkills: [], reviewDelegation: 'none', supportsPrePr: false, docker: null, costReporting: 'cumulative' } };
+      const id = await startRun(task, deps(db, adapter, singleAttemptHost([{ kind: 'result', outcome: 'unknown', text: 'first', costUsd: 0.2 }, { kind: 'result', outcome: 'unknown', text: 'decreased', costUsd: 0.1 }, { kind: 'result', outcome: 'success', text: 'final', costUsd: 0.5 }], true), freshRunsDir()));
+      expect(db.getRun(id)?.costUsd).toBeCloseTo(0.5);
+    } finally { db.close(); }
+  });
+
   it('fails with "adapter produced no command" and never launches the host when buildCommand returns an empty cmd', async () => {
     const db: Db = openDb(':memory:');
     const emptyCmdAdapter: AgentAdapter = {
@@ -1068,6 +1086,18 @@ describe('reattachRun', () => {
     expect(d.enqueueCreatedPrReview).toHaveBeenCalledExactlyOnceWith({ parentRunId: row.id, repo: 'o/r', prNumber: 7 });
     expect(d.removeWorktree).toHaveBeenCalledOnce();
     db.close();
+  });
+
+  it('retains a journaled provider failure when recovery starts after its log offset', async () => {
+    const db = openDb(':memory:');
+    try {
+      const runsDir = freshRunsDir(); const row = baseRow(runsDir);
+      const line = JSON.stringify({ kind: 'result', outcome: 'failure', text: 'already consumed failure' }) + '\n';
+      writeFileSync(row.logPath!, line); writeFileSync(row.exitPath!, '0'); row.logOffset = Buffer.byteLength(line);
+      db.insertRun(row); db.appendEvent(row.id, 'agent-result-failure:1', 'already consumed failure', '2026-08-18T00:00:00.000Z');
+      await reattachRun(row, deps(db, jsonAdapter(), fakeHost(() => ({ events: [], ok: true })), runsDir));
+      expect(db.getRun(row.id)?.status).toBe('failed');
+    } finally { db.close(); }
   });
 
   it('keeps the verdict before completion after reattaching a review', async () => {

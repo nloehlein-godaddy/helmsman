@@ -40,6 +40,13 @@ describe('agent attribution', () => {
 });
 
 describe('agent bylines', () => {
+  it('preserves safe third-party model and effort identifiers without byline injection', () => {
+    const other = { role: 'review agent' as const, model: 'vendor/model:latest', effort: 'ultra' };
+    const body = appendAgentByline('Reviewed.', other);
+    expect(body).toBe('Reviewed.\n\n_Helmsman · vendor/model:latest - ultra_');
+    expect(appendAgentByline(body, other)).toBe(body);
+    expect(appendAgentByline('', { ...other, model: 'model\nInjected', effort: '[link](url)' })).toBe('_Helmsman · not reported - not reported_');
+  });
   it('places the authoritative footer last and separates it from the body', () => {
     expect(appendAgentByline('Review findings.\n', attribution)).toBe(`Review findings.\n\n${footer}`);
     expect(appendAgentByline('', attribution)).toBe(footer);

@@ -1,0 +1,1 @@
+{"packageVersion":1,"manifest":{"manifestVersion":1,"id":"helmsman.agent-codex","version":"0.1.0","sdkVersion":1,"pages":[]},"node":{"minMajor":22,"maxMajorExclusive":30},"entries":{},"backend":{"entry":"backend.js","provides":[{"id":"helmsman/agent","version":1,"localId":"codex"}],"agents":{"codex":{"access":["process-description"]}},"settings":{},"storageVersion":1}}

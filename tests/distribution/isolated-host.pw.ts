@@ -282,10 +282,9 @@ test('task source adoption preserves local identity and disabled state through t
   page.on('pageerror', error => errors.push(error.message));
   try {
     host.env.REPO_PROJECT_MAP = 'org/a=TASK';
-    host.env.AGENT_ADAPTER = 'command';
-    host.env.AGENT_CMD = '/usr/bin/false';
     host.env.AGENT_MAX_ATTEMPTS = '1';
     host.env.RUN_HOST = 'detached';
+    await host.installPreflightFailureAgent();
     const descriptor = await host.installAuthorPackage('plugin-sources/local-tasks-alternative');
     let origin = await host.start();
     const instances = (await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json()).instances;
@@ -315,7 +314,7 @@ test('task source adoption preserves local identity and disabled state through t
     const restarted = (await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json()).instances;
     expect(restarted.find((item: { id: string }) => item.id === validation.instanceId)).toMatchObject({ desiredEnabled: false, available: false, revision: 2 });
     await page.goto(`${origin}/todos?repo=org/a`);
-    await expect(page.locator('.todos-view')).toBeVisible();
+    await expect(page.locator('.plugin-todos').first()).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/todos');
     expect(new URL(page.url()).searchParams.get('repo')).toBe('org/a');
     expect((await request.post(`${origin}/api/task-sources/${validation.instanceId}/enablement`, { data: { instanceRevision: 2, desiredEnabled: true } })).ok()).toBe(true);
@@ -448,10 +447,11 @@ test('source-denied New Run and Underway packages preserve typed task identity, 
   test.setTimeout(90_000);
   await seedBacklogLayout(page);
   const host = await fixture(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER'; host.env.AGENT_ADAPTER = 'command'; host.env.AGENT_CMD = '/usr/bin/false';
+  host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
   host.env.AGENT_MAX_ATTEMPTS = '1'; host.env.AGENT_MAX_CONCURRENCY = '8'; host.env.RUN_HOST = 'detached';
   try {
     await expect(host.script('prove-launch-panel-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/newrun/panel.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
+    await host.installPreflightFailureAgent();
     await host.installAuthorPackage('plugin-sources/newrun', 'example.newrun');
     await host.installAuthorPackage('plugin-sources/underway', 'example.underway');
     const origin = await host.start();

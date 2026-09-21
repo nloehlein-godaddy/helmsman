@@ -9,8 +9,6 @@ export const EDITABLE_KEYS: readonly string[] = [
   ...SLACK_REVIEW_CONFIG_KEYS,
   ...PRE_PR_CONFIG_KEYS,
   'GITHUB_REVIEW_WATCH_ENABLED',
-  'AGENT_ADAPTER',
-  'AGENT_CMD',
   'AGENT_MAX_ATTEMPTS',
   'AGENT_MAX_COST_USD',
   'REPO_PROJECT_MAP',
@@ -29,8 +27,6 @@ export const WRITABLE_SECRET_KEYS: readonly string[] = ['JIRA_API_TOKEN'];
 export function publicConfig(cfg: AppConfig): Record<string, unknown> {
   return {
     JIRA_ENABLED: String(cfg.jiraEnabled),
-    AGENT_ADAPTER: cfg.agentAdapter,
-    AGENT_CMD: cfg.agentCmd,
     AGENT_MAX_ATTEMPTS: cfg.maxAttempts,
     AGENT_MAX_COST_USD: cfg.maxCostUsd,
     ...Object.fromEntries(PRE_PR_SETTING_DEFINITIONS.map(({ key, envKey }) => [envKey, cfg.prePr[key]])),

@@ -11,8 +11,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Status
 
-- **Built (P0–P6):** the Helmsman server, SQLite run store, dashboard API, and a
-  Claude Code agent adapter — launch a ticket, run it in an isolated git worktree,
+- **Built (P0–P6):** the Helmsman server, SQLite run store, dashboard API, and agent execution — launch a ticket, run it in an isolated git worktree,
   stream its events to a live log drawer, and record the run (P0–P1); Jira status
   writes with an In-Review gate (P2); a multi-agent running view with per-run stop
   and live logs (P3); an opt-in per-repo auto-claim scheduler (P4); a generic-command
@@ -25,7 +24,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service while the existing core bridge remains the Phase E adapter. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F is implementing interchangeable execution primitives; scheduling policy uses a public backend contract. Agents, hosts, workflows and native terminal implementations remain in progress or pending, followed by Phase G compatibility retirement.
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service while the existing core bridge remains the Phase E adapter. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Hosts, workflows and native terminal implementations remain pending, followed by Phase G compatibility retirement.
 
 Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) run inspection, streamed downloads, provisional viewer/history pages and durable clarification services are reviewed and pushed through `3806090`, including exact-request retry, clarification alias selection and public PR inspection. The [run-inspection contract](docs/run-inspect-authoring.md) and [presentation guide](docs/run-presentation-authoring.md) are available. Shared viewer convergence and authored question/contact panels are delivered; `/runs` now selects an authored composition with history, the public PR panel and the shared auxiliary viewer. The `/prs` alias selects the public PR composition.
 
@@ -470,21 +469,30 @@ shows the same diagnostics read-only.
 See [task-source authoring](docs/task-source-authoring.md), [recovery](docs/recovery.md),
 [plugin packages](docs/plugin-packages.md), [composable pages and panels](docs/panel-authoring.md), and the [phase completion ledger](docs/plugin-implementation-progress.md).
 
-### Agent backends
+### Agent providers
 
-Three adapters implement the same `AgentAdapter` contract, selected by `AGENT_ADAPTER`:
+Agent selection pins one immutable writer and an ordered list of immutable reviewers,
+including each provider package, artifact hash, compatible non-secret settings and
+metadata. Select them with `helmsman plugins select-agent <plugin/id>` and
+`helmsman plugins select-agent-reviewers <plugin/id,...>`. The shipped packages are
+`helmsman.agent-codex/codex`, `helmsman.agent-claude/claude-code`, and
+`helmsman.agent-command/command`. Configure package settings with `helmsman plugins
+configure <plugin-id> '<json>'` before selection.
 
-- `codex` (default) runs `codex exec`. Ordinary coding voyages default to
-  `gpt-6-astra` at medium effort; PR reviews use the complexity policy below.
-- `claude-code` runs `claude -p --output-format stream-json` and parses tool uses,
-  text, and final cost. The CLI's defaults apply unless a launch supplies tuning.
-- `command` runs `AGENT_CMD` and streams each stdout line as a log event. Use
-  `{ticket}`, `{repo}`, and `{title}` placeholders, for example
-  `my-agent --ticket {ticket} --repo {repo}`.
-  The current tokenizer splits on whitespace before and after placeholder expansion;
-  quotes do not preserve spaces as one argument, including in `{title}`. Pipes,
-  redirects, and shell expansion are not supported. An empty command currently
-  falls back to Codex at launch.
+Provider metadata declares defaults, review tuning, skills/delegation, Docker
+compatibility and whether costs are delta or cumulative. Codex defaults to
+`gpt-6-astra`/medium and declares the review-agent skill; Claude Code uses provider
+defaults and native subagents; command uses its namespaced `commandTemplate` setting.
+The command template supports `{ticket}`, `{repo}` and `{title}`, is argv-only, and
+an empty template never falls back to Codex. Legacy `AGENT_ADAPTER` and `AGENT_CMD`
+values remain readable for legacy recovery. The adapter seeds the initial selection
+once; command text is never copied automatically because it may contain credentials.
+Configure a nonsecret `commandTemplate` explicitly; Config cannot edit retired keys.
+
+Core renders prompts, chooses effective model/effort, owns workflow/host/recovery and
+validates every provider command and event. A provider-reported result failure makes
+the run fail even when its process exits zero; an unknown result does not. Providers
+do not emit core completion events.
 
 ### Caps
 
@@ -600,10 +608,8 @@ Recovery. See [Communication authoring](docs/communication-authoring.md).
 
 | Value | Default | Where it applies / how to set it | Change |
 | --- | --- | --- | --- |
-| `AGENT_ADAPTER` | `codex` | `codex`, `claude-code`, or `command`; install/sign in to that CLI on the server machine. Unknown values fall back to Codex. | Live |
-| `AGENT_CMD` | Empty | Executable and argument template for the command adapter; see [Agent backends](#agent-backends). Does not invoke a shell. | Live |
 | `AGENT_MAX_ATTEMPTS` | `1` | Total attempts for existing-PR voyages, including the initial attempt; `1` means no retry. New coding voyages use one workflow, with review rounds controlled by `PRE_PR_MAX_ROUNDS`. | Live |
-| `AGENT_MAX_COST_USD` | Empty (no cap) | Cost limit in USD across attempts, enforced when the adapter reports cost. It cannot bound spend for adapters that do not report cost, including the current Codex and command adapters. | Live |
+| `AGENT_MAX_COST_USD` | Empty (no cap) | Cost limit in USD across attempts, enforced from validated provider cost events. | Live |
 | `PRE_PR_REVIEWER_COUNT` | `2` | Integer `1`–`2`. Independent reviewer sessions per round: `1` uses the writer's CLI, `2` adds the other supported CLI if installed. Only Codex and Claude Code are supported. One installed CLI means one reviewer; an installed reviewer that fails blocks publication. Set in **Config → Pre-PR review**. | Live; new voyages only |
 | `PRE_PR_MAX_ROUNDS` | `3` | Integer `1`–`5`. Total review rounds, including the initial round. `3` permits up to two fix-and-review cycles; `1` permits none. Every reviewer must approve the final commit; unresolved findings block publication when rounds are exhausted. | Live; new voyages only |
 | `PRE_PR_STAGE_TIMEOUT_MINUTES` | `45` | Integer `5`–`180`. Timeout for each implementation, fix, or reviewer session, not the whole voyage. Timeout blocks publication and preserves the author worktree. | Live; new voyages only |

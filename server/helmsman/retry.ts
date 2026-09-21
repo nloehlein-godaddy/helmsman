@@ -1,3 +1,5 @@
+import { parseAgentModelSettingsV1 } from '../../src/plugins/agent-provider';
+import { isContributionId } from '../../src/plugins/manifest';
 import type { RunRow } from './db';
 import { isGithubRepo } from '../pr-lists';
 import { validModel, validEffort } from '../../src/logic/agentOptions';
@@ -18,7 +20,7 @@ export interface LaunchIntent {
   feedback?: string;
   model?: string;
   effort?: string;
-  adapter?: 'codex' | 'claude-code' | 'command';
+  adapter?: string;
 }
 
 export class RetryError extends Error {}
@@ -51,10 +53,11 @@ export function retryIntent(row: RunRow): LaunchIntent {
   const source = saved ?? task;
   if (source?.repo !== undefined && source.repo !== row.repo) throw new RetryError('The saved galleon does not match this voyage. Start a new voyage.');
   const adapter = row.adapter.replace(/^pre-pr:/, '');
-  if (adapter !== 'codex' && adapter !== 'claude-code' && adapter !== 'command') throw new RetryError('The original agent provider is unavailable. Start a new voyage with a configured provider.');
-  const model = validModel(typeof task?.model === 'string' ? task.model : typeof source?.model === 'string' ? source.model : null);
+  if (adapter !== 'codex' && adapter !== 'claude-code' && adapter !== 'command' && !isContributionId(adapter)) throw new RetryError('The original agent provider is unavailable. Start a new voyage with a configured provider.');
+  const rawModel = typeof task?.model === 'string' ? task.model : typeof source?.model === 'string' ? source.model : null;
+  const model = isContributionId(adapter) ? parseAgentModelSettingsV1({ model: rawModel, effort: null }).model : validModel(rawModel);
   const rawEffort = typeof task?.effort === 'string' ? task.effort : typeof source?.effort === 'string' ? source.effort : null;
-  const effort = rawEffort === 'minimal' ? rawEffort : validEffort(rawEffort);
+  const effort = isContributionId(adapter) ? parseAgentModelSettingsV1({ model: null, effort: rawEffort }).effort : rawEffort === 'minimal' ? rawEffort : validEffort(rawEffort);
   const base: LaunchIntent = { repo: row.repo, adapter, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
   const mode = saved?.mode;
   if (saved?.workRef !== undefined || task?.source !== undefined || mode === 'source') {

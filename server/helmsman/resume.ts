@@ -6,8 +6,6 @@ import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import { PRE_PR_SETTING_DEFINITIONS, parsePrePrSettingValue, type PrePrSettings } from '../../src/logic/prePrSettings';
 import type { AgentTask } from './agents/adapter';
-import { codexAdapter } from './agents/codex';
-import { claudeCodeAdapter } from './agents/claude-code';
 import { isPrePrAdapter, prePrAdapter } from './agents/pre-pr';
 import type { PrePrPublicationConnection } from './publication-client';
 import type { Db, RunRow } from './db';
@@ -15,7 +13,9 @@ import { readExitEvidence, type HostRef, type LaunchSpec, type RunHost } from '.
 import type { DurableRunnerCoordinator } from './runner';
 import { parsePrMetadata, readPrePrReport } from './pre-pr-runtime';
 import { parsePrePrReview, PrePrSummaryTooLongError } from './pre-pr-workflow';
-import { createRunArtifactStore } from './artifacts';
+import { createRunArtifactStore, prePrArtifactFilename } from './artifacts';
+import { parseAgentSelectionV1 } from './agent-providers';
+import { persistenceHash } from './persistence';
 
 const exec = promisify(execFile);
 
@@ -73,11 +73,22 @@ export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
   if (row.logOffset !== logSize) throw new ResumeError('The original log must be fully processed before continuing.');
   const args = spec?.args;
   const original = Array.isArray(args) && typeof args.at(-1) === 'string' ? record(JSON.parse(args.at(-1))) : null;
-  const writerId = row.adapter === 'pre-pr:codex' ? 'codex' : 'claude-code';
   const originalTask = record(original?.task);
-  if (spec?.cwd !== row.worktreePath || original?.writerId !== writerId || original?.runsDir !== root
+  const selection = task.agentSelection === undefined ? undefined : parseAgentSelectionV1(task.agentSelection);
+  const writerId = selection?.writer.binding.providerId
+    ?? (row.adapter === 'pre-pr:codex' ? 'codex' : row.adapter === 'pre-pr:claude-code' ? 'claude-code' : '');
+  const legacy = writerId === 'codex' || writerId === 'claude-code';
+  if (!writerId || row.adapter !== `pre-pr:${writerId}` || spec?.cwd !== row.worktreePath
+    || (legacy && original?.writerId !== writerId) || (!legacy && original?.writerId !== undefined)
+    || original?.runsDir !== root
     || originalTask?.repo !== row.repo || originalTask?.ticketId !== row.ticketId) {
     throw new ResumeError('The saved worker specification does not match the voyage.');
+  }
+  if (selection && persistenceHash(originalTask?.agentSelection) !== persistenceHash(selection)) {
+    throw new ResumeError('The retained agent selection differs from the original worker specification.');
+  }
+  if (selection && persistenceHash(originalTask?.agentRuntime) !== persistenceHash(task.agentRuntime)) {
+    throw new ResumeError('The retained agent artifact closure differs from the original worker specification.');
   }
   const savedSettings = record(original?.settings);
   const settings = {} as PrePrSettings;
@@ -95,18 +106,18 @@ export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
   if (branch !== `agent/${row.id}`) throw new ResumeError('The retained voyage branch has changed.');
   const artifactDir = join(root, `${row.id}.pre-pr`);
   if (!(await lstat(artifactDir)).isDirectory()) throw new ResumeError('The review checkpoint directory is unavailable.');
-  const files = await readdir(artifactDir);
-  const rounds = files.flatMap(file => {
-    const match = /^review-([1-5])-(?:codex|claude-code)\.json$/.exec(file);
-    return match ? [Number(match[1])] : [];
-  });
+  const files = new Set(await readdir(artifactDir));
+  const reviewers = selection?.reviewers.map(record => record.binding.providerId)
+    ?? (settings.reviewerCount === 1 ? [writerId] : [writerId, writerId === 'codex' ? 'claude-code' : 'codex']);
+  if (reviewers.length !== settings.reviewerCount || !reviewers.includes(writerId)) throw new ResumeError('The original retained reviewer set is incomplete.');
+  const rounds = Array.from({ length: settings.maxRounds }, (_, index) => index + 1)
+    .filter(round => reviewers.every(reviewer => files.has(prePrArtifactFilename('review', round, reviewer))));
   const round = Math.max(0, ...rounds);
   if (!round || round > settings.maxRounds) throw new ResumeError('There is no valid completed review round to continue.');
-  const reviewers = settings.reviewerCount === 1 ? [writerId] : [writerId, writerId === 'codex' ? 'claude-code' : 'codex'];
   const reviewerReports: Record<string, string> = {};
   let baseSha = '';
   for (const reviewer of reviewers) {
-    const path = join(artifactDir, `review-${round}-${reviewer}.json`);
+    const path = join(artifactDir, prePrArtifactFilename('review', round, reviewer));
     await verifyArtifactIfPresent(runsDir, row.id, { stage: 'review', round, reviewer }, path);
     const value = await readPrePrReport(path);
     const raw = record(value);
@@ -117,7 +128,7 @@ export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
   }
   await git(['merge-base', '--is-ancestor', baseSha, headSha]);
   if (baseSha === headSha) throw new ResumeError('The checkpoint contains no committed implementation.');
-  const metadataPath = join(artifactDir, round === 1 ? 'implement-0.json' : `fix-${round - 1}.json`);
+  const metadataPath = join(artifactDir, prePrArtifactFilename(round === 1 ? 'implement' : 'fix', round === 1 ? 0 : round - 1));
   await verifyArtifactIfPresent(runsDir, row.id, { stage: round === 1 ? 'implement' : 'fix', round: round === 1 ? 0 : round - 1 }, metadataPath);
   parsePrMetadata(await readPrePrReport(metadataPath), task as unknown as AgentTask);
   const resumedTask: AgentTask = { ...task as unknown as AgentTask, prePrResume: { baseSha, headSha, branch, round, reviewerReports, metadataPath } };
@@ -147,8 +158,14 @@ export async function resumeFailedPrePrRun(row: RunRow, deps: { publication?: Pr
     const retained = await deps.durable.recover(row);
     retained.close();
   }
+  const retainedAgentRuntime = checkpoint.task.agentRuntime ? persistenceHash(checkpoint.task.agentRuntime) : null;
+  const retainedAgentSelection = checkpoint.task.agentSelection ? persistenceHash(checkpoint.task.agentSelection) : null;
   if (deps.prepareTask) checkpoint.task = await deps.prepareTask(checkpoint.task);
-  const adapter = prePrAdapter(checkpoint.writerId === 'codex' ? codexAdapter : claudeCodeAdapter, resolve(deps.runsDir), checkpoint.settings, deps.publication);
+  if ((checkpoint.task.agentRuntime ? persistenceHash(checkpoint.task.agentRuntime) : null) !== retainedAgentRuntime
+    || (checkpoint.task.agentSelection ? persistenceHash(checkpoint.task.agentSelection) : null) !== retainedAgentSelection) {
+    throw new ResumeError('Continuation must retain the original agent provider records and artifact closure.');
+  }
+  const adapter = prePrAdapter(checkpoint.writerId, resolve(deps.runsDir), checkpoint.settings, deps.publication);
   const command = adapter.buildCommand(checkpoint.task);
   if (deps.durable) {
     const next = { ...row, status: 'running' as const, attempt: row.attempt + 1, endedAt: null,

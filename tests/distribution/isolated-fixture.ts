@@ -49,7 +49,7 @@ export async function fixture(options: { distribution?: string } = {}) {
   await Promise.all([mkdir(cwd), mkdir(fakeBin), cp(options.distribution ?? join(sourceRoot, 'release'), app, { recursive: true }),
     cp(fileURLToPath(new URL('./deny-source.mjs', import.meta.url)), join(root, 'deny-source.mjs'))]);
   const commandLog = join(root, 'provider-commands.log');
-  for (const name of ['git', 'gh', 'cmux', 'wezterm', 'docker', 'osascript']) {
+  for (const name of ['git', 'gh', 'codex', 'claude', 'cmux', 'wezterm', 'docker', 'osascript']) {
     await writeFile(join(fakeBin, name), '#!/bin/sh\nprintf "%s\\n" "$0 $*" >> "$HELMSMAN_TEST_COMMAND_LOG"\nexit 1\n', { mode: 0o755 });
   }
   const env: NodeJS.ProcessEnv = {
@@ -164,7 +164,18 @@ export default page;
     await cli('enable', descriptor.manifest.id);
     return descriptor;
   }
-  return { root, app, cwd, env, commandLog, cli, script, installSample, installAuthorPackage, start, stop,
+  async function installPreflightFailureAgent() {
+    const id = 'example.preflight-failure'; const source = join(root, 'preflight-agent'); await mkdir(source);
+    await writeFile(join(source, 'backend.js'), `export default {activate(context){const models={model:null,effort:null};context.registerAgent('worker',{
+metadata:{version:1,label:'Preflight fixture',defaults:models,review:{low:models,medium:models,high:models},reviewSkills:['helmsman-isolated-fixture-missing-skill'],reviewDelegation:'native-subagents',supportsPrePr:true,docker:null,costReporting:'delta'},
+buildCommand(){return {cmd:'codex',args:[]};},parseLine(){return null;}});}};`);
+    await writeFile(join(source, 'plugin-package.json'), JSON.stringify({ packageVersion: 1,
+      manifest: { manifestVersion: 1, id, version: '0.1.0', sdkVersion: 1, pages: [] }, node: { minMajor: 22, maxMajorExclusive: 30 }, entries: {},
+      backend: { entry: 'backend.js', provides: [{ id: 'helmsman/agent', version: 1, localId: 'worker' }], agents: { worker: { access: ['process-description'] } }, settings: {}, storageVersion: 1 } }));
+    const archive = join(root, 'preflight-agent.hmp'); await cli('pack', source, archive); await cli('install', archive); await cli('enable', id);
+    await cli('select-agent', `${id}/worker`); await cli('select-agent-reviewers', `${id}/worker`); env.PRE_PR_REVIEWER_COUNT = '1';
+  }
+  return { root, app, cwd, env, commandLog, cli, script, installSample, installAuthorPackage, installPreflightFailureAgent, start, stop,
     output: () => allServerOutput,
     async close() { await stop(); await rm(root, { recursive: true, force: true }); },
   };

@@ -74,6 +74,19 @@ export interface DurableRunnerCoordinator {
 
 type OnEvent = (e: AgentEvent) => void;
 
+function providerFailureKind(attempt: number): string { return `agent-result-failure:${attempt}`; }
+
+function hasProviderFailure(run: RunRow, deps: RunnerDeps): boolean {
+  return deps.db.listEvents(run.id).some(event => event.kind === providerFailureKind(run.attempt));
+}
+
+function reportedCost(total: number | null, event: AgentEvent, adapter: AgentAdapter, previous: number | null): { total: number | null; previous: number | null } {
+  if (typeof event.costUsd !== 'number' || !Number.isFinite(event.costUsd) || event.costUsd < 0) return { total, previous };
+  if (adapter.metadata?.costReporting !== 'cumulative') return { total: (total ?? 0) + event.costUsd, previous };
+  const prior = previous ?? 0;
+  return { total: (total ?? 0) + Math.max(0, event.costUsd - prior), previous: Math.max(prior, event.costUsd) };
+}
+
 async function claimTicket(
   jira: JiraActions,
   ticketId: string,
@@ -371,9 +384,12 @@ export async function startRun(task: AgentTask, deps: RunnerDeps): Promise<strin
     }
 
     let totalCost: number | null = null;
+    let reportedCumulativeCost: number | null = null;
     let prNumber: number | null = task.prNumber ?? null;
     let stopped: boolean = false;
     let ok: boolean = false;
+    let providerFailed = false;
+    let activeAttempt = 1;
 
     const consume = (line: string, byteOffset: number): void => {
       const e: AgentEvent | null = deps.adapter.parseLine(line);
@@ -382,9 +398,15 @@ export async function startRun(task: AgentTask, deps: RunnerDeps): Promise<strin
       if (deps.recordAgentEvent && current) {
         totalCost = deps.recordAgentEvent(current, task, e, byteOffset);
         deps.db.updateRun(runId, { costUsd: totalCost });
-      } else if (typeof e.costUsd === 'number' && Number.isFinite(e.costUsd) && e.costUsd >= 0) {
-        totalCost = (totalCost ?? 0) + e.costUsd;
+      } else {
+        const cost = reportedCost(totalCost, e, deps.adapter, reportedCumulativeCost);
+        totalCost = cost.total;
+        reportedCumulativeCost = cost.previous;
         deps.db.updateRun(runId, { costUsd: totalCost });
+      }
+      if (e.kind === 'result' && e.outcome === 'failure') {
+        providerFailed = true;
+        deps.db.appendEvent(runId, providerFailureKind(activeAttempt), e.text, deps.now());
       }
       if (e.prNumber != null) {
         prNumber = e.prNumber;
@@ -394,6 +416,9 @@ export async function startRun(task: AgentTask, deps: RunnerDeps): Promise<strin
     };
 
     for (let attempt: number = 1; attempt <= maxAttempts; attempt += 1) {
+      activeAttempt = attempt;
+      providerFailed = false;
+      reportedCumulativeCost = null;
       if (attempt > 1) {
         deps.db.updateRun(runId, { attempt, logOffset: 0 });
         onEvent({ kind: 'log', text: `retry ${attempt}/${maxAttempts}` });
@@ -418,7 +443,7 @@ export async function startRun(task: AgentTask, deps: RunnerDeps): Promise<strin
       }
 
       if (typeof outcome === 'number') runningHost = null;
-      ok = typeof outcome === 'number' && outcome === 0;
+      ok = typeof outcome === 'number' && outcome === 0 && !providerFailed;
       if (ok) break;
 
       if (outcome === 'stopped' || deps.isStopped?.()) {
@@ -463,7 +488,9 @@ export async function reattachRun(row: RunRow, deps: RunnerDeps): Promise<void |
   try {
     const task: AgentTask = JSON.parse(row.taskJson ?? '{}') as AgentTask;
     let totalCost: number | null = row.costUsd ?? null;
+    let reportedCumulativeCost: number | null = deps.adapter.metadata?.costReporting === 'cumulative' ? totalCost : null;
     let prNumber: number | null = row.prNumber ?? null;
+    let providerFailed = hasProviderFailure(row, deps);
 
     const branch: string = task.prBranch ?? `agent/${runId}`;
 
@@ -474,9 +501,15 @@ export async function reattachRun(row: RunRow, deps: RunnerDeps): Promise<void |
       if (deps.recordAgentEvent && current) {
         totalCost = deps.recordAgentEvent(current, task, e, byteOffset);
         deps.db.updateRun(runId, { costUsd: totalCost });
-      } else if (typeof e.costUsd === 'number' && Number.isFinite(e.costUsd) && e.costUsd >= 0) {
-        totalCost = (totalCost ?? 0) + e.costUsd;
+      } else {
+        const cost = reportedCost(totalCost, e, deps.adapter, reportedCumulativeCost);
+        totalCost = cost.total;
+        reportedCumulativeCost = cost.previous;
         deps.db.updateRun(runId, { costUsd: totalCost });
+      }
+      if (e.kind === 'result' && e.outcome === 'failure') {
+        providerFailed = true;
+        deps.db.appendEvent(runId, providerFailureKind(row.attempt), e.text, deps.now());
       }
       if (e.prNumber != null) {
         prNumber = e.prNumber;
@@ -490,7 +523,7 @@ export async function reattachRun(row: RunRow, deps: RunnerDeps): Promise<void |
       deps.pollClarifications?.(runId, row.attempt);
       const logOffset = readLogLines(logPath, row.logOffset ?? 0, consume, true);
       deps.db.updateRun(runId, { logOffset });
-      const ok: boolean = existingCode === 0;
+      const ok: boolean = existingCode === 0 && !providerFailed;
       prNumber = await resolvePrNumber(row.repo, branch, prNumber, ok, deps, onEvent);
       await finalizeRun({ runId, task, deps, prNumber, totalCost, stopped: false, ok, worktreePath: worktreePath ?? '', onEvent });
       return;
@@ -506,7 +539,7 @@ export async function reattachRun(row: RunRow, deps: RunnerDeps): Promise<void |
         isCostCapped: () => deps.maxCostUsd != null && totalCost != null && totalCost >= deps.maxCostUsd,
       });
       if (outcome === 'capped') await deps.host.stop(ref);
-      const ok: boolean = typeof outcome === 'number' && outcome === 0;
+      const ok: boolean = typeof outcome === 'number' && outcome === 0 && !providerFailed;
       const stopped: boolean = outcome === 'stopped' || (deps.isStopped?.() ?? false);
       prNumber = await resolvePrNumber(row.repo, branch, prNumber, ok, deps, onEvent);
       await finalizeRun({ runId, task, deps, prNumber, totalCost, stopped, ok, worktreePath: worktreePath ?? '', onEvent });
@@ -545,7 +578,9 @@ function durableSpec(row: RunRow, task: AgentTask, session: DurableRunnerAttempt
 
 function durableEvents(row: RunRow, task: AgentTask, deps: RunnerDeps) {
   let totalCost = row.costUsd ?? null;
+  let reportedCumulativeCost: number | null = deps.adapter.metadata?.costReporting === 'cumulative' ? totalCost : null;
   let prNumber = row.prNumber ?? task.prNumber ?? null;
+  let providerFailed = hasProviderFailure(row, deps);
   const onEvent: OnEvent = event => {
     deps.db.appendEvent(row.id, event.kind, event.text, deps.now());
     deps.bus.publish(row.id, event);
@@ -555,12 +590,20 @@ function durableEvents(row: RunRow, task: AgentTask, deps: RunnerDeps) {
     if (!event) return;
     const current = deps.db.getRun(row.id);
     if (deps.recordAgentEvent && current) totalCost = deps.recordAgentEvent(current, task, event, byteOffset);
-    else if (typeof event.costUsd === 'number' && Number.isFinite(event.costUsd) && event.costUsd >= 0) totalCost = (totalCost ?? 0) + event.costUsd;
+    else {
+      const cost = reportedCost(totalCost, event, deps.adapter, reportedCumulativeCost);
+      totalCost = cost.total;
+      reportedCumulativeCost = cost.previous;
+    }
+    if (event.kind === 'result' && event.outcome === 'failure') {
+      providerFailed = true;
+      deps.db.appendEvent(row.id, providerFailureKind(row.attempt), event.text, deps.now());
+    }
     if (event.prNumber != null) prNumber = event.prNumber;
     deps.db.updateRun(row.id, { costUsd: totalCost, prNumber });
     onEvent(event);
   };
-  return { onEvent, consume, cost: () => totalCost, pr: () => prNumber };
+  return { onEvent, consume, cost: () => totalCost, pr: () => prNumber, failed: () => providerFailed };
 }
 
 async function attachOwnedHost(spec: LaunchSpec, ref: HostRef | null, deps: RunnerDeps, check: () => void, launching: boolean) {
@@ -600,8 +643,9 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
         tail.stop();
         const offset = readLogLines(spec.logPath, deps.db.getRun(row.id)?.logOffset ?? row.logOffset ?? 0, events.consume, true);
         deps.db.updateRun(row.id, { logOffset: offset });
-        session.terminal({ status: recordedStatus ?? (stopped ? 'stopped' : exit.exitCode === 0 ? 'succeeded' : 'failed'), exitCode: exit.exitCode, evidence: exit });
-        return { exitCode: exit.exitCode, stopped, capped };
+        const failed = events.failed();
+        session.terminal({ status: recordedStatus ?? (stopped ? 'stopped' : exit.exitCode === 0 && !failed ? 'succeeded' : 'failed'), exitCode: exit.exitCode, evidence: exit });
+        return { exitCode: exit.exitCode, stopped, capped, failed };
       }
       capped ||= deps.maxCostUsd != null && events.cost() != null && events.cost()! >= deps.maxCostUsd;
       if (!requestedStop && (stopped || capped)) {
@@ -621,12 +665,12 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
 }
 
 async function finalizeDurableAttempt(row: RunRow, task: AgentTask, session: DurableRunnerAttempt, deps: RunnerDeps,
-  events: ReturnType<typeof durableEvents>, outcome: { exitCode: number; stopped: boolean }, check: () => void) {
+  events: ReturnType<typeof durableEvents>, outcome: { exitCode: number; stopped: boolean; failed: boolean }, check: () => void) {
   check();
-  const prNumber = await resolvePrNumber(row.repo, task.prBranch ?? `agent/${row.id}`, events.pr(), outcome.exitCode === 0, deps, events.onEvent);
+  const prNumber = await resolvePrNumber(row.repo, task.prBranch ?? `agent/${row.id}`, events.pr(), outcome.exitCode === 0 && !outcome.failed, deps, events.onEvent);
   check();
   await finalizeRun({ runId: row.id, task, deps, prNumber, totalCost: events.cost(), stopped: outcome.stopped, stopStateIsFinal: true,
-    ok: outcome.exitCode === 0, worktreePath: row.worktreePath ?? '', onEvent: events.onEvent,
+    ok: outcome.exitCode === 0 && !outcome.failed, worktreePath: row.worktreePath ?? '', onEvent: events.onEvent,
     commit: async patch => {
       check();
       const current = deps.db.getRun(row.id);
@@ -691,7 +735,7 @@ async function startDurableRun(task: AgentTask, deps: RunnerDeps): Promise<strin
       await attachOwnedHost(spec, ref, deps, heartbeat.check, true);
       session.attachment('attached');
       const outcome = await monitorDurableAttempt(row, session, spec, ref, deps, heartbeat.check, events);
-      if (outcome.exitCode !== 0 && !outcome.stopped && !outcome.capped && attempt < Math.max(1, deps.maxAttempts ?? 1)) continue;
+      if ((outcome.exitCode !== 0 || outcome.failed) && !outcome.stopped && !outcome.capped && attempt < Math.max(1, deps.maxAttempts ?? 1)) continue;
       await finalizeDurableAttempt(row, task, session, deps, events, outcome, heartbeat.check);
       return runId;
     } catch (error) {

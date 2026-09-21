@@ -15,6 +15,15 @@ describe('ConfigStore', () => {
     expect(() => store.setOverride('AUTO_CLAIM_INTERVAL_MS', '1000', () => 'now')).toThrow();
   });
 
+  it('retains legacy agent values in the effective environment without exposing or editing them', () => {
+    db = openDb(':memory:'); db.setConfigOverride('AGENT_ADAPTER', 'command', '2026-09-21T00:00:00Z'); db.setConfigOverride('AGENT_CMD', 'legacy-agent', '2026-09-21T00:00:00Z');
+    const store = new ConfigStore({}, db);
+    expect(store.effectiveEnv()).toMatchObject({ AGENT_ADAPTER: 'command', AGENT_CMD: 'legacy-agent' });
+    expect(publicConfig(store.current())).not.toMatchObject({ AGENT_ADAPTER: expect.anything(), AGENT_CMD: expect.anything() });
+    expect(() => store.setOverride('AGENT_ADAPTER', 'codex', () => 'now')).toThrow();
+    expect(() => store.setOverride('AGENT_CMD', 'new-agent', () => 'now')).toThrow();
+  });
+
   it('exposes effective pre-PR defaults and updates overrides immediately', () => {
     db = openDb(':memory:');
     const store = new ConfigStore({}, db);
@@ -121,7 +130,8 @@ describe('ConfigStore', () => {
     db = openDb(':memory:');
     const store: ConfigStore = new ConfigStore({}, db);
     const pub: Record<string, unknown> = publicConfig(store.current());
-    expect(pub).toHaveProperty('AGENT_ADAPTER');
+    expect(pub).not.toHaveProperty('AGENT_ADAPTER');
+    expect(pub).not.toHaveProperty('AGENT_CMD');
     expect(pub).toHaveProperty('AGENT_MAX_ATTEMPTS');
     expect(pub).not.toHaveProperty('JIRA_API_TOKEN');
     expect(pub).not.toHaveProperty('GITHUB_TOKEN');

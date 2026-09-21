@@ -8,10 +8,12 @@ import { isPrePrAdapter, prePrAdapter } from './pre-pr';
 import type { PrePrSettings } from '../../../src/logic/prePrSettings';
 import type { PrePrPublicationConnection } from '../publication-client';
 
-export function restoreRunAdapter(row: Pick<RunRow, 'adapter' | 'taskJson'>, options: { runsDir: string; agentCmd?: string | null; publication?: PrePrPublicationConnection; reviewSettings?: PrePrSettings }): AgentAdapter {
-  if (isPrePrAdapter(row.adapter)) return prePrAdapter(row.adapter === 'pre-pr:claude-code' ? claudeCodeAdapter : codexAdapter, options.runsDir, options.reviewSettings, options.publication);
-  if (row.adapter === 'command') return commandAdapter(options.agentCmd ?? '');
-  const provider = row.adapter === 'claude-code' ? claudeCodeAdapter : codexAdapter;
+export function restoreRunAdapter(row: Pick<RunRow, 'adapter' | 'taskJson'>, options: { runsDir: string; agentCmd?: string | null; publication?: PrePrPublicationConnection; reviewSettings?: PrePrSettings; retained?: AgentAdapter }): AgentAdapter {
+  const id = row.adapter.replace(/^pre-pr:/, '');
+  const provider = options.retained ?? (id === 'claude-code' ? claudeCodeAdapter : id === 'codex' ? codexAdapter
+    : id === 'command' && options.agentCmd ? commandAdapter(options.agentCmd) : null);
+  if (!provider || provider.id !== id) throw new Error('The original agent provider is unavailable');
+  if (isPrePrAdapter(row.adapter)) return prePrAdapter(provider, options.runsDir, options.reviewSettings, options.publication);
   let value: unknown;
   try { value = row.taskJson ? JSON.parse(row.taskJson) : null; }
   catch { return provider; }

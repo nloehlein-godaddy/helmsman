@@ -1,3 +1,4 @@
+import type { AgentDeclarationV1, AgentProviderV1 } from './agent-provider';
 import type { TaskEditorDeclarationV1 } from './task-edit';
 import type { SourceSettingFieldsV1 } from './source-settings';
 import type { PricingEstimate, UsageQueryService, UsageSnapshot } from './usage';
@@ -32,9 +33,10 @@ export interface CommunicationDeclaration {
 
 export interface PluginBackendDefinition {
   readonly entry: string;
-  readonly provides: readonly { readonly id: 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling'; readonly version: 1; readonly localId: string }[];
+  readonly provides: readonly { readonly id: 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent'; readonly version: 1; readonly localId: string }[];
   readonly taskSources?: Readonly<Record<string, TaskSourceDeclaration>>;
   readonly pullRequests?: Readonly<Record<string, PullRequestDeclaration>>;
+  readonly agents?: Readonly<Record<string, AgentDeclarationV1>>;
   readonly scheduling?: Readonly<Record<string, SchedulingDeclaration>>;
   readonly communications?: Readonly<Record<string, CommunicationDeclaration>>;
   readonly settings: Readonly<Record<string, PluginSetting>>;
@@ -61,6 +63,7 @@ export interface PluginBackendContext {
   registerPricing(localId: string, provider: PricingProvider): void;
   registerTaskSource(localId: string, provider: TaskSourceProviderV1): void;
   registerPullRequest(localId: string, provider: PullRequestProviderV1): void;
+  registerAgent(localId: string, provider: AgentProviderV1): void;
   registerScheduling(localId: string, provider: SchedulingProviderV1): void;
   registerCommunication(localId: string, provider: CommunicationProviderV1): void;
 }

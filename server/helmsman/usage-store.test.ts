@@ -43,6 +43,16 @@ describe('core usage storage', () => {
     } finally { reopened.close(); }
   });
 
+  it('accepts a full canonical agent provider identity without truncating it', () => {
+    const store = openUsageStore(path);
+    try {
+      const provider = `${'a'.repeat(64)}.${'b'.repeat(63)}/${'c'.repeat(64)}`;
+      expect(provider).toHaveLength(193);
+      expect(store.recordUsage({ ...usage, provider })).toBe(true);
+      expect(store.listUsage([usage.runId])[0]?.provider).toBe(provider);
+    } finally { store.close(); }
+  });
+
   it('adopts the existing usage table without rewriting records or unrelated assessments', () => {
     const sql = new Database(path);
     const payload = JSON.stringify(usage);

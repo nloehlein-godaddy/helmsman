@@ -48,7 +48,7 @@ export function parseProviderUsage(input: unknown): ProviderUsage {
   if (attempt === null || attempt < 1 || attempt > 10000) throw new UsageValidationError('Invalid attempt');
   const result: ProviderUsage = {
     runId: usageRunId(value.runId), attempt, eventId: text(value.eventId, 'usage event ID', 256),
-    provider: text(value.provider, 'provider', 80),
+    provider: text(value.provider, 'provider', 193),
     model: value.model === undefined || value.model === null ? null : text(value.model, 'model', 160),
     inputTokens: number(value.inputTokens, 'input tokens', true),
     cachedInputTokens: number(value.cachedInputTokens, 'cached input tokens', true),

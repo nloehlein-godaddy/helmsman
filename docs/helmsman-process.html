@@ -206,6 +206,15 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <p class="limit-note">Changed or stale proposals cannot launch. See <a href="scheduling-authoring.md">scheduling authoring</a>.</p>
 </section>
+<section aria-labelledby="agent-provider-heading">
+<h2 class="section-heading" id="agent-provider-heading">Agent-provider selection and execution</h2>
+<div class="host-options">
+<article class="flow-step"><h3>Immutable selection → retained closure</h3><p>One writer and ordered reviewers retain exact package artifacts, nonsecret settings and provider metadata. Recovery resolves that retained selection, never a current default.</p></article>
+<article class="flow-step"><h3>Core prompt/workflow → SDK-only provider</h3><p>Core renders prompts and effective model/effort, owns host, workflow, recovery and completion. Provider metadata declares skills, delegation, Docker and cost semantics.</p></article>
+<article class="flow-step"><h3>Validated events → explicit failure gate</h3><p>A result failure is persisted as attempt evidence and fails an exit-zero process. Unknown is not failure. Codex uses review-agent metadata; Claude uses native subagents.</p></article>
+</div>
+<p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent extraction has passed focused and installed acceptance checks; hosts, workflows and triggers remain Phase F work.</p>
+</section>
 <section aria-labelledby="profile-navigation-heading">
 <h2 class="section-heading" id="profile-navigation-heading">Header identity and installed-page discovery</h2>
 <div class="host-options">

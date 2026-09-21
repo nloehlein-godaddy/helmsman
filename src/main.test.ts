@@ -68,7 +68,7 @@ describe('DashboardView settings interactions', () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ config: { AGENT_ADAPTER: 'claude-code' }, overridden: [] }),
+          json: async () => ({ config: { AGENT_MAX_ATTEMPTS: 1 }, overridden: [] }),
         } as unknown as Response;
       }
       if (url.includes('/api/agents')) {
@@ -83,12 +83,12 @@ describe('DashboardView settings interactions', () => {
     await view.refresh();
 
     root.querySelector<HTMLButtonElement>('.page-tab[data-view="config"]')!.click();
-    await vi.waitFor(() => expect(root.querySelector('.config-row[data-key="AGENT_ADAPTER"]')).not.toBeNull());
+    await vi.waitFor(() => expect(root.querySelector('.config-row[data-key="AGENT_MAX_ATTEMPTS"]')).not.toBeNull());
 
-    const row: HTMLElement | null = root.querySelector<HTMLElement>('.config-row[data-key="AGENT_ADAPTER"]');
+    const row: HTMLElement | null = root.querySelector<HTMLElement>('.config-row[data-key="AGENT_MAX_ATTEMPTS"]');
     expect(row).not.toBeNull();
     const input: HTMLInputElement = row!.querySelector<HTMLInputElement>('.config-input')!;
-    input.value = 'codex';
+    input.value = '2';
     row!.querySelector<HTMLButtonElement>('.config-save')!.click();
 
     await vi.waitFor(() => {
@@ -105,7 +105,7 @@ describe('DashboardView settings interactions', () => {
         String(requestInput).includes('/api/config') && (requestInit as RequestInit | undefined)?.method === 'PUT',
     );
     const putBody: unknown = JSON.parse((putCall![1] as RequestInit).body as string);
-    expect(putBody).toEqual({ key: 'AGENT_ADAPTER', value: 'codex' });
+    expect(putBody).toEqual({ key: 'AGENT_MAX_ATTEMPTS', value: '2' });
   });
 
   it('shows an inline error and skips refresh when a config save fails', async () => {
@@ -117,7 +117,7 @@ describe('DashboardView settings interactions', () => {
         return {
           ok: false,
           status: 400,
-          json: async () => ({ error: 'invalid adapter' }),
+          json: async () => ({ error: 'invalid setting' }),
         } as unknown as Response;
       }
       if (url.includes('/api/config')) {
@@ -125,7 +125,7 @@ describe('DashboardView settings interactions', () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ config: { AGENT_ADAPTER: 'claude-code' }, overridden: [] }),
+          json: async () => ({ config: { AGENT_MAX_ATTEMPTS: 1 }, overridden: [] }),
         } as unknown as Response;
       }
       if (url.includes('/api/agents')) {
@@ -141,17 +141,17 @@ describe('DashboardView settings interactions', () => {
     expect(configGetCalls).toBe(1);
 
     root.querySelector<HTMLButtonElement>('.page-tab[data-view="config"]')!.click();
-    await vi.waitFor(() => expect(root.querySelector('.config-row[data-key="AGENT_ADAPTER"]')).not.toBeNull());
+    await vi.waitFor(() => expect(root.querySelector('.config-row[data-key="AGENT_MAX_ATTEMPTS"]')).not.toBeNull());
     const afterEnter: number = configGetCalls;
 
-    const row: HTMLElement | null = root.querySelector<HTMLElement>('.config-row[data-key="AGENT_ADAPTER"]');
+    const row: HTMLElement | null = root.querySelector<HTMLElement>('.config-row[data-key="AGENT_MAX_ATTEMPTS"]');
     expect(row).not.toBeNull();
     const input: HTMLInputElement = row!.querySelector<HTMLInputElement>('.config-input')!;
-    input.value = 'not-a-real-adapter';
+    input.value = 'not-a-valid-limit';
     row!.querySelector<HTMLButtonElement>('.config-save')!.click();
 
     await vi.waitFor(() => {
-      expect(row!.querySelector<HTMLElement>('.config-error')?.textContent).toBe('invalid adapter');
+      expect(row!.querySelector<HTMLElement>('.config-error')?.textContent).toBe('invalid setting');
     });
     expect(configGetCalls).toBe(afterEnter);
   });

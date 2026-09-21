@@ -41,7 +41,7 @@ import { createServerPageCatalog } from './plugins/page-catalog';
 import { handlePluginRequest } from './plugins/http';
 import { applicationRoot, isHostCoordinatorCommand, retainedRuntimePath } from './runtime-paths';
 import { readFile, writeFile } from 'node:fs/promises';
-import { extname, join, normalize, sep } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -69,6 +69,11 @@ import { openOutcomeStore, createOutcomeTelemetrySink } from './outcomes';
 import { openUsageStore } from './usage-store';
 import { createUsageQueryService } from './usage-service';
 import { builtinPricing } from './plugins/builtin-pricing';
+import { builtinAgents } from './plugins/builtin-agents';
+import { resolveAgentSelection, assertAgentSelectionCurrent } from './agent-selection';
+import { parseAgentSelectionV1 } from './agent-providers';
+import { mergeExecutionArtifacts, loadExecutionAgents, verifyAgentExecution } from './agent-execution';
+import { readAgentProviderSelection, initializeAgentProviderSelection, initializeCommandAgentSettings } from './plugins/data';
 import { builtinScheduling } from './plugins/builtin-scheduling';
 import { initializeSchedulingInterval } from './plugins/data';
 import { resolveSelectedSchedulingProvider } from './scheduling-runtime';
@@ -110,9 +115,6 @@ import { handleRunLog } from './run-log';
 import { startRun, reattachRun, type RunnerDeps } from './runner';
 import { resumeFailedPrePrRun, ResumeError } from './resume';
 import { hasCmux, hasWezTerm, pickHost, detachedHost, type HostRef, type RunHost } from './run-host';
-import { claudeCodeAdapter } from './agents/claude-code';
-import { commandAdapter } from './agents/command';
-import { codexAdapter } from './agents/codex';
 import { isPrePrAdapter, prePrAdapter } from './agents/pre-pr';
 import { dockerReviewAdapter } from './agents/docker-review';
 import { restoreRunAdapter } from './agents/restore';
@@ -175,7 +177,7 @@ const pm: ProcessManager = new ProcessManager(maxConcurrency, { reservations: ()
 } });
 const bus: RunBus = new RunBus();
 const AGENTS_ROOT: string = process.env.AGENTS_ROOT ?? process.cwd();
-const RUNS_DIR: string = process.env.RUNS_DIR ?? join(AGENTS_ROOT, '.helmsman-runs');
+const RUNS_DIR: string = resolve(process.env.RUNS_DIR ?? join(AGENTS_ROOT, '.helmsman-runs'));
 mkdirSync(RUNS_DIR, { recursive: true });
 const runtimeArtifactsRoot = join(RUNS_DIR, '.runtime-artifacts');
 const currentRuntime = await retainLegacyRuntime(applicationRoot(), runtimeArtifactsRoot);
@@ -187,7 +189,16 @@ const outcomeStore = openOutcomeStore(persistence.sql, undefined, usageStore);
 const runTelemetry = openRunTelemetry(persistence.sql, usageStore, createOutcomeTelemetrySink(outcomeStore));
 const usageQueries = createUsageQueryService({ db, usage: usageStore });
 initializeSchedulingInterval(pluginDirectory(), builtinScheduling.package, configStore.current().autoClaimIntervalMs);
-const builtinBackends = [builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
+const agentDefaults = { writer: 'helmsman.agent-codex/codex', reviewers: ['helmsman.agent-codex/codex', 'helmsman.agent-claude/claude-code'] };
+function canonicalAgentId(id: string): string {
+  return ({ codex: 'helmsman.agent-codex/codex', 'claude-code': 'helmsman.agent-claude/claude-code', command: 'helmsman.agent-command/command' } as Record<string, string>)[id] ?? id;
+}
+initializeAgentProviderSelection(pluginDirectory(), { writer: canonicalAgentId(configStore.current().agentAdapter), reviewers: null });
+const commandAgentPackage = builtinAgents.find(value => value.package.manifest.id === 'helmsman.agent-command')?.package;
+if (commandAgentPackage && initializeCommandAgentSettings(pluginDirectory(), commandAgentPackage, configStore.current().agentCmd)) {
+  process.stderr.write('Legacy command agent requires an explicit nonsecret commandTemplate setting on helmsman.agent-command before new launches.\n');
+}
+const builtinBackends = [...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -500,7 +511,7 @@ function pullRequestRegistration(binding: ProviderBinding, purpose: 'admission' 
   return backendPlugins.pullRequests.resolve({ providerId: binding.contributionId, pluginId: binding.pluginId, artifactHash: binding.artifactHash,
     contractVersion: 1, connectionId: null, credentialHandle: null }, purpose);
 }
-function providerArtifacts(binding: ProviderBinding): readonly ArtifactBinding[] {
+function providerArtifacts(binding: Pick<ProviderBinding, 'pluginId' | 'artifactHash'>): readonly ArtifactBinding[] {
   const result = new Map<string, ArtifactBinding>();
   function visit(pluginId: string, artifactHash: string): void {
     const prior = result.get(pluginId);
@@ -697,7 +708,8 @@ function runnerDurability(cfg: AppConfig) {
       const expectedHost = host.kind === 'docker' && savedRun && (isPrePrAdapter(savedRun.adapter) || savedRun.adapter.startsWith('docker-review:')) ? 'detached' : host.kind;
       if (hostBinding?.contributionId !== expectedHost) throw new Error('Restore the retained worker host before recovery');
       await verifyEffectArtifacts(snapshot.artifacts);
-      const expected = snapshot.bindings.some(binding => binding.capability === 'helmsman/task-source') ? sourceExecutionSettings(cfg) : legacyExecutionSettings(cfg);
+      verifyAgentExecution(JSON.parse(savedRun.taskJson) as AgentTask, snapshot);
+      const expected = snapshot.bindings.some(binding => binding.capability === 'helmsman/task-source') ? sourceExecutionSettings(cfg, snapshot.settings.agents !== undefined) : legacyExecutionSettings(cfg, snapshot.settings.agents !== undefined);
       if (persistenceHash(snapshot.settings.execution) !== persistenceHash(expected)) throw new Error('Execution settings or connection identity changed; restore the retained binding before recovery');
       if (snapshot.workflowSnapshotId && !workflows.resolveSnapshot(snapshot.workflowSnapshotId)) throw new Error('Retained workflow snapshot is unavailable');
     },
@@ -786,10 +798,22 @@ function pollCreatedPrReviews(): Promise<void> {
   return createdPrReviews.poll().catch((error: unknown) => { process.stderr.write(`Created PR review queue failed: ${String(error)}\n`); });
 }
 
+async function retainedRunAgents(row: RunRow) {
+  const task = row.taskJson ? JSON.parse(row.taskJson) as AgentTask : null;
+  if (!task?.agentSelection) return null;
+  const snapshot = executionSnapshot(row);
+  if (persistenceHash(nonsecretExecutionTask(task)) !== persistenceHash(snapshot.task)) throw new Error('Saved task differs from its immutable execution snapshot');
+  verifyAgentExecution(task, snapshot);
+  return loadExecutionAgents({ ...task, agentRuntime: { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: snapshot.artifacts } });
+}
+
 async function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null }): Promise<AttachmentHandshake> {
   const cfg = executions.attempt({ runId: row.id, attempt: row.attempt })
     ? restoreExecutionConfig(executionSnapshot(row), loadConfig({ ...configStore.effectiveEnv(), JIRA_ENABLED: 'true' })) : configStore.current();
-  const adapter = restoreRunAdapter(row, { runsDir: RUNS_DIR, agentCmd: cfg.agentCmd, reviewSettings: cfg.prePr, publication: isPrePrAdapter(row.adapter) ? publicationConnection(row.id) : undefined });
+  const retained = await retainedRunAgents(row);
+  let adapter: AgentAdapter;
+  try { adapter = restoreRunAdapter(row, { retained: retained?.writer, runsDir: RUNS_DIR, agentCmd: cfg.agentCmd, reviewSettings: cfg.prePr, publication: isPrePrAdapter(row.adapter) ? publicationConnection(row.id) : undefined }); }
+  catch (error) { await retained?.dispose(); throw error; }
   pm.add(row.id, row.repo, () => {
     recordStopRequest(row.id);
     control.stopped = true;
@@ -806,10 +830,12 @@ async function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: 
     },
     isStopped: () => control.stopped || stopRequested(row.id),
   };
-  const result = await reattachRun(row, deps);
-  if (!result) return { status: 'blocked', reason: 'Worker ownership needs verified recovery' };
-  if (result.status !== 'attached') { pm.remove(row.id); return result; }
-  return { ...result, completion: result.completion.finally(() => {
+  let result: Awaited<ReturnType<typeof reattachRun>>;
+  try { result = await reattachRun(row, deps); } catch (error) { await retained?.dispose(); pm.remove(row.id); throw error; }
+  if (!result) { await retained?.dispose(); pm.remove(row.id); return { status: 'blocked', reason: 'Worker ownership needs verified recovery' }; }
+  if (result.status !== 'attached') { await retained?.dispose(); pm.remove(row.id); return result; }
+  return { ...result, completion: result.completion.finally(async () => {
+    await retained?.dispose();
     const status = db.getRun(row.id)?.status;
     if (status && status !== 'running' && !taskSourceRuntime.claimForRun(row.id)) todos.finishRun(row.id, status);
     pm.remove(row.id);
@@ -833,6 +859,8 @@ async function resumeVoyage(runId: string): Promise<void> {
   if (sourceClaim && (!task?.source || task.source.claimId !== sourceClaim.id || task.source.taskSnapshotHash !== sourceClaim.taskSnapshotHash
     || task.source.instanceId !== sourceClaim.instance.id)) throw new ResumeError('The saved task no longer matches its retained source claim.');
   if (!task?.task && !task?.todoId && !cfg.jira) throw new ResumeError('Configure Jira before continuing this Jira voyage.');
+  const retained = await retainedRunAgents(row);
+  await retained?.dispose();
   const control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null };
   pm.add(row.id, row.repo, () => { recordStopRequest(row.id); control.stopped = true; void control.stop?.(); });
   try {
@@ -840,7 +868,7 @@ async function resumeVoyage(runId: string): Promise<void> {
       runsDir: RUNS_DIR, publication: publicationConnection(runId), now: () => new Date().toISOString(), isStopped: () => control.stopped,
       prepareTask: async task => {
         task.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: row.attempt + 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
-        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter === 'pre-pr:codex' ? 'codex' : 'claude-code', workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort });
+        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^pre-pr:/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort });
         if (prepared.task.dockerExecution) {
           if (host.kind !== 'docker') throw new ResumeError('Select the Docker host before continuing an isolated voyage.');
           prepared.task.dockerExecution = { ...prepared.task.dockerExecution, capability: gateway.issue(runId, 86_400_000).token };
@@ -897,18 +925,28 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   if (!capacity.ok) throw new Error(capacity.reason ?? 'Cannot launch while another voyage is active');
   const cfg: AppConfig = configStore.current();
   const priorRun = body.retryOf ? db.getRun(body.retryOf) : null;
-  const adapterId = priorRun?.adapter.replace(/^pre-pr:/, '') ?? body.adapter ?? cfg.agentAdapter;
+  const adapterId = priorRun?.adapter.replace(/^pre-pr:/, '') ?? body.adapter;
   const priorTask = priorRun?.taskJson ? JSON.parse(priorRun.taskJson) as AgentTask | null : null;
   if (priorTask && Boolean(priorTask.dockerExecution) !== (host.kind === 'docker')) throw new RetryError('Retry requires the original local or Docker execution mode.');
-  if (body.retryOf && adapterId === 'command' && !cfg.agentCmd) throw new RetryError('The original command agent is no longer configured. Configure it before retrying.');
+  if (priorRun && !priorTask?.agentSelection) throw new RetryError('Legacy agent bindings cannot be migrated by retry. Continue the original retained voyage or start a new voyage.');
+  const agentOptions = { root: pluginDirectory(), registry: backendPlugins.agents };
+  const selectedAgents = priorTask?.agentSelection
+    ? { selection: parseAgentSelectionV1(priorTask.agentSelection), revision: readAgentProviderSelection(pluginDirectory()).revision }
+    : resolveAgentSelection({ ...agentOptions, ...(adapterId ? { writer: canonicalAgentId(adapterId) } : {}),
+      reviewerCount: body.mode === 'review' || body.mode === 'rerun' ? 0 : cfg.prePr.reviewerCount, defaults: agentDefaults });
+  if (priorTask && priorRun) verifyAgentExecution(priorTask, executionSnapshot(priorRun));
+  const agentArtifacts = priorTask?.agentRuntime?.artifacts ?? mergeExecutionArtifacts(...[selectedAgents.selection.writer, ...selectedAgents.selection.reviewers].map(record => providerArtifacts(record.binding)));
+  const agentRuntime = { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: agentArtifacts };
+  const selectedWriterId = selectedAgents.selection.writer.binding.providerId;
   let sourceSelection = taskSourceRuntime.selection(body, body.retryOf);
   if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
   let launchJson = launchIntentJson(body);
-  const admissionArtifacts = [currentRuntime.artifact, ...(sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : [])];
+  const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
   persistence.transaction(() => {
+    assertAgentSelectionCurrent(agentOptions, selectedAgents);
     const scheduling = taskSourceRuntime.schedule.assertAdmission(body);
-    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), ...(scheduling ? { scheduling } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
-      settings: sourceSelection ? sourceExecutionSettings(cfg) : legacyExecutionSettings(cfg), artifacts: admissionArtifacts }, maxConcurrency); };
+    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, ...(scheduling ? { scheduling } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
+      settings: sourceSelection ? sourceExecutionSettings(cfg, true) : legacyExecutionSettings(cfg, true), artifacts: admissionArtifacts }, maxConcurrency); };
     if (sourceSelection) taskSourceRuntime.reserve(runId, body.repo, sourceSelection, admit, body.retryOf);
     else admit();
   });
@@ -920,17 +958,11 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
     admissionController.abort();
     void control.stop?.();
   });
-  const adapter: AgentAdapter =
-    adapterId === 'command' && cfg.agentCmd
-      ? commandAdapter(cfg.agentCmd)
-      : adapterId === 'claude-code'
-        ? claudeCodeAdapter
-        : codexAdapter;
-  if (adapterId === 'command' && !cfg.agentCmd) {
-    process.stderr.write('AGENT_ADAPTER=command but AGENT_CMD is empty; using codex\n');
-  }
   void (async (): Promise<void> => {
+    let loadedAgents: Awaited<ReturnType<typeof loadExecutionAgents>> | undefined;
     try {
+      loadedAgents = await loadExecutionAgents({ agentSelection: selectedAgents.selection, agentRuntime }, admissionController.signal);
+      const adapter = loadedAgents.writer;
       let taskObj: AgentTask;
       if (sourceSelection) {
         const preparedSource = await taskSourceRuntime.prepare(runId, body.repo, sourceSelection, admissionController.signal, body.retryOf);
@@ -984,7 +1016,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         if (body.headSha && pr.headSha !== body.headSha) throw new Error('PR changed before review launch; a new review is needed for the latest revision');
         const scope = cfg.github ? await fetchReviewScope(cfg.github, body.repo, pr.number) : null;
         if (body.headSha && scope?.headSha && scope.headSha !== body.headSha) throw new Error('PR changed during review preparation; a new review is needed for the latest revision');
-        const choice = selectReviewModel(scope?.headSha === pr.headSha ? scope : null, adapter.id, body);
+        const choice = selectReviewModel(scope?.headSha === pr.headSha ? scope : null, adapter.metadata ?? adapter.id, body);
         taskObj = {
           ticketId: 'review', title: `review #${pr.number}`, repo: body.repo,
           jiraBaseUrl: cfg.jira?.baseUrl ?? '',
@@ -996,6 +1028,8 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         const ticketId: string = body.ticketId ?? 'freeform';
         taskObj = { ticketId, title: body.title ?? ticketId, repo: body.repo, jiraBaseUrl: cfg.jira?.baseUrl ?? '', task: body.task };
       }
+      taskObj.agentSelection = selectedAgents.selection;
+      taskObj.agentRuntime = agentRuntime;
       taskObj.model ??= body.model;
       taskObj.effort ??= body.effort;
       if (body.retryOf) {
@@ -1005,8 +1039,11 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       }
       if (host.kind === 'docker') {
         if (taskObj.prBranch && !taskObj.review) throw new Error('Docker branch reruns require host publication support; use the trusted local run host for this mode.');
-        if (adapter.id === 'codex' && !process.env.OPENAI_API_KEY || adapter.id === 'claude-code' && !process.env.ANTHROPIC_API_KEY) throw new Error('Configure the writer provider API key on the host before Docker execution.');
-        if (!taskObj.review && cfg.prePr.reviewerCount > 1 && (!process.env.OPENAI_API_KEY || !process.env.ANTHROPIC_API_KEY)) throw new Error('Docker dual review requires both provider API keys on the host.');
+        for (const record of [selectedAgents.selection.writer, ...selectedAgents.selection.reviewers]) {
+          const transport = record.metadata.docker;
+          if (!transport) throw new Error('Selected agent does not support Docker execution');
+          if (transport === 'openai-responses' && !process.env.OPENAI_API_KEY || transport === 'anthropic-messages' && !process.env.ANTHROPIC_API_KEY) throw new Error('Configure the selected agent API key on the host before Docker execution.');
+        }
         const image = priorTask?.dockerExecution?.image ?? (await dockerRun(['docker', 'image', 'inspect', '--format', '{{.Id}}', process.env.HELMSMAN_DOCKER_IMAGE!])).stdout.trim();
         if (!/^sha256:[a-f\d]{64}$/.test(image)) throw new Error('Docker image identity could not be pinned');
         const capability = gateway.issue(runId, 86_400_000);
@@ -1014,8 +1051,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       }
       taskObj.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
       const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task: taskObj,
-        provider: adapter.id === 'codex' ? 'codex' : adapter.id === 'claude-code' ? 'claude-code' : undefined, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort,
-        skills: adapter.id === 'codex' && taskObj.review || !taskObj.review && !taskObj.prBranch && (adapter.id === 'codex' || cfg.prePr.reviewerCount > 1) ? ['review-agent'] : [] });
+        provider: adapter.id, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort });
       taskObj = prepared.task;
       const runAdapter = !taskObj.review && !taskObj.prBranch ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.dockerExecution ? dockerReviewAdapter(adapter) : adapter;
       admissionController.signal.throwIfAborted();
@@ -1047,7 +1083,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       if (db.getRun(runId)) db.updateRun(runId, { status: 'failed', endedAt: ts });
       else db.insertRun({
         id: runId, ticketId: body.ticketId ?? body.mode ?? 'freeform', repo: body.repo,
-        adapter: adapter.id, status: 'failed', attempt: 1, prNumber: body.prNumber ?? null,
+        adapter: selectedWriterId, status: 'failed', attempt: 1, prNumber: body.prNumber ?? null,
         startedAt: ts, endedAt: ts, costUsd: null, worktreePath: null, launchJson,
       });
       db.appendEvent(runId, 'error', message, ts);
@@ -1055,6 +1091,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       bus.publish(runId, { kind: 'error', text: message });
       bus.publish(runId, { kind: 'run-complete', text: 'failed' });
     } finally {
+      await loadedAgents?.dispose();
       const finalRun = db.getRun(runId);
       if (finalRun?.status === 'failed' && !finalRun.taskJson && !outcomeStore.getAssessment(runId)) {
         outcomeStore.saveAssessment({ runId, state: 'not-assessed', outcome: 'unknown', summary: 'Launch preflight failed before execution.', evidence: [], failureStage: 'preflight', correctionRounds: null });

@@ -132,7 +132,7 @@ export function validateExecutionSnapshot(value: unknown): ExecutionSnapshotInpu
       || !(binding.connectionId === null || nonempty(binding.connectionId))
       || !(binding.credentialHandle === null || nonempty(binding.credentialHandle))
       || binding.credentialHandle !== null && binding.connectionId === null) throw new PersistenceValidationError('Invalid execution provider binding');
-    const selection = `${String(binding.role)}:${binding.capability}`;
+    const selection = `${String(binding.role)}:${binding.capability}${binding.role === 'agent' && binding.capability === 'helmsman/agent' ? `:${binding.contributionId}` : ''}`;
     if (selections.has(selection)) throw new PersistenceValidationError('Ambiguous execution provider binding');
     selections.add(selection);
   }

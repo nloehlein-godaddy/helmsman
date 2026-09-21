@@ -1,6 +1,7 @@
 import type { AgentTask } from './agents/adapter';
+import { isContributionId } from '../../src/plugins/manifest';
 
-export type PrePrReviewerId = 'codex' | 'claude-code';
+export type PrePrReviewerId = string;
 
 export const PRE_PR_REVIEW_SUMMARY_LIMIT = 2000;
 
@@ -35,7 +36,7 @@ export interface PrePrResumeCheckpoint {
 }
 
 export interface PrePrOptions {
-  writerId: PrePrReviewerId;
+  writerId: string;
   reviewerIds: string[];
   maxRounds?: number;
   resume?: PrePrResumeCheckpoint;
@@ -144,12 +145,13 @@ export async function runPrePrWorkflow(task: AgentTask, options: PrePrOptions): 
   if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5) {
     throw new PrePrGateError('review round limit must be between 1 and 5.');
   }
-  if (!['codex', 'claude-code'].includes(options.writerId) || !Array.isArray(options.reviewerIds)
-    || options.reviewerIds.length < 1 || options.reviewerIds.length > 2
+  const validProvider = (id: string) => id === 'codex' || id === 'claude-code' || isContributionId(id);
+  if (!validProvider(options.writerId) || !Array.isArray(options.reviewerIds)
+    || options.reviewerIds.length < 1 || options.reviewerIds.length > 8
     || new Set(options.reviewerIds).size !== options.reviewerIds.length
     || !options.reviewerIds.includes(options.writerId)
-    || options.reviewerIds.some(id => !['codex', 'claude-code'].includes(id))) {
-    throw new PrePrGateError('reviewers must include the writer CLI and each selected alternate exactly once.');
+    || options.reviewerIds.some(id => !validProvider(id))) {
+    throw new PrePrGateError('reviewers must include the writer provider and each selected alternate exactly once.');
   }
   const checkStopped = () => {
     if (options.isStopped?.()) throw new PrePrGateError('voyage stopped; publication blocked.');

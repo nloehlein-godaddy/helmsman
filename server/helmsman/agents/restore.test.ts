@@ -9,6 +9,14 @@ const task: AgentTask = { ticketId: 'T-1', title: 'Review', repo: 'org/repo', ji
   dockerExecution: { image: 'helmsman:test', runId: 'run-1', gatewayUrl: 'http://host.docker.internal:8790', capability: 'a'.repeat(64) } };
 
 describe('restored run adapters', () => {
+  it('rejects unknown providers and requires the exact retained replacement', () => {
+    const row = { adapter: 'example.agent/worker', taskJson: null };
+    expect(() => restoreRunAdapter(row, { runsDir: '/runs' })).toThrow('original agent provider');
+    expect(() => restoreRunAdapter(row, { runsDir: '/runs', retained: codexAdapter })).toThrow('original agent provider');
+    const retained = { ...codexAdapter, id: row.adapter };
+    expect(restoreRunAdapter(row, { runsDir: '/runs', retained })).toBe(retained);
+    expect(restoreRunAdapter({ ...row, adapter: `pre-pr:${row.adapter}` }, { runsDir: '/runs', retained }).id).toBe(`pre-pr:${row.adapter}`);
+  });
   it.each(['codex', 'claude-code'])('restores structured Docker review events for persisted %s runs', adapter => {
     const restored = restoreRunAdapter({ adapter, taskJson: JSON.stringify(task) }, { runsDir: '/runs' });
     const event = { kind: 'usage', text: 'Review usage', provider: adapter, model: 'review-model', stage: 'review', round: 1,

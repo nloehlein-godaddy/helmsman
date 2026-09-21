@@ -1,4 +1,10 @@
+import type { AgentProviderMetadataV1 } from '../../../src/plugins/agent-provider';
+import type { AgentSelectionV1 } from '../agent-providers';
+import type { ArtifactBinding } from '../execution-store';
+
 export interface AgentTask {
+  agentSelection?: AgentSelectionV1;
+  agentRuntime?: { pluginsRoot: string; runtimeArtifactsRoot: string; artifacts: readonly ArtifactBinding[] };
   source?: { version: 1; taskSnapshotHash: string; claimId: string; instanceId: string };
   contactHints?: { explicitContactId?: string; assigneeId?: string; reporterId?: string };
   ticketId: string;
@@ -53,6 +59,7 @@ export interface AgentUsage {
 
 export interface AgentEvent {
   kind: AgentEventKind;
+  outcome?: 'success' | 'failure' | 'unknown';
   text: string;
   costUsd?: number;
   prNumber?: number;
@@ -73,6 +80,7 @@ export interface AgentResult {
 
 export interface AgentAdapter {
   readonly id: string;
+  readonly metadata?: AgentProviderMetadataV1;
   buildCommand(task: AgentTask): { cmd: string; args: string[] };
   parseLine(line: string): AgentEvent | null;
 }

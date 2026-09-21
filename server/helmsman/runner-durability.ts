@@ -115,6 +115,7 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
         if (previousRun && options.operations?.list({ runId: run.id }).some(operation => operation.status !== 'completed')) {
           throw new PersistenceConflictError('Settle the previous attempt’s external operations before continuing or retrying');
         }
+        let continuing = false;
         if (previousRun?.status === 'failed' && isPrePrAdapter(previousRun.adapter)) {
           const checkpoint = executions.checkpoint(`${run.id}:${previousRun.attempt}:pre-pr`);
           const retained = checkpoint ? executions.snapshot(checkpoint.snapshotId) : null;
@@ -123,8 +124,10 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
             if (persistenceHash(input[field]) !== persistenceHash(retained[field])) throw new PersistenceConflictError('Continuation bindings changed; a validated checkpoint migration is required');
           }
           input.provenance = { kind: 'admission', evidence: { checkpointId: checkpoint.id, checkpointSnapshotId: checkpoint.snapshotId } };
+          continuing = true;
         }
-        options.lifecycle?.assertAdmission(input);
+        if (continuing) options.lifecycle?.assertObligation(input);
+        else options.lifecycle?.assertAdmission(input);
         const base = join(options.runsDir, `${run.id}.attempt-${run.attempt}`);
         const prepared = executions.prepare({ snapshot: input, launchId: randomUUID(), maxConcurrency: options.maxConcurrency,
           paths: { worktree: run.worktreePath, log: `${base}.log`, exit: `${base}.exit`, spec: `${base}.json` } });

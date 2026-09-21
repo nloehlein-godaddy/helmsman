@@ -19,6 +19,7 @@ import { parsePublicationRequest, type PublicationRequest, type PublicationRespo
 import { publicationGit, type PublicationCommand } from './publication-git';
 export type { PublicationCommand } from './publication-git';
 import type { GatewayScope } from './scoped-gateway';
+import { parseAgentSelectionV1 } from './agent-providers';
 
 const exec = promisify(execFile);
 const object = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -56,9 +57,24 @@ export function createPublicationService(options: PublicationServiceOptions) {
     const approval = request.approved;
     const policy = object(object(snapshot.settings.execution)?.prePr);
     const task = object(snapshot.task);
-    const writer = snapshot.bindings.find(item => item.role === 'agent')?.contributionId.replace(/^pre-pr:/, '');
+    const selection = task?.agentSelection === undefined ? undefined : parseAgentSelectionV1(task.agentSelection);
+    const retainedReviewers = selection?.reviewers.map(record => record.binding.providerId);
+    const legacyWriter = snapshot.bindings.find(item => item.role === 'agent')?.contributionId.replace(/^pre-pr:/, '');
+    const legacyReviewers = legacyWriter === 'codex' || legacyWriter === 'claude-code'
+      ? policy?.reviewerCount === 1 ? [legacyWriter] : [legacyWriter, legacyWriter === 'codex' ? 'claude-code' : 'codex']
+      : undefined;
+    const expectedReviewers = retainedReviewers ?? legacyReviewers;
+    const retainedProviders = selection ? new Map([selection.writer, ...selection.reviewers]
+      .map(record => [record.binding.providerId, record])) : undefined;
+    const capturedProviders = snapshot.bindings.filter(binding => binding.role === 'agent' && binding.capability === 'helmsman/agent');
     if (!policy || approval.reviewers.length !== policy.reviewerCount || !Number.isSafeInteger(policy.maxRounds) || approval.round > Number(policy.maxRounds)
-      || !writer || !approval.reviewers.includes(writer as 'codex' | 'claude-code') || task?.review || task?.prBranch) throw new Error('Publication review set differs from the retained policy');
+      || !expectedReviewers || stableJson(approval.reviewers) !== stableJson(expectedReviewers)
+      || selection && !expectedReviewers.includes(selection.writer.binding.providerId)
+      || retainedProviders && (capturedProviders.length !== retainedProviders.size || capturedProviders.some(binding => {
+        const retained = retainedProviders.get(binding.contributionId)?.binding;
+        return !retained || retained.pluginId !== binding.pluginId || retained.artifactHash !== binding.artifactHash || binding.contractVersion !== 1;
+      }))
+      || task?.review || task?.prBranch) throw new Error('Publication review set differs from the retained policy');
     const metadataIdentity = { runId: snapshot.runId, ...approval.metadata };
     const metadata = parsePrMetadata(JSON.parse(Buffer.from(await artifacts.read(metadataIdentity)).toString()), task as unknown as AgentTask);
     const manifests = [await artifacts.verify(metadataIdentity)];

@@ -1,3 +1,4 @@
+import { agentExecutionSnapshot } from './agent-execution';
 import type { AppConfig } from '../config';
 import type { AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
@@ -17,7 +18,7 @@ export function restoreExecutionConfig(snapshot: ExecutionSnapshot, current: App
   const github = record(saved.github);
   if (jira && (!current.jira || jira.baseUrl !== current.jira.baseUrl || jira.email !== current.jira.email || typeof jira.project !== 'string')
     || github && (!current.github || github.host !== 'api.github.com' || github.author !== current.github.author)) throw new Error('Restore the recorded service connection before recovery');
-  if (saved.commandHash !== (current.agentCmd ? persistenceHash(current.agentCmd) : null)) throw new Error('Restore the recorded command agent before recovery');
+  if (snapshot.settings.agents === undefined && saved.commandHash !== (current.agentCmd ? persistenceHash(current.agentCmd) : null)) throw new Error('Restore the recorded command agent before recovery');
   const prePr = {} as PrePrSettings;
   const settings = record(saved.prePr);
   for (const definition of PRE_PR_SETTING_DEFINITIONS) {
@@ -37,10 +38,10 @@ export function nonsecretExecutionTask(task: AgentTask) {
   return persistedJson(JSON.parse(JSON.stringify(safeTask)));
 }
 
-export function legacyExecutionSettings(config: AppConfig) {
+export function legacyExecutionSettings(config: AppConfig, boundAgents = false) {
   return persistedJson({ maxAttempts: config.maxAttempts, maxCostUsd: config.maxCostUsd,
     botAccountId: config.botAccountId, statusInProgress: config.statusInProgress, statusInReview: config.statusInReview,
-    commandHash: config.agentCmd ? persistenceHash(config.agentCmd) : null, prePr: config.prePr,
+    commandHash: !boundAgents && config.agentCmd ? persistenceHash(config.agentCmd) : null, prePr: config.prePr,
     jira: config.jira ? { baseUrl: config.jira.baseUrl, email: config.jira.email, project: config.jira.project } : null,
     github: config.github ? { host: 'api.github.com', author: config.github.author } : null });
 }
@@ -61,10 +62,10 @@ export function legacyExecutionSnapshot(input: {
     binding('workflow', 'workflow', task.review ? 'review' : 'coding')];
   if (jiraIdentity) bindings.push(binding('effect', 'jira', 'jira-actions', jiraIdentity, 'jira-primary'));
   if (githubIdentity) bindings.push(binding('effect', 'github', 'github-publication', githubIdentity, 'github-primary'));
-  return { version: 1, runId: run.id, attempt: run.attempt, repo: run.repo,
+  return agentExecutionSnapshot({ version: 1, runId: run.id, attempt: run.attempt, repo: run.repo,
     logicalWork: { source, instance: source === 'jira' ? jiraIdentity ?? 'unconfigured' : source === 'github-review' ? githubIdentity ?? 'unconfigured' : 'local', taskId: task.todoId ?? task.ticketId },
     task: nonsecretExecutionTask(task), workflowSnapshotId: task.workflowSnapshotId ?? null,
-    artifacts: [artifact], bindings, settings: { execution: legacyExecutionSettings(config) },
+    artifacts: [artifact], bindings, settings: { execution: legacyExecutionSettings(config, Boolean(task.agentSelection)) },
     schemas: [{ owner: 'core.runs', minimum: 1, maximum: 1 }, { owner: 'core.execution', minimum: 1, maximum: 1 }],
-    provenance: { kind: 'admission', evidence: { runtimeHash: artifact.artifactHash } } };
+    provenance: { kind: 'admission', evidence: { runtimeHash: artifact.artifactHash } } }, task);
 }

@@ -20,6 +20,13 @@ describe('Docker review adapter', () => {
     expect(() => adapter.buildCommand({ ...task, review: false })).toThrow();
   });
 
+  it('advertises normalized delta costs for retained cumulative providers', () => {
+    const metadata = { version: 1 as const, label: 'Provider', defaults: { model: null, effort: null },
+      review: { low: { model: null, effort: null }, medium: { model: null, effort: null }, high: { model: null, effort: null } },
+      reviewSkills: [], reviewDelegation: 'none' as const, supportsPrePr: true, docker: null, costReporting: 'cumulative' as const };
+    expect(dockerReviewAdapter({ ...codexAdapter, id: 'example.agent/provider', metadata }).metadata?.costReporting).toBe('delta');
+  });
+
   it('directs outputs to isolated runtime paths without changing ordinary review filenames', () => {
     expect(buildPrompt(task)).toContain('`.agent-review.md` in the repo root');
     const prompt = buildPrompt({ ...task, reviewOutputPaths: { markdown: '/runtime/review.md', comments: '/runtime/review-comments.json' } });

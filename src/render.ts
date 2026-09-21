@@ -10,8 +10,6 @@ import { THEMES } from './data/themes';
 
 
 export const CONFIG_HELP: Record<string, string> = {
-  AGENT_ADAPTER: "Which agent runs tasks: 'codex' (default), 'claude-code', or 'command' (runs your custom AGENT_CMD). Example: codex",
-  AGENT_CMD: 'Shell command for the "command" adapter, run no-shell (argv only). Placeholders {ticket} {repo} {title} are substituted, then it receives the task prompt. Example: my-agent --repo {repo} --ticket {ticket}',
   get AGENT_MAX_ATTEMPTS() { return `Total attempts for existing-PR ${term('runs').toLowerCase()}, including the initial attempt. New coding ${term('runs').toLowerCase()} use the separate pre-PR review rounds. Example: 1`; },
   get AGENT_MAX_COST_USD() { return `Per-${term('run').toLowerCase()} spend ceiling in USD; the ${term('run').toLowerCase()} stops once exceeded. Blank means no cap. Example: 5.00`; },
   PRE_PR_REVIEWER_COUNT: 'Independent reviewer sessions per round: 1 uses the writer\'s CLI; 2 also uses the other supported CLI when installed. An installed reviewer that fails blocks publication. Example: 2',
@@ -184,7 +182,7 @@ export interface ConfigViewOpts {
 
 function configRowsHtml(uiConfig: UiConfig): string {
   const entries: [string, unknown][] = Object.entries(uiConfig.config ?? {})
-    .filter(([key]) => key !== 'AUTO_CLAIM_INTERVAL_MS' && !key.startsWith('JIRA_') && !key.startsWith('GITHUB_') && !key.startsWith('SLACK_') && !PRE_PR_CONFIG_KEYS.some((reviewKey) => reviewKey === key));
+    .filter(([key]) => key !== 'AUTO_CLAIM_INTERVAL_MS' && key !== 'AGENT_ADAPTER' && key !== 'AGENT_CMD' && !key.startsWith('JIRA_') && !key.startsWith('GITHUB_') && !key.startsWith('SLACK_') && !PRE_PR_CONFIG_KEYS.some((reviewKey) => reviewKey === key));
   if (entries.length === 0) return '<div class="empty-note">No configuration keys.</div>';
   return entries
     .map(([key, value]) => {
@@ -226,7 +224,7 @@ function prePrConfigPanel(uiConfig: UiConfig): string {
   return `
       <section class="panel config-panel pre-pr-config-panel" aria-labelledby="pre-pr-config-title">
         <div class="panel-head"><span class="panel-title" id="pre-pr-config-title">Pre-${term('pr')} ${term('review').toLowerCase()}</span></div>
-        <div class="config-warning">Adversarial ${term('reviews').toLowerCase()} run before a new coding ${term('run').toLowerCase()} publishes its ${term('pr')}. Every reviewer must approve the final commit. Changes apply to newly launched ${term('runs').toLowerCase()}; active ${term('runs').toLowerCase()} keep their settings. Supported CLIs: Codex and Claude Code. With only one installed, one reviewer runs.</div>
+        <div class="config-warning">Adversarial ${term('reviews').toLowerCase()} run before a new coding ${term('run').toLowerCase()} publishes its ${term('pr')}. Every reviewer must approve the final commit. Changes apply to newly launched ${term('runs').toLowerCase()}; active ${term('runs').toLowerCase()} keep their settings. The selected agent plugins supply the writer and ordered reviewers. Unavailable selected providers block launch.</div>
         <div class="config-list">${rows}</div>
       </section>`;
 }
@@ -267,7 +265,7 @@ export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): stri
       ${customization}
       <section class="panel config-panel">
         <div class="panel-head"><span class="panel-title">Runtime settings</span></div>
-        <div class="config-warning">Adapter and <span class="mono">AGENT_CMD</span> can run arbitrary commands &mdash; change with care. Auto-claim interval changes apply on restart.</div>
+        <div class="config-warning">Configure agent providers in Plugins, then select one with <span class="mono">helmsman plugins select-agent</span>. Runtime limit changes apply on restart.</div>
         <div class="config-list">
           ${configRowsHtml(uiConfig)}
         </div>

@@ -17,11 +17,40 @@ describe('pre-PR runtime boundaries', () => {
     const events: AgentEvent[] = [];
     const forward = stageEventEmitter(provider, { ...task, model: 'review-model', effort: 'high',
       prePr: { stage: 'review', baseSha: 'a'.repeat(40), reportPath: '/report', round: 2 } }, event => events.push(event));
-    for (const costUsd of [0, 1, 2]) forward({ kind: 'usage', text: 'Usage', costUsd, provider: 'spoofed', stage: 'implement', round: 0 });
+    for (const costUsd of [0, 1, 2]) forward({ kind: 'usage', text: 'Usage', costUsd, provider, stage: 'implement', round: 0 });
     expect(events.reduce((sum, event) => sum + (event.costUsd ?? 0), 0)).toBe(total);
     expect(events[0]?.costUsd).toBe(0);
     expect(events.every(event => event.provider === provider && event.model === 'review-model' && event.effort === 'high'
       && event.stage === 'review' && event.round === 2)).toBe(true);
+  });
+
+  it('converts cumulative provider costs to deltas independently for each stage wrapper', () => {
+    const provider: AgentAdapter = { id: 'example.agent/provider', metadata: { version: 1, label: 'Provider',
+      defaults: { model: null, effort: null }, review: { low: { model: null, effort: null }, medium: { model: null, effort: null }, high: { model: null, effort: null } },
+      reviewSkills: [], reviewDelegation: 'none', supportsPrePr: true, docker: null, costReporting: 'cumulative' },
+      buildCommand: () => ({ cmd: 'provider', args: [] }), parseLine: () => null };
+    const events: AgentEvent[] = [];
+    for (const costs of [[1, 3], [2, 5]]) {
+      const forward = stageEventEmitter(provider, task, event => events.push(event));
+      for (const costUsd of costs) forward({ kind: 'usage', text: 'Usage', costUsd });
+    }
+    expect(events.map(event => event.costUsd)).toEqual([1, 2, 2, 3]);
+  });
+
+  it('preserves explicit upstream billing identity for a canonical provider contribution', () => {
+    const metadata = { version: 1 as const, label: 'Provider',
+      defaults: { model: 'fixture-model', effort: 'low' }, review: { low: { model: 'fixture-model', effort: 'low' }, medium: { model: 'fixture-model', effort: 'medium' }, high: { model: 'fixture-model', effort: 'high' } },
+      reviewSkills: [], reviewDelegation: 'none' as const, supportsPrePr: true, docker: null, costReporting: 'delta' as const };
+    const provider: AgentAdapter = { id: 'example.agent/codex-reviewer', metadata,
+      buildCommand: () => ({ cmd: 'provider', args: [] }), parseLine: () => null };
+    const record = { version: 1 as const, binding: { providerId: provider.id, pluginId: 'example.agent', artifactHash: 'a'.repeat(64), contractVersion: 1 as const },
+      origin: 'external' as const, settings: {}, metadata };
+    const events: AgentEvent[] = [];
+    const forward = stageEventEmitter(provider, { ...task, agentSelection: { version: 1, writer: record, reviewers: [record] } }, event => events.push(event));
+    forward({ kind: 'usage', text: 'Usage', provider: 'codex', model: 'untrusted', costUsd: 1 });
+    forward({ kind: 'usage', text: 'Usage without upstream identity', costUsd: 2 });
+    expect(events.map(event => event.provider)).toEqual(['codex', 'example.agent/codex-reviewer']);
+    expect(events.every(event => event.model === 'fixture-model')).toBe(true);
   });
 
   it('requires an explicit matching local gate for tasks using clarification and permits legacy tasks', async () => {
@@ -135,6 +164,7 @@ describe('pre-PR runtime boundaries', () => {
   it('blocks nonzero exits and errors even when a child claims success', async () => {
     await expect(executePrePrStage(adapter('console.log(JSON.stringify({kind:"result",text:"done"}));process.exitCode=2'), task, tmpdir(), () => {}, new AbortController().signal)).rejects.toThrow('exited 2');
     await expect(executePrePrStage(adapter('console.log(JSON.stringify({kind:"error",text:"authentication failed"}))'), task, tmpdir(), () => {}, new AbortController().signal)).rejects.toThrow('reported an error');
+    await expect(executePrePrStage(adapter('console.log(JSON.stringify({kind:"result",outcome:"failure",text:"failed"}))'), task, tmpdir(), () => {}, new AbortController().signal)).rejects.toThrow('unsuccessful result');
   });
 
   it('stops stages on cancellation or timeout', async () => {
