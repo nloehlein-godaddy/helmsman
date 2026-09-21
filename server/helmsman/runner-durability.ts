@@ -81,8 +81,8 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
           executions.assertLease(owned());
           const current = executions.attempt(initial);
           if (!current || !['prepared', 'ready'].includes(current.preparation) || current.hostRef) return false;
-          if (current.outcome) return hasUnlaunchedOutcome(current);
-          if (!reason.trim()) throw new PersistenceConflictError('Preparation failure evidence is required');
+          if (current.outcome) return hasUnlaunchedOutcome(current) && current.outcome.status === status;
+          if (!['failed', 'stopped'].includes(status) || typeof reason !== 'string' || !reason.trim()) throw new PersistenceConflictError('Preparation failure evidence is required');
           executions.recordOutcome(owned(), { status, endedAt: now(), evidence: { kind: 'never-launched', reason,
             launchId: current.launchId, preparation: current.preparation } });
           return true;
@@ -93,6 +93,7 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
         if (row.id !== initial.runId || row.attempt !== initial.attempt || row.status === 'running') throw new PersistenceConflictError('Final execution status is invalid');
         const current = executions.attempt(initial);
         if (!current?.outcome) throw new PersistenceConflictError('Execution cannot finalize without terminal evidence');
+        if (hasUnlaunchedOutcome(current) && row.status !== current.outcome.status) throw new PersistenceConflictError('Never-launched execution status must match its terminal evidence');
         if (isPrePrAdapter(row.adapter) && row.status !== 'succeeded' && row.worktreePath && !hasUnlaunchedOutcome(current)) {
           executions.retainCheckpoint({ id: `${row.id}:${row.attempt}:pre-pr`, runId: row.id, attempt: row.attempt,
             snapshotId: snapshot.id, format: 'helmsman.pre-pr.pending-validation', formatVersion: 1, state: 'resumable',

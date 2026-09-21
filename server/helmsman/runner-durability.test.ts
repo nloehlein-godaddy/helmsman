@@ -101,6 +101,19 @@ describe('durable admission and runner integration', () => {
     attempt.close();
   });
 
+  it('keeps the recorded never-launched outcome immutable through finalization', async () => {
+    const { coordinator, executions, db } = setup();
+    const attempt = await coordinator.prepare(run, task);
+    expect(attempt.terminalUnlaunched('failed', 'Checkout unavailable')).toBe(true);
+    expect(attempt.terminalUnlaunched('stopped', 'Late Stop')).toBe(false);
+    expect(() => attempt.finalize({ ...db.getRun(run.id)!, status: 'succeeded' })).toThrow('must match its terminal evidence');
+    expect(executions.reservations()).toHaveLength(1);
+    attempt.finalize({ ...db.getRun(run.id)!, status: 'failed' });
+    expect(db.getRun(run.id)?.status).toBe('failed');
+    expect(executions.reservations()).toEqual([]);
+    attempt.close();
+  });
+
   it('fences stale coordinators from settling preparation after lease replacement', async () => {
     const { persistence, coordinator, executions, db } = setup();
     const stale = await coordinator.prepare(run, task);

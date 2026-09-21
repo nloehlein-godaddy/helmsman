@@ -11,6 +11,7 @@ import { openAdmissionStore } from './admission-store';
 import { createRunnerDurability } from './runner-durability';
 import { startRun, reattachRun, type RunnerDeps } from './runner';
 import { RunBus } from './event-bus';
+import type { LaunchSpec } from './run-host';
 import { installPluginArtifact } from './plugins/artifacts';
 import { loadRetainedAgentProvider } from './agent-retained-loader';
 import { parseAgentRetainedProviderV1 } from './agent-providers';
@@ -63,9 +64,11 @@ it('drains final retained-provider output after Stop and releases resources with
   const loaded = await loadRetainedAgentProvider({ pluginsRoot: root, runtimeArtifactsRoot: root, record, artifacts: [{ pluginId: 'audit.parser', artifactHash: archive.hash, packageVersion: '1.0.0', requires: [] }], signal: lifetime.providerSignal });
   const persistence = openPersistence(':memory:'); const db = openDb(persistence.sql); const executions = openExecutionStore(persistence);
   const durable = createRunnerDurability({ persistence, db, executions, runsDir: root, maxConcurrency: 1, snapshot, verify: async () => {} });
-  let stopped = false; let savedSpec: any; let stopTimer: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false; let savedSpec: LaunchSpec | undefined; let stopTimer: ReturnType<typeof setTimeout> | undefined;
   const ref = { kind: 'detached' as const, pid: 123 };
-  const stop = vi.fn(async () => { const receipt = JSON.parse(readFileSync(savedSpec.receiptPath, 'utf8')); writeFileSync(savedSpec.logPath, 'worker stopped cleanly\n'); writeFileSync(savedSpec.exitPath, JSON.stringify({ ...receipt, exitCode: 1 })); });
+  const stop = vi.fn(async () => {
+    if (!savedSpec?.receiptPath) throw new Error('Test worker has no launch receipt');
+    const receipt = JSON.parse(readFileSync(savedSpec.receiptPath, 'utf8')); writeFileSync(savedSpec.logPath, 'worker stopped cleanly\n'); writeFileSync(savedSpec.exitPath, JSON.stringify({ ...receipt, exitCode: 1 })); });
   const deps: RunnerDeps = { db, durable, bus: new RunBus(), runsDir: root, genId: () => 'parser-stop', now: () => new Date().toISOString(), pollIntervalMs: 5,
       adapter: agentProviderAdapter(record, loaded.provider), createWorktree: async () => ({ path: root, branch: 'agent/parser-stop' }), removeWorktree: async () => {}, isStopped: () => stopped,
       onLaunch() { stopTimer = setTimeout(() => { stopped = true; lifetime.stop(); void stop(); }, 20); },
