@@ -44,3 +44,22 @@ describe('standalone Bugs presentation', () => {
     await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug')); f.lifetime.abort();
   });
 });
+
+it('renders independent source cards and provider text literally without inventing scope links', async () => {
+  const f = fixture(); const second = { ...source, sourceId: '22222222-2222-4222-8222-222222222222', instanceId: 'second-source', label: 'Second source' };
+  f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo, galleons: [{ repo, sources: { status: 'available', value: [source, second] } }] } });
+  f.bugs.mockImplementation(async query => ({ status: 'available', value: { selection: query, report: { ...report, rows: [{ ...report.rows[0]!, title: '<img src=x onerror=alert(1)>', ref: { sourceId: query.sourceId, externalId: '1' } }] } } }));
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.bugs).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Second source')); expect(f.container.textContent).toContain('<img src=x onerror=alert(1)>'); expect(f.container.querySelector('img,script')).toBeNull(); f.lifetime.abort();
+});
+
+it('clears old rows during an active repository change and rejects a late previous-scope response', async () => {
+  const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
+  const nextRepo = 'other/repo'; const nextSource = { ...source, repo: nextRepo }; let finish!: () => void; const wait = new Promise<void>(resolve => { finish = resolve; });
+  f.bugs.mockImplementation(async query => { if (query.repo === repo) await wait; return { status: 'available', value: { selection: query, report: { ...report, repo: query.repo, rows: [{ ...report.rows[0]!, title: query.repo === repo ? 'Late former bug' : 'Current scoped bug' }] } } }; });
+  void instance.refresh?.(); await vi.waitFor(() => expect(f.bugs.mock.calls.length).toBe(2));
+  f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo: nextRepo, galleons: [{ repo: nextRepo, sources: { status: 'available', value: [nextSource] } }] } });
+  const nextActivity = new AbortController(); f.activity.abort(); await instance.update({ ...f.state, repo: nextRepo, activity: { repo: nextRepo, epoch: 2, active: true, signal: nextActivity.signal } });
+  expect(f.container.textContent).not.toContain('Actual bug'); await vi.waitFor(() => expect(f.container.textContent).toContain('Current scoped bug'));
+  finish(); await Promise.resolve(); await Promise.resolve(); expect(f.container.textContent).not.toContain('Late former bug'); expect(f.container.textContent).toContain('Current scoped bug'); f.lifetime.abort();
+});

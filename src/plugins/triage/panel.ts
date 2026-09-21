@@ -30,6 +30,8 @@ class TriagePanel implements PluginPanelInstance {
   private chosen: Selection | null;
   private priorities = [0, 1, 2, 3, 4]; private days = 0; private pageSize = 10;
   private until = new Date().toISOString(); private collapsed = new Set<string>();
+  private legacyCollapsedGroups = new Set<TaskTriageGroupV1>(); private expanded = new Set<string>();
+  private revealedRoute: string | null = null;
   private invalidSelection = false;
   private selectionDirty = false;
   private selectionSave = 0;
@@ -124,6 +126,17 @@ class TriagePanel implements PluginPanelInstance {
     catch { if (!this.disposed && save === this.selectionSave) { this.saveError = 'The source selection could not be saved. It remains selected in this panel.'; this.draw(); } }
   }
   private sectionKey(section: Section): string { return JSON.stringify([key(section.source), section.group]); }
+  private isCollapsed(section: Section): boolean {
+    const id = this.sectionKey(section);
+    return this.collapsed.has(id) || this.legacyCollapsedGroups.has(section.group) && !this.expanded.has(id);
+  }
+  private expand(section: Section): void { const id = this.sectionKey(section); this.collapsed.delete(id); this.expanded.add(id); }
+  private routeGroup(): TaskTriageGroupV1 | null {
+    const route = this.state.routeState;
+    if (route?.version !== 1 || !route.value || typeof route.value !== 'object' || Array.isArray(route.value)) return null;
+    const pane = (route.value as Record<string, unknown>).pane;
+    return pane === 'backlog' ? 'unassigned-backlog' : pane === 'todo' ? 'unassigned-todo' : pane === 'mine' ? 'mine-open' : null;
+  }
   private showPage(section: Section, page: number): void {
     const snapshot = section.snapshots[page - 1]; if (!snapshot || this.pending) return;
     section.pages = page; section.tasks = snapshot.page.items; section.cursor = snapshot.page.nextCursor; section.error = snapshot.page.quality === 'unavailable' ? 'This group is unavailable.' : ''; this.draw();
@@ -133,9 +146,11 @@ class TriagePanel implements PluginPanelInstance {
     this.chosen = selection(value?.source); this.invalidSelection = saved !== null && (!value || value.source !== null && !this.chosen);
     this.priorities = Array.isArray(value?.priorities) ? [0, 1, 2, 3, 4].filter(number => (value.priorities as unknown[]).includes(number)) : [0, 1, 2, 3, 4];
     this.days = dayOptions.find(number => number === value?.days) ?? 0; this.pageSize = pageSizes.find(number => number === value?.pageSize) ?? 10;
-    this.collapsed = new Set(Array.isArray(value?.collapsed) ? value.collapsed.filter((id): id is string => typeof id === 'string' && id.length < 2048).slice(0, 150) : []);
+    const keys = (input: unknown) => Array.isArray(input) ? input.filter((id): id is string => typeof id === 'string' && id.length < 2048).slice(0, 150) : [];
+    this.collapsed = new Set(keys(value?.collapsed)); this.expanded = new Set(keys(value?.expanded));
+    this.legacyCollapsedGroups = new Set(groups.filter(group => Array.isArray(value?.legacyCollapsedGroups) && value.legacyCollapsedGroups.includes(group)));
   }
-  private savedSettings(chosen = this.chosen) { return { version: 1, value: { source: chosen, priorities: this.priorities, days: this.days, pageSize: this.pageSize, collapsed: [...this.collapsed] } }; }
+  private savedSettings(chosen = this.chosen) { return { version: 1, value: { source: chosen, priorities: this.priorities, days: this.days, pageSize: this.pageSize, collapsed: [...this.collapsed], expanded: [...this.expanded], legacyCollapsedGroups: [...this.legacyCollapsedGroups] } }; }
   private async persistSettings(): Promise<void> {
     if (this.invalidSelection) return;
     const save = ++this.selectionSave; this.selectionDirty = true;
@@ -245,13 +260,18 @@ class TriagePanel implements PluginPanelInstance {
       page.append(box);
     }
     if (!this.sections.length && !this.messages.length) { const note = element('p', this.pending ? 'Loading task sources…' : 'No task sources in this scope.'); note.setAttribute('role', 'status'); page.append(note); }
+    const routeGroup = this.routeGroup(); const routeKey = routeGroup ? JSON.stringify([this.state.activity.repo, this.state.routeState]) : null;
+    if (!routeKey) this.revealedRoute = null;
+    const routeSections = routeKey !== this.revealedRoute && this.current(this.generation) ? this.sections.filter(section => section.group === routeGroup) : [];
+    if (routeSections.length) { for (const section of routeSections) this.expand(section); this.revealedRoute = routeKey; }
     const sections = element('div'); sections.className = 'triage-grid';
     for (const section of this.sections) {
-      const view = element('section'); view.append(element('h3', `${section.source.label} · ${section.source.repo} · ${titles[section.group]}`));
+      const view = element('section'); view.dataset.triageGroup = section.group; view.dataset.triageFocus = `group:${this.sectionKey(section)}`; view.tabIndex = -1; view.append(element('h3', `${section.source.label} · ${section.source.repo} · ${titles[section.group]}`));
       if (section.error) { const error = element('p', section.error); error.setAttribute('role', 'status'); view.append(error); }
-      const collapse = element('button', this.collapsed.has(this.sectionKey(section)) ? 'Expand group' : 'Collapse group'); collapse.type = 'button'; collapse.setAttribute('aria-label', `${collapse.textContent} ${titles[section.group]}`);
-      collapse.addEventListener('click', () => { const id = this.sectionKey(section); if (!this.collapsed.delete(id)) this.collapsed.add(id); this.draw(); void this.persistSettings(); }); view.append(collapse);
-      if (this.collapsed.has(this.sectionKey(section))) { sections.append(view); continue; }
+      const collapse = element('button', this.isCollapsed(section) ? 'Expand group' : 'Collapse group'); collapse.type = 'button'; collapse.setAttribute('aria-label', `${collapse.textContent} ${titles[section.group]}`);
+      collapse.dataset.triageFocus = `collapse:${this.sectionKey(section)}`;
+      collapse.addEventListener('click', () => { const id = this.sectionKey(section); if (this.isCollapsed(section)) this.expand(section); else { this.expanded.delete(id); this.collapsed.add(id); } this.draw(); void this.persistSettings(); }); view.append(collapse);
+      if (this.isCollapsed(section)) { sections.append(view); continue; }
       const snapshot = section.snapshots[section.pages - 1];
       if (snapshot?.page.quality === 'partial') view.append(element('p', 'Partial coverage. Continue to inspect more matching tasks.'));
       if (snapshot && snapshot.relatedRunsQuality !== 'complete') view.append(element('p', 'Some related runs are unavailable.'));
@@ -281,7 +301,12 @@ class TriagePanel implements PluginPanelInstance {
     }
     page.append(sections);
     this.container.replaceChildren(page);
-    if (focused) Array.from(this.container.querySelectorAll<HTMLElement>('[data-triage-focus]')).find(value => value.dataset.triageFocus === focused)?.focus({ preventScroll: true });
+    const routeTarget = routeSections[0] ? `group:${this.sectionKey(routeSections[0])}` : null;
+    const target = routeTarget ?? focused;
+    if (target) {
+      const node = Array.from(this.container.querySelectorAll<HTMLElement>('[data-triage-focus]')).find(value => value.dataset.triageFocus === target);
+      node?.focus({ preventScroll: true }); if (routeTarget) node?.scrollIntoView?.({ block: 'nearest' });
+    }
   }
   update(state: PluginPanelState): void {
     if (this.disposed) return;

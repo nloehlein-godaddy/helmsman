@@ -25,7 +25,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs and Helm use replaceable packages and public services. Task-source providers support Jira and local Todos together. The E3 task presentation packages (Todos, Triage, Bugs and source settings) are independently buildable and validated against the copied production distribution; they are **opt-in author packages**. The default `/todos`, `/triage`, `/bugs` and `/config` pages still use their legacy presentation. Default task-page cutover, the remaining feature extractions, interchangeable execution/policy (F), and compatibility retirement (G) remain pending.
+Costs, Helm, Todos, Triage, Bugs and Source settings use replaceable packages and public services. Task-source providers support Jira and local Todos together. The task packages now own `/todos`, `/triage`, `/bugs` and `/source-settings`; core `/config` links to Source settings and retains runtime configuration, customization and local Git. The default task-page cutover has passed acceptance validation and awaits exact-commit review and push. Remaining feature extractions, interchangeable execution/policy (F), and compatibility retirement (G) remain pending.
 
 Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) proposes the next run-presentation extraction.
 
@@ -389,17 +389,9 @@ It uses recorded session tokens and labeled API estimates, independently of the 
 
 ### Triage filters
 
-The default `/triage` page has one shared filter bar for all three columns. Combine the P0–P4 checkboxes
-and choose tickets last updated within 30 days, 7 days, or 1 day, or select Any time.
-Selections are remembered in this browser. Filtering uses loaded tickets without
-additional requests; a notice appears when a column reaches Jira's 100-ticket limit.
-Tickets without an update timestamp appear only under Any time.
-The shared **Per column** selector shows 5, 10, 25, 50, or 100 tickets per page
-(default 10) and is remembered in this browser. Each column has its own matching
-count, visible range, and Previous/Next controls. Changing filters, page size, or
-repository returns all columns to page 1; paging never fetches more tickets.
+The [Triage package](src/plugins/triage/README.md) at `/triage` filters through the selected provider before pagination and uses independent bounded cursors under one observation window. Its shared filter bar combines P0–P4 priorities with Any time or the last 30, 7 or 1 days. Page sizes are 5, 10, 25, 50 or 100 (default 10); source and filter changes reset pagination. It preserves per-panel source/filter settings, labels partial results, and links related voyages only when core verifies their canonical task and galleon. The [Bugs package](src/plugins/bugs/README.md) keeps approximate counts, unavailable metrics, actual due dates and capped resolution samples distinct.
 
-The opt-in [Triage package](src/plugins/triage/README.md) filters through the selected provider before pagination and uses independent bounded cursors under one observation window. It preserves per-panel source/filter settings, labels partial results, and links related voyages only when core verifies their canonical task and repository. The [Bugs package](src/plugins/bugs/README.md) keeps approximate counts, unavailable metrics, actual due dates and capped resolution samples distinct.
+The first Triage composition imports prior browser filters, page size and collapsed groups while archiving the original strings. Existing layouts, including intentionally empty layouts, remain unchanged. Legacy `pane=backlog|todo|mine` links target existing Triage panels without creating removed panels.
 
 ### Config editor
 
@@ -409,7 +401,7 @@ and restart behavior. UI customization and local Git controls are on the same pa
 
 ### Local todos
 
-Todos and Jira coexist. In **Config → Task sources**, enable each source independently,
+Todos and Jira coexist. In **Config → Source settings**, enable each source independently,
 change its label and allowed galleons, and edit advanced non-secret settings. The
 panel follows the header galleon unless you select an explicit panel override; the
 override never changes the header. Todos, Triage and Bugs retain their routes when a
@@ -420,7 +412,7 @@ configuration and connection, with retained artifacts available for settlement.
 The Helm backlog carries each task's canonical source identity and display URL.
 
 Each todo has a title, repository (`owner/name`), priority P0–P4, description,
-acceptance criteria, state, timestamps, and a link to its latest voyage. Repositories
+acceptance criteria, state, timestamps, and a link to its retained latest voyage when that voyage still belongs to the selected galleon. Repositories
 must already be cloned under `AGENTS_ROOT` as described in setup. Save title-only
 drafts, then add a description to make them launchable. Use acceptance criteria for
 tests, edge cases, and constraints the crew must satisfy. The list supports search,
@@ -435,7 +427,7 @@ against persisted voyages. Todos are stored in the same SQLite database as voyag
 
 ### Auto-claim
 
-Choose automatic sources per galleon in **Config → Task sources → Automatic starts**.
+Choose automatic sources per galleon in **Config → Source settings → Automatic starts**.
 Initial conversion selects only the previously active source; enabling another
 source does not silently add it to scheduling. The saved source selection survives
 restart. Scheduling rotates among selected available sources, honors each provider's
@@ -523,7 +515,7 @@ request an immediate poll, followed by the normal five-minute interval.
 
 | Value | Default | Where it applies / how to set it | Change |
 | --- | --- | --- | --- |
-| `JIRA_ENABLED` | `true` | Initial Jira source enablement during conversion. Manage an existing source independently in Config → Task sources; Todos remains available. | Initial conversion |
+| `JIRA_ENABLED` | `true` | Initial Jira source enablement during conversion. Manage an existing source independently in Config → Source settings; Todos remains available. | Initial conversion |
 | `JIRA_BASE_URL` | Empty | Jira Cloud site URL, e.g. `https://your-team.atlassian.net`, without an issue/API path. Required with email and token to enable Jira. | Restart |
 | `JIRA_EMAIL` | Empty | Email of the account that owns the API token. Never returned to the UI. | Restart |
 | `JIRA_API_TOKEN` | Empty | Atlassian API token for that account; see setup for read/write permissions. Config accepts a replacement without revealing the existing token and stores it in SQLite. Empty token updates are rejected. | Live, write-only |

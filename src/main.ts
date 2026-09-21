@@ -1,4 +1,3 @@
-import { TaskSourceSettings } from './taskSourceSettings';
 import { applyBootTerminology } from './logic/bootTerminology';
 import { term, setPirateMode, isPirateMode } from './logic/terminology';
 import { loadProfile } from './data/profile';
@@ -6,9 +5,6 @@ import { copyText } from './logic/clipboard';
 import { RUN_LOG_PREVIEW_LIMIT } from './logic/runLog';
 import { appendHighlightedLog } from './logic/logHighlight';
 import { getContext } from './data/context';
-import { fetchTodos, createTodo, updateTodo, deleteTodo } from './data/todoClient';
-import { renderTodosView, renderTodoList, readTodoForm, type TodosViewState } from './renderTodos';
-import { TODO_STATES } from './data/todos';
 import { emptyLocalGit, fetchLocalGit, updateLocalGit, type LocalGitAction, type LocalGitState } from './data/localGit';
 import { renderLocalGit } from './renderLocalGit';
 import { fetchSlack, markSlackNotificationRead, unavailableSlack, type SlackState } from './data/slack';
@@ -28,14 +24,9 @@ import { fetchRunHistory, RUN_HISTORY_PAGE_SIZE } from './data/runHistory';
 import { mountCampaigns } from './renderCampaigns';
 import { mountClarifications } from './renderClarifications';
 import { loadDashboard, POLL_MS, LOCAL_POLL_MS, type DashboardResponse } from './data/live';
-import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderPrPanel, renderCmuxView, renderRunsDrawer, renderVoyageRetry, runTabStatus, renderTriageView, renderBugsView, renderConfigView, renderPrView, renderPrLists, renderRecentPrRuns } from './render';
+import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderPrPanel, renderCmuxView, renderRunsDrawer, renderVoyageRetry, runTabStatus, renderConfigView, renderPrView, renderPrLists, renderRecentPrRuns } from './render';
 import type { RunTabView, PrViewState } from './render';
 import type { DashboardSnapshot } from './data/mock';
-import { fetchTriage, type TriageGroupsView } from './data/triage';
-import { filterTriageTickets, TRIAGE_PRIORITIES, TRIAGE_DATE_OPTIONS, type TriageFilters } from './logic/triageFilters';
-import { paginateTriageTickets, TRIAGE_PAGE_SIZES, type TriagePageSize, type TriagePages } from './logic/triagePagination';
-import { fetchBugs } from './data/bugs';
-import type { BugsResponse } from './types';
 import { fetchReviewRequests, type PrListState, type PrInboxState } from './data/prLists';
 import {
   launchAgent,
@@ -45,7 +36,6 @@ import {
   getRun,
   fetchAgents,
   stopAgent,
-  setAutoClaim,
   type LaunchResult,
   type RunEvent,
   type RunStatusSummary,
@@ -61,10 +51,6 @@ import {
   saveRepoScope,
   loadCollapsed,
   saveCollapsed,
-  loadTriageFilters,
-  saveTriageFilters,
-  loadTriagePageSize,
-  saveTriagePageSize,
 } from './logic/prefs';
 
 const RUN_LOG_BATCH_MS = 32;
@@ -129,9 +115,7 @@ export class DashboardView {
   private runHistory: RunHistoryState = { total: 0, offset: 0, limit: RUN_HISTORY_PAGE_SIZE, loading: true, error: null };
   private runHistorySeq = 0;
   private runHistoryPending: { repo: string | null; offset: number; promise: Promise<void> } | null = null;
-  private autoClaimRepos: string[] = [];
   private uiConfig: UiConfig = { config: {}, overridden: [] };
-  private taskSourceSettings = new TaskSourceSettings(() => { if (this.view === 'config' && !this.destroyed) this.paintConfig(); });
   private configLoaded = false;
   private configLoading = false;
   private configError: string | null = null;
@@ -167,8 +151,6 @@ export class DashboardView {
   private view: PageView = parseRoute(new URL('/helm', window.location.origin)).view;
   private route: AppRoute = parseRoute(new URL('/helm', window.location.origin));
   private routeSeq: number = 0;
-  private triageSeq: number = 0;
-  private bugsSeq: number = 0;
   private localGit: LocalGitState = emptyLocalGit(null);
   private localGitSeq: number = 0;
   private localGitPending: { repo: string; promise: Promise<void> } | null = null;
@@ -176,12 +158,6 @@ export class DashboardView {
   private readonly onResize = (): void => { this.revealActiveTab(); };
   private readonly onPopState = (): void => { void this.navigate(parseRoute(new URL(window.location.href)), 'none'); };
   private prView: PrViewState = { repo: null, number: null, pr: null, diff: null, loading: false };
-  private triageGroups: TriageGroupsView = { unassignedBacklog: [], unassignedTodo: [], mineOpen: [] };
-  private triageDegraded: boolean = false;
-  private triageFilters: TriageFilters = loadTriageFilters();
-  private triagePageSize: TriagePageSize = loadTriagePageSize();
-  private triagePages: TriagePages = { backlog: 1, todo: 1, mine: 1 };
-  private bugsResponse: BugsResponse | null = null;
   private cmuxConnected: boolean = false;
   private cmuxTabsError: string | null = null;
   private cmuxTabsSeq = 0;
@@ -197,10 +173,7 @@ export class DashboardView {
   private greetingName: string | null = null;
   private configSaves: number = 0;
   private pendingViewActions: number = 0;
-  private jiraBaseUrl: string | null = null;
   private jiraEnabled: boolean = true;
-  private todos: TodosViewState = { items: [], loading: false, error: null, search: '', stateFilter: 'all' };
-  private todosSeq: number = 0;
   private slack: SlackState = unavailableSlack();
   private slackOpen: boolean = false;
   private slackError: string | null = null;
@@ -272,39 +245,8 @@ export class DashboardView {
         this.root.querySelector<HTMLInputElement>('.local-git-cleanup-force')?.focus();
         return;
       }
-      if (this.view === 'todos' && control instanceof HTMLSelectElement && control.matches('[data-todo-state-filter]')) {
-        this.todos.stateFilter = TODO_STATES.find(state => state === control.value) ?? 'all';
-        this.paintTodoList();
-        return;
-      }
-      if (this.view === 'triage' && control instanceof HTMLInputElement && control.matches('[data-triage-priority]')) {
-        const priority = TRIAGE_PRIORITIES.find(priority => priority === control.dataset.triagePriority);
-        if (!priority) return;
-        this.triageFilters.priorities = TRIAGE_PRIORITIES.filter(value => value === priority ? control.checked : this.triageFilters.priorities.includes(value));
-        saveTriageFilters(this.triageFilters);
-        this.triagePages = { backlog: 1, todo: 1, mine: 1 };
-        this.paintTriage();
-        this.root.querySelector<HTMLInputElement>(`[data-triage-priority="${priority}"]`)?.focus({ preventScroll: true });
-        return;
-      }
       if (!(control instanceof HTMLSelectElement)) return;
-      if (this.view === 'triage' && control.matches('[data-triage-days]')) {
-        const days = TRIAGE_DATE_OPTIONS.find(days => String(days) === control.value);
-        if (days === undefined) return;
-        this.triageFilters.days = days;
-        saveTriageFilters(this.triageFilters);
-        this.triagePages = { backlog: 1, todo: 1, mine: 1 };
-        this.paintTriage();
-        this.root.querySelector<HTMLSelectElement>('[data-triage-days]')?.focus({ preventScroll: true });
-      } else if (this.view === 'triage' && control.matches('[data-triage-page-size]')) {
-        const size = TRIAGE_PAGE_SIZES.find(size => String(size) === control.value);
-        if (size === undefined) return;
-        this.triagePageSize = size;
-        saveTriagePageSize(size);
-        this.triagePages = { backlog: 1, todo: 1, mine: 1 };
-        this.paintTriage();
-        this.root.querySelector<HTMLSelectElement>('[data-triage-page-size]')?.focus({ preventScroll: true });
-      } else if (control.matches('.repo-select')) {
+      if (control.matches('.repo-select')) {
         void this.navigate({ ...this.route, view: this.view, repo: control.value || null, prRepo: null, pr: null, run: null });
       } else if (control.matches('.theme-select')) {
         this.themeId = control.value;
@@ -314,22 +256,6 @@ export class DashboardView {
       }
     }, { capture: true, signal: this.rootEvents.signal });
     this.root.addEventListener('submit', (event: SubmitEvent): void => this.handleSubmit(event), { signal: this.rootEvents.signal });
-    this.root.addEventListener('input', (event: Event): void => {
-      const control = event.target;
-      if (!(control instanceof HTMLElement)) return;
-      if (this.view !== 'todos') return;
-      if (control instanceof HTMLInputElement && control.matches('[data-todo-search]')) {
-        this.todos.search = control.value;
-        this.paintTodoList();
-      }
-      const form = control.closest<HTMLFormElement>('[data-todo-form]');
-      if (form) {
-        const draft = readTodoForm(form);
-        if (!this.todos.editingId && this.todos.draft?.repo === undefined && !control.matches('[name="repo"]')) {
-          this.todos.draft = { ...draft, repo: undefined };
-        } else this.todos.draft = draft;
-      }
-    }, { signal: this.rootEvents.signal });
     this.root.addEventListener('paste', (event: ClipboardEvent): void => void this.handlePasteImage(event), { signal: this.rootEvents.signal });
 
     const drawer: HTMLDivElement = document.createElement('div');
@@ -368,7 +294,6 @@ export class DashboardView {
       if (this.destroyed) return;
       if (context) {
         this.repos = context.repos;
-        this.jiraBaseUrl = context.jiraBaseUrl;
         this.jiraEnabled = context.jiraEnabled !== false;
       }
     }
@@ -474,7 +399,6 @@ export class DashboardView {
     ++this.reviewRequestsSeq;
     ++this.localGitSeq;
     ++this.slackSeq;
-    ++this.todosSeq;
     window.removeEventListener('popstate', this.onPopState);
     this.stopCmuxScreenPoll();
     this.stopCapture();
@@ -529,12 +453,6 @@ export class DashboardView {
       this.dashboardRepo = undefined;
       this.lastDashboardRefresh = -Infinity;
       this.dashboardUnavailable = false;
-      this.triagePages = { backlog: 1, todo: 1, mine: 1 };
-      this.triageGroups = { unassignedBacklog: [], unassignedTodo: [], mineOpen: [] };
-      this.triageDegraded = false;
-      ++this.triageSeq;
-      this.bugsResponse = null;
-      ++this.bugsSeq;
       ++this.refreshSeq;
       this.refreshPending = null;
       ++this.reviewRequestsSeq;
@@ -565,13 +483,10 @@ export class DashboardView {
     if (scopeChanged || route.view === 'prs') await this.refresh(false);
     if (seq !== this.routeSeq) return;
     let historyLoad: Promise<void> | undefined;
-    if (route.view === 'triage') await this.loadTriage();
-    else if (route.view === 'todos') await this.loadTodos();
-    else if (route.view === 'bugs') await this.loadBugs();
-    else if (this.isPluginPage()) await this.pageHost?.refresh();
+    if (this.isPluginPage()) await this.pageHost?.refresh();
     else if (route.view === 'runs') historyLoad = this.loadRunHistory();
     else if (route.view === 'config') {
-      await Promise.all([this.loadUiConfig(), this.taskSourceSettings.load(this.selectedRepo, this.repos)]);
+      await this.loadUiConfig();
       if (seq !== this.routeSeq) return;
       void this.loadLocalGit();
     }
@@ -618,7 +533,6 @@ export class DashboardView {
 
   private bindPaneLinks(): void {
     const selectors: Record<string, string> = this.view === 'prs' ? { 'review-requests': '.pr-review-requests', authored: '.pr-authored', lookup: '.pr-lookup-panel', diff: '.pr-diff-panel' }
-      : this.view === 'triage' ? { backlog: '[data-collapse-id="triage:backlog"]', todo: '[data-collapse-id="triage:todo"]', mine: '[data-collapse-id="triage:mine"]' }
       : this.view === 'cmux' ? { tabs: '[data-collapse-id="cmux:list"]', screen: '[data-collapse-id="cmux:detail"]' } : {};
     for (const [pane, selector] of Object.entries(selectors)) {
       const found = this.root.querySelector<HTMLElement>(selector);
@@ -682,16 +596,13 @@ export class DashboardView {
       this.degraded = response.degraded;
       this.repos = response.repos;
       this.selectedRepo = response.selectedRepo;
-      this.jiraBaseUrl = response.jiraBaseUrl;
       if (typeof response.jiraEnabled === 'boolean') this.jiraEnabled = response.jiraEnabled;
     }
     if (agents) {
       this.runs = agents.runs;
-      this.autoClaimRepos = agents.autoClaim;
     }
     if (context) {
       this.repos = [...new Set([...(response?.repos ?? this.repos), ...context.repos])].sort();
-      this.jiraBaseUrl = context.jiraBaseUrl;
       if (typeof context.jiraEnabled === 'boolean') this.jiraEnabled = context.jiraEnabled;
     }
     if (priorJiraEnabled !== this.jiraEnabled) {
@@ -726,8 +637,7 @@ export class DashboardView {
     } else if (this.view === 'config' && force) {
       this.paintConfig();
       void this.loadLocalGit();
-    } else if (this.view === 'todos' && localDue) {
-      await this.loadTodos();
+
     } else if (this.view === 'runs' && localDue && this.contentView === 'runs') {
       await this.loadRunHistory();
     } else if (this.isPluginPage() && localDue) {
@@ -916,12 +826,6 @@ export class DashboardView {
       this.paintPluginPage();
       return;
     }
-    if (this.view === 'todos') {
-      this.mountPage(renderTodosView(this.todos, { ...this.shellOptions(), autoClaimEnabled: this.autoClaimRepos.includes(this.selectedRepo ?? '') }));
-      this.bindHeadControls();
-      this.rehomeRunDrawer();
-      return;
-    }
     if (this.view === 'runs') {
       this.mountPage(renderRunsView(this.prView, { repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId, runs: this.historyRuns, history: this.runHistory }));
       this.bindHeadControls();
@@ -959,14 +863,6 @@ export class DashboardView {
     }
     if (this.view === 'cmux') {
       this.paintCmux();
-      return;
-    }
-    if (this.view === 'triage') {
-      this.paintTriage();
-      return;
-    }
-    if (this.view === 'bugs') {
-      this.paintBugs();
       return;
     }
     if (this.view === 'config') {
@@ -1208,52 +1104,6 @@ export class DashboardView {
     this.bindHeadControls();
   }
 
-  private paintTriage(): void {
-    const now = Date.now();
-    for (const [column, group] of [['backlog', 'unassignedBacklog'], ['todo', 'unassignedTodo'], ['mine', 'mineOpen']] as const) {
-      this.triagePages[column] = paginateTriageTickets(filterTriageTickets(this.triageGroups?.[group], this.triageFilters, now), this.triagePageSize, this.triagePages[column]).page;
-    }
-    this.mountPage(renderTriageView(this.triageGroups, {
-      repos: this.repos,
-      selectedRepo: this.selectedRepo,
-      jiraBaseUrl: this.jiraBaseUrl,
-      degraded: this.triageDegraded,
-      filters: this.triageFilters,
-      pageSize: this.triagePageSize,
-      pages: this.triagePages,
-      themeId: this.themeId,
-      collapsed: this.collapsed,
-    }));
-    this.bindHeadControls();
-    this.rehomeRunDrawer();
-  }
-
-  private async loadTriage(): Promise<void> {
-    const seq = ++this.triageSeq;
-    const repo = this.selectedRepo;
-    const res = await fetchTriage(repo);
-    if (seq !== this.triageSeq || repo !== this.selectedRepo) return;
-    this.triageGroups = res.groups;
-    this.triageDegraded = res.degraded;
-    if (res.jiraBaseUrl) this.jiraBaseUrl = res.jiraBaseUrl;
-  }
-
-  private paintBugs(): void {
-    this.mountPage(renderBugsView(
-      this.bugsResponse ?? { cards: [], degraded: true, generatedAt: '', latestWindow: '', previousWindow: '' },
-      { repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId },
-    ));
-    this.bindHeadControls();
-  }
-
-  private async loadBugs(): Promise<void> {
-    const seq = ++this.bugsSeq;
-    const repo = this.selectedRepo;
-    const result = await fetchBugs(repo);
-    if (seq !== this.bugsSeq || repo !== this.selectedRepo) return;
-    this.bugsResponse = result;
-  }
-
   private paintLocalGit(): void {
     if (this.view !== 'config') return;
     const card = this.root.querySelector('.local-git-panel');
@@ -1369,7 +1219,6 @@ export class DashboardView {
       loading: this.configLoading,
       error: this.configError,
       unavailable: !this.configLoaded,
-      taskSourcesHtml: this.taskSourceSettings.render(),
     }));
     for (const row of this.root.querySelectorAll<HTMLElement>('.config-row[data-key]')) {
       const key = row.dataset.key;
@@ -1389,160 +1238,12 @@ export class DashboardView {
         if (selection && input instanceof HTMLInputElement && input.type === 'text') input.setSelectionRange(...selection);
       }
     }
-    this.taskSourceSettings.bind(this.root.querySelector<HTMLElement>('[data-task-source-settings]'));
     if (sourceFocusId && sourceFocusField) {
       const field = [...this.root.querySelectorAll<HTMLElement>('[data-source-id]')].find(row => row.dataset.sourceId === sourceFocusId)
         ?.querySelector<HTMLElement>(`[data-source-field="${sourceFocusField}"]`);
       field?.focus({ preventScroll: true });
     }
     this.bindHeadControls();
-  }
-
-  private paintTodoList(): void {
-    if (this.view !== 'todos' || this.destroyed) return;
-    const list = this.root.querySelector('[data-todo-list]');
-    if (list) list.innerHTML = renderTodoList(this.todos, this.shellOptions());
-    const autoClaim = this.root.querySelector<HTMLButtonElement>('[data-todo-auto-claim]');
-    if (autoClaim) {
-      const enabled = this.autoClaimRepos.includes(this.selectedRepo ?? '');
-      autoClaim.setAttribute('aria-pressed', String(enabled));
-      autoClaim.textContent = enabled ? 'Stop automatic starts' : 'Start selected sources automatically';
-    }
-    const feedback = this.root.querySelector('[data-todo-feedback]');
-    if (feedback) {
-      const template = document.createElement('template');
-      template.innerHTML = renderTodosView(this.todos, this.shellOptions());
-      const next = template.content.querySelector('[data-todo-feedback]');
-      if (next) feedback.replaceChildren(...next.childNodes);
-    }
-  }
-
-  private async loadTodos(force: boolean = false): Promise<void> {
-    if (this.todos.pendingAction && !force) return;
-    const seq = ++this.todosSeq;
-    this.todos.loading = true;
-    try {
-      const result = await fetchTodos();
-      if (seq !== this.todosSeq || this.destroyed) return;
-      this.jiraEnabled = result.jiraEnabled;
-      this.todos.items = result.todos;
-      this.todos.error = null;
-      this.repos = [...new Set([...this.repos, ...result.todos.map(todo => todo.repo)])].sort();
-    } catch (error: unknown) {
-      if (seq !== this.todosSeq || this.destroyed) return;
-      this.todos.error = error instanceof Error ? error.message : 'Unable to load todos.';
-    } finally {
-      if (seq === this.todosSeq && !this.destroyed) {
-        this.todos.loading = false;
-        this.paintTodoList();
-        this.syncShell();
-      }
-    }
-  }
-
-  private async saveTodo(form: HTMLFormElement): Promise<void> {
-    if (this.todos.pendingAction) return;
-    ++this.todosSeq;
-    this.todos.loading = false;
-    const input = readTodoForm(form);
-    const id = this.todos.editingId;
-    this.todos.draft = input;
-    this.todos.pendingAction = 'Saving todo…';
-    this.todos.error = null;
-    this.paint();
-    try {
-      const todo = id ? await updateTodo(id, input) : await createTodo(input);
-      this.todos.items = [...this.todos.items.filter(item => item.id !== todo.id), todo];
-      this.todos.editingId = null;
-      this.todos.draft = undefined;
-      this.repos = [...new Set([...this.repos, todo.repo])].sort();
-      this.lastDashboardRefresh = -Infinity;
-    } catch (error: unknown) {
-      this.todos.error = error instanceof Error ? error.message : 'Unable to save todo.';
-    } finally {
-      this.todos.pendingAction = undefined;
-      if (!this.destroyed && this.view === 'todos') this.paint();
-    }
-  }
-
-  private async handleTodoAction(button: HTMLButtonElement): Promise<void> {
-    if (this.todos.pendingAction) return;
-    if (button.hasAttribute('data-todo-auto-claim')) {
-      const repo = this.selectedRepo;
-      if (!repo) return;
-      const enabled = !this.autoClaimRepos.includes(repo);
-      this.todos.pendingAction = 'Updating auto-claim…';
-      this.todos.error = null;
-      this.paint();
-      try {
-        await setAutoClaim(repo, enabled);
-        this.autoClaimRepos = [...this.autoClaimRepos.filter(item => item !== repo), ...(enabled ? [repo] : [])];
-      } catch (error: unknown) {
-        this.todos.error = error instanceof Error ? error.message : 'Unable to update auto-claim.';
-      } finally {
-        this.todos.pendingAction = undefined;
-        if (!this.destroyed && this.view === 'todos') this.paint();
-      }
-      return;
-    }
-    const { todoEdit, todoDelete, todoConfirmDelete, todoLaunch } = button.dataset;
-    if (button.hasAttribute('data-todo-refresh')) {
-      await this.loadTodos();
-      return;
-    }
-    if (todoEdit) {
-      const todo = this.todos.items.find(item => item.id === todoEdit);
-      if (!todo || todo.state === 'in_progress') return;
-      this.todos.editingId = todo.id;
-      this.todos.draft = { ...todo };
-      this.todos.deletingId = null;
-      this.todos.error = null;
-      this.paint();
-      this.root.querySelector<HTMLInputElement>('[data-todo-form] [name=title]')?.focus();
-      return;
-    }
-    if (todoDelete || button.hasAttribute('data-todo-cancel-delete')) {
-      this.todos.deletingId = todoDelete ?? null;
-      this.paintTodoList();
-      return;
-    }
-    if (button.hasAttribute('data-todo-new') || button.hasAttribute('data-todo-cancel')) {
-      this.todos.editingId = null;
-      this.todos.draft = undefined;
-      this.todos.error = null;
-      this.paint();
-      return;
-    }
-    if (!todoConfirmDelete && !todoLaunch) return;
-    const todo = this.todos.items.find(item => item.id === (todoConfirmDelete ?? todoLaunch));
-    if (!todo || todo.state === 'in_progress') return;
-    if (todoConfirmDelete && this.todos.deletingId !== todo.id) return;
-    ++this.todosSeq;
-    this.todos.loading = false;
-    this.todos.pendingAction = todoConfirmDelete ? 'Deleting todo…' : term('launchingRun');
-    this.todos.error = null;
-    this.paint();
-    try {
-      if (todoConfirmDelete) {
-        await deleteTodo(todo.id);
-        this.todos.items = this.todos.items.filter(item => item.id !== todo.id);
-        this.todos.deletingId = null;
-        if (this.todos.editingId === todo.id) {
-          this.todos.editingId = null;
-          this.todos.draft = undefined;
-        }
-      } else {
-        const result = await launchRun({ mode: 'todo', todoId: todo.id, repo: todo.repo });
-        if (!this.destroyed) this.openRunTab(result.runId, todo.id);
-        await this.loadTodos(true);
-      }
-      this.lastDashboardRefresh = -Infinity;
-    } catch (error: unknown) {
-      this.todos.error = error instanceof Error ? error.message : 'Todo action failed.';
-    } finally {
-      this.todos.pendingAction = undefined;
-      if (!this.destroyed && this.view === 'todos') this.paint();
-    }
   }
 
   private paintPrView(): void {
@@ -1899,11 +1600,6 @@ export class DashboardView {
   private handleSubmit(event: SubmitEvent): void {
     if (event.defaultPrevented) return;
     const target: EventTarget | null = event.target;
-    if (target instanceof HTMLFormElement && target.matches('[data-todo-form]')) {
-      event.preventDefault();
-      void this.saveTodo(target);
-      return;
-    }
     if (!(target instanceof HTMLFormElement) || !target.classList.contains('cmux-send')) return;
     event.preventDefault();
     void this.withStableView(() => this.handleCmuxSend(target));
@@ -1998,12 +1694,6 @@ export class DashboardView {
       if (!slackReview.disabled) void this.sendSlackReviewRequest(slackReview);
       return;
     }
-    const todoButton = target.closest<HTMLButtonElement>('[data-todo-edit], [data-todo-delete], [data-todo-confirm-delete], [data-todo-cancel-delete], [data-todo-launch], [data-todo-cancel], [data-todo-new], [data-todo-refresh], [data-todo-auto-claim]');
-    if (todoButton && this.view === 'todos') {
-      if (!todoButton.disabled) void this.handleTodoAction(todoButton);
-      return;
-    }
-
     const historyButton = target.closest<HTMLButtonElement>('[data-runs-page], [data-runs-retry]');
     if (historyButton && this.view === 'runs') {
       if (historyButton.disabled || this.runHistory.loading) return;
@@ -2011,21 +1701,6 @@ export class DashboardView {
       if (historyButton.hasAttribute('data-runs-retry')) void this.loadRunHistory();
       else if (direction === 'previous' && this.runHistory.offset > 0) void this.loadRunHistory(Math.max(0, this.runHistory.offset - RUN_HISTORY_PAGE_SIZE));
       else if (direction === 'next' && this.runHistory.offset + RUN_HISTORY_PAGE_SIZE < this.runHistory.total) void this.loadRunHistory(this.runHistory.offset + RUN_HISTORY_PAGE_SIZE);
-      return;
-    }
-
-    const triagePage = target.closest<HTMLButtonElement>('button[data-triage-column][data-triage-page]');
-    if (this.view === 'triage' && triagePage && !triagePage.disabled) {
-      const column = triagePage.dataset.triageColumn;
-      const page = Number(triagePage.dataset.triagePage);
-      if ((column !== 'backlog' && column !== 'todo' && column !== 'mine') || !Number.isSafeInteger(page) || page < 1) return;
-      const direction = page > this.triagePages[column] ? 'next' : 'previous';
-      this.triagePages[column] = page;
-      this.paintTriage();
-      const pager = this.root.querySelector<HTMLElement>(`.triage-pagination[data-triage-column="${column}"]`);
-      const buttons = pager?.querySelectorAll<HTMLButtonElement>('button');
-      const button = direction === 'next' ? buttons?.[1] : buttons?.[0];
-      (button && !button.disabled ? button : pager)?.focus({ preventScroll: true });
       return;
     }
 

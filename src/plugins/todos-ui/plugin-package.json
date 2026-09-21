@@ -3,12 +3,14 @@
   "manifest": {
     "manifestVersion": 2, "id": "helmsman.todos-ui", "version": "0.1.0", "sdkVersion": 1,
     "pages": [{
-      "id": "page", "title": "Todos", "slots": ["helmsman/todos-page"], "panes": [],
+      "id": "page", "title": "Todos", "slots": ["helmsman/todos-page"], "panes": ["list", "new"],
       "composition": {
         "id": "helmsman/todos-page", "version": 1, "accepts": [{ "id": "helmsman/todos-panel", "version": 1 }],
         "initialLayout": {
-          "instances": [{ "instanceId": "todos", "contributionId": "helmsman.todos-ui/panel" }],
-          "columns": [[{ "instances": ["todos"], "activeInstanceId": "todos", "collapsed": false }]]
+          "instances": [{ "instanceId": "todos", "contributionId": "helmsman.todos-ui/panel" },
+            { "instanceId": "automatic", "contributionId": "helmsman.source-settings/automatic" }],
+          "columns": [[{ "instances": ["todos"], "activeInstanceId": "todos", "collapsed": false },
+            { "instances": ["automatic"], "activeInstanceId": "automatic", "collapsed": false }]]
         }
       },
       "requires": [{ "id": "helmsman/composition", "version": 1 }]

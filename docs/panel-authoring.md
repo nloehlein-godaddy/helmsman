@@ -54,6 +54,14 @@ Scope is explicit: inherit the header, all permitted galleons, or one galleon. A
 
 ## Task editors, views and source commands
 
+### Legacy task-page preferences
+
+On first initialization of the Triage composition, the host imports legacy priority/date filters, page size and collapsed groups into the shipped Triage panel's namespaced state. Imported collapse defaults apply across sources; explicit per-source expansion and collapse override them. The host archives the original localStorage strings in the same IndexedDB transaction as the layout and leaves the originals unchanged. Malformed preferences use the legacy defaults while their original bytes remain archived. Inaccessible or oversized storage prevents initialization and can be retried after remount; it is not recorded as a successful migration.
+
+An existing composition always wins, including intentionally empty layouts, opt-in package state and unavailable contributions. Alternative panels never receive the shipped panel's private state. Todo search/form state and Triage page numbers were not persisted by the legacy pages. Legacy Todo mutation journals stay under the separate receipt-recovery service and are not migrated into panel drafts or new commands.
+
+### Task services
+
 Declare `helmsman/task-edit` version 1 for `context.services.taskEdit`. Discovery exposes source-qualified selections and provider-declared editor contracts. Match a supported editor contract; do not infer editability from a provider ID. `create` and `load` return bounded public values, source/record revisions, allowed destinations and action availability. `list` applies provider filters before bounded pagination and supplies real creation/update timestamps plus a nullable total. Preserve unavailable sources and incomplete coverage when aggregating All-galleons results.
 
 Editor related-run associations come from the provider. Core exposes a proposed link only when the run exists in the selected galleon; this does not prove canonical claim ownership. Triage uses a different path: core enriches exact task references from retained claims and verifies the run's galleon.

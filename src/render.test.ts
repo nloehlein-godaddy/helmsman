@@ -1,14 +1,14 @@
 import { term } from './logic/terminology';
 import type { PrInboxState } from './data/prLists';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CONFIG_HELP, renderBugsView, renderCmuxView, renderConfigView, renderAppShell, renderPrPanel, renderPrView, renderRepoPrs, renderRunsDrawer, renderTriageView, renderVoyage, runTabStatus } from './render';
+import { CONFIG_HELP, renderCmuxView, renderConfigView, renderAppShell, renderPrPanel, renderPrView, renderRepoPrs, renderRunsDrawer, renderVoyage, runTabStatus } from './render';
 import { EDITABLE_KEYS } from '../server/helmsman/config-store';
 import type { CmuxViewState, RunTabView } from './render';
 import type { UiConfig } from './data/config';
 import type { PrStatusView } from './data/pr';
 import type { CmuxTabView } from './logic/cmuxPanel';
-import type { BugsResponse } from './types';
 import { DEFAULT_THEME_ID, THEMES } from './data/themes';
+import { appPages, TODOS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_SLOT, TRIAGE_PAGE_ID, BUGS_PAGE_SLOT, BUGS_PAGE_ID } from './plugins/builtins';
 
 const NOW: Date = new Date('2026-08-17T12:00:00.000Z');
 
@@ -22,6 +22,29 @@ function root(): HTMLDivElement {
 describe('application views', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
+  });
+
+  it.each([
+    ['todos', TODOS_PAGE_SLOT, TODOS_PAGE_ID], ['triage', TRIAGE_PAGE_SLOT, TRIAGE_PAGE_ID], ['bugs', BUGS_PAGE_SLOT, BUGS_PAGE_ID],
+  ])('highlights the original %s tab for plugin aliases and unavailable replacements', (view, slot, id) => {
+    const el = root();
+    for (const selected of [id, 'example.unavailable/page']) {
+      appPages.select(slot, selected);
+      try {
+        el.innerHTML = renderAppShell({ active: 'plugin', pluginSlot: slot, pluginPage: selected, repos: ['org/a'], selectedRepo: 'org/a', themeId: DEFAULT_THEME_ID, readout: null }, '');
+        expect(el.querySelectorAll('.page-tab.is-active')).toHaveLength(1);
+        expect(el.querySelector('.page-tab.is-active')?.id).toBe(`page-tab-${view}`);
+        expect(el.querySelector('#page-tab-plugin')).toBeNull();
+      } finally { appPages.select(slot, null); }
+    }
+  });
+
+  it.each([false, true])('keeps a scoped Source settings link when core config unavailable is %s', unavailable => {
+    const el = root();
+    el.innerHTML = renderConfigView({ config: {}, overridden: [] }, { repos: ['org/a'], selectedRepo: 'org/a', themeId: DEFAULT_THEME_ID, unavailable });
+    expect(el.querySelector('a[href="/source-settings?repo=org%2Fa"]')?.textContent).toBe('Source settings');
+    expect(el.querySelector('[data-task-source-settings]')).toBeNull();
+    expect(el.querySelector('.ui-customization-panel')).not.toBeNull();
   });
 
   it('renders theme selection in its own Config customization panel', () => {
@@ -155,114 +178,6 @@ describe('application views', () => {
     expect(el.querySelector('.pr-lookup-go')).not.toBeNull();
     expect(el.querySelector('.pr-lookup-result')).not.toBeNull();
     expect(el.querySelector('.page-tab.is-active')?.getAttribute('data-view')).toBe('prs');
-  });
-});
-
-describe('renderTriageView', () => {
-  const groups = {
-    unassignedBacklog: [{ id: 'AB-1', title: 'Backlog one', priority: 'P1' as const, status: 'backlog' as const, repo: 'o/a' }],
-    unassignedTodo: [{ id: 'AB-2', title: 'Todo one', priority: 'P2' as const, status: 'backlog' as const, repo: 'o/a' }],
-    mineOpen: [{ id: 'AB-3', title: 'Mine one', priority: 'P3' as const, status: 'in-progress' as const, repo: 'a' }],
-  };
-
-  function mount(html: string): HTMLElement {
-    const el: HTMLElement = document.createElement('div');
-    el.innerHTML = html;
-    return el;
-  }
-
-  it('renders three groups with a back button and scope select', () => {
-    const el = mount(renderTriageView(groups, { repos: ['o/a', 'o/b'], selectedRepo: 'o/a', jiraBaseUrl: null, degraded: false, themeId: DEFAULT_THEME_ID }));
-    expect(el.querySelector('.view-toggle[data-view="dashboard"]')).not.toBeNull();
-    expect(el.querySelectorAll('.triage-group')).toHaveLength(3);
-    expect(el.querySelector('[data-collapse-id="triage:mine"]')?.getAttribute('aria-label')).toBe('Collapse Mine · underway');
-    expect(el.querySelector('.helm-head .repo-select')).not.toBeNull();
-    expect(el.textContent).toContain('AB-1');
-    expect(el.textContent).toContain('AB-2');
-    expect(el.textContent).toContain('AB-3');
-  });
-
-  it('puts a Launch button on unassigned and underway rows when a repo is scoped', () => {
-    const el = mount(renderTriageView(groups, { repos: ['o/a'], selectedRepo: 'o/a', jiraBaseUrl: null, degraded: false, themeId: DEFAULT_THEME_ID }));
-    const launchTickets: string[] = Array.from(el.querySelectorAll<HTMLButtonElement>('.launch-btn')).map((b) => b.dataset.ticket ?? '');
-    expect(launchTickets).toContain('AB-1');
-    expect(launchTickets).toContain('AB-2');
-    expect(launchTickets).toContain('AB-3');
-    expect(el.querySelector('.launch-btn[data-ticket="AB-3"]')?.getAttribute('data-repo')).toBe('o/a');
-  });
-
-  it('hides Launch and shows a scope hint when no repo is scoped', () => {
-    const el = mount(renderTriageView(groups, { repos: ['o/a'], selectedRepo: null, jiraBaseUrl: null, degraded: false, themeId: DEFAULT_THEME_ID }));
-    expect(el.querySelectorAll('.launch-btn')).toHaveLength(0);
-    expect(el.querySelector('.triage-hint')).not.toBeNull();
-    expect(el.textContent).toContain('AB-1');
-  });
-
-  it('links ticket ids to Jira when a base url is present', () => {
-    const el = mount(renderTriageView(groups, { repos: [], selectedRepo: null, jiraBaseUrl: 'https://x.atlassian.net', degraded: false, themeId: DEFAULT_THEME_ID }));
-    const link: HTMLAnchorElement | null = el.querySelector<HTMLAnchorElement>('a.ticket-link[href$="/browse/AB-3"]');
-    expect(link).not.toBeNull();
-  });
-
-  it('shows empty-state notes for empty groups', () => {
-    const el = mount(renderTriageView(
-      { unassignedBacklog: [], unassignedTodo: [], mineOpen: [] },
-      { repos: [], selectedRepo: null, jiraBaseUrl: null, degraded: false, themeId: DEFAULT_THEME_ID },
-    ));
-    expect(el.querySelectorAll('.empty-note').length).toBeGreaterThanOrEqual(3);
-    expect(Array.from(el.querySelectorAll('.triage-page-range'), node => node.textContent)).toEqual(['0 of 0', '0 of 0', '0 of 0']);
-    expect(el.querySelectorAll('.triage-pagination button:disabled')).toHaveLength(6);
-  });
-
-  it('renders a shared page size with separate column totals, ranges, and page controls', () => {
-    const backlog = Array.from({ length: 23 }, (_, index) => ({ ...groups.unassignedBacklog[0]!, id: `AB-${index + 10}` }));
-    const todo = backlog.slice(0, 11);
-    const el = mount(renderTriageView(
-      { ...groups, unassignedBacklog: backlog, unassignedTodo: todo },
-      { repos: [], selectedRepo: null, jiraBaseUrl: null, degraded: false, themeId: DEFAULT_THEME_ID, pageSize: 10, pages: { backlog: 2, todo: 1 } },
-    ));
-    const selector = el.querySelector<HTMLSelectElement>('[data-triage-page-size]');
-    expect(Array.from(selector?.options ?? [], option => option.value)).toEqual(['5', '10', '25', '50', '100']);
-    expect(selector?.value).toBe('10');
-    expect(el.querySelector('.triage-filter-summary')).toBeNull();
-    const backlogColumn = el.querySelector('.triage-group[data-triage-column="backlog"]');
-    expect(backlogColumn?.querySelector('.panel-count')?.textContent).toBe('23');
-    expect(backlogColumn?.querySelectorAll('.triage-row')).toHaveLength(10);
-    expect(backlogColumn?.querySelector('.triage-page-range')?.textContent).toBe('11–20 of 23');
-    expect(backlogColumn?.querySelector('.triage-page-number')?.textContent).toBe('Page 2 of 3');
-    expect(backlogColumn?.querySelector('button[data-triage-page="1"]')?.getAttribute('aria-label')).toBe('Previous page for Unassigned · Backlog');
-    expect(backlogColumn?.querySelector('button[data-triage-page="3"]')?.getAttribute('aria-label')).toBe('Next page for Unassigned · Backlog');
-    const todoColumn = el.querySelector('.triage-group[data-triage-column="todo"]');
-    expect(todoColumn?.querySelector('.panel-count')?.textContent).toBe('11');
-    expect(todoColumn?.querySelector('.triage-page-range')?.textContent).toBe('1–10 of 11');
-    expect(todoColumn?.querySelector('.triage-page-number')?.textContent).toBe('Page 1 of 2');
-    expect(todoColumn?.querySelectorAll('.triage-pagination button:disabled')).toHaveLength(1);
-  });
-
-  it('paginates filtered tickets and keeps the filtered total in each column header', () => {
-    const tickets = Array.from({ length: 12 }, (_, index) => ({ ...groups.unassignedBacklog[0]!, id: `AB-${index + 10}`, priority: index < 7 ? 'P1' as const : 'P2' as const }));
-    const el = mount(renderTriageView(
-      { ...groups, unassignedBacklog: tickets },
-      { repos: [], selectedRepo: null, jiraBaseUrl: null, degraded: false, themeId: DEFAULT_THEME_ID, pageSize: 5, pages: { backlog: 2 }, filters: { priorities: ['P1'], days: 0 } },
-    ));
-    const backlogColumn = el.querySelector('.triage-group[data-triage-column="backlog"]');
-    expect(backlogColumn?.querySelectorAll('.triage-row')).toHaveLength(2);
-    expect(backlogColumn?.querySelector('.panel-count')?.textContent).toBe('7');
-    expect(backlogColumn?.querySelector('.triage-page-range')?.textContent).toBe('6–7 of 7');
-    expect(backlogColumn?.querySelector('button[data-triage-page="2"]')?.hasAttribute('disabled')).toBe(true);
-  });
-
-  it('gives every group a collapse button carrying its id', () => {
-    const el = mount(renderTriageView(groups, { repos: ['o/a'], selectedRepo: 'o/a', jiraBaseUrl: null, degraded: false, themeId: DEFAULT_THEME_ID }));
-    const ids: string[] = Array.from(el.querySelectorAll<HTMLButtonElement>('.surface-collapse')).map((b) => b.dataset.collapseId ?? '');
-    expect(ids).toEqual(['triage:backlog', 'triage:todo', 'triage:mine']);
-  });
-
-  it('marks a group collapsed and hides its list when its id is in the set', () => {
-    const el = mount(renderTriageView(groups, { repos: ['o/a'], selectedRepo: 'o/a', jiraBaseUrl: null, degraded: false, themeId: DEFAULT_THEME_ID, collapsed: new Set(['triage:todo']) }));
-    const collapsedGroups = el.querySelectorAll('.triage-group.is-collapsed');
-    expect(collapsedGroups).toHaveLength(1);
-    expect(collapsedGroups[0]!.querySelector('.surface-collapse')!.getAttribute('aria-expanded')).toBe('false');
   });
 });
 
@@ -748,100 +663,6 @@ describe('repository PR body', () => {
     el.innerHTML = renderRepoPrs(null, state);
     expect(el.querySelector('.pr-list-row')).toBeNull();
     expect(el.textContent).toContain('Select a galleon');
-  });
-});
-
-describe('renderBugsView', () => {
-  function mount(html: string): HTMLElement {
-    const el = document.createElement('div');
-    el.innerHTML = html;
-    return el;
-  }
-  const res: BugsResponse = {
-    cards: [{
-      project: 'AIROBUILD', repo: 'o/a', label: 'Airo Editing',
-      open: 20, delta: 4, completed: 6, pastSla: 7,
-      oldest: { key: 'AIROBUILD-2992', ageDays: 82 },
-      p75: { days: 9.4, n: 94, capped: false },
-      rows: [
-        { key: 'AIROBUILD-5849', title: 'Media Library bug', priority: 'P1 - High', severity: 'S2 - Medium', sla: { text: 'Past SLA by 7d', overdue: true, days: -7 } },
-        { key: 'AIROBUILD-6319', title: 'Media preview stale', priority: 'P1 - High', severity: 'S2 - Medium', sla: { text: 'SLA in 6d', overdue: false, days: 6 } },
-      ],
-      degraded: false, jiraBaseUrl: 'https://x.atlassian.net',
-    }],
-    degraded: false, generatedAt: '2026-09-15T16:15:05Z', latestWindow: '2026-09-09 → 2026-09-15', previousWindow: '2026-09-02 → 2026-09-08',
-  };
-  const opts = { repos: ['o/a'], selectedRepo: 'o/a', themeId: DEFAULT_THEME_ID };
-
-  it('renders a BUGS tab, a card header, stats, and a row per bug', () => {
-    const el = mount(renderBugsView(res, opts));
-    expect(el.querySelector('.page-tab[data-view="bugs"]')).not.toBeNull();
-    expect(el.textContent).toContain('20 Open bugs');
-    expect(el.textContent).toContain('+4');
-    expect(el.textContent).toContain('9.4');
-    expect(el.querySelectorAll('.bug-row')).toHaveLength(2);
-    expect(el.querySelector('a.ticket-link[href$="/browse/AIROBUILD-2992"]')).not.toBeNull();
-  });
-
-  it('flags overdue SLA with chip-blocked and future SLA without it', () => {
-    const el = mount(renderBugsView(res, opts));
-    const slas = Array.from(el.querySelectorAll<HTMLElement>('.bug-sla'));
-    expect(slas[0]!.className).toContain('chip-blocked');
-    expect(slas[1]!.className).not.toContain('chip-blocked');
-  });
-
-  it.each([
-    ['P0 - Critical', 'pri-p0'],
-    ['P1 - High', 'pri-p1'],
-    ['P2 - Medium', 'pri-p2'],
-    ['P3 - Low', 'pri-p3'],
-    ['P4 - Lowest', 'pri-p4'],
-    [' p2 - Medium ', 'pri-p2'],
-    ['P10 - Unknown', 'chip-queued'],
-    ['', 'chip-queued'],
-  ])('gives bug priority %s its semantic color class', (priority, className) => {
-    const data: BugsResponse = {
-      ...res,
-      cards: [{ ...res.cards[0]!, rows: [{ ...res.cards[0]!.rows[0]!, priority }] }],
-    };
-    const chip = mount(renderBugsView(data, opts)).querySelector('.bug-row td:nth-child(3) .chip');
-    expect(chip?.classList.contains(className)).toBe(true);
-    expect(chip?.textContent).toBe(priority);
-  });
-
-  it('shows a degraded banner and no cards when degraded', () => {
-    const el = mount(renderBugsView({ ...res, cards: [], degraded: true }, opts));
-    expect(el.querySelector('.degraded-banner')).not.toBeNull();
-    expect(el.querySelectorAll('.bug-card')).toHaveLength(0);
-  });
-
-  it('escapes malicious titles', () => {
-    const bad: BugsResponse = { ...res, cards: [{ ...res.cards[0]!, rows: [{ ...res.cards[0]!.rows[0]!, title: '<img src=x onerror=alert(1)>' }] }] };
-    const html = renderBugsView(bad, opts);
-    expect(html).not.toContain('<img');
-    expect(html).toContain('&lt;img');
-  });
-
-  it('shows an empty-state note (not a blank grid) when the scope has no cards and is not degraded', () => {
-    const el = mount(renderBugsView({ ...res, cards: [], degraded: false }, opts));
-    expect(el.querySelector('.empty-note')?.textContent).toBe('No bug data for this scope.');
-    expect(el.querySelector('.degraded-banner')).toBeNull();
-    expect(el.querySelectorAll('.bug-card')).toHaveLength(0);
-  });
-
-  it('formats generatedAt as a readable UTC string', () => {
-    const el = mount(renderBugsView(res, opts));
-    expect(el.textContent).toContain('Generated 2026-09-15 16:15 UTC');
-  });
-
-  it('shows an em dash when generatedAt is empty', () => {
-    const el = mount(renderBugsView({ ...res, generatedAt: '' }, opts));
-    expect(el.textContent).toContain('Generated —');
-  });
-
-  it('falls back to the raw value when generatedAt is malformed', () => {
-    const el = mount(renderBugsView({ ...res, generatedAt: 'not-a-date' }, opts));
-    expect(el.textContent).toContain('Generated not-a-date');
   });
 });
 

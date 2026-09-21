@@ -80,3 +80,45 @@ describe('standalone Triage presentation', () => {
     expect(f.context.saveState).not.toHaveBeenCalled(); f.lifetime.abort();
   });
 });
+
+it('preserves migrated group collapse defaults and explicit expansion through refresh', async () => {
+  const f = fixture(); f.context = { ...f.context, state: { ...f.state, savedState: { version: 1, value: { source: null, priorities: [1], days: 7, pageSize: 25, collapsed: [], legacyCollapsedGroups: ['unassigned-backlog'], expanded: [] } } } };
+  const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Expand group')).toHaveLength(1));
+  expect(f.triage.mock.calls[0]?.[0]).toMatchObject({ priorities: [1], limit: 25 });
+  f.buttons('Expand group')[0]!.click(); await vi.waitFor(() => expect(f.context.saveState).toHaveBeenCalled());
+  expect(f.context.saveState).toHaveBeenLastCalledWith(expect.objectContaining({ value: expect.objectContaining({ legacyCollapsedGroups: ['unassigned-backlog'], expanded: [expect.any(String)] }) }));
+  await instance.refresh?.(); expect(f.buttons('Expand group')).toHaveLength(0);
+  f.buttons('Collapse group')[0]!.click(); await instance.refresh?.(); expect(f.buttons('Expand group')).toHaveLength(1); f.lifetime.abort();
+});
+it.each(['backlog', 'todo', 'mine'] as const)('reveals legacy %s pane once and retains a later user collapse', async pane => {
+  const f = fixture(); const routeState = { version: 1, value: { pane } }; const group = pane === 'backlog' ? 'unassigned-backlog' : pane === 'todo' ? 'unassigned-todo' : 'mine-open';
+  const state = { ...f.state, routeState, savedState: { version: 1, value: { source: null, collapsed: [], legacyCollapsedGroups: [group], expanded: [] } } };
+  f.context = { ...f.context, state }; const instance = await panel.mount(f.container, f.context);
+  await vi.waitFor(() => expect(f.container.querySelector(`[data-triage-group="${group}"] ul`)).not.toBeNull());
+  expect(document.activeElement).toBe(f.container.querySelector(`[data-triage-group="${group}"]`));
+  const collapse = f.container.querySelector<HTMLButtonElement>(`[data-triage-group="${group}"] button`)!; collapse.click();
+  await instance.refresh?.(); expect(f.container.querySelector(`[data-triage-group="${group}"] ul`)).toBeNull();
+  await instance.update({ ...state, routeState: null }); await instance.update(state);
+  expect(f.container.querySelector(`[data-triage-group="${group}"] ul`)).not.toBeNull(); f.lifetime.abort();
+});
+it.each([true, false])('renders provider text literally and preserves accurate group labels in Pirate mode %s', async pirateMode => {
+  const f = fixture(); f.context = { ...f.context, state: { ...f.state, pirateMode } }; const original = f.triage.getMockImplementation()!;
+  f.triage.mockImplementation(async (...args) => { const result = await original(...args); return result.status === 'available' ? { ...result, value: { ...result.value, page: { ...result.value.page, items: [{ ...task, title: '<img src=x onerror=alert(1)>' }] } } } : result; });
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('<img src=x onerror=alert(1)>'));
+  expect(f.container.querySelector('img,script')).toBeNull(); expect(f.container.textContent).toContain('Mine · Open'); f.lifetime.abort();
+});
+
+it('clears old rows during an active repository change and rejects a late previous-scope response', async () => {
+  const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain(task.title));
+  const nextRepo = 'other/repo'; const nextSource = { ...source, repo: nextRepo }; let finish!: () => void; const wait = new Promise<void>(resolve => { finish = resolve; });
+  const original = f.triage.getMockImplementation()!;
+  f.triage.mockImplementation(async (...args) => {
+    if (args[0].repo === repo) await wait; const result = await original(...args);
+    return result.status === 'available' ? { ...result, value: { ...result.value, selection: args[0].repo === repo ? source : nextSource, page: { ...result.value.page, repo: args[0].repo, items: [{ ...task, title: args[0].repo === repo ? 'Late former task' : 'Current scoped task' }] }, relatedRuns: [] } } : result;
+  });
+  void instance.refresh?.(); await vi.waitFor(() => expect(f.triage.mock.calls.length).toBeGreaterThan(3));
+  f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo: nextRepo, galleons: [{ repo: nextRepo, sources: { status: 'available', value: [nextSource] } }] } });
+  const nextActivity = new AbortController(); f.activity.abort(); await instance.update({ ...f.state, repo: nextRepo, activity: { repo: nextRepo, epoch: 2, active: true, signal: nextActivity.signal } });
+  expect(f.container.textContent).not.toContain(task.title); await vi.waitFor(() => expect(f.container.textContent).toContain('Current scoped task'));
+  finish(); await Promise.resolve(); await Promise.resolve(); expect(f.container.textContent).not.toContain('Late former task'); expect(f.container.textContent).toContain('Current scoped task'); f.lifetime.abort();
+});

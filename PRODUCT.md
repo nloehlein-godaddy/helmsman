@@ -6,7 +6,7 @@ A **command center** for autonomous coding agents working from Jira and local ta
 
 The **Helm** page presents the fleet as a navigation bridge: graphite control panels, amber readouts, and a **Ship’s log** of recent activity. Startup uses a ship’s wheel, compass bearings, and a plotted course, with navigation and fleet-readiness messages leading into the dashboard.
 
-Costs and Helm are replaceable packages. E3 Todos, Triage, Bugs and source-settings packages are independently buildable opt-in presentations, with explicit unavailable/partial states and durable command recovery. Default task/configuration route cutover and broader feature extraction remain pending; see the [implementation ledger](docs/plugin-implementation-progress.md) and [task flow](docs/helmsman-process.md). Packages inherit header scope unless a panel explicitly overrides it; replacing presentation never cancels retained work.
+Costs, Helm, Todos, Triage, Bugs and Source settings are replaceable packages, with explicit unavailable/partial states and durable command recovery. Task aliases now resolve through selected plugins; core Config links to Source settings. Default task-page acceptance passed; exact-commit review, push and broader feature extraction remain pending; see the [implementation ledger](docs/plugin-implementation-progress.md) and [task flow](docs/helmsman-process.md). Packages inherit header scope unless a panel explicitly overrides it; replacing presentation never cancels retained work.
 
 ## Who it's for
 

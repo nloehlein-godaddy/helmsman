@@ -6,11 +6,18 @@ The flow now includes Moon Units-inspired intake, frozen execution settings, iso
 
 ## Plugin task presentation and command authority
 
-Costs and Helm use public plugin services. The E3 Todos, Triage, Bugs and source-settings packages are opt-in author projects; the default task/configuration routes still render their legacy pages. E4 run presentation is proposed; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
+Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page acceptance passed; exact-commit review and push are pending. E4 run presentation is proposed; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
 
 ```mermaid
 flowchart TD
-    Scope[Header galleon or explicit panel override<br/>Exact source instance and revision] --> Panel[Opt-in task page and panel<br/>Host manages lifetime, scope and cancellation]
+    Alias[Task alias] --> Selection[Selected page contribution]
+    Selection -->|Disabled or missing| Unavailable[Unavailable page<br/>Retain selection and layout]
+    Selection -->|Available| Layout{Saved composition exists?}
+    Layout -->|Yes| Retain[Keep saved layout and opaque state<br/>Including empty and missing panels]
+    Layout -->|No| Initialize[Package defaults<br/>Atomically archive and import legacy Triage preferences]
+    Retain --> Scope
+    Initialize --> Scope
+    Scope[Header galleon or explicit panel override<br/>Exact source instance and revision] --> Panel[Selected task page and panel<br/>Host manages lifetime, scope and cancellation]
     Panel --> Reads[Public task / editor / task-view reads<br/>Bounded, validated DTOs; no credentials]
     Reads --> Provider[Jira or local source provider<br/>Declared optional views; explicit quality]
     Provider --> Display[Render independent group and metric quality<br/>Actual links, dates and scope-checked related voyages]

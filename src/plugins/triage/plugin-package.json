@@ -12,7 +12,11 @@
         "slots": [
           "helmsman/triage-page"
         ],
-        "panes": [],
+        "panes": [
+          "backlog",
+          "todo",
+          "mine"
+        ],
         "composition": {
           "id": "helmsman/triage-page",
           "version": 1,

@@ -3,19 +3,16 @@ import { renderLocalGit } from './renderLocalGit';
 import { renderThemePreview } from './renderThemePreview';
 import { emptyLocalGit, type LocalGitState } from './data/localGit';
 import { routeHref, type PageView } from './logic/routes';
-import { appPages, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_ID, COSTS_PAGE_SLOT, builtinPageSlots, SOURCE_SETTINGS_PAGE_SLOT } from './plugins/builtins';
 import type { PrInboxState, PrListState } from './data/prLists';
 import { formatRelativeTime } from './logic/time';
 import { escapeHtml as esc } from './logic/html';
-import type { BugCard, BugsResponse, PrFileDiff, Priority, OpenPr, Ticket, TicketStatus } from './types';
-import type { TriageGroupsView } from './data/triage';
+import type { PrFileDiff, OpenPr } from './types';
 import { EFFORT_OPTIONS, MODEL_OPTIONS, type AgentOption } from './logic/agentOptions';
 import { REQUIRED_PR_APPROVALS } from './logic/prReviews';
 import { RUN_LOG_PREVIEW_LIMIT } from './logic/runLog';
 import { shortVoyageId } from './logic/voyageId';
 import { PRE_PR_CONFIG_KEYS, PRE_PR_SETTING_DEFINITIONS } from './logic/prePrSettings';
-import { defaultTriageFilters, filterTriageTickets, TRIAGE_PRIORITIES, TRIAGE_DATE_OPTIONS, type TriageFilters } from './logic/triageFilters';
-import { DEFAULT_TRIAGE_PAGE_SIZE, TRIAGE_PAGE_SIZES, paginateTriageTickets, type TriageColumn, type TriagePages, type TriagePageSize } from './logic/triagePagination';
 
 function tuningSelects(prefix: string, defaultModel: string = prefix === 'pr' ? '' : 'gpt-6-astra', defaultEffort: string = prefix === 'pr' ? '' : 'medium'): string {
   const opts = (list: AgentOption[], def: string): string =>
@@ -32,7 +29,6 @@ import type { CmuxTabView } from './logic/cmuxPanel';
 import { providerOf } from './logic/cmuxPanel';
 import { THEMES } from './data/themes';
 
-const PRIORITY_CLASS: Record<Priority, string> = { P0: 'pri-p0', P1: 'pri-p1', P2: 'pri-p2', P3: 'pri-p3', P4: 'pri-p4' };
 
 export const CONFIG_HELP: Record<string, string> = {
   get JIRA_ENABLED() { return 'Initial Jira source enablement. Example: true. Manage existing sources in Task sources.'; },
@@ -144,32 +140,6 @@ function shortRepo(repo: string): string {
   return repo.split('/').pop() ?? repo
 }
 
-const TICKET_RE = /\b[A-Z][A-Z0-9]+-\d+\b/;
-
-function jiraHref(baseUrl: string, id: string): string {
-  return `${esc(baseUrl.replace(/\/+$/, ''))}/browse/${esc(id)}`;
-}
-
-function ticketLabel(id: string, baseUrl: string | null): string {
-  if (baseUrl && TICKET_RE.test(id)) {
-    return `<a class="ticket-link" href="${jiraHref(baseUrl, id)}" target="_blank" rel="noopener">${esc(id)}</a>`;
-  }
-  return esc(id);
-}
-
-function sourceTicketLabel(ticket: Ticket, baseUrl: string | null): string {
-  if (!ticket.source) return ticketLabel(ticket.id, baseUrl);
-  if (typeof ticket.source.url === 'string') {
-    try {
-      const url = new URL(ticket.source.url);
-      if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) {
-        return `<a class="ticket-link" href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${esc(ticket.id)}</a>`;
-      }
-    } catch {}
-  }
-  return esc(ticket.id);
-}
-
 export type { PageView } from './logic/routes';
 
 const PAGE_TABS: { view: PageView; label: string }[] = [
@@ -198,12 +168,14 @@ export interface HelmHeadOpts {
 }
 
 function pageTabs(opts: HelmHeadOpts) {
-  const helm = appPages.getSlot(HELM_PAGE_SLOT) ? appPages.selected(HELM_PAGE_SLOT) : null;
-  const helmActive = opts.pluginSlot === HELM_PAGE_SLOT || !!helm && opts.pluginPage === helm.contributionId;
-  const tabs = PAGE_TABS.map(t => ({
-    ...t, id: `page-tab-${t.view}`, active: t.view === opts.active || t.view === 'dashboard' && helmActive,
-    href: routeHref({ view: t.view, repo: opts.selectedRepo }),
-  }));
+  const tabs = PAGE_TABS.map(t => {
+    const href = routeHref({ view: t.view, repo: opts.selectedRepo });
+    const slot = builtinPageSlots.find(value => value.alias === href.split('?')[0]);
+    const selected = slot ? appPages.selected(slot.id) : null;
+    return { ...t, id: `page-tab-${t.view}`,
+      label: selected?.page && selected.contributionId !== slot?.defaultContributionId ? selected.page.title : t.label,
+      active: t.view === opts.active || !!slot && (opts.pluginSlot === slot.id || !!opts.pluginPage && opts.pluginPage === selected?.contributionId), href };
+  });
   const costs = appPages.selected(COSTS_PAGE_SLOT);
   const costsActive = opts.pluginSlot === COSTS_PAGE_SLOT || opts.pluginPage === costs.contributionId
     || opts.active === 'outcomes' && !opts.pluginPage && costs.page?.contributionId === COSTS_PAGE_ID;
@@ -214,7 +186,7 @@ function pageTabs(opts: HelmHeadOpts) {
   };
   const campaignsIndex = tabs.findIndex(tab => tab.view === 'campaigns');
   tabs.splice(campaignsIndex < 0 ? tabs.length : campaignsIndex, 0, costsTab);
-  if ((opts.active === 'plugin' || opts.active === 'outcomes') && !costsActive && !helmActive) {
+  if ((opts.active === 'plugin' || opts.active === 'outcomes') && !costsActive && !tabs.some(tab => tab.active)) {
     const page = opts.pluginPage ? appPages.getPage(opts.pluginPage) : null;
     tabs.push({ id: 'page-tab-plugin', view: opts.active, active: true,
       label: page?.contributionId === COSTS_PAGE_ID ? term('costsOutcomes') : page?.title ?? term('unavailablePluginPage'),
@@ -646,232 +618,6 @@ export function renderPrView(state: PrViewState, opts: PrViewOpts): string {
 `);
 }
 
-const STATUS_LABEL: Record<TicketStatus, string> = {
-  backlog: 'Backlog',
-  'in-progress': 'In Progress',
-  get 'in-review'() { return term('inReview'); },
-  done: 'Done',
-};
-
-const STATUS_CHIP_CLASS: Record<TicketStatus, string> = {
-  backlog: 'chip-queued',
-  'in-progress': 'chip-progress',
-  'in-review': 'chip-review',
-  done: 'chip-done',
-};
-
-function taskSourceLaunchAttributes(ticket: Ticket): string {
-  const source = ticket.source;
-  if (!source) return '';
-  if (!source.ref || typeof source.ref.sourceId !== 'string' || typeof source.ref.externalId !== 'string' || typeof source.instanceId !== 'string' || !Number.isSafeInteger(source.instanceRevision) || source.instanceRevision < 1) return 'data-source-invalid="true"';
-  return `data-source-instance="${esc(source.instanceId)}" data-source-revision="${source.instanceRevision}" data-source-id="${esc(source.ref.sourceId)}" data-source-item="${esc(source.ref.externalId)}"`;
-}
-
-function triageLaunchAction(ticket: Ticket, launchRepo: string | null): string {
-  return launchRepo
-    ? `<button class="launch-btn" data-ticket="${esc(ticket.id)}" data-title="${esc(ticket.title)}" data-repo="${esc(launchRepo)}" ${taskSourceLaunchAttributes(ticket)} aria-label="${term('launchTicket')} ${esc(ticket.id)}">${term('launchTicket')}</button>`
-    : '';
-}
-
-function triageLaunchRow(ticket: Ticket, jiraBaseUrl: string | null, launchRepo: string | null): string {
-  return `
-      <li class="lane triage-row">
-        <span class="ticket-id">${sourceTicketLabel(ticket, jiraBaseUrl)}</span>
-        <span class="queue-title">${esc(ticket.title)}</span>
-        <span class="pri-chip ${PRIORITY_CLASS[ticket.priority]}">${ticket.priority}</span>
-        ${triageLaunchAction(ticket, launchRepo)}
-      </li>`;
-}
-
-function triageStatusRow(ticket: Ticket, jiraBaseUrl: string | null, launchRepo: string | null): string {
-  return `
-      <li class="lane triage-row">
-        <span class="ticket-id">${sourceTicketLabel(ticket, jiraBaseUrl)}</span>
-        <span class="queue-title">${esc(ticket.title)}</span>
-        <span class="chip ${STATUS_CHIP_CLASS[ticket.status]}">${STATUS_LABEL[ticket.status]}</span>
-        <span class="pri-chip ${PRIORITY_CLASS[ticket.priority]}">${ticket.priority}</span>
-        ${triageLaunchAction(ticket, launchRepo)}
-      </li>`;
-}
-
-function triageGroup(
-  title: string,
-  column: TriageColumn,
-  pagination: ReturnType<typeof paginateTriageTickets>,
-  row: (t: Ticket, base: string | null) => string,
-  jiraBaseUrl: string | null,
-  emptyNote: string,
-  hint: string = '',
-  panelId: string = '',
-  collapsed: boolean = false,
-): string {
-  const { tickets, total, start, end, page, pages } = pagination;
-  const items: string = tickets.length
-    ? tickets.map((t) => row(t, jiraBaseUrl)).join('')
-    : `<li class="empty-note">${esc(emptyNote)}</li>`;
-  const hintEl: string = hint && tickets.length ? `<div class="triage-hint">${esc(hint)}</div>` : '';
-  return `
-        <div class="panel triage-group${collapsed ? ' is-collapsed' : ''}" data-triage-column="${column}">
-          <div class="panel-head">
-            <span class="panel-title">${esc(title)}</span>
-            <span class="panel-count mono">${total}</span>
-            ${surfaceCollapseBtn(panelId, title, collapsed)}
-          </div>
-          ${hintEl}
-          <ul class="lane-list triage-list">${items}</ul>
-          <div class="triage-pagination" data-triage-column="${column}" tabindex="-1">
-            <span class="triage-page-range mono" role="status" aria-label="${esc(title)} ticket range">${total ? `${start}–${end} of ${total}` : '0 of 0'}</span>
-            <div class="triage-page-controls">
-              <button data-triage-column="${column}" data-triage-page="${Math.max(1, page - 1)}" aria-label="Previous page for ${esc(title)}"${page <= 1 ? ' disabled' : ''}>Previous</button>
-              <span class="triage-page-number mono">Page ${page} of ${pages}</span>
-              <button data-triage-column="${column}" data-triage-page="${Math.min(pages, page + 1)}" aria-label="Next page for ${esc(title)}"${page >= pages ? ' disabled' : ''}>Next</button>
-            </div>
-          </div>
-        </div>`;
-}
-
-export interface TriageViewOpts {
-  repos: string[];
-  selectedRepo: string | null;
-  jiraBaseUrl: string | null;
-  degraded: boolean;
-  themeId: string;
-  collapsed?: Set<string>;
-  filters?: TriageFilters;
-  pageSize?: TriagePageSize;
-  pages?: Partial<TriagePages>;
-}
-
-export function renderTriageView(groups: TriageGroupsView, opts: TriageViewOpts): string {
-  const { repos, selectedRepo, jiraBaseUrl, degraded, themeId } = opts;
-  const collapsed: Set<string> = opts.collapsed ?? new Set();
-  const banner: string = degraded
-    ? '<div class="degraded-banner" role="alert">Jira tickets could not be loaded. Check Jira settings in Config, then refresh this page.</div>'
-    : '';
-  const launchable: boolean = selectedRepo !== null;
-  const launchRow = (t: Ticket, base: string | null): string => triageLaunchRow(t, base, selectedRepo);
-  const statusRow = (t: Ticket, base: string | null): string => triageStatusRow(t, base, selectedRepo);
-  const scopeHint: string = launchable ? '' : term('launchScopeHint');
-  const filters = opts.filters ?? defaultTriageFilters();
-  const pageSize = TRIAGE_PAGE_SIZES.find(size => size === opts.pageSize) ?? DEFAULT_TRIAGE_PAGE_SIZE;
-  const now = Date.now();
-  const filtered = {
-    unassignedBacklog: filterTriageTickets(groups?.unassignedBacklog, filters, now),
-    unassignedTodo: filterTriageTickets(groups?.unassignedTodo, filters, now),
-    mineOpen: filterTriageTickets(groups?.mineOpen, filters, now),
-  };
-  const isFiltered = filters.priorities.length !== TRIAGE_PRIORITIES.length || filters.days !== 0;
-  const filterEmpty = 'No tickets match these filters. Select more priorities or a wider date range.';
-  const capped = [groups?.unassignedBacklog, groups?.unassignedTodo, groups?.mineOpen].some(tickets => (tickets?.length ?? 0) >= 100);
-  return renderAppShell({ active: 'triage', repos, selectedRepo, themeId, readout: null }, `
-      <header class="page-intro"><h1>Triage</h1><p>Choose a Jira ticket for the ${term('agents').toLowerCase()} to work on. The header ${term('repository').toLowerCase()} is the launch target.</p></header>
-      ${banner}
-      <div class="panel triage-filters" role="group" aria-label="Filter all triage columns">
-        <fieldset class="triage-priorities"><legend>Priority</legend>
-          ${TRIAGE_PRIORITIES.map(priority => `<label class="triage-priority"><input type="checkbox" data-triage-priority="${priority}"${filters.priorities.includes(priority) ? ' checked' : ''} /><span class="pri-chip ${PRIORITY_CLASS[priority]}">${priority}</span></label>`).join('')}
-        </fieldset>
-        <label class="triage-date">Last updated <select data-triage-days>${TRIAGE_DATE_OPTIONS.map(days => `<option value="${days}"${filters.days === days ? ' selected' : ''}>${days ? `Last ${days} ${days === 1 ? 'day' : 'days'}` : 'Any time'}</option>`).join('')}</select></label>
-        <label class="triage-page-size">Tickets per column <select data-triage-page-size>${TRIAGE_PAGE_SIZES.map(size => `<option value="${size}"${pageSize === size ? ' selected' : ''}>${size}</option>`).join('')}</select></label>
-      </div>
-      ${capped ? '<div class="triage-hint">Filters apply to loaded tickets. Jira returns up to 100 tickets per column.</div>' : ''}
-      <div class="triage-grid">
-        ${triageGroup('Unassigned · Backlog', 'backlog', paginateTriageTickets(filtered.unassignedBacklog, pageSize, opts.pages?.backlog ?? 1), launchRow, jiraBaseUrl, isFiltered ? filterEmpty : 'No unassigned backlog tickets.', scopeHint, 'triage:backlog', collapsed.has('triage:backlog'))}
-        ${triageGroup('Unassigned · To Do', 'todo', paginateTriageTickets(filtered.unassignedTodo, pageSize, opts.pages?.todo ?? 1), launchRow, jiraBaseUrl, isFiltered ? filterEmpty : 'No unassigned to-do tickets.', scopeHint, 'triage:todo', collapsed.has('triage:todo'))}
-        ${triageGroup(term('mineRunning'), 'mine', paginateTriageTickets(filtered.mineOpen, pageSize, opts.pages?.mine ?? 1), statusRow, jiraBaseUrl, isFiltered ? filterEmpty : 'No unfinished tickets assigned to you.', scopeHint, 'triage:mine', collapsed.has('triage:mine'))}
-      </div>
-      <div class="runs-drawer-slot"></div>
-`);
-}
-
-export interface BugsViewOpts {
-  repos: string[];
-  selectedRepo: string | null;
-  themeId: string;
-}
-
-function bugChip(text: string, cls: string): string {
-  return `<span class="chip ${cls}">${esc(text)}</span>`;
-}
-
-function bugPriorityClass(priority: string | null | undefined): string {
-  const level = priority?.trim().match(/^P([0-4])\b/i)?.[1];
-  return level ? `pri-p${level}` : 'chip-queued';
-}
-
-function bugCardHtml(card: BugCard): string {
-  if (card.degraded) {
-    return `<section class="panel bug-card"><div class="panel-head"><span class="panel-title">${esc(card.label)}</span></div><div class="empty-note">Jira unavailable for ${esc(card.project)}.</div></section>`;
-  }
-  const deltaStr: string = card.delta > 0 ? `+${card.delta}` : String(card.delta);
-  const oldest: string = card.oldest
-    ? `${ticketLabel(card.oldest.key, card.jiraBaseUrl)} · ${card.oldest.ageDays}d`
-    : '—';
-  const p75: string = card.p75.days === null ? '—' : `${card.p75.days}d`;
-  const n: string = card.p75.capped ? `${card.p75.n}+` : String(card.p75.n);
-  const rows: string = card.rows.length
-    ? card.rows.map((r) => `
-        <tr class="bug-row">
-          <td class="bug-key">${ticketLabel(r.key, card.jiraBaseUrl)}</td>
-          <td class="bug-title">${esc(r.title)}</td>
-          <td>${bugChip(r.priority, bugPriorityClass(r.priority))}</td>
-          <td>${bugChip(r.severity, 'chip-queued')}</td>
-          <td><span class="chip bug-sla ${r.sla.overdue ? 'chip-blocked' : 'chip-review'}">${esc(r.sla.text)}</span></td>
-        </tr>`).join('')
-    : '<tr><td colspan="5" class="empty-note">No open bugs.</td></tr>';
-  const jiraSearch: string = card.jiraBaseUrl
-    ? `<a class="bug-jira-link" href="${esc(card.jiraBaseUrl)}/issues/?jql=${encodeURIComponent(`project = "${card.project}" AND issuetype = Bug AND statusCategory != Done`)}" target="_blank" rel="noopener">View all in Jira ↗</a>`
-    : '';
-  return `
-    <section class="panel bug-card">
-      <div class="panel-head bug-card-head">
-        <span class="bug-squad chip chip-queued">${esc(card.label)}</span>
-        <span class="panel-title">${card.open} Open bugs</span>
-      </div>
-      <div class="bug-stats mono">
-        <span class="bug-stat"><b>${card.open}</b> Open <em>(${deltaStr} vs prior)</em></span>
-        <span class="bug-stat"><b>${card.completed}</b> Completed · 7 days</span>
-        <span class="bug-stat"><b class="${card.pastSla > 0 ? 'bug-bad' : ''}">${card.pastSla}</b> Past SLA</span>
-        <span class="bug-stat">Oldest open ${oldest}</span>
-        <span class="bug-stat" title="75% of sampled bugs resolved in the last 90 days were completed within this duration">Resolution time · P75 ${p75} <em>(${n} sampled)</em></span>
-      </div>
-      <table class="bug-table">
-        <thead><tr><th>Key</th><th>Title</th><th>Priority</th><th>Severity</th><th>SLA</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      ${jiraSearch}
-    </section>`;
-}
-
-const GENERATED_AT_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}(?:\.\d+)?Z$/;
-
-function formatGeneratedAt(generatedAt: string): string {
-  if (generatedAt === '') return 'Generated —';
-  const m = GENERATED_AT_RE.exec(generatedAt);
-  if (!m) return `Generated ${esc(generatedAt)}`;
-  return `Generated ${m[1]} ${m[2]} UTC`;
-}
-
-export function renderBugsView(res: BugsResponse, opts: BugsViewOpts): string {
-  const banner: string = res.degraded
-    ? '<div class="degraded-banner" role="alert">Bug data could not be loaded from Jira. Check Jira settings in Config, then refresh this page.</div>'
-    : '';
-  const cards: string = res.cards.map(bugCardHtml).join('');
-  const bugsBody: string =
-    res.cards.length === 0 && !res.degraded
-      ? '<div class="empty-note">No bug data for this scope.</div>'
-      : `<div class="bugs-grid">${cards}</div>`;
-  return renderAppShell({ active: 'bugs', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `
-      <header class="page-intro"><h1>Bugs</h1><p>Track open bugs and resolution times. Open a ticket in Jira to investigate or update it.</p></header>
-      <div class="bugs-windows mono">
-        <span>LATEST 7 DAYS · ${esc(res.latestWindow)}</span>
-        <span>PREVIOUS 7 DAYS · ${esc(res.previousWindow)}</span>
-        <span>${formatGeneratedAt(res.generatedAt)}</span>
-      </div>
-      ${banner}
-      ${bugsBody}
-`);
-}
-
 export interface ConfigViewOpts {
   repos: string[];
   selectedRepo: string | null;
@@ -880,7 +626,6 @@ export interface ConfigViewOpts {
   loading?: boolean;
   error?: string | null;
   unavailable?: boolean;
-  taskSourcesHtml?: string;
 }
 
 function configRowsHtml(uiConfig: UiConfig): string {
@@ -965,14 +710,15 @@ function configCustomizationPanel(themeId: string): string {
 
 export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): string {
   const customization = configCustomizationPanel(opts.themeId);
+  const sources = `<section class="panel config-panel"><h2>Task sources</h2><p><a href="${esc(routeHref({ view: 'plugin', pluginSlot: SOURCE_SETTINGS_PAGE_SLOT, repo: opts.selectedRepo }))}">Source settings</a></p></section>`;
   const intro = `<header class="page-intro"><h1>Config</h1><p>Configure work sources, integrations, and ${term('agent').toLowerCase()} defaults. Save each setting separately.</p></header>`;
   const status = `${opts.error ? `<div class="config-load-error degraded-banner" role="alert">${esc(opts.error)}${opts.unavailable ? '' : ' Showing the last loaded settings.'} <button type="button" data-config-retry${opts.loading ? ' disabled' : ''}>Try again</button></div>` : ''}${opts.loading ? '<p class="empty-note" role="status">Loading configuration…</p>' : ''}`;
   if (opts.unavailable) {
-    return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `${intro}<section class="panel config-loading" aria-label="Configuration" aria-busy="${Boolean(opts.loading)}">${status || '<p class="empty-note">Configuration is unavailable. <button type="button" data-config-retry>Try again</button></p>'}</section>${opts.taskSourcesHtml ?? ''}${customization}`);
+    return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `${intro}<section class="panel config-loading" aria-label="Configuration" aria-busy="${Boolean(opts.loading)}">${status || '<p class="empty-note">Configuration is unavailable. <button type="button" data-config-retry>Try again</button></p>'}</section>${sources}${customization}`);
   }
   return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `
       ${intro}${status}
-      ${opts.taskSourcesHtml ?? '<section class="panel config-panel"><div class="panel-head"><span class="panel-title">Task sources</span></div><p class="empty-note">Task source settings are unavailable.</p></section>'}
+      ${sources}
       ${customization}
       <section class="panel config-panel slack-review-config" aria-labelledby="slack-review-config-title">
         <div class="panel-head"><span class="panel-title" id="slack-review-config-title">Slack integration</span></div>

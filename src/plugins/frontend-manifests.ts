@@ -1,6 +1,10 @@
 import type { PluginManifest, PluginPageDefinition } from './sdk';
 import { builtinPageSlots, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, HELM_PANEL_CONTRACT } from './page-slots';
 export * from './page-slots';
+import todosPackage from './todos-ui/plugin-package.json' with { type: 'json' };
+import triagePackage from './triage/plugin-package.json' with { type: 'json' };
+import bugsPackage from './bugs/plugin-package.json' with { type: 'json' };
+import sourceSettingsPackage from './source-settings/plugin-package.json' with { type: 'json' };
 
 export function supportsPageSlot(page: PluginPageDefinition, slot: string): boolean {
   const definition = builtinPageSlots.find(value => value.id === slot);
@@ -72,4 +76,9 @@ export const activityManifest: PluginManifest = {
       { id: 'helmsman/pull-request-read', version: 1 }] }],
 };
 
-export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);
+export const todosManifest = todosPackage.manifest as PluginManifest;
+export const triageManifest = triagePackage.manifest as PluginManifest;
+export const bugsManifest = bugsPackage.manifest as PluginManifest;
+export const sourceSettingsManifest = sourceSettingsPackage.manifest as PluginManifest;
+
+export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);

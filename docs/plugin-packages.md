@@ -60,7 +60,7 @@ node /absolute/path/to/release/server/helmsman/plugins/cli.js enable example.tri
 
 Open `/plugins/example.triage/page`. For another package, choose its own non-reserved ID and archive name; retain the shared `helmsman/...` contract and composition identifiers. References to other packages remain unchanged. The Jira author descriptor already uses the installable `example.jira` namespace.
 
-These E3 author packages declare composition/panel contracts but are not registered as built-in defaults. `/todos`, `/triage`, `/bugs` and `/config` still render legacy pages; selecting those aliases as replacements is a future cutover gate. Costs and Helm already support their documented alias selections. See [panel contracts](panel-authoring.md), [task-source services](task-source-authoring.md), and the [completion ledger](plugin-implementation-progress.md).
+These E3 packages are registered builtin defaults for `/todos`, `/triage`, `/bugs` and `/source-settings`. Their aliases follow explicit page selections; disabled or unavailable selections remain unavailable without fallback. Core `/config` links to Source settings and retains its own runtime controls. External variants remain independently buildable and installable using the renamed descriptors above. Default task-page acceptance passed; exact-commit review and push are pending. See [panel contracts](panel-authoring.md), [task-source services](task-source-authoring.md), and the [completion ledger](plugin-implementation-progress.md).
 
 ## Author contract
 

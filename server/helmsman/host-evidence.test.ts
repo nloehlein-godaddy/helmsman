@@ -4,9 +4,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { detachedHost, discoverRunHost, readExitEvidence, readLaunchReceipt, type LaunchSpec } from './run-host';
+import * as evidence from './host-evidence';
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 async function fixture(args = ['-e', 'process.exit(3)']) {
   const root = await mkdtemp(join(tmpdir(), 'host-evidence-')); roots.push(root);
   const spec: LaunchSpec = { runId: 'run1', launchId: 'launch1', attempt: 1, cmd: process.execPath, args, cwd: root,
@@ -32,6 +33,20 @@ it('keeps a missing receipt, reused PID, and wrong host ref unresolved', async (
   expect(await discoverRunHost(host, spec)).toMatchObject({ status: 'unknown' });
   expect(await discoverRunHost(host, spec, { kind: 'detached', pid: process.pid + 1 })).toMatchObject({ status: 'unknown' });
   await expect(host.launch(spec)).rejects.toThrow('cannot be verified');
+});
+
+it.each(['matching', 'wrong-attempt', 'wrong-pid', 'missing'] as const)('rechecks %s terminal evidence when the wrapper exits during its process identity probe', async outcome => {
+  const { spec, host } = await fixture();
+  const receipt = { version: 1, launchId: spec.launchId, runId: spec.runId, attempt: 1, pid: process.pid, processStart: 'original-wrapper' };
+  await writeFile(spec.receiptPath!, JSON.stringify(receipt));
+  const probe = vi.spyOn(evidence, 'processStartIdentity').mockImplementation(async () => {
+    if (outcome !== 'missing') await writeFile(spec.exitPath, JSON.stringify({ ...receipt, exitCode: 0,
+      ...(outcome === 'wrong-attempt' ? { attempt: 2 } : outcome === 'wrong-pid' ? { pid: process.pid + 1 } : {}) }));
+    return null;
+  });
+  const result = await discoverRunHost(host, spec, { kind: 'detached', pid: process.pid });
+  expect(probe).toHaveBeenCalledExactlyOnceWith(process.pid);
+  expect(result).toMatchObject(outcome === 'matching' ? { status: 'found', evidence: { state: 'exited', exitCode: 0, launchId: spec.launchId, attempt: 1 } } : { status: 'unknown' });
 });
 
 it('does not execute two workers when wrappers race for the same durable receipt', async () => {

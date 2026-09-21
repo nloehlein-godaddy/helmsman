@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { renderAppShell, renderConfigView, renderHelmHead, renderVoyage, renderTriageView, runTabStatus } from './render';
+import { renderAppShell, renderConfigView, renderHelmHead, renderVoyage, runTabStatus } from './render';
 import { DEFAULT_THEME_ID } from './data/themes';
 import { setPirateMode } from './logic/terminology';
 
@@ -25,12 +25,6 @@ describe('pirate interface wording', () => {
     expect(element.querySelector('.helm-readout')?.getAttribute('aria-label')).toBe(enabled ? 'Fleet status' : 'System status');
     expect(element.querySelector('[data-readout-label="review"]')?.textContent).toBe(enabled ? 'inspection' : 'review');
     expect(element.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/agent-review');
-  });
-
-  it.each([true, false])('uses the same mapped Mine heading in Triage with mode=%s', enabled => {
-    setPirateMode(enabled);
-    const element = mount(renderTriageView({ unassignedBacklog: [], unassignedTodo: [], mineOpen: [] }, { ...opts, jiraBaseUrl: null, degraded: false }));
-    expect(element.querySelector('[data-collapse-id="triage:mine"]')?.closest('.panel')?.querySelector('.panel-title')?.textContent).toContain(enabled ? 'Mine · underway' : 'Mine · running');
   });
 
   it.each([true, false])('preserves user titles, repository IDs and machine status with mode=%s', enabled => {

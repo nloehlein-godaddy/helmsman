@@ -59,7 +59,7 @@ it('transfers retry pins and retains attempt files until the last real worker is
   } };
   const state = f.open(host); state.deps.maxAttempts = 2;
   await startRun(task, state.deps);
-  expect(state.db.getRun('voyage1')).toMatchObject({ status: 'succeeded', attempt: 2 });
+  expect(state.db.getRun('voyage1'), JSON.stringify(state.db.listEvents('voyage1'))).toMatchObject({ status: 'succeeded', attempt: 2 });
   expect(specs[0]?.launchId).not.toBe(specs[1]?.launchId);
   expect(JSON.parse(readFileSync(specs[0]!.exitPath, 'utf8')).exitCode).toBe(1);
   expect(state.executions.pins()).toEqual([]);
@@ -153,7 +153,7 @@ it('preserves a recorded terminal outcome when a later stop intent arrives befor
   const f = setup(); const first = f.open(f.host, () => { throw new Error('outbox transaction fault'); });
   await startRun(task, first.deps);
   const original = first.executions.attempt({ runId: 'voyage1', attempt: 1 })?.outcome;
-  expect(original?.status).toBe('succeeded');
+  expect(original?.status, JSON.stringify(first.db.listEvents('voyage1'))).toBe('succeeded');
   first.controls.requestStop({ runId: 'voyage1', attempt: 1 }); first.close();
   const second = f.open(); second.deps.isStopped = () => second.controls.isStopRequested({ runId: 'voyage1', attempt: 1 });
   const result = await reattachRun(second.db.getRun('voyage1')!, second.deps);

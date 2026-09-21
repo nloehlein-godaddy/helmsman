@@ -34,8 +34,8 @@ test('independent Todo package preserves drafts and one durable create through r
     await expect.poll(async () => (await (await request.get(`${origin}/api/todos?repo=org/a`)).json()).todos[0]?.description).toBe('Newer unsent instructions');
     await page.getByRole('button', { name: 'Refresh Todos', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Save Todo', exact: true })).toBeEnabled();
-    await page.setViewportSize({ width: 1440, height: 1600 });
-    await expect(page.locator('.plugin-todos').first()).toHaveScreenshot('todos-authored-editor.png');
+    await page.setViewportSize({ width: 1440, height: 2000 });
+    await expect(page.locator('.plugin-todos').first()).toHaveScreenshot('todos-authored-editor.png', { mask: [page.locator('.plugin-source-settings .admin-toggle')] });
     await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Keep this draft through source configuration');
     const sources = await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json();
     const source = sources.instances.find((value: { providerId: string }) => value.providerId === 'helmsman.todos/todos'); expect(source).toBeTruthy();
@@ -125,5 +125,34 @@ test('All-source Todos preserve source-qualified search and persisted launch rea
     await page.getByRole('textbox', { name: 'Description', exact: true }).fill('An unsaved description');
     await expect(page.getByRole('button', { name: 'Weigh anchor', exact: true })).toBeDisabled();
     await expect(page.locator('.todo-editor')).toContainText('Save your changes before starting a run.');
+  } finally { await host.close(); }
+});
+
+
+test('builtin Todo pane links retain one draft, reveal its hidden editor and include Automatic starts', async ({ page }) => {
+  const host = await fixture(); host.env.REPO_PROJECT_MAP = 'org/a=TASK';
+  try {
+    const origin = await host.start(); await page.goto(`${origin}/todos?repo=org/a&pane=new`);
+    await expect(page.locator('[data-plugin-page="helmsman.todos-ui/page"]')).toBeVisible(); await expect(page.getByRole('heading', { name: 'Automatic starts', exact: true })).toBeVisible();
+    await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Retained pane-link draft'); await page.getByRole('button', { name: 'Save drafts', exact: true }).click();
+    await page.reload(); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Retained pane-link draft'); await expect(page.getByRole('combobox', { name: 'Saved draft' }).locator('option')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Hide Todo editor', exact: true }).click(); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toBeHidden();
+    await page.goto(`${origin}/todos?repo=org/a&pane=list`); await expect(page.getByRole('searchbox', { name: 'Search Todos', exact: true })).toBeFocused(); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Retained pane-link draft');
+    await page.goto(`${origin}/todos?repo=org/a&pane=new&panel=missing`); await expect(page.getByText(/requested panel \(missing\)/)).toBeVisible(); await expect(page.getByRole('combobox', { name: 'Saved draft' }).locator('option')).toHaveCount(2);
+    await page.goto(`${origin}/source-settings?repo=org/a`); await expect(page.locator('[data-plugin-page="helmsman.source-settings/page"]')).toBeVisible(); await expect(page.getByRole('combobox', { name: 'Source instance' })).toBeVisible();
+    await page.goto(`${origin}/todos?repo=org/a&pane=new`); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Retained pane-link draft'); await expect(page.getByRole('combobox', { name: 'Saved draft' }).locator('option')).toHaveCount(2);
+  } finally { await host.close(); }
+});
+
+test('selected Todo page replacement retains its saved layout and draft through disablement and default selection', async ({ page }) => {
+  test.setTimeout(90_000); const host = await fixture(); host.env.REPO_PROJECT_MAP = 'org/a=TASK';
+  try {
+    await host.installAuthorPackage('plugin-sources/todos-ui', 'example.todos-view'); await host.cli('select', 'helmsman/todos-page', 'example.todos-view/page'); const origin = await host.start();
+    await page.goto(`${origin}/todos?repo=org/a`); await expect(page.locator('[data-plugin-page="example.todos-view/page"]')).toBeVisible(); await page.getByRole('button', { name: 'New Todo', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Draft owned by installed implementation'); await page.getByRole('button', { name: 'Save drafts', exact: true }).click(); await page.reload(); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Draft owned by installed implementation');
+    await host.cli('disable', 'example.todos-view'); await expect(page.locator('[data-plugin-page]')).toHaveCount(0, { timeout: 15_000 });
+    await host.cli('enable', 'example.todos-view'); await expect(page.locator('[data-plugin-page="example.todos-view/page"]')).toBeVisible({ timeout: 15_000 }); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Draft owned by installed implementation');
+    await host.cli('select', 'helmsman/todos-page', 'default'); await expect(page.locator('[data-plugin-page="helmsman.todos-ui/page"]')).toBeVisible({ timeout: 15_000 }); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Draft owned by installed implementation');
+    await expect(page.getByRole('combobox', { name: 'Saved draft' }).locator('option')).toHaveCount(2); await expect(page.getByRole('heading', { name: 'Automatic starts', exact: true })).toBeVisible();
   } finally { await host.close(); }
 });

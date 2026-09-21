@@ -1561,43 +1561,6 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
   });
 
 
-  it('collapses a triage group, persists it, and survives a repaint', async () => {
-    const response: DashboardResponse = await buildResponse();
-    const triagePayload = {
-      groups: {
-        unassignedBacklog: [{ id: 'AB-1', title: 'one', priority: 'P1', status: 'backlog', repo: 'o/a' }],
-        unassignedTodo: [],
-        mineOpen: [],
-      },
-      degraded: false,
-      selectedRepo: null,
-      jiraBaseUrl: null,
-    };
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-      const url: string = String(input);
-      if (url.includes('/api/triage')) return { ok: true, status: 200, json: async () => triagePayload } as unknown as Response;
-      if (url.includes('/api/config')) return { ok: true, status: 200, json: async () => ({ config: {}, overridden: [] }) } as unknown as Response;
-      if (url.includes('/api/agents')) return { ok: true, status: 200, json: async () => ({ runs: [] }) } as unknown as Response;
-      return { ok: true, status: 200, json: async () => response } as unknown as Response;
-    }) as typeof globalThis.fetch;
-
-    const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = createView(root);
-    await view.refresh();
-    root.querySelector<HTMLButtonElement>('.view-toggle[data-view="triage"]')!.click();
-    await new Promise((r) => setTimeout(r, 0));
-
-    const backlogGroup = (): HTMLElement | null =>
-      root.querySelector<HTMLButtonElement>('.surface-collapse[data-collapse-id="triage:backlog"]')?.closest('.triage-group') ?? null;
-    expect(backlogGroup()!.classList.contains('is-collapsed')).toBe(false);
-    root.querySelector<HTMLButtonElement>('.surface-collapse[data-collapse-id="triage:backlog"]')!.click();
-    expect(backlogGroup()!.classList.contains('is-collapsed')).toBe(true);
-    expect(localStorage.getItem('helmsman.collapsed')).toContain('triage:backlog');
-
-    view['paintTriage']();
-    expect(backlogGroup()!.classList.contains('is-collapsed')).toBe(true);
-  });
-
   it('does not collapse the runs drawer when there are no tabs (no orphaned collapsed empty state)', async () => {
     localStorage.setItem('helmsman.collapsed', JSON.stringify(['runs:drawer']));
     const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
@@ -1713,33 +1676,5 @@ describe('DashboardView tabbed runs drawer, config, and repo scope', () => {
     expect(top).toBe(1000);
   });
 
-  it('enters the bugs view and renders a card per project', async () => {
-    const response: DashboardResponse = await buildResponse();
-    const bugsPayload = {
-      cards: [{
-        project: 'AIROBUILD', repo: null, label: 'AIROBUILD', open: 3, delta: 1, completed: 2, pastSla: 1,
-        oldest: { key: 'AB-1', ageDays: 40 }, p75: { days: 5, n: 12, capped: false },
-        rows: [{ key: 'AB-1', title: 'x', priority: 'P1 - High', severity: 'S2 - Medium', sla: { text: 'Past SLA by 1d', overdue: true, days: -1 } }],
-        degraded: false, jiraBaseUrl: 'https://x',
-      }],
-      degraded: false, generatedAt: 'g', latestWindow: 'l', previousWindow: 'p',
-    };
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-      const url = String(input);
-      if (url.includes('/api/bugs')) return { ok: true, status: 200, json: async () => bugsPayload } as unknown as Response;
-      if (url.includes('/api/config')) return { ok: true, status: 200, json: async () => ({ config: {}, overridden: [] }) } as unknown as Response;
-      if (url.includes('/api/agents')) return { ok: true, status: 200, json: async () => ({ runs: [] }) } as unknown as Response;
-      return { ok: true, status: 200, json: async () => response } as unknown as Response;
-    }) as typeof globalThis.fetch;
 
-    const root = document.querySelector<HTMLElement>('#app')!;
-    const view = createView(root);
-    await view.refresh();
-    root.querySelector<HTMLButtonElement>('.view-toggle[data-view="bugs"]')!.click();
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(root.querySelector('.bugs-view')).not.toBeNull();
-    expect(root.querySelectorAll('.bug-card')).toHaveLength(1);
-    expect(root.textContent).toContain('3 Open bugs');
-  });
 });

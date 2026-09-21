@@ -257,6 +257,39 @@ describe('authored Todo editor', () => {
     expect(f.list).toHaveBeenLastCalledWith(expect.objectContaining({ selection: source.selection, cursor: 'first-source-next' }), expect.any(AbortSignal));
     expect(f.container.querySelectorAll('.todo-row')).toHaveLength(2); expect(f.container.textContent).toContain('Its count is unknown');
   });
+  it('opens one reusable new draft per pane visit and preserves it through refresh and reload', async () => {
+    const f = fixture(); const routed = { ...f.state, panelInstance: f.state.instanceId, routeState: { version: 1, value: { pane: 'new' } } };
+    const instance = await panel.mount(f.container, { ...f.context, state: routed }); await vi.waitFor(() => expect(field(f.container, 'Title').value).toBe(''));
+    edit(f.container, 'Title', 'Retained linked draft'); await vi.waitFor(() => expect(JSON.stringify(f.saveState.mock.calls.at(-1)?.[0])).toContain('Retained linked draft'));
+    await instance.refresh?.(); await instance.update({ ...routed, themeId: 'light' });
+    const saved = f.saveState.mock.calls.at(-1)?.[0]; expect(saved?.value).toMatchObject({ drafts: [{ values: { title: 'Retained linked draft' } }] });
+    expect((saved?.value as { drafts: unknown[] }).drafts).toHaveLength(1); expect(f.submit).not.toHaveBeenCalled();
+    await instance.update({ ...routed, routeState: { version: 1, value: { pane: 'list' } } }); expect(document.activeElement).toBe(field(f.container, 'Search Todos'));
+    await instance.update(routed); await vi.waitFor(() => expect(document.activeElement).toBe(field(f.container, 'Title'))); expect(field(f.container, 'Title').value).toBe('Retained linked draft');
+    f.lifetime.abort(); const restored = fixture(); await panel.mount(restored.container, { ...restored.context, state: { ...restored.state, savedState: saved ?? null, routeState: routed.routeState } });
+    await vi.waitFor(() => expect(field(restored.container, 'Title').value).toBe('Retained linked draft')); expect(field(restored.container, 'Saved draft').querySelectorAll('option')).toHaveLength(2); expect(restored.submit).not.toHaveBeenCalled();
+  });
+  it('waits for an explicit source when a new-pane link opens All with multiple sources', async () => {
+    const f = fixture(); const other = { ...source, selection: { ...source.selection, repo: otherRepo } };
+    f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo: null, sources: [source, other] } });
+    await panel.mount(f.container, { ...f.context, state: { ...f.state, repo: null, activity: { ...f.state.activity, repo: null }, routeState: { version: 1, value: { pane: 'new' } } } }); await ready(f); expect(f.create).not.toHaveBeenCalled();
+    edit(f.container, 'Task source', JSON.stringify([source.selection.repo, source.selection.sourceId, source.selection.instanceId, source.selection.instanceRevision])); await vi.waitFor(() => expect(field(f.container, 'Title').value).toBe('')); expect(f.submit).not.toHaveBeenCalled();
+  });
+  it.each([
+    { version: 2, value: { pane: 'new' } }, { version: 1, value: { pane: 'unknown' } }, { version: 1, value: { pane: 'new', future: true } },
+  ])('ignores unsupported pane-route data %j', async routeState => {
+    const f = fixture(); await panel.mount(f.container, { ...f.context, state: { ...f.state, routeState } }); await ready(f); expect(f.create).not.toHaveBeenCalled(); expect(f.saveState).not.toHaveBeenCalled();
+  });
+  it('does not act on pane data when an exact different panel instance is requested', async () => {
+    const f = fixture(); await panel.mount(f.container, { ...f.context, state: { ...f.state, panelInstance: 'another-instance', routeState: { version: 1, value: { pane: 'new' } } } }); await ready(f); expect(f.create).not.toHaveBeenCalled();
+  });
+  it('renders untrusted Todo content literally and preserves edits across terminology changes', async () => {
+    const f = fixture(); const title = '<img src=x onerror=alert(1)>'; const description = '<script>alert(1)</script>';
+    f.list.mockResolvedValue({ status: 'available', value: { selection: source.selection, items: [{ ...task, title }], nextCursor: null, total: 1 } }); f.load.mockResolvedValue({ status: 'available', value: { ...envelope(), value: { ...fields, title, description } } });
+    const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain(title)); button(f.container, title).click(); await vi.waitFor(() => expect(field(f.container, 'Description').value).toBe(description));
+    expect(f.container.querySelectorAll('img,script')).toHaveLength(0); edit(f.container, 'Description', 'Keep unsent words'); await instance.update({ ...f.state, pirateMode: true });
+    expect(field(f.container, 'Description').value).toBe('Keep unsent words'); expect(field(f.container, 'Title').value).toBe(title); expect(button(f.container, 'Weigh anchor')).toBeTruthy(); expect(f.container.querySelectorAll('img,script')).toHaveLength(0);
+  });
   it('requires explicit All scope before inspecting older requests', async () => {
     const f = fixture(); const pending = vi.fn<TodoLegacyRecoveryServiceV1['pending']>(async () => ({ status: 'unavailable', reason: 'all-galleons-required' }));
     const check = vi.fn<TodoLegacyRecoveryServiceV1['check']>();

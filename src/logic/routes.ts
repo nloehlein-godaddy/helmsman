@@ -1,5 +1,5 @@
 import { LEGACY_PAGE_ALIASES, LEGACY_PAGE_PATHS } from './pagePaths';
-import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT } from '../plugins/builtins';
+import { appPages, COSTS_PAGE_ALIAS, COSTS_PAGE_ID, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_ID } from '../plugins/builtins';
 import { isContributionId } from '../plugins/manifest';
 
 export type PageView = keyof typeof LEGACY_PAGE_PATHS | 'outcomes' | 'plugin';
@@ -98,14 +98,24 @@ export function parseRoute(url: URL): AppRoute {
   const surface = params.get('surface');
   const validTicket = ticket && /^[a-z][a-z\d_]{0,49}-[1-9]\d{0,14}$/i.test(ticket) ? ticket.toUpperCase() : null;
   const explicitInstance = params.get('panel');
+  const validExplicitInstance = explicitInstance && /^[a-z\d][a-z\d_.:-]{0,159}$/i.test(explicitInstance) ? explicitInstance : null;
   const locatorPane = legacyPane ?? (helm && validTicket && !explicitInstance ? 'newrun' : null);
+  const taskPane = explicitInstance && !validExplicitInstance ? null : plugin?.contributionId === TODOS_PAGE_ID && pane && panes.todos.includes(pane)
+    ? { contribution: 'helmsman.todos-ui/panel', pane }
+    : plugin?.contributionId === TRIAGE_PAGE_ID && pane && panes.triage.includes(pane)
+      ? { contribution: 'helmsman.triage/panel', pane } : null;
   const instance = explicitInstance ?? locatorPane;
+  const savedPanelState = panelState(params.get('panelState'));
+  const taskPanelState = taskPane ? panelState(JSON.stringify({
+    ...(savedPanelState ? JSON.parse(savedPanelState) as Record<string, unknown> : {}),
+    [taskPane.contribution]: { version: 1, value: { pane: taskPane.pane } },
+  })) ?? savedPanelState : null;
 
   return {
     view,
     repo,
     prRepo,
-    pane: locatorPane ?? (pane && (plugin?.page?.panes ?? (view === 'outcomes' || view === 'plugin' ? [] : panes[view])).includes(pane) ? pane : null),
+    pane: explicitInstance && !validExplicitInstance ? null : locatorPane ?? taskPane?.pane ?? (pane && (plugin?.page?.panes ?? (view === 'outcomes' || view === 'plugin' ? [] : panes[view])).includes(pane) ? pane : null),
     pr: prTarget ? positiveInteger(params.get('pr')) : null,
     run: run && /^[a-z\d_-]{1,128}$/i.test(run) ? run : null,
     mode: (view === 'runs' || view === 'prs') && (mode === 'review' || mode === 'rerun') ? mode : null,
@@ -114,6 +124,7 @@ export function parseRoute(url: URL): AppRoute {
     ...(instance && /^[a-z\d][a-z\d_.:-]{0,159}$/i.test(instance) ? { panelInstance: instance, panelState: panelState(params.get('panelState')) } : {}),
     ...(plugin && params.has('panelState') ? { panelState: panelState(params.get('panelState')) } : {}),
     ...(helm && locatorPane && !explicitInstance ? { panelContribution: `helmsman.${locatorPane}/panel` } : {}),
+    ...(taskPane ? { panelState: taskPanelState, ...(!explicitInstance ? { panelContribution: taskPane.contribution } : {}) } : {}),
     ...(plugin && (plugin.slotId === null || view === 'plugin') ? {
       pluginPage: plugin.contributionId,
       ...(plugin.slotId ? { pluginSlot: plugin.slotId } : {}),

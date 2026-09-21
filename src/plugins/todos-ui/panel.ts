@@ -1,7 +1,7 @@
 import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, SourceCommandInputV1, SourceCommandPendingV1,
   RunCommandInputV1, RunCommandPendingV1, TaskEditEnvelopeV1, TaskEditListItemV1, TaskEditSourceV1, TaskReadSelectionV1, WorkRefV1 } from '@helmsman/plugin-sdk';
 import type { LegacyTodoCommandReceipt, TodoLegacyPendingV1 } from '@helmsman/plugin-sdk';
-import { consumeResult, emptyState, followHeader, priorities, readState, sameSelection, sameSubmission, sameValues, saveValue, states, values, type Draft, type SavedState, type Values } from './state.js';
+import { consumeResult, emptyState, followHeader, object, priorities, readState, sameSelection, sameSubmission, sameValues, saveValue, states, values, type Draft, type SavedState, type Values } from './state.js';
 import { styles } from './styles.js';
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; return element; }
@@ -45,6 +45,8 @@ class TodosPanel implements PluginPanelInstance {
   private confirmedDelete: string | null = null;
   private discardDraftKey: string | null = null;
   private editorSignature = '';
+  private handledRoute: string | null = null;
+  private followingRoute = false;
   private readonly tools = node('div');
   private readonly list = node('div');
   private readonly editor = node('div');
@@ -103,6 +105,35 @@ class TodosPanel implements PluginPanelInstance {
     if (allScope && this.saved.selectedSource) { this.saved.selectedSource = null; this.change(); }
     if (changed) { this.suspend(); this.sources = []; this.groups = []; this.pending = []; this.runPending = []; this.legacyPending = []; this.legacyReceipts.clear(); }
     this.draw(); if (changed && this.active()) void this.refresh();
+  }
+  private routedPane(): 'list' | 'new' | null {
+    if (this.state.panelInstance && this.state.panelInstance !== this.state.instanceId) return null;
+    const route = this.state.routeState;
+    const value = route?.version === 1 ? object(route.value) : null;
+    return value && Object.keys(value).length === 1 && (value.pane === 'list' || value.pane === 'new') ? value.pane : null;
+  }
+  private async followRoute() {
+    const pane = this.routedPane();
+    if (!pane) { this.handledRoute = null; return; }
+    const key = JSON.stringify([pane, this.state.activity.repo]);
+    if (this.handledRoute === key || this.followingRoute || !this.active() || this.unsupported || this.busy || this.loading) return;
+    if (pane === 'list') { this.handledRoute = key; this.search.focus({ preventScroll: true }); this.list.scrollIntoView?.({ block: 'start' }); return; }
+    if (!this.pendingReady || !this.runPendingReady) return;
+    const selected = this.selected(); const active = this.draft();
+    const suitable = (draft: Draft) => !draft.target && this.inScope(draft.selection.repo)
+      && (selected ? sameOrigin(draft.selection, selected.selection) : this.sources.some(source => sameOrigin(source.selection, draft.selection)));
+    const retained = active && suitable(active) ? active : this.saved.drafts.find(suitable);
+    if (!retained && !selected) return;
+    this.followingRoute = true;
+    try {
+      if (retained) {
+        if (this.saved.activeDraftKey !== retained.key) { this.saved.activeDraftKey = retained.key; this.envelope = null; this.confirmedDelete = null; this.change(); this.draw(); }
+        await this.readEnvelope(retained, false);
+      } else await this.open(null);
+      if (this.active() && this.routedPane() === pane && key === JSON.stringify([pane, this.state.activity.repo]) && this.draft() && !this.draft()?.target) {
+        this.handledRoute = key; this.editor.querySelector<HTMLInputElement>('[aria-label="Title"]')?.focus({ preventScroll: true }); this.editor.scrollIntoView?.({ block: 'start' });
+      }
+    } finally { this.followingRoute = false; if (this.routedPane() !== pane || key !== JSON.stringify([pane, this.state.activity.repo])) void this.followRoute(); }
   }
   private change() { this.dirty = true; ++this.saveRevision; void this.save(); }
   private save(): Promise<boolean> {
@@ -405,7 +436,7 @@ class TodosPanel implements PluginPanelInstance {
     source.addEventListener('change', () => { this.saved.selectedSource = this.sources.find(value => sourceKey(value.selection) === source.value)?.selection ?? null; this.change(); void this.refresh(); });
     this.tools.replaceChildren(source, this.button('New Todo', () => { void this.open(null); }, this.busy || this.unsupported || !this.selected() || !this.active()),
       this.button('Refresh Todos', () => { void this.refresh(); }, this.loading || this.busy || !this.active()), this.button('Save drafts', () => { void this.save(); }, this.unsupported));
-    this.drawList(); this.drawEditor(); this.updateLaunch(); this.drawRequests();
+    this.drawList(); this.drawEditor(); this.updateLaunch(); this.drawRequests(); void this.followRoute();
   }
   private drawList() {
     if (this.search.value !== this.saved.filters.search) this.search.value = this.saved.filters.search;
@@ -436,7 +467,7 @@ class TodosPanel implements PluginPanelInstance {
   private drawEditor() {
     const draft = this.draft(); const envelope = draft && this.currentEnvelope(draft);
     const signature = JSON.stringify([draft?.key, draft?.target, draft?.selection, draft?.sourceRevision, !!draft?.submitted,
-      envelope?.sourceRevision, envelope?.commands, envelope?.destinationRepos, envelope?.relatedRun, this.busy, this.active(), this.state.activity.repo, this.unsupported, this.confirmedDelete, this.discardDraftKey, this.pendingReady, !envelope && this.loading,
+      envelope?.sourceRevision, envelope?.commands, envelope?.destinationRepos, envelope?.relatedRun, this.busy, this.active(), this.state.activity.repo, this.state.pirateMode, this.unsupported, this.confirmedDelete, this.discardDraftKey, this.pendingReady, !envelope && this.loading,
       draft && this.taskPending(draft), this.saved.drafts.map(value => value.key)]);
     if (signature === this.editorSignature) return; this.editorSignature = signature;
     const focused = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement ? document.activeElement : null;

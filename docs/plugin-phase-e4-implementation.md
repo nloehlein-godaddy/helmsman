@@ -1,6 +1,6 @@
 # Phase E4: run presentation and clarifications
 
-Status: proposed next implementation batch, pending the E3 checkpoint and architectural review. No E4 runtime work is claimed complete. E4 is another slice of Phase E; it does not complete the [architecture plan](plugin-architecture-plan.md), Phase F policy replacement, or Phase G compatibility retirement. The [E3 implementation plan](plugin-phase-e3-implementation.md) remains authoritative for the preceding extraction and its acceptance gates. Record delivered work in the [completion ledger](plugin-implementation-progress.md).
+Status: proposed next implementation batch, pending exact-commit review and push of the validated E3 default task-page cutover. No E4 runtime work is claimed complete. E4 is another slice of Phase E; it does not complete the [architecture plan](plugin-architecture-plan.md), Phase F policy replacement, or Phase G compatibility retirement. The [E3 implementation plan](plugin-phase-e3-implementation.md) remains authoritative for the preceding extraction and its acceptance gates. Record delivered work in the [completion ledger](plugin-implementation-progress.md).
 
 ## Scope and sequence
 
@@ -157,3 +157,17 @@ Implementation and independent review may run concurrently once contracts stabil
 - Verify affected READMEs, contract/authoring examples, architecture diagrams, command/delivery/recovery flowcharts and the progress ledger against the final implementation. Check links and examples; show retained compatibility paths and unknown outcomes explicitly. Do not mark an extraction complete while these artifacts describe an earlier flow.
 
 _Helmsman · not reported - not reported_
+
+## Refined implementation boundaries
+
+Use a separately declared `helmsman/run-inspect@1` facet rather than changing `run-read@1` cursor and text-limit semantics. It supplies scoped legacy-ID resolution, counted history with observation/coverage metadata, attempt-fenced backward/forward preview and watermark-bound export. Existing run-read consumers remain unchanged. Log provenance is explicitly run-wide. Backward pages retain their captured watermark and never replace the live-follow cursor; forward continuation drains its current watermark before observing subsequent appends. History totals share count/list predicates and a database read, but current-state changes between pages must remain visible rather than being described as an immutable snapshot.
+
+The legacy exporter pages whole event rows. A bounded row count alone does not bound bytes when one event is arbitrarily large. The new export must iterate bounded text chunks, preserve Unicode and backpressure, and cancel its underlying reader on lifetime/scope/attempt changes. Prove a browser download sink that does not collect a complete Blob before claiming export parity.
+
+Clarification provenance requires a durable per-attempt channel before writable plugin contracts. The current runtime rereads run-wide question files across retries; stamping the current attempt on ingestion would misattribute old unread lines. Create the channel before prompt/adapter preparation, pin its identity and paths in the immutable execution snapshot, and bind ingestion, answer delivery and required-answer publication gates to that retained channel. Cover fresh launches, retries, recovery and pre-PR continuation. Existing shared-channel records remain unknown/read-only unless retained producer evidence actually proves their attempt; attempt number or wall-clock timing alone is insufficient.
+
+Preserve the existing compatibility schema checksum. Prefer a new owned clarification-protocol schema with companion question/contact revision metadata, immutable attempt-channel records and answer/contact receipts. Initialize legacy questions with unknown provenance and retain their original records. All compatibility and new mutations must advance metadata in the same transaction. Register migrations before acquiring the application writer lease.
+
+Expose bounded `clarification-read@1`, durable `clarification-command@1` and explicitly global `suggested-contact-admin@1` services. Answer admission rechecks canonical question/channel/attempt identity, revision, worker state, persisted stop intent and deadline inside the answer-plus-receipt transaction. Replay exact receipts before current eligibility checks; changed input under an existing request ID conflicts. Answer success means durable acceptance, not successful downstream delivery. Unknown ownership remains unknown. Browser journals preserve unresolved answer identity while allowing a separate unsent draft; contact creation reserves its identity once. Contact availability is independent from question/answer availability, and saving contacts never sends a message.
+
+Retire or constrain legacy ID-only answer/contact and unverified ingestion POST paths at cutover so they cannot bypass the new authority checks. Core ingestion, timeouts, delivery and publication gates remain active when presentation packages are disabled.

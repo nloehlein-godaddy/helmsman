@@ -1,6 +1,6 @@
 # Phase E implementation proposal: Helm and feature extraction
 
-Status: E0 design review complete; E1 infrastructure and the first Helm/backlog extraction passed the isolated production gate. E2 run services, all eight Helm panels and the legacy Helm cutover have passed aggregate and isolated production validation. E3 opt-in task presentation packages and services passed isolated production validation; default task-page cutover remains pending. See [E3 implementation detail](plugin-phase-e3-implementation.md) and the proposed [E4 run-presentation batch](plugin-phase-e4-implementation.md). Phase D is reviewed and pushed as `abae201`. The remainder of E and phases F/G are still pending.
+Status: E0 design review complete; E1 infrastructure and the first Helm/backlog extraction passed the isolated production gate. E2 run services, all eight Helm panels and the legacy Helm cutover have passed aggregate and isolated production validation. E3 task presentation packages and services passed isolated production validation and are pushed as `bc51ae6`; default task-page cutover passed acceptance validation locally and awaits exact-commit review and push. See [E3 implementation detail](plugin-phase-e3-implementation.md) and the proposed [E4 run-presentation batch](plugin-phase-e4-implementation.md). Phase D is reviewed and pushed as `abae201`. The remainder of E and phases F/G are still pending.
 
 ## Outcome and boundaries
 

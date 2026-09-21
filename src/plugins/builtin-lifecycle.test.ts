@@ -17,6 +17,31 @@ beforeEach(() => { vi.resetModules(); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('shipped frontend plugin lifecycle', () => {
+  it('activates task pages and both source-settings panels through the shared catalog lifecycle', async () => {
+    const app = await setup();
+    const taskIds = ['helmsman.todos-ui', 'helmsman.triage', 'helmsman.bugs', 'helmsman.source-settings'];
+    const metadata = taskIds.map(id => ({ id, version: '0.1.0', hash, enabled: true }));
+    app.syncBuiltinFrontend(metadata, false);
+    for (const [index, alias] of ['/todos', '/triage', '/bugs', '/source-settings'].entries()) {
+      const id = taskIds[index]!;
+      expect(app.appPages.resolvePath(alias)?.page?.contributionId).toBe(`${id}/page`);
+      expect(app.appPageModules.get(`${id}/page`)).not.toBeNull();
+      expect(app.panels.getModule(`${id}/panel`)).not.toBeNull();
+    }
+    expect(app.panels.getModule('helmsman.source-settings/automatic')).not.toBeNull();
+    app.appPages.select(app.TODOS_PAGE_SLOT, 'example.missing/page');
+    app.syncBuiltinFrontend(metadata, true);
+    for (const id of taskIds) {
+      expect(app.appPageModules.get(`${id}/page`)).toBeNull();
+      expect(app.panels.getModule(`${id}/panel`)).toBeNull();
+    }
+    expect(app.panels.getModule('helmsman.source-settings/automatic')).toBeNull();
+    app.syncBuiltinFrontend(metadata, false);
+    expect(app.appPages.resolvePath('/todos')).toMatchObject({ contributionId: 'example.missing/page', page: null });
+    app.appPages.select(app.TODOS_PAGE_SLOT, null);
+    expect(app.appPages.resolvePath('/todos')?.page?.contributionId).toBe(app.TODOS_PAGE_ID);
+  });
+
   it('registers shipped manifests and modules only from explicit compatible metadata', async () => {
     const app = await setup();
     app.syncBuiltinFrontend(entries(), false);

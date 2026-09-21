@@ -160,6 +160,32 @@ describe('durable composition layouts', () => {
     expect(await f.inspect('layouts')).toBeUndefined(); expect(await f.inspect('migrations')).toBeUndefined();
     const repaired = await f.open({ legacy: { rackRaw: '[]' } }); expect((await repaired.read()).instances).toEqual([]);
   });
+  it('initializes and archives feature state once across concurrent windows without rereading legacy storage', async () => {
+    const f = fixture();
+    const initialize = vi.fn((initial: CompositionLayoutV1) => ({ layout: { ...initial, instances: [], columns: [] },
+      archive: { version: 2, raw: { preferences: ' {broken and retained} ', absent: null } } }));
+    const [left, right] = await Promise.all([f.open({ initialize }), f.open({ initialize })]);
+    expect(initialize).toHaveBeenCalledOnce(); expect(await left.read()).toEqual(await right.read());
+    expect(await f.inspect('migrations')).toEqual({ compositionId: 'helmsman/helm', version: 2, raw: { preferences: ' {broken and retained} ', absent: null } });
+    left.close(); right.close();
+    const denied = vi.fn(() => { throw new Error('Storage denied'); });
+    expect((await (await f.open({ initialize: denied })).read()).instances).toEqual([]); expect(denied).not.toHaveBeenCalled();
+  });
+  it('rolls back initialization on denied access, invalid archives and failed layout writes, then allows retry', async () => {
+    const f = fixture();
+    await expect(f.open({ initialize() { throw new Error('Storage denied'); } })).rejects.toThrow('Storage denied');
+    const initialize = (initial: CompositionLayoutV1) => ({ layout: initial, archive: { version: 1, raw: { preference: 'original bytes' } } });
+    await expect(f.open({ initialize: initial => ({ ...initialize(initial), archive: { version: 0, raw: {} } }) })).rejects.toThrow('Invalid layout migration archive');
+    const add = IDBObjectStore.prototype.add;
+    const intercept = vi.spyOn(IDBObjectStore.prototype, 'add').mockImplementation(function (this: IDBObjectStore, value, key) {
+      if (this.name === 'layouts') throw new Error('Layout write failed');
+      return add.call(this, value, key);
+    });
+    try { await expect(f.open({ initialize })).rejects.toThrow('Layout write failed'); } finally { intercept.mockRestore(); }
+    expect(await f.inspect('layouts')).toBeUndefined(); expect(await f.inspect('migrations')).toBeUndefined();
+    expect((await (await f.open({ initialize })).read()).revision).toBe(1);
+    expect(await f.inspect('migrations')).toMatchObject({ raw: { preference: 'original bytes' } });
+  });
   it('rejects foreign compositions, stale embedded revisions and closed storage without changing persisted data', async () => {
     const f = fixture(); const store = await f.open(); const current = await store.read();
     await expect(store.update({ ...current, compositionId: 'other/composition' }, 1)).rejects.toBeInstanceOf(CompositionLayoutValidationError);

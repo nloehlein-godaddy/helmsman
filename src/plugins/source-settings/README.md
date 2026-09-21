@@ -1,10 +1,10 @@
 # Source settings
 
-Opt-in standalone TypeScript page and two replaceable panels built against public `@helmsman/plugin-sdk` declarations. Production SDK imports are type-only; runtime imports are package-relative. Source administration requires `helmsman/source-admin@1` and uses `context.services.sourceAdmin` exclusively.
+Builtin standalone TypeScript page and two replaceable panels built against public `@helmsman/plugin-sdk` declarations. Production SDK imports are type-only; runtime imports are package-relative. Source administration requires `helmsman/source-admin@1` and uses `context.services.sourceAdmin` exclusively.
 
 ## Build and install
 
-The checked-in descriptor uses the reserved `helmsman.*` namespace for a future builtin rollout. Public `pack` and `install` reject that namespace. For the current opt-in installation, build an independent package as `example.source-settings` and rewrite its self-referencing initial panel contributions as shown below. Keep shared `helmsman/...` contract, composition and slot IDs unchanged.
+Helmsman registers the checked-in `helmsman.source-settings` descriptor as a builtin. `/source-settings` resolves the selected implementation of `helmsman/source-settings-page`, with `helmsman.source-settings/page` as its default. Public `pack` and `install` reject that namespace. To install your own independent implementation, build a package as `example.source-settings` and rewrite its self-referencing initial panel contributions as shown below. Keep shared `helmsman/...` contract, composition and slot IDs unchanged.
 
 Run in a copy of this author directory. Set the release location and the same plugin-store/database paths used by your Helmsman instance. Plugin-store paths must use real directories without symlink components:
 
@@ -37,7 +37,19 @@ node "$HELMSMAN_RELEASE/server/helmsman/plugins/cli.js" enable example.source-se
 
 Use a new archive filename or remove your previous generated archive before rerunning `pack`; it does not overwrite archives. Restart Helmsman with those same store/database paths and reload the browser after installation changes.
 
-Open `/plugins/example.source-settings/page?repo=owner/project`, or omit `repo` for All. The contribution IDs below describe this renamed installation. The future `helmsman/source-settings-page` slot does not replace an application alias. `helmsman.source-settings` is not registered as a builtin yet, so enabling that reserved ID does not install this package.
+Open `/plugins/example.source-settings/page?repo=owner/project`, or omit `repo` for All. The contribution IDs below describe this renamed installation. The builtin is available at `/source-settings` and `/plugins/helmsman.source-settings/page`, with a link from Config. Choose this external page for the alias with `select helmsman/source-settings-page example.source-settings/page`; `select helmsman/source-settings-page default` restores the builtin selection. Disabling the selected implementation keeps its selection and state and shows an unavailable page. The reserved builtin ID and external installed ID have independent enablement.
+
+## Contributions and layouts
+
+| Contribution in the independent package | Role |
+| --- | --- |
+| `example.source-settings/page` | Owns `helmsman/source-settings-page`; requires `helmsman/composition@1` |
+| `example.source-settings/panel` | Implements `helmsman/source-settings-panel@1` for configuration, replacement and automatic starts |
+| `example.source-settings/automatic` | Implements `helmsman/todos-panel@1` for source selection, current-process enablement and related requests |
+
+The builtin uses the corresponding `helmsman.source-settings/*` IDs. A fresh Source settings composition seeds one administration panel. Fresh builtin [Todos](../todos-ui/README.md) layouts include `helmsman.source-settings/automatic`; existing and intentionally empty layouts remain authoritative. Choose the desired **Automatic starts** implementation and **Add panel** to add one explicitly. An external `example.source-settings/automatic` can coexist with the builtin implementation. Disabling an implementation leaves its unavailable panel placeholder and saved state.
+
+Exact `panel=<instance>` links reveal an existing hidden/collapsed administration panel; missing targets never create a default instance. If revealing a panel cannot be saved, the page reports the failure and its toolbar **Refresh** explicitly retries; background refresh does not repeat the layout mutation.
 
 ## Configuration, scope and drafts
 
@@ -82,4 +94,4 @@ Thirteen focused tests cover schema defaults/JSON validation, revision merging, 
 
 [The isolated distribution gate](../../../tests/distribution/source-settings-host.pw.ts) installs the package under `example.source-settings`, builds only against the released SDK, and denies application-source imports. It covers configuration response loss after removing the last allowed galleon, persistent scheduling plus runtime restart, and stale pinned replacement rejection. Its inspected visual snapshot masks the generated source instance identity.
 
-Default installation and legacy route cutover remain separate work tracked in [implementation progress](../../../docs/plugin-implementation-progress.md).
+The builtin alias and Config link replace the legacy source-settings presentation. Historical APIs remain available for existing clients and recovery. Current cutover validation and remaining rollout work are tracked in [implementation progress](../../../docs/plugin-implementation-progress.md).

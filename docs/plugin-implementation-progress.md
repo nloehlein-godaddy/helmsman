@@ -143,3 +143,19 @@ Review of `77c856d280a5e12d7dcad82757c7bac92334410d` found two P2 issues: a move
 The focused regression batch passed 58 tests across five files, and TypeScript plus the production/distribution build passed. All four isolated Todo production scenarios passed without snapshot updates, including live source configuration followed by explicit reconciliation and successful saving of preserved edits. Exact-fix-commit review remains pending. The implementation and correction commits have not yet been pushed. Default task-page cutover and the remaining E/F/G work remain open.
 
 _Helmsman · not reported - not reported_
+
+## Phase E3 default task-page cutover
+
+The task-package checkpoint and its two exact-commit corrections are pushed to `godaddy/master`; remote SHA was verified at `bc51ae6a0600ef705c1a90d5150699f07353be70`. Both Senior Software Architect fix-commit reviews were clean.
+
+Default task-page cutover is implemented locally and under validation. Todos, Triage, Bugs and Source settings now participate in the shared page-slot/catalog lifecycle. Core Config retains its controls and links to Source settings. Legacy Triage preferences initialize only an absent composition, with an atomic raw archive; existing layouts, opaque state and Todo mutation journals are preserved. Legacy task renderers and shell polling owners are being retired. READMEs, author/operator guides and matching Markdown/HTML flows are being updated with the actual boundaries. These cutover changes are not yet committed or pushed; aggregate tests, isolated alias acceptance and architectural review remain pending. E4 and later E batches, F and G remain open.
+
+_Helmsman · not reported - not reported_
+
+## Phase E3 default task-page acceptance evidence
+
+The cutover passed 4,120 tests across 279 files, TypeScript and production/distribution build, 23 browser tests, seven Node distribution checks and seven isolated Todo/default-task-page scenarios without snapshot updates. Production proof covers alias selection, external replacement, disable/re-enable without fallback, legacy preferences and pane links, persisted empty layouts across restart, preserved draft/journal identities, and zero legacy task-list reads from the new pages. Screenshots were inspected. The separate Triage/Bugs production gate also passed on the final documentation/CSS build, verifying that removal of legacy global styles leaves authored panels intact.
+
+Review fixed Node JSON descriptor closure, malformed explicit task locators, pane focus, transient reveal-write retry and Pirate mode updates without losing Todo edits. Aggregate testing exposed and fixed an existing exit-receipt/process-probe race, with a deterministic regression and 48 repeated real-worker executions. Independent reviews are clean. Relevant READMEs, current and historical documentation pointers, author/operator guides and Markdown/offline HTML flows are synchronized; 72 tracked documentation files passed local-link checks, and the offline flow rendered at desktop/mobile sizes. Exact-commit architectural review and push remain pending; E4 and the remaining E/F/G work are open.
+
+_Helmsman · not reported - not reported_

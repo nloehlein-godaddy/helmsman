@@ -21,52 +21,6 @@ afterEach(() => {
 });
 
 describe('Helm repository scope changes', () => {
-  it.each(['triage', 'bugs'] as const)('clears previous %s rows on scope change and ignores a late response from that scope', async page => {
-    window.history.replaceState(null, '', `/${page}?repo=org/a`);
-    let resolveOld!: (response: Response) => void;
-    let resolveB!: (response: Response) => void;
-    const oldResponse = new Promise<Response>(resolve => { resolveOld = resolve; });
-    const responseB = new Promise<Response>(resolve => { resolveB = resolve; });
-    const requests: string[] = [];
-    let aRequests = 0;
-    const payload = (repo: string, key: string) => page === 'triage'
-      ? { groups: { unassignedBacklog: [{ id: key, title: key, repo, priority: 'P1', status: 'backlog' }], unassignedTodo: [], mineOpen: [] }, degraded: false, selectedRepo: repo, jiraBaseUrl: null }
-      : { cards: [{ project: key, repo, label: key, open: 1, delta: 0, completed: 0, pastSla: 0, oldest: null, p75: { days: null, n: 0, capped: false }, rows: [{ key, title: key, priority: 'P1', severity: 'S2', sla: { text: 'No SLA', overdue: false, days: null } }], degraded: false, jiraBaseUrl: null }], degraded: false, generatedAt: '', latestWindow: '', previousWindow: '' };
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(String(input), window.location.origin);
-      if (url.pathname === '/api/context') return json({ repos: ['org/a', 'org/b'], jiraBaseUrl: null, jiraEnabled: true });
-      if (url.pathname === '/api/agents') return json({ runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } });
-      if (url.pathname === '/api/config') return json({ config: {}, overridden: [] });
-      if (url.pathname === `/api/${page}`) {
-        const repo = url.searchParams.get('repo') ?? '';
-        requests.push(repo);
-        if (repo === 'org/b') return responseB;
-        if (++aRequests > 1) return oldResponse;
-        return json(payload(repo, 'PROJA-1'));
-      }
-      return new Response(null, { status: 404 });
-    }));
-    const root = document.querySelector<HTMLElement>('#app')!;
-    view = new DashboardView(root);
-    await view.start();
-    expect(root.textContent).toContain('PROJA-1');
-    window.dispatchEvent(new PopStateEvent('popstate'));
-    await vi.waitFor(() => expect(aRequests).toBe(2));
-
-    const select = root.querySelector<HTMLSelectElement>('.repo-select')!;
-    select.value = 'org/b';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(root.textContent).not.toContain('PROJA-1');
-    await vi.waitFor(() => expect(requests).toContain('org/b'));
-    resolveB(json(payload('org/b', 'PROJB-1')));
-    await vi.waitFor(() => expect(root.textContent).toContain('PROJB-1'));
-    resolveOld(json(payload('org/a', 'PROJA-99')));
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(root.textContent).toContain('PROJB-1');
-    expect(root.textContent).not.toContain('PROJA-99');
-    expect(root.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/b');
-  });
-
   it('reloads the authored PR inbox immediately after visiting another repository on a page that does not fetch dashboards', async () => {
     const snapshot = await loadDashboard();
     snapshot.myOpenPrs = [{ number: 1, title: 'PROJA-1', repo: 'org/a', reviewDecision: '', draft: false, createdAt: new Date().toISOString() }];

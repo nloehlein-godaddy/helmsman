@@ -1,13 +1,42 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
-import { initialCompositionLayout } from './app-composition';
-import { HELM_PAGE_SLOT, helmManifest } from './builtins';
+import { AppCompositionFactory, initialCompositionLayout } from './app-composition';
+import { appPages, HELM_PAGE_SLOT, helmManifest } from './builtins';
 import { openCompositionLayoutStore, type CompositionLayoutStore } from './composition-layout';
 
 const stores: CompositionLayoutStore[] = [];
 afterEach(() => { for (const store of stores.splice(0)) store.close(); });
 
 describe('Helm default composition', () => {
+  it('retries denied task preference initialization on remount and preserves initialized state after storage becomes inaccessible', async () => {
+    vi.stubGlobal('indexedDB', new IDBFactory());
+    const unregister = appPages.register({ manifestVersion: 2, id: 'example.task-migration', version: '1.0.0', sdkVersion: 1, panels: [], pages: [{
+      id: 'page', title: 'Triage', slots: [], panes: [], composition: { id: 'helmsman/triage-page', version: 1, accepts: [{ id: 'helmsman/triage-panel', version: 1 }], initialLayout: {
+        instances: [{ instanceId: 'triage', contributionId: 'helmsman.triage/panel' }],
+        columns: [[{ instances: ['triage'], activeInstanceId: 'triage', collapsed: false }]],
+      } },
+    }] });
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(key => {
+      if (key.startsWith('helmsman.triage')) throw new DOMException('Preferences denied', 'SecurityError');
+      return null;
+    });
+    const factory = new AppCompositionFactory();
+    const create = () => factory.create('example.task-migration/page', document.createElement('div'),
+      { repo: 'org/project', themeId: 'default', pirateMode: false, visible: true, pane: null }, vi.fn())!;
+    let host = create();
+    try {
+      await expect(host.service.readLayout()).rejects.toThrow('Preferences denied'); host.dispose();
+      getItem.mockImplementation(key => key === 'helmsman.triageFilters' ? '{"priorities":[],"days":7}' : null);
+      host = create(); const layout = await host.service.readLayout();
+      expect(layout.instances[0]?.state['helmsman.triage/panel']?.value).toMatchObject({ priorities: [], days: 7 });
+      host.dispose(); factory.dispose();
+      getItem.mockImplementation(() => { throw new DOMException('Preferences denied', 'SecurityError'); });
+      const reopened = new AppCompositionFactory();
+      const restored = reopened.create('example.task-migration/page', document.createElement('div'),
+        { repo: null, themeId: 'default', pirateMode: false, visible: true, pane: null }, vi.fn())!;
+      try { expect(await restored.service.readLayout()).toEqual(layout); } finally { restored.dispose(); reopened.dispose(); }
+    } finally { host.dispose(); factory.dispose(); getItem.mockRestore(); unregister(); vi.unstubAllGlobals(); }
+  });
   it('seeds an authored composition once and preserves intentional removal when defaults change', async () => {
     const compositionId = 'example.tasks/page';
     const definition = { id: compositionId, version: 1 as const, accepts: [], initialLayout: {

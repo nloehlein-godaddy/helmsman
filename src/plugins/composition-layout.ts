@@ -153,6 +153,10 @@ export interface CompositionLayoutStoreOptions {
   readonly compositionId: string;
   readonly initialLayout: CompositionLayoutV1;
   readonly legacy?: LegacyCompositionLayoutInput;
+  readonly initialize?: (layout: CompositionLayoutV1) => {
+    readonly layout: CompositionLayoutV1;
+    readonly archive: { readonly version: number; readonly raw: Readonly<Record<string, string | null>> };
+  };
   readonly indexedDB?: IDBFactory;
   readonly databaseName?: string;
   readonly channelFactory?: (name: string) => LayoutChannel;
@@ -197,8 +201,18 @@ export async function openCompositionLayoutStore(options: CompositionLayoutStore
       read.onsuccess = () => {
         try {
           if (read.result !== undefined) { parseCompositionLayout(read.result); done(); return; }
-          const layout = options.legacy ? migrateLegacyCompositionLayout(initial, options.legacy) : { ...initial, revision: 1 };
-          if (options.legacy) tx.objectStore('migrations').add({ compositionId: options.compositionId, version: 1,
+          if (options.legacy && options.initialize) invalid('Conflicting layout initializers.');
+          const initialized = options.initialize?.(parseCompositionLayout(initial));
+          const layout = initialized ? parseCompositionLayout({ ...initialized.layout, revision: 1 })
+            : options.legacy ? migrateLegacyCompositionLayout(initial, options.legacy) : { ...initial, revision: 1 };
+          if (layout.compositionId !== options.compositionId) invalid('Initialized layout belongs to another composition.');
+          if (initialized) {
+            const archive = record(jsonCopy(initialized.archive, layoutBytes)); fields(archive, ['version', 'raw']);
+            const raw = record(archive.raw);
+            if (!Number.isSafeInteger(archive.version) || (archive.version as number) < 1 || Object.keys(raw).length > 128
+              || Object.entries(raw).some(([key, value]) => !key || key.length > 512 || value !== null && typeof value !== 'string')) invalid('Invalid layout migration archive.');
+            tx.objectStore('migrations').add({ ...archive, compositionId: options.compositionId });
+          } else if (options.legacy) tx.objectStore('migrations').add({ compositionId: options.compositionId, version: 1,
             rackRaw: options.legacy.rackRaw, scopesRaw: options.legacy.scopesRaw ?? null, stateRaw: options.legacy.stateRaw ?? null });
           table.add(layout); done();
         } catch (error) { fail(error); }

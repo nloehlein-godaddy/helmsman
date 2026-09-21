@@ -5,6 +5,7 @@ import { PluginCompositionHost, type CompositionLayoutPort } from './composition
 import type { CompositionLayoutV1, PageCompositionDefinitionV1 } from './composition';
 import type { PluginPageState } from './sdk';
 import { loadRackLayoutRaw } from '../logic/prefs';
+import { initializeTaskPageLayout } from './task-page-migration';
 
 export function initialCompositionLayout(definition: PageCompositionDefinitionV1): CompositionLayoutV1 {
   return { version: 1, compositionId: definition.id, revision: 0,
@@ -28,9 +29,13 @@ export class AppCompositionFactory {
     let pending = this.stores.get(definition.id);
     if (!pending) {
       pending = openCompositionLayoutStore({ compositionId: definition.id, initialLayout: initialCompositionLayout(definition),
+        ...(definition.id === 'helmsman/triage-page' ? { initialize: initializeTaskPageLayout } : {}),
         ...(definition.id === HELM_PAGE_SLOT ? { legacy: { rackRaw: this.legacyRack } } : {}) });
       this.stores.set(definition.id, pending);
-      void pending.then(store => { if (this.disposed) store.close(); }).catch(() => {});
+      const opening = pending;
+      void pending.then(store => { if (this.disposed) store.close(); }).catch(() => {
+        if (this.stores.get(definition.id) === opening) this.stores.delete(definition.id);
+      });
     }
     const store = pending;
     const port: CompositionLayoutPort = {

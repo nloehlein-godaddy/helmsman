@@ -88,7 +88,7 @@ function transformImports(filename, dependencies) {
     let source = resolved;
     if (!extname(original)) source += '.ts';
     else if (original.endsWith('.js') && !existsSync(source) && existsSync(source.replace(/\.js$/, '.ts'))) source = source.replace(/\.js$/, '.ts');
-    if (source.endsWith('.ts') || source.endsWith('.mjs') || source.endsWith('.js')) dependencies.add(source);
+    if (['.ts', '.mjs', '.js', '.json'].some(extension => source.endsWith(extension))) dependencies.add(source);
     const output = source.endsWith('.ts') && !original.endsWith('.js') ? `${original.replace(/\.ts$/, '')}.js` : original;
     return ts.factory.createStringLiteral(output);
   }

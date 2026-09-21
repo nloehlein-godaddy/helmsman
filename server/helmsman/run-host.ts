@@ -57,6 +57,8 @@ async function receiptDiscovery(spec: LaunchSpec, ref?: HostRef): Promise<HostDi
   const exit = await readExitEvidence(spec);
   if (exit) return { status: 'found', ref: owned, evidence: { ...identity, state: 'exited', exitCode: exit.exitCode } };
   if (!receipt.processStart || await processStartIdentity(receipt.pid) !== receipt.processStart) {
+    const completed = await readExitEvidence(spec);
+    if (completed) return { status: 'found', ref: owned, evidence: { ...identity, state: 'exited', exitCode: completed.exitCode } };
     return { status: 'unknown', reason: 'Wrapper process ownership cannot be verified and no exit receipt exists' };
   }
   return { status: 'found', ref: owned, evidence: { ...identity, state: 'running' } };
