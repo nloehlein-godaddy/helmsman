@@ -208,9 +208,12 @@ describe('loadConfig', () => {
     expect(cfg.agentCmd).toBe('run {ticket}');
   });
 
-  it('falls back to codex for an unrecognized AGENT_ADAPTER value', () => {
-    const cfg = loadConfig({ ...FULL, AGENT_ADAPTER: 'foo' });
-    expect(cfg.agentAdapter).toBe('codex');
+  it.each(['foo', 'claude', 'example.agent/worker', 'CODEX'])('rejects unknown AGENT_ADAPTER %j instead of seeding Codex', value => {
+    expect(() => loadConfig({ ...FULL, AGENT_ADAPTER: value })).toThrow('Invalid AGENT_ADAPTER');
+  });
+
+  it.each(['', '   '])('treats empty AGENT_ADAPTER %j as unset', value => {
+    expect(loadConfig({ ...FULL, AGENT_ADAPTER: value }).agentAdapter).toBe('codex');
   });
 
   it('defaults maxCostUsd to null', () => {

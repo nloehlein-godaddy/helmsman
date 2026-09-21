@@ -93,8 +93,10 @@ export function loadConfig(env: Env): AppConfig {
   const autoClaimIntervalMs: number = Number.isFinite(parsedAutoClaimIntervalMs) ? parsedAutoClaimIntervalMs : 60000;
   const agentCmd: string | null = req(env, 'AGENT_CMD');
   const rawAdapter: string | null = req(env, 'AGENT_ADAPTER');
-  const agentAdapter: 'claude-code' | 'command' | 'codex' =
-    rawAdapter === 'command' ? 'command' : rawAdapter === 'claude-code' ? 'claude-code' : 'codex';
+  if (rawAdapter !== null && rawAdapter !== 'codex' && rawAdapter !== 'claude-code' && rawAdapter !== 'command') {
+    throw new Error('Invalid AGENT_ADAPTER: expected codex, claude-code or command. Select plugin providers with plugins select-agent.');
+  }
+  const agentAdapter: 'claude-code' | 'command' | 'codex' = rawAdapter ?? 'codex';
   const maxCostRaw: string | null = req(env, 'AGENT_MAX_COST_USD');
   const parsedMaxCost: number = maxCostRaw ? parseFloat(maxCostRaw) : NaN;
   const maxCostUsd: number | null = Number.isFinite(parsedMaxCost) ? parsedMaxCost : null;

@@ -25,18 +25,21 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
-async function verifyArtifactIfPresent(runsDir: string, runId: string, identity: { stage: string; round: number; reviewer?: string }, path: string): Promise<void> {
+async function verifyArtifactIfPresent(runsDir: string, runId: string, identity: { stage: string; round: number; reviewer?: string }, path: string,
+  required = false): Promise<boolean> {
   const store = createRunArtifactStore(join(runsDir, '.artifacts'));
   let manifest;
   try { manifest = await store.manifest({ runId, ...identity }); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' && !required) return false;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new ResumeError('The immutable report manifest is required for a retained agent continuation.');
     throw new ResumeError('The immutable report manifest could not be verified.');
   }
   await store.verify({ runId, ...identity });
   const bytes = await readFile(path);
   const actual = createHash('sha256').update(bytes).digest('hex');
   if (actual !== manifest.sha256 || bytes.byteLength !== manifest.bytes) throw new ResumeError('A report changed after its immutable artifact was recorded.');
+  return true;
 }
 
 export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
@@ -111,14 +114,20 @@ export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
     ?? (settings.reviewerCount === 1 ? [writerId] : [writerId, writerId === 'codex' ? 'claude-code' : 'codex']);
   if (reviewers.length !== settings.reviewerCount || !reviewers.includes(writerId)) throw new ResumeError('The original retained reviewer set is incomplete.');
   const rounds = Array.from({ length: settings.maxRounds }, (_, index) => index + 1)
-    .filter(round => reviewers.every(reviewer => files.has(prePrArtifactFilename('review', round, reviewer))));
+    .filter(round => reviewers.every(reviewer => files.has(prePrArtifactFilename('review', round, reviewer))
+      || files.has(prePrArtifactFilename('review', round, reviewer, true))));
   const round = Math.max(0, ...rounds);
   if (!round || round > settings.maxRounds) throw new ResumeError('There is no valid completed review round to continue.');
   const reviewerReports: Record<string, string> = {};
   let baseSha = '';
   for (const reviewer of reviewers) {
-    const path = join(artifactDir, prePrArtifactFilename('review', round, reviewer));
-    await verifyArtifactIfPresent(runsDir, row.id, { stage: 'review', round, reviewer }, path);
+    const identity = { stage: 'review', round, reviewer };
+    const corrected = prePrArtifactFilename('review', round, reviewer, true);
+    const correctedPath = join(artifactDir, corrected);
+    const useCorrected = files.has(corrected)
+      && await verifyArtifactIfPresent(runsDir, row.id, identity, correctedPath, Boolean(selection));
+    const path = useCorrected ? correctedPath : join(artifactDir, prePrArtifactFilename('review', round, reviewer));
+    if (!useCorrected) await verifyArtifactIfPresent(runsDir, row.id, identity, path, Boolean(selection));
     const value = await readPrePrReport(path);
     const raw = record(value);
     if (!baseSha && typeof raw?.baseSha === 'string') baseSha = raw.baseSha;
@@ -129,7 +138,7 @@ export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
   await git(['merge-base', '--is-ancestor', baseSha, headSha]);
   if (baseSha === headSha) throw new ResumeError('The checkpoint contains no committed implementation.');
   const metadataPath = join(artifactDir, prePrArtifactFilename(round === 1 ? 'implement' : 'fix', round === 1 ? 0 : round - 1));
-  await verifyArtifactIfPresent(runsDir, row.id, { stage: round === 1 ? 'implement' : 'fix', round: round === 1 ? 0 : round - 1 }, metadataPath);
+  await verifyArtifactIfPresent(runsDir, row.id, { stage: round === 1 ? 'implement' : 'fix', round: round === 1 ? 0 : round - 1 }, metadataPath, Boolean(selection));
   parsePrMetadata(await readPrePrReport(metadataPath), task as unknown as AgentTask);
   const resumedTask: AgentTask = { ...task as unknown as AgentTask, prePrResume: { baseSha, headSha, branch, round, reviewerReports, metadataPath } };
   return { task: resumedTask, settings, writerId, cwd: row.worktreePath, logPath, exitPath, specPath, logSize };

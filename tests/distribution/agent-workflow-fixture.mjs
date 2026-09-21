@@ -91,7 +91,7 @@ export async function runAgentWorkflowFixture(input) {
   assert.ok(Array.isArray(selection.reviewers) && selection.reviewers.length > 0);
   assert.ok(Array.isArray(artifacts) && artifacts.length > 0);
   const runtime = await import(pathToFileURL(join(app, 'server/helmsman/pre-pr-runtime.js')).href);
-  const artifactNames = await import(pathToFileURL(join(app, 'server/helmsman/artifacts.js')).href);
+  const continuation = await import(pathToFileURL(join(app, 'server/helmsman/resume.js')).href);
   const realGit = input.realGit ?? await executable('git', env);
   const fixtureRoot = join(root, 'agent-workflow-fixture');
   const bin = join(fixtureRoot, 'bin');
@@ -120,7 +120,7 @@ export async function runAgentWorkflowFixture(input) {
   await command(realGit, ['clone', remote, repo], fixtureRoot, env);
   await command(realGit, ['config', 'user.name', 'Fixture'], repo, env);
   await command(realGit, ['config', 'user.email', 'fixture@example.invalid'], repo, env);
-  await command(realGit, ['switch', '-c', 'agent/workflow-fixture'], repo, env);
+  await command(realGit, ['switch', '-c', 'agent/workflow-run'], repo, env);
   const token = 'a'.repeat(64);
   const publication = await publicationServer(token);
   const reviewerIds = selection.reviewers.map(record => record.binding.providerId);
@@ -135,12 +135,18 @@ export async function runAgentWorkflowFixture(input) {
   try {
     await assert.rejects(runtime.runPrePrRuntime({ task, runsDir, settings, publication: { url: publication.url, token } }, event => events.push(event)), /unsuccessful result|fixture checkpoint/);
     assert.equal(publication.requests.length, 0);
-    const baseSha = await command(realGit, ['merge-base', 'HEAD', 'origin/main'], repo, env);
-    const headSha = await command(realGit, ['rev-parse', 'HEAD'], repo, env);
-    const artifactDir = join(runsDir, 'workflow-run.pre-pr');
-    const reviewerReports = Object.fromEntries(reviewerIds.map(reviewer => [reviewer, join(artifactDir, artifactNames.prePrArtifactFilename('review', 1, reviewer))]));
-    const resumedTask = { ...task, prePrResume: { baseSha, headSha, branch: 'agent/workflow-fixture', round: 1, reviewerReports,
-      metadataPath: join(artifactDir, artifactNames.prePrArtifactFilename('implement', 0)) } };
+    const specPath = join(runsDir, 'workflow-run.json');
+    const logPath = join(runsDir, 'workflow-run.log');
+    const exitPath = join(runsDir, 'workflow-run.exit');
+    const log = 'failed retained workflow\n';
+    await writeFile(specPath, JSON.stringify({ cwd: repo, cmd: process.execPath, args: [JSON.stringify({ task, runsDir, settings, publication: { url: publication.url, token } })] }));
+    await writeFile(logPath, log);
+    await writeFile(exitPath, '1');
+    const row = { id: 'workflow-run', ticketId: task.ticketId, repo: task.repo, adapter: `pre-pr:${selection.writer.binding.providerId}`,
+      status: 'failed', attempt: 1, prNumber: null, worktreePath: repo, logPath, exitPath, specPath, logOffset: Buffer.byteLength(log), taskJson: JSON.stringify(task) };
+    const checkpoint = await continuation.inspectPrePrContinuation(row, runsDir);
+    assert.ok(Object.values(checkpoint.task.prePrResume.reviewerReports).every(path => path.endsWith('.corrected.json')));
+    const resumedTask = checkpoint.task;
     const prNumber = await runtime.runPrePrRuntime({ task: resumedTask, runsDir, settings, publication: { url: publication.url, token } }, event => events.push(event));
     assert.equal(prNumber, 42);
     assert.equal(publication.requests.length, 1);
@@ -150,7 +156,7 @@ export async function runAgentWorkflowFixture(input) {
     assert.equal(state.fixAttempts, 2);
     assert.equal(state.reviews['1'], reviewerIds.length);
     assert.equal(state.reviews['2'], reviewerIds.length);
-    assert.equal(state.corrections, reviewerIds.length * 2);
+    assert.equal(state.corrections, reviewerIds.length);
     assert.equal(await command(realGit, ['status', '--porcelain', '--untracked-files=all'], repo, env), '');
     assert.match(await readFile(join(repo, 'workflow.txt'), 'utf8'), /fixed/);
     assert.ok(events.some(event => event.kind === 'result' && event.outcome === 'failure'));

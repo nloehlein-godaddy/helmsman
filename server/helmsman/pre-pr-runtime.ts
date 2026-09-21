@@ -400,7 +400,8 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
       for (const reviewer of reviewerIds) {
         const path = checkpoint.reviewerReports[reviewer]!;
         assertArtifactPath(path);
-        if (path !== join(artifactDir, prePrArtifactFilename('review', checkpoint.round, reviewer))) {
+        if (path !== join(artifactDir, prePrArtifactFilename('review', checkpoint.round, reviewer))
+          && path !== join(artifactDir, prePrArtifactFilename('review', checkpoint.round, reviewer, true))) {
           throw new PrePrGateError('continuation must use each reviewer’s original report for the checkpoint round.');
         }
         try { parsePrePrReview(await readPrePrReport(path), checkpoint); }

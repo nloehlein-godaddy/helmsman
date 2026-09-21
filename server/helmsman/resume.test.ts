@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db, type RunRow } from './db';
 import { inspectPrePrContinuation, resumeFailedPrePrRun } from './resume';
 import type { LaunchSpec, RunHost } from './run-host';
-import { createRunArtifactStore } from './artifacts';
+import { createRunArtifactStore, prePrArtifactFilename } from './artifacts';
 import type { DurableRunnerAttempt, DurableRunnerCoordinator } from './runner';
 
 const fixtures: { root: string; db: Db }[] = [];
@@ -60,6 +60,27 @@ function fixture() {
   }) };
   const deps = { db, host, runsDir, now: () => '2026-09-18T02:00:00Z' };
   return { root, db, row, deps, task, settings, spec, artifacts, cwd, baseSha, headSha, git };
+}
+
+function bindRetainedAgent(f: ReturnType<typeof fixture>) {
+  const metadata = { version: 1 as const, label: 'Retained', defaults: { model: null, effort: null },
+    review: { low: { model: null, effort: null }, medium: { model: null, effort: null }, high: { model: null, effort: null } },
+    reviewSkills: [], reviewDelegation: 'none' as const, supportsPrePr: true, docker: null, costReporting: 'delta' as const };
+  const providerId = 'example.agent/worker';
+  const record = { version: 1 as const, binding: { providerId, pluginId: 'example.agent', artifactHash: 'a'.repeat(64), contractVersion: 1 as const },
+    origin: 'external' as const, settings: {}, metadata };
+  const task = { ...f.task, agentSelection: { version: 1 as const, writer: record, reviewers: [record] },
+    agentRuntime: { pluginsRoot: join(f.root, 'plugins'), runtimeArtifactsRoot: join(f.root, 'runtime-artifacts'),
+      artifacts: [{ pluginId: 'example.agent', artifactHash: 'a'.repeat(64), packageVersion: '1.0.0', requires: [] }] } };
+  const settings = { ...f.settings, reviewerCount: 1 };
+  const spec = { ...f.spec, args: [JSON.stringify({ task, settings, runsDir: f.deps.runsDir })] };
+  writeFileSync(f.row.specPath!, JSON.stringify(spec));
+  f.row.adapter = `pre-pr:${providerId}`;
+  f.row.taskJson = JSON.stringify(task);
+  const reportPath = join(f.artifacts, prePrArtifactFilename('review', 2, providerId));
+  writeFileSync(reportPath, JSON.stringify({ baseSha: f.baseSha, headSha: f.headSha, verdict: 'REQUEST_CHANGES', summary: 'x'.repeat(2064),
+    findings: [{ title: 'Timing issue', body: 'Reproduce the remaining crash loop.' }] }));
+  return { task, settings, providerId, reportPath };
 }
 
 describe('same-voyage pre-PR continuation', () => {
@@ -123,6 +144,27 @@ describe('same-voyage pre-PR continuation', () => {
     await createRunArtifactStore(join(f.deps.runsDir, '.artifacts')).write({ runId: f.row.id, stage: 'review', round: 2, reviewer: 'codex' }, readFileSync(reportPath));
     writeFileSync(reportPath, '{"tampered":true}');
     await expect(inspectPrePrContinuation(f.row, f.deps.runsDir)).rejects.toThrow('changed after');
+  });
+
+  it('requires immutable manifests for retained agent checkpoints', async () => {
+    const f = fixture();
+    bindRetainedAgent(f);
+    await expect(inspectPrePrContinuation(f.row, f.deps.runsDir)).rejects.toThrow('manifest is required');
+  });
+
+  it('resumes a retained agent checkpoint from its immutable corrected report', async () => {
+    const f = fixture();
+    const retained = bindRetainedAgent(f);
+    const correctedPath = join(f.artifacts, prePrArtifactFilename('review', 2, retained.providerId, true));
+    const corrected = { baseSha: f.baseSha, headSha: f.headSha, verdict: 'REQUEST_CHANGES', summary: 'Concise corrected summary.',
+      findings: [{ title: 'Timing issue', body: 'Reproduce the remaining crash loop.' }] };
+    writeFileSync(correctedPath, JSON.stringify(corrected));
+    const store = createRunArtifactStore(join(f.deps.runsDir, '.artifacts'));
+    await store.write({ runId: f.row.id, stage: 'review', round: 2, reviewer: retained.providerId }, readFileSync(correctedPath));
+    const metadataPath = join(f.artifacts, 'fix-1.json');
+    await store.write({ runId: f.row.id, stage: 'fix', round: 1 }, readFileSync(metadataPath));
+    const checkpoint = await inspectPrePrContinuation(f.row, f.deps.runsDir);
+    expect(checkpoint.task.prePrResume?.reviewerReports).toEqual({ [retained.providerId]: correctedPath });
   });
 });
 

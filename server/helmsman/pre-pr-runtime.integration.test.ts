@@ -236,7 +236,7 @@ describe.skipIf(!hasShebangShims)('pre-PR runtime with real git and fake CLIs', 
     } finally { await rm(env.root, { recursive: true, force: true }); }
   }, 30_000);
 
-  it('continues saved round-two reports without repeating implementation, then fixes and reviews round three', async () => {
+  it('continues an accepted corrected round-two report without repeating correction or implementation', async () => {
     const env = await fixture('summary-fix', { reviewerCount: 2, maxRounds: 3, stageTimeoutMinutes: 10 });
     try {
       const git = async (args: string[]) => (await exec('/usr/bin/git', args, { cwd: env.cwd })).stdout.trim();
@@ -249,8 +249,8 @@ describe.skipIf(!hasShebangShims)('pre-PR runtime with real git and fake CLIs', 
       await mkdir(artifacts, { recursive: true });
       const metadataPath = join(artifacts, 'implement-1.json');
       await writeFile(metadataPath, JSON.stringify({ title: 'T-1 Preserved implementation', body: 'Existing implementation.' }));
-      const reviewerReports = { codex: join(artifacts, 'review-2-codex.json'), 'claude-code': join(artifacts, 'review-2-claude-code.json') };
-      const pending = { baseSha, headSha, verdict: 'REQUEST_CHANGES', summary: 'x'.repeat(PRE_PR_REVIEW_SUMMARY_LIMIT + 1),
+      const reviewerReports = { codex: join(artifacts, 'review-2-codex.corrected.json'), 'claude-code': join(artifacts, 'review-2-claude-code.json') };
+      const pending = { baseSha, headSha, verdict: 'REQUEST_CHANGES', summary: 'Concise corrected review',
         findings: [{ title: 'Missing guard', body: 'Empty input breaks the primary workflow.', path: 'code.txt', line: 1 }] };
       const approved = { baseSha, headSha, verdict: 'APPROVE', summary: 'No material findings', findings: [] };
       await writeFile(reviewerReports.codex, JSON.stringify(pending));
@@ -258,15 +258,14 @@ describe.skipIf(!hasShebangShims)('pre-PR runtime with real git and fake CLIs', 
       const result = await env.run({ prePrResume: { baseSha, headSha, branch: 'voyage/test', round: 2, reviewerReports, metadataPath } });
       expect(result.code, result.output).toBe(0);
       const steps = (await readFile(env.transcript, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-      expect(steps.map(step => step.stage)).toEqual(['correction', 'fix', 'review', 'review', 'push', 'publish']);
+      expect(steps.map(step => step.stage)).toEqual(['fix', 'review', 'review', 'push', 'publish']);
       expect(steps[0].head).toBe(headSha);
-      expect(steps[1].head).toBe(headSha);
-      expect(steps[1].reportPath).toBe(join(artifacts, 'fix-2.json'));
+      expect(steps[0].reportPath).toBe(join(artifacts, 'fix-2.json'));
       expect(steps.filter(step => step.stage === 'review').map(step => step.reportPath)).toEqual([
         join(artifacts, 'review-3-codex.json'), join(artifacts, 'review-3-claude-code.json'),
       ]);
-      expect(steps[2].head).not.toBe(headSha);
-      expect(steps[3].head).toBe(steps[2].head);
+      expect(steps[1].head).not.toBe(headSha);
+      expect(steps[2].head).toBe(steps[1].head);
       expect(JSON.parse(await readFile(reviewerReports.codex, 'utf8'))).toEqual(pending);
       expect(JSON.parse(await readFile(reviewerReports['claude-code'], 'utf8'))).toEqual(approved);
       expect(await readFile(join(env.cwd, 'code.txt'), 'utf8')).toBe('initial\npreserved implementation\nfixed\n');
@@ -289,7 +288,7 @@ describe.skipIf(!hasShebangShims)('pre-PR runtime with real git and fake CLIs', 
     } finally { await rm(env.root, { recursive: true, force: true }); }
   }, 30_000);
 
-  it.each(['review-2-claude-code.json', 'review-1-codex.json', 'review-2-codex.corrected.json'])(
+  it.each(['review-2-claude-code.json', 'review-1-codex.json'])(
     'rejects mismatched saved reviewer path %s before running an agent', async filename => {
       const env = await fixture('named-remote', { reviewerCount: 1, maxRounds: 3, stageTimeoutMinutes: 10 });
       try {
