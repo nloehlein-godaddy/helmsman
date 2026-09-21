@@ -1,3 +1,4 @@
+import profileHeader from './profile/header';
 import githubSettingsPage from './github-settings/page';
 import githubSettingsPanel from './github-settings/panel';
 import jiraSettingsPage from './jira-settings/page';
@@ -68,6 +69,7 @@ export function syncBuiltinFrontend(entries: readonly BuiltinFrontendCatalogEntr
     if (current && (!enabled || current.hash !== entry?.hash)) { current.dispose(); activeBuiltins.delete(manifest.id); }
     if (!enabled || !entry || activeBuiltins.has(manifest.id)) continue;
     const cleanups: (() => void)[] = [];
+    if (manifest.id === 'helmsman.profile') cleanups.push(appPageModules.register('helmsman.profile/header', profileHeader));
     if (manifest.id === 'helmsman.costs') cleanups.push(appPageModules.register(COSTS_PAGE_ID, costsPage));
     if (manifest.id === 'helmsman.helm') cleanups.push(appPageModules.register(HELM_PAGE_ID, helmPage));
     const page = { 'helmsman.github-settings': githubSettingsPage, 'helmsman.jira-settings': jiraSettingsPage, 'helmsman.local-git': localGitPage, 'helmsman.campaigns': campaignsPage, 'helmsman.terminal': terminalPage, 'helmsman.communication': communicationPage, 'helmsman.runs': runsPage, 'helmsman.compat-pr': compatibilityPrPage, 'helmsman.clarifications': clarificationsPage, 'helmsman.compat-clarifications': compatibilityClarificationsPage, 'helmsman.run-viewer': runViewerPage, 'helmsman.run-history': runHistoryPage, 'helmsman.todos-ui': todosPage, 'helmsman.triage': triagePage, 'helmsman.bugs': bugsPage, 'helmsman.source-settings': sourceSettingsPage }[manifest.id];

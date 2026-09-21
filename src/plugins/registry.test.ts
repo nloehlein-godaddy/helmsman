@@ -10,6 +10,25 @@ function manifest(id = 'acme.costs', slots = ['helmsman/costs-page']) {
 const registry = () => new PluginPageRegistry([costsSlot()], ['/', '/helm', '/config']);
 
 describe('plugin page registry', () => {
+  it('lists immutable snapshots in deterministic contribution order without selecting pages', () => {
+    const host = registry();
+    const remove = host.register(manifest('zebra.costs'));
+    host.register(manifest());
+    const snapshot = host.listPages();
+    expect(snapshot.map(page => page.contributionId)).toEqual(['acme.costs/summary', 'zebra.costs/summary']);
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(snapshot.every(Object.isFrozen)).toBe(true);
+    expect(() => (snapshot as unknown[]).pop()).toThrow();
+    expect(host.selected('helmsman/costs-page').contributionId).toBe('acme.costs/summary');
+    expect(() => host.register({ ...manifest('broken.costs'), pages: [null] })).toThrow();
+    expect(host.listPages()).toEqual(snapshot);
+    remove();
+    expect(snapshot).toHaveLength(2);
+    expect(host.listPages().map(page => page.contributionId)).toEqual(['acme.costs/summary']);
+    host.register(manifest('zebra.costs'));
+    expect(host.listPages()).toEqual(snapshot);
+  });
+
   it('resolves slot aliases and namespaced canonical routes', () => {
     const host = registry();
     host.register(manifest());

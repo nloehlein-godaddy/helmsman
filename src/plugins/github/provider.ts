@@ -182,6 +182,21 @@ async function prepared(repo: string, number: number, expectedHeadSha: string | 
 }
 
 export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<PullRequestProviderV1>({
+  async profile(context) {
+    const bounded = (value: unknown, maximum: number): string | null => text(value, maximum) ? value.trim() || null : null;
+    const fallback = bounded(context.configuredAuthor, 128);
+    try {
+      context.signal.throwIfAborted();
+      const response = await request(context, 'GET', '/user');
+      context.signal.throwIfAborted();
+      if (response.status !== 200) return { displayName: fallback, login: fallback };
+      const data = object(response.body); const login = bounded(data?.login, 128) ?? fallback;
+      return { displayName: bounded(data?.name, 256) ?? login, login };
+    } catch {
+      context.signal.throwIfAborted();
+      return { displayName: fallback, login: fallback };
+    }
+  },
   async list(input, context) {
     const query = parsePullRequestReadQueryV1(input.query); const repos = [...new Set(input.repos)]; const author = configuredAuthor(context);
     const repoPaths = (query.repo === null ? repos : [query.repo]).map(repo => ({ repo, path: `/repos/${repo}/pulls` }));

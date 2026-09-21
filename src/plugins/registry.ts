@@ -62,6 +62,10 @@ export class PluginPageRegistry {
     };
   }
 
+  listPages(): readonly RegisteredPluginPage[] {
+    return Object.freeze([...this.pages.values()].sort((a, b) => a.contributionId < b.contributionId ? -1 : a.contributionId > b.contributionId ? 1 : 0));
+  }
+
   getPage(contributionId: string): RegisteredPluginPage | null {
     return this.pages.get(contributionId) ?? null;
   }

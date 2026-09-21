@@ -9,6 +9,17 @@ function manifest() {
 }
 
 describe('plugin manifest validation', () => {
+  it.each([1, 2])('validates optional navigation metadata for manifest %s', version => {
+    const base = { ...manifest(), manifestVersion: version, ...(version === 2 ? { panels: [] } : {}) };
+    for (const navigation of [true, false]) {
+      const parsed = parsePluginManifest({ ...base, pages: [{ ...base.pages[0], navigation }] });
+      expect(parsed.pages[0]?.navigation).toBe(navigation);
+      expect(Object.isFrozen(parsed.pages[0])).toBe(true);
+    }
+    expect(parsePluginManifest(base).pages[0]).not.toHaveProperty('navigation');
+    for (const navigation of [null, 'false', 0, undefined]) expect(() => parsePluginManifest({ ...base, pages: [{ ...base.pages[0], navigation }] })).toThrow();
+  });
+
   const composed = () => ({ ...manifest(), manifestVersion: 2,
     pages: [{ ...manifest().pages[0], composition: { id: 'helmsman/helm-page', version: 1,
       accepts: [{ id: 'helmsman/helm-panel', version: 1 }] }, requires: [{ id: 'helmsman/composition', version: 1 }] }],

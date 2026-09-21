@@ -27,4 +27,10 @@ describe('pull request provider registry', () => {
     const registry = createPullRequestProviderRegistry({ eligible: () => true });
     expect(() => registry.stage(binding, { ...provider, reconcileReview: undefined } as unknown as PullRequestProviderV1)).toThrow('Invalid pull request provider');
   });
+  it('keeps profiles optional and rejects noncallable profile hooks', () => {
+    const registry = createPullRequestProviderRegistry({ eligible: () => true });
+    expect(() => registry.stage(binding, provider)).not.toThrow();
+    expect(() => registry.stage(binding, { ...provider, profile: async () => ({ displayName: null, login: null }) })).not.toThrow();
+    expect(() => registry.stage(binding, { ...provider, profile: null } as unknown as PullRequestProviderV1)).toThrow('Invalid pull request provider');
+  });
 });

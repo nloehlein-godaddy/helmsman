@@ -1,0 +1,72 @@
+import { expect, test } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { fixture, contribution, pluginId } from './isolated-fixture';
+
+const profileId = 'example.profile-header';
+
+test('independent profile and installed pages preserve scope, neutral fallback and explicit selection', async ({ page, request }) => {
+  const host = await fixture();
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    host.env.REPO_PROJECT_MAP = 'org/a=TASK';
+    host.env.GITHUB_TOKEN = 'isolated-profile-token'; host.env.GITHUB_PR_AUTHOR = 'reviewer';
+    const preload = join(host.root, 'github-profile-fixture.mjs');
+    await writeFile(preload, `const original=globalThis.fetch;
+globalThis.fetch=async(input,init)=>{
+ const url=new URL(typeof input==='string'||input instanceof URL?input:input.url);
+ if(['127.0.0.1','localhost'].includes(url.hostname))return original(input,init);
+ if(url.origin!=='https://api.github.com'||init?.method==='POST')throw new Error('Unexpected external fixture request');
+ if(url.pathname==='/user')return Response.json({login:'reviewer',name:'Pat <img src=x>'});
+ if(url.pathname==='/search/issues')return Response.json({total_count:0,incomplete_results:false,items:[]});
+ if(url.pathname.endsWith('/pulls'))return Response.json([]);
+ return new Response(null,{status:404});
+};`);
+    host.env.NODE_OPTIONS += ` --import=${pathToFileURL(preload).href}`;
+    await host.installAuthorPackage('plugin-sources/profile', profileId);
+    await host.installAuthorPackage('plugin-sources/github', undefined, { buildScript: true });
+    await host.installSample();
+    await host.cli('select', 'helmsman/costs-page', 'default');
+    await host.cli('select', 'helmsman/profile-header', `${profileId}/header`);
+    await host.cli('select-pull-request', 'example.github/github');
+    const origin = await host.start();
+    await page.goto(`${origin}/config?repo=org/a`);
+    await expect(page.locator('.helm-greeting')).toHaveText('Ahoy, Pat <img src=x>!');
+    await expect(page.locator('.helm-greeting img')).toHaveCount(0);
+    expect(await page.locator('.helm-greeting').evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(25);
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    expect((await request.get(`${origin}/api/github/profile`)).status()).toBe(410);
+    const snapshot = await request.get(`${origin}/api/profile?version=1&scope=global`, { headers: { 'X-Helmsman-Contribution': `${profileId}/header` } });
+    expect(await snapshot.json()).toEqual({ version: 1, scope: 'global', profile: { displayName: 'Pat <img src=x>', login: 'reviewer' } });
+    await page.locator('[data-pages-menu-summary]').click();
+    const menu = page.locator('[data-pages-menu]');
+    await expect(menu.locator(`[data-page-contribution="${profileId}/header"]`)).toHaveCount(0);
+    const installed = menu.locator(`[data-page-contribution="${contribution}"]`);
+    await expect(installed).toHaveAttribute('href', `/plugins/${contribution}?repo=org%2Fa`);
+    await page.screenshot({ path: '/tmp/helmsman-navigation-desktop.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: '/tmp/helmsman-navigation-mobile.png', fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    await installed.click();
+    await expect(page.getByRole('heading', { name: 'Isolated TypeScript page', exact: true })).toBeVisible();
+    await expect(page.locator('[data-isolated-scope]')).toHaveText('org/a');
+    await page.reload(); await expect(page.locator('[data-isolated-scope]')).toHaveText('org/a');
+    await expect(page.locator('.helm-greeting')).toHaveText('Ahoy, Pat <img src=x>!');
+    await page.goto(`${origin}/outcomes?repo=org/a`);
+    await expect(page.locator('[data-plugin-page="helmsman.costs/page"]')).toBeVisible();
+    await host.stop(); host.env.HELMSMAN_PORT = new URL(origin).port;
+    await host.cli('select', 'helmsman/costs-page', contribution);
+    await host.cli('disable', profileId); await host.cli('disable', pluginId);
+    expect(await host.start()).toBe(origin);
+    await page.goto(`${origin}/outcomes?repo=org/a`);
+    await expect(page.locator('.helm-greeting')).toHaveText('Ahoy!');
+    await expect(page.locator('[data-plugin-page="helmsman.costs/page"]')).toHaveCount(0);
+    await expect(page.locator('#page-content')).toContainText(/unavailable/i);
+    await page.locator('[data-pages-menu-summary]').click();
+    await expect(menu.locator(`[data-page-contribution="${contribution}"]`)).toHaveCount(0);
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    expect((await request.get(`${origin}/api/profile?version=1&scope=global`, { headers: { 'X-Helmsman-Contribution': `${profileId}/header` } })).status()).toBe(403);
+    expect(errors).toEqual([]);
+  } finally { await host.close(); }
+});

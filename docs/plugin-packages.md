@@ -29,7 +29,7 @@ npm run plugins -- select helmsman/costs-page example.scope-summary/page
 npm run plugins -- list
 ```
 
-Open `/plugins/example.scope-summary/page?repo=org/a`, or `/outcomes` to use the selected replacement. The sample displays the current header galleon, receives scope/theme/Pirate updates, and navigates to Runs with that scope. Change `page.js` and its package version to build your own page; no host-source changes are needed.
+Use the header **Pages** menu to discover enabled pages from any route. Open `/plugins/example.scope-summary/page?repo=org/a`, or `/outcomes` to use the selected replacement. The sample displays the current header galleon, receives scope/theme/Pirate updates, and navigates to Runs with that scope. Change `page.js` and its package version to build your own page; no host-source changes are needed.
 
 The CLI and server use `HELMSMAN_PLUGINS_DIR`, defaulting to `~/.helmsman/plugins`. Both load an optional `.env` in their working directory. A CLI command can override the directory with `npm run plugins -- --dir /absolute/store COMMAND ...`. Use the same directory for the running server. Package directories and archive paths must have real directory ancestors; resolve symlinked temporary paths before packing.
 
@@ -100,6 +100,8 @@ Put `plugin-package.json` and prebuilt browser ESM assets in a clean output dire
   "entries": { "page": "page.js" }
 }
 ```
+
+Both manifest versions accept optional `navigation: false` on a page to hide auxiliary/header contributions from the Pages menu. Omission or `true` makes enabled page metadata discoverable, unless the same contribution is already represented by a shipped tab. The flag does not restrict canonical routes or slot selection. Selected supplemental pages use their host alias; unselected alternatives use canonical URLs. Menu navigation keeps the header galleon scope without carrying page-specific state, and never changes a saved selection. Duplicate titles display contribution IDs.
 
 Every page must have exactly one entry mapping. Manifest version 2 additionally declares panels and requires a separate exact `panelEntries` map; unchanged version 1 packages remain supported. See [panel authoring](panel-authoring.md) for Helm composition and lifecycle rules. Entries default-export a module implementing the [page lifecycle](plugin-page-registry.md#page-module-lifecycle). The [sample](../examples/plugins/scope-summary/page.js) uses only injected context and browser APIs. Own your styles within your container and bundle framework dependencies; application CSS classes and private host modules are not public APIs. The declared Node compatibility is a range of entire major versions, with an inclusive lower and exclusive upper bound, checked during installation, enablement, and startup. An optional backend descriptor supports pricing, validated settings, and namespaced storage; see [backend authoring](plugin-backend.md). General plugin dependency declarations are not accepted yet.
 

@@ -1,0 +1,23 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.profile",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "header",
+        "title": "Profile",
+        "slots": ["helmsman/profile-header"],
+        "navigation": false,
+        "panes": [],
+        "requires": [{ "id": "helmsman/profile", "version": 1 }]
+      }
+    ],
+    "panels": []
+  },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": { "header": "header.js" },
+  "panelEntries": {}
+}

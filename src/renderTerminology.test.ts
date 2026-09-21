@@ -13,10 +13,12 @@ const mount = (html: string) => {
 const opts = { repos: ['org/agent-review'], selectedRepo: 'org/agent-review', themeId: DEFAULT_THEME_ID };
 
 describe('pirate interface wording', () => {
-  it.each([true, false])('renders escaped personal greetings and switchable navigation with mode=%s', enabled => {
+  it.each([true, false])('renders neutral greetings, a profile mount, and switchable navigation with mode=%s', enabled => {
     setPirateMode(enabled);
-    const element = mount(renderHelmHead({ ...opts, active: 'dashboard', readout: { running: 1, queued: 0, review: 2 }, greetingName: '<img src=x> Review' }));
-    expect(element.querySelector('[data-greeting]')?.textContent).toBe(`${enabled ? 'Ahoy' : 'Hello'}, <img src=x> Review!`);
+    const element = mount(renderHelmHead({ ...opts, active: 'dashboard', readout: { running: 1, queued: 0, review: 2 } }));
+    expect(element.querySelector('[data-greeting]')?.textContent).toBe(enabled ? 'Ahoy' : 'Hello');
+    expect(element.querySelector('.helm-greeting')?.textContent).toBe(`${enabled ? 'Ahoy' : 'Hello'}!`);
+    expect(element.querySelector('[data-profile-header]')?.textContent).toBe('');
     expect(element.querySelector('img')).toBeNull();
     expect(element.querySelector('[data-view="dashboard"]')?.textContent).toBe(enabled ? 'Helm' : 'Dashboard');
     expect(element.querySelector('[data-view="prs"]')?.textContent).toBe(enabled ? 'Bounties' : 'PRs');
@@ -27,7 +29,7 @@ describe('pirate interface wording', () => {
     expect(element.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/agent-review');
   });
 
-  it.each([true, false])('reflects mode=%s in the footer and keeps the Appearance reference and browser setup literal', enabled => {
+  it.each([true, false])('reflects mode=%s in the footer and keeps the Appearance reference and Communication link literal', enabled => {
     setPirateMode(enabled);
     const element = mount(renderConfigView({ config: {}, overridden: [] }, opts));
     expect(element.querySelectorAll('[data-pirate-mode]')).toHaveLength(1);
@@ -41,7 +43,8 @@ describe('pirate interface wording', () => {
       ['Agents', 'Crew'], ['Running', 'Underway'], ['System status', 'Fleet status'],
       ['Completed work', 'Out to sea'], ['Activity log', "Ship's log"],
     ]));
-    expect(element.querySelector('#slack-review-setup')?.textContent).toContain('signed-in Slack browser');
+    expect(element.querySelector('a[href="/communication?repo=org%2Fagent-review"]')?.textContent).toBe('Notifications and Slack settings');
+    expect(element.querySelector('#slack-review-setup')).toBeNull();
     expect(element.textContent).toContain('Task sources');
     expect(element.querySelector('[data-key=JIRA_ENABLED]')).toBeNull();
   });

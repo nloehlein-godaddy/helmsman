@@ -2,12 +2,11 @@ import { AuxiliaryPageHost } from './plugins/auxiliary-page-host';
 import { scopedPresentationLocatorV1, type PresentationLocatorV1 } from './plugins/presentation';
 import { applyBootTerminology } from './logic/bootTerminology';
 import { term, setPirateMode, isPirateMode } from './logic/terminology';
-import { loadProfile } from './data/profile';
 import { getContext } from './data/context';
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
-import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, NOTIFICATION_HEADER_SLOT, PR_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUNS_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, NOTIFICATION_HEADER_SLOT, PROFILE_HEADER_SLOT, PR_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUNS_PAGE_SLOT } from './plugins/builtins';
 import { appPageModules, disableBuiltinPageModules, syncBuiltinFrontend } from './plugins/builtin-modules';
 import { AppCompositionFactory } from './plugins/app-composition';
 import { loadPluginCatalog } from './plugins/runtime';
@@ -28,6 +27,7 @@ import {
 export class DashboardView {
   private readonly root: HTMLElement;
   private readonly rootEvents = new window.AbortController();
+  private readonly profileContribution: AuxiliaryPageHost;
   private readonly headerContribution: AuxiliaryPageHost;
   private readonly auxiliary: AuxiliaryPageHost;
   private presentationSelection: { locator: Exclude<PresentationLocatorV1, { kind: 'pull-request' }>; scopeRepo: string | null } | null = null;
@@ -62,7 +62,6 @@ export class DashboardView {
   private readonly onResize = (): void => { this.revealActiveTab(); };
   private readonly onPopState = (): void => { void this.navigate(parseRoute(new URL(window.location.href)), 'none'); };
   private themeId: string = loadThemeId();
-  private greetingName: string | null = null;
   private configSaves: number = 0;
   private jiraEnabled: boolean = true;
   private unsubscribePages: (() => void) | null = null;
@@ -110,6 +109,11 @@ export class DashboardView {
       }
     }, { capture: true, signal: this.rootEvents.signal });
 
+    this.profileContribution = new AuxiliaryPageHost({ ...this.pluginPresentationState(), repo: null }, {
+      slotId: PROFILE_HEADER_SLOT, registry: appPages, modules: appPageModules,
+      navigate: href => this.navigatePluginHref(href),
+      loadingMessage: () => '', errorMessage: () => '', unavailableMessage: () => '',
+    });
     this.headerContribution = new AuxiliaryPageHost(this.pluginPresentationState(), {
       slotId: NOTIFICATION_HEADER_SLOT, registry: appPages, modules: appPageModules,
       navigate: href => this.navigatePluginHref(href),
@@ -144,7 +148,6 @@ export class DashboardView {
     this.unsubscribePageModules ??= appPageModules.subscribe(() => {
       if (!this.destroyed && this.isPluginPage()) this.paintPluginPage();
     });
-    void this.loadGreeting();
     window.addEventListener('popstate', this.onPopState);
     window.addEventListener('resize', this.onResize);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
@@ -163,13 +166,6 @@ export class DashboardView {
     await this.navigate(parseRoute(new URL(window.location.href)), 'replace');
     if (this.destroyed) return;
     this.refreshTimer = setInterval(() => void this.refresh(false), LOCAL_POLL_MS);
-  }
-
-  private async loadGreeting(): Promise<void> {
-    const profile = await loadProfile();
-    if (this.destroyed) return;
-    this.greetingName = profile.displayName ?? profile.login;
-    this.syncShell();
   }
 
   private syncPirateToggle(): void {
@@ -228,6 +224,7 @@ export class DashboardView {
     this.pageHost = null;
     this.auxiliary.dispose();
     this.headerContribution.dispose();
+    this.profileContribution.dispose();
     this.compositions.dispose();
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -330,7 +327,7 @@ export class DashboardView {
       this.uiConfig.config.JIRA_ENABLED = String(this.jiraEnabled);
     }
     this.syncShell();
-    if (force) await this.headerContribution.refresh();
+    if (force) { void this.profileContribution.refresh(); await this.headerContribution.refresh(); }
     if (this.view === 'config' && force) {
       this.paintConfig();
     } else if (this.isPluginPage() && localDue) {
@@ -481,7 +478,6 @@ export class DashboardView {
       active: this.view, repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId,
       pluginPage: this.route.pluginPage, pluginSlot: this.route.pluginSlot,
       jiraEnabled: this.jiraEnabled,
-      greetingName: this.greetingName,
       readout: {
         running: this.runs.filter(run => run?.status === 'running' && (!this.selectedRepo || run.repo === this.selectedRepo)).length,
         queued: null,
@@ -542,6 +538,28 @@ export class DashboardView {
       }
       if (!shell.querySelector('.page-tabs')?.contains(document.activeElement)) tab.tabIndex = next.tabIndex;
     }
+    const menu = shell.querySelector<HTMLDetailsElement>('[data-pages-menu]');
+    const items = menu?.querySelector('[data-pages-menu-items]');
+    const nextItems = template.content.querySelector('[data-pages-menu-items]');
+    if (menu && items && nextItems) {
+      const retained = new Map(Array.from(items.querySelectorAll<HTMLAnchorElement>('[data-page-contribution]'), link => [link.dataset.pageContribution, link]));
+      const nextNodes = Array.from(nextItems.children, next => {
+        if (!(next instanceof HTMLAnchorElement)) return next;
+        const current = retained.get(next.dataset.pageContribution);
+        if (!current) return next;
+        if (current.innerHTML !== next.innerHTML) current.replaceChildren(...next.childNodes);
+        for (const name of ['href', 'aria-current', 'title']) {
+          const value = next.getAttribute(name);
+          if (value === null) current.removeAttribute(name); else current.setAttribute(name, value);
+        }
+        return current;
+      });
+      if (items.contains(document.activeElement) && !nextNodes.some(node => node === document.activeElement || node.contains(document.activeElement))) {
+        menu.querySelector<HTMLElement>('[data-pages-menu-summary]')?.focus({ preventScroll: true });
+      }
+      nextNodes.forEach((node, index) => { if (items.children[index] !== node) items.insertBefore(node, items.children[index] ?? null); });
+      for (const node of Array.from(items.children)) if (!nextNodes.includes(node)) node.remove();
+    }
     for (const next of template.content.querySelectorAll<HTMLElement>('[data-fleet-count]')) {
       const count = shell.querySelector<HTMLElement>(`[data-fleet-count="${next.dataset.fleetCount}"]`);
       if (!count) continue;
@@ -560,8 +578,7 @@ export class DashboardView {
     if (running) running.textContent = `${opts.readout?.running ?? '—'} ${term('running').toLowerCase()}`;
     const nextGreeting = template.content.querySelector('[data-greeting]');
     const greeting = shell.querySelector('[data-greeting]');
-    if (nextGreeting && greeting) greeting.replaceWith(nextGreeting);
-    else if (nextGreeting) shell.querySelector('.nameplate-scope')?.append(nextGreeting);
+    if (nextGreeting && greeting) greeting.textContent = nextGreeting.textContent;
     this.paintHeaderContribution();
   }
 
@@ -570,6 +587,8 @@ export class DashboardView {
   }
 
   private paintHeaderContribution(): void {
+    this.profileContribution.update({ ...this.pluginPresentationState(), repo: null, presentation: null });
+    this.profileContribution.rehome(this.root.querySelector<HTMLElement>('[data-profile-header]'));
     this.headerContribution.update({ ...this.pluginPresentationState(), presentation: null });
     this.headerContribution.rehome(this.root.querySelector<HTMLElement>('.helm-controls'));
   }

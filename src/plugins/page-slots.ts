@@ -56,6 +56,8 @@ export const TERMINAL_PAGE_ID = 'helmsman.terminal/page';
 
 export const COMMUNICATION_PAGE_SLOT = 'helmsman/communication-page';
 export const COMMUNICATION_PAGE_ID = 'helmsman.communication/page';
+export const PROFILE_HEADER_SLOT = 'helmsman/profile-header';
+
 export const NOTIFICATION_HEADER_SLOT = 'helmsman/notification-header';
 
 interface BuiltinPageSlot extends PageSlot {
@@ -63,6 +65,7 @@ interface BuiltinPageSlot extends PageSlot {
 }
 
 export const builtinPageSlots: readonly BuiltinPageSlot[] = Object.freeze([
+  Object.freeze({ id: PROFILE_HEADER_SLOT, alias: '/profile', defaultContributionId: 'helmsman.profile/header' }),
   Object.freeze({ id: GITHUB_SETTINGS_PAGE_SLOT, alias: '/github-settings', defaultContributionId: GITHUB_SETTINGS_PAGE_ID, panelContract: 'helmsman/github-settings-panel' }),
   Object.freeze({ id: JIRA_SETTINGS_PAGE_SLOT, alias: '/jira-settings', defaultContributionId: JIRA_SETTINGS_PAGE_ID, panelContract: 'helmsman/jira-settings-panel' }),
   Object.freeze({ id: LOCAL_GIT_PAGE_SLOT, alias: '/local-git', defaultContributionId: LOCAL_GIT_PAGE_ID, panelContract: 'helmsman/local-git-panel' }),

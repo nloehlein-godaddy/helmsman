@@ -1,3 +1,4 @@
+import type { ProfileServiceV1 } from './profile';
 import type { GithubSettingsServiceV1 } from './github-settings';
 import type { JiraSettingsServiceV1 } from './jira-settings';
 import type { LocalGitServiceV1 } from './local-git';
@@ -26,7 +27,7 @@ import type { SourceCommandServiceV1 } from './source-command';
 import type { TaskViewsReadServiceV1 } from './task-views';
 
 export interface PluginServiceRequirementV1 {
-  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/pull-request-inspect' | 'helmsman/pull-request-command' | 'helmsman/communication' | 'helmsman/communication-command' | 'helmsman/terminal' | 'helmsman/campaigns' | 'helmsman/jira-settings' | 'helmsman/github-settings' | 'helmsman/local-git' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
+  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/pull-request-inspect' | 'helmsman/pull-request-command' | 'helmsman/communication' | 'helmsman/communication-command' | 'helmsman/terminal' | 'helmsman/campaigns' | 'helmsman/jira-settings' | 'helmsman/github-settings' | 'helmsman/profile' | 'helmsman/local-git' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
   readonly version: 1;
 }
 
@@ -140,6 +141,7 @@ export interface PluginPanelServicesV1 {
   readonly campaigns?: CampaignServiceV1;
   readonly jiraSettings?: JiraSettingsServiceV1;
   readonly githubSettings?: GithubSettingsServiceV1;
+  readonly profile?: ProfileServiceV1;
   readonly localGit?: LocalGitServiceV1;
   readonly communicationCommands?: CommunicationCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;

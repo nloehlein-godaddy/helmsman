@@ -16,6 +16,19 @@ function context(request: (input: { method: 'GET' | 'POST'; path: string; query:
 }
 
 describe('GitHub pull request provider', () => {
+  it('projects bounded profile names using the public authenticated HTTP service', async () => {
+    const ctx = context(async () => ({ status: 200, body: { name: ' Person ', login: ' person ', token: 'private' } }));
+    expect(await githubPullRequestProvider.profile!(ctx)).toEqual({ displayName: 'Person', login: 'person' });
+    expect(ctx.http.request).toHaveBeenCalledWith({ method: 'GET', path: '/user', query: {}, body: null });
+    for (const body of [null, {}, [], { name: null, login: 123 }, { name: '\nbad', login: 'x'.repeat(129) }]) expect(await githubPullRequestProvider.profile!(context(async () => ({ status: 200, body })))).toEqual({ displayName: 'reviewer', login: 'reviewer' });
+    for (const name of [null, '', '   ', 42]) expect(await githubPullRequestProvider.profile!({ ...context(async () => ({ status: 200, body: { name, login: 'person' } })), configuredAuthor: undefined })).toEqual({ displayName: 'person', login: 'person' });
+    expect(await githubPullRequestProvider.profile!({ ...context(async () => ({ status: 403, body: null })), configuredAuthor: undefined })).toEqual({ displayName: null, login: null });
+    expect(await githubPullRequestProvider.profile!(context(async () => { throw new Error('private'); }))).toEqual({ displayName: 'reviewer', login: 'reviewer' });
+  });
+  it('does not replace profile cancellation with a fallback identity', async () => {
+    const controller = new AbortController(); const ctx = context(async () => { controller.abort(); return { status: 200, body: { name: 'Person', login: 'person' } }; });
+    await expect(githubPullRequestProvider.profile!({ ...ctx, signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+  });
   it('uses the configured author for lists without authenticating as that author', async () => {
     const call = vi.fn(async (input: { path: string; query: Readonly<Record<string, string>> }) => {
       expect(input.path).toBe('/search/issues');

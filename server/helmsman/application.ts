@@ -1,3 +1,5 @@
+import { createProfileService } from './profile-service';
+import { profileContributionEnabled } from './profile-runtime';
 import { createIntegrationSettingsService } from './integration-settings-service';
 import { jiraSettingsContributionEnabled, githubSettingsContributionEnabled } from './integration-settings-runtime';
 import { createLocalGitService } from './local-git-service';
@@ -115,7 +117,6 @@ import { readReviewArtifact } from './review-artifacts';
 import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeWorktree, removeWorktreeAt, repoBasename, sweepOrphanedWorktrees } from './worktree';
 import { findPrNumberByBranch, fetchPrStatus, fetchPrDiff, type PrStatus } from '../github';
 import { fetchRepoOpenPrs, fetchReviewRequestedPrs } from '../pr-lists';
-import { fetchGithubProfile } from '../github-profile';
 import type { PrFileDiff } from '../../src/types';
 import { openTodoStore } from './todos';
 import { reconcileTodoRuns } from './todo-source';
@@ -582,6 +583,18 @@ const pullRequestRead = createPullRequestReadService({ repos: applicationRepos, 
   const result = await pullRequestRegistration(binding, 'admission').provider.list({ query, repos }, read.context);
   read.assertCurrent(); return result;
 } });
+const profile = createProfileService({
+  authorize: caller => { if (!profileContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden'); },
+  async read(signal) {
+    const binding = selectedPullRequestProvider();
+    if (!binding) return { displayName: null, login: null };
+    const provider = pullRequestRegistration(binding, 'admission').provider;
+    if (!provider.profile) return { displayName: null, login: null };
+    const read = pullRequestReadContext(binding, signal);
+    const result = await provider.profile(read.context);
+    read.assertCurrent(); return result;
+  },
+});
 const pullRequestCommands = createPullRequestCommandService({ persistence, operations, repos: applicationRepos,
   authorize: caller => {
     if (!pullRequestCommandContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden');
@@ -1271,7 +1284,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         || req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
       res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Commands require a same-origin JSON request.' })); return;
     }
-    const inspectController = url.pathname.startsWith('/api/pull-request-inspect/') ? new AbortController() : null;
+    const inspectController = (url.pathname.startsWith('/api/pull-request-inspect/') || url.pathname === '/api/profile') ? new AbortController() : null;
     const cancelInspect = () => inspectController?.abort();
     if (inspectController) {
       req.once('aborted', cancelInspect); res.once('close', cancelInspect);
@@ -1295,7 +1308,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       publicCampaigns, campaignCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarifications,
       outboundUsage: () => outboundMeter.snapshot(),
-      githubProfile: () => fetchGithubProfile(configStore.current().github),
+      profile, profileCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined, profileSignal: inspectController?.signal,
       context: () => {
         const cfg = configStore.current();
         return {

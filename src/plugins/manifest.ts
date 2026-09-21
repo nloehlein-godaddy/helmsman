@@ -77,7 +77,7 @@ function requirements(value: unknown): readonly PluginServiceRequirementV1[] {
   if (!Array.isArray(value) || value.length > 16) throw new PluginManifestError('Invalid required services.');
   const parsed = Array.from(value, raw => {
     const item = record(raw, ['id', 'version'], 'Required service');
-    if (item.version !== 1 || typeof item.id !== 'string' || !['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/activity-read', 'helmsman/run-command', 'helmsman/composition', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/terminal', 'helmsman/campaigns', 'helmsman/jira-settings', 'helmsman/github-settings', 'helmsman/local-git'].includes(item.id)) {
+    if (item.version !== 1 || typeof item.id !== 'string' || !['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/activity-read', 'helmsman/run-command', 'helmsman/composition', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/terminal', 'helmsman/campaigns', 'helmsman/jira-settings', 'helmsman/github-settings', 'helmsman/profile', 'helmsman/local-git'].includes(item.id)) {
       throw new PluginManifestError('Unsupported required service.');
     }
     return Object.freeze({ id: item.id as PluginServiceRequirementV1['id'], version: 1 as const });
@@ -135,10 +135,12 @@ function parsePanel(value: unknown): PluginPanelDefinition {
 }
 
 function parsePage(value: unknown, version: 1 | 2): PluginPageDefinition {
-  const page = record(value, ['id', 'title', 'slots', 'panes'], 'Page', version === 2 ? ['composition', 'requires'] : []);
+  const page = record(value, ['id', 'title', 'slots', 'panes'], 'Page', version === 2 ? ['composition', 'requires', 'navigation'] : ['navigation']);
   if (!isLocalId(page.id)) throw new PluginManifestError('Page ID is invalid.');
+  if (Object.hasOwn(page, 'navigation') && typeof page.navigation !== 'boolean') throw new PluginManifestError('Page navigation must be a boolean.');
   return Object.freeze({
     id: page.id,
+    ...(Object.hasOwn(page, 'navigation') ? { navigation: page.navigation as boolean } : {}),
     title: title(page.title),
     slots: identifiers(page.slots, isSlotId, 'Page slots'),
     panes: identifiers(page.panes, isLocalId, 'Page panes'),

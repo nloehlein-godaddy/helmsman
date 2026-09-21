@@ -1,5 +1,6 @@
 import type { PullRequestInspectDetailQueryV1, PullRequestInspectDetailV1, PullRequestInspectDiffQueryV1, PullRequestInspectDiffV1 } from './pull-request-inspect';
 import type { PullRequestReadItemV1, PullRequestReadQualityV1, PullRequestReadQueryV1 } from './pull-request-read';
+import type { ProfileIdentityV1 } from './profile';
 
 export interface PullRequestProviderBatchV1 {
   readonly items: readonly PullRequestReadItemV1[];
@@ -54,6 +55,7 @@ export interface PullRequestReviewOperationResultV1 {
 }
 
 export interface PullRequestProviderV1 {
+  profile?(context: PullRequestProviderContextV1): Promise<ProfileIdentityV1>;
   list(input: { readonly query: PullRequestReadQueryV1; readonly repos: readonly string[] }, context: PullRequestProviderContextV1): Promise<PullRequestProviderBatchV1>;
   detail(input: PullRequestInspectDetailQueryV1, context: PullRequestProviderContextV1): Promise<PullRequestInspectDetailV1>;
   diff(input: PullRequestInspectDiffQueryV1, context: PullRequestProviderContextV1): Promise<PullRequestInspectDiffV1>;

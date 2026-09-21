@@ -1,3 +1,4 @@
+import { createHostProfileService } from './profile-service';
 import { createHostGithubSettingsService } from './github-settings-service';
 import { createHostJiraSettingsService } from './jira-settings-service';
 import { createHostLocalGitService } from './local-git-service';
@@ -118,6 +119,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
         campaigns: createHostCampaignService(lifetime, { scope, caller }),
         jiraSettings: createHostJiraSettingsService(lifetime, { scope, caller }),
         githubSettings: createHostGithubSettingsService(lifetime, { scope, caller }),
+        profile: createHostProfileService(lifetime, { scope, caller }),
         localGit: createHostLocalGitService(lifetime, { scope, caller }),
         communication: createHostCommunicationService(lifetime, { scope, caller }),
         communicationCommands: createHostCommunicationCommandService(lifetime, { scope, caller }),

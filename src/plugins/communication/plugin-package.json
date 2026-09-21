@@ -8,6 +8,7 @@
     "pages": [
       {
         "id": "header",
+        "navigation": false,
         "title": "Notifications",
         "slots": [
           "helmsman/notification-header"

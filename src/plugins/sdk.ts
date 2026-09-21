@@ -1,3 +1,4 @@
+export * from './profile';
 export * from './github-settings';
 export * from './jira-settings';
 export * from './local-git';
@@ -39,6 +40,7 @@ export * from './activity-read';
 export * from './run-command';
 
 export interface PluginPageDefinition {
+  readonly navigation?: boolean;
   readonly id: string;
   readonly title: string;
   readonly slots: readonly string[];

@@ -273,6 +273,23 @@ flowchart TD
 
 The header galleon remains unchanged by panel overrides. Reads and preview never delete; force and deletion remain explicit decisions. A crash between Git and receipt storage does not prove success or authorize replay. Disabling presentation retains command evidence and host protections. See [Local Git authoring](local-git-authoring.md).
 
+## Header identity and installed-page discovery
+
+```mermaid
+flowchart TD
+    Catalog[Enabled registered contributions] --> Menu[Pages menu<br/>Package title and navigation visibility]
+    Menu --> Link[Selected supplemental alias or canonical page route<br/>Preserve header scope; no slot-selection change]
+    Catalog --> Header[Selected profile header contribution]
+    Header --> Service[Authorized explicit-global profile read]
+    Service --> Provider[Selected provider optional profile method<br/>Pinned connection and cancellation]
+    Provider --> Check[Validate bounded identity and recheck selection]
+    Check --> Name[Render name as text beside core greeting]
+    Provider -->|Unavailable or absent| Neutral[Neutral core greeting]
+    Catalog -->|Disabled selected contribution| Neutral
+```
+
+Static shipped tabs remain shell navigation defaults. Auxiliary pages can opt out of menu discovery without losing their canonical routes. Disabling an installed page removes its menu entry while retaining its saved slot binding and unavailable-page state. Optional identity reads never block core navigation. See [profile authoring](profile-authoring.md) and [page registration](plugin-page-registry.md).
+
 ## Global integration settings
 
 ```mermaid

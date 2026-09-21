@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { loadDashboard } from './data/mock';
+import { appPages, PROFILE_HEADER_SLOT } from './plugins/builtins';
+import { appPageModules } from './plugins/builtin-modules';
+import profileHeader from './plugins/profile/header';
 
 const json = (value: unknown) => new Response(JSON.stringify(value));
 let view: DashboardView | undefined;
+const disposers: (() => void)[] = [];
 let resolveProfile: ((value: Response) => void) | undefined;
 
 beforeEach(async () => {
@@ -12,10 +16,13 @@ beforeEach(async () => {
   vi.stubGlobal('EventSource', class { onmessage = null; close() {} });
   window.history.replaceState(null, '', '/config?repo=org/app');
   const profile = new Promise<Response>(resolve => { resolveProfile = resolve; });
+  disposers.push(appPages.register({manifestVersion:2,sdkVersion:1,id:'example.profile',version:'1.0.0',panels:[],pages:[{id:'header',title:'Profile',slots:[PROFILE_HEADER_SLOT],panes:[],navigation:false,requires:[{id:'helmsman/profile',version:1}]}]}));
+  disposers.push(appPageModules.register('example.profile/header', profileHeader));
+  appPages.select(PROFILE_HEADER_SLOT, 'example.profile/header');
   const snapshot = await loadDashboard();
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), window.location.origin);
-    if (url.pathname === '/api/github/profile') return profile;
+    if (url.pathname === '/api/profile') return profile;
     if (url.pathname === '/api/context') return json({ repos: ['org/app', 'org/other'], jiraBaseUrl: null });
     if (url.pathname === '/api/config') return json({ config: { MAX_ATTEMPTS: '1' }, overridden: [] });
     if (url.pathname === '/api/dashboard') return json({ snapshot, repos: ['org/app', 'org/other'], selectedRepo: url.searchParams.get('repo'), degraded: [], jiraBaseUrl: null });
@@ -29,6 +36,8 @@ beforeEach(async () => {
 afterEach(() => {
   view?.destroy();
   view = undefined;
+  appPages.select(PROFILE_HEADER_SLOT, null);
+  disposers.splice(0).reverse().forEach(dispose => dispose());
   vi.unstubAllGlobals();
   localStorage.clear();
   window.history.replaceState(null, '', '/');
@@ -76,13 +85,13 @@ describe('Pirate mode and greeting', () => {
     await start();
     const settings = document.querySelector<HTMLInputElement>('[data-key="MAX_ATTEMPTS"] input')!;
     settings.value = '9';
-    resolveProfile?.(json({ displayName: 'Pat <img src=x>', login: 'pat' }));
-    await vi.waitFor(() => expect(document.querySelector('[data-greeting]')?.textContent).toBe('Ahoy, Pat <img src=x>!'));
-    expect(document.querySelector('[data-greeting] img')).toBeNull();
+    resolveProfile?.(json({ version:1,scope:'global',profile:{ displayName: 'Pat <img src=x>', login: 'pat' } }));
+    await vi.waitFor(() => expect(document.querySelector('.helm-greeting')?.textContent).toBe('Ahoy, Pat <img src=x>!'));
+    expect(document.querySelector('.helm-greeting img')).toBeNull();
     expect(document.querySelector('[data-key="MAX_ATTEMPTS"] input')).toBe(settings);
     expect(settings.value).toBe('9');
     toggle(false);
-    expect(document.querySelector('[data-greeting]')?.textContent).toBe('Hello, Pat <img src=x>!');
+    expect(document.querySelector('.helm-greeting')?.textContent).toBe('Hello, Pat <img src=x>!');
   });
 
 
@@ -107,7 +116,7 @@ describe('Pirate mode and greeting', () => {
 
   it('uses the handle when the profile has no display name', async () => {
     await start();
-    resolveProfile?.(json({ displayName: null, login: 'captain-pat' }));
-    await vi.waitFor(() => expect(document.querySelector('[data-greeting]')?.textContent).toBe('Ahoy, captain-pat!'));
+    resolveProfile?.(json({ version:1,scope:'global',profile:{ displayName: null, login: 'captain-pat' } }));
+    await vi.waitFor(() => expect(document.querySelector('.helm-greeting')?.textContent).toBe('Ahoy, captain-pat!'));
   });
 });

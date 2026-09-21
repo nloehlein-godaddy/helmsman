@@ -103,16 +103,8 @@ describe('handleApi', () => {
     expect((await handleApi('POST', '/api/agents/original/resume', new URLSearchParams(), null, { ...local, db: { ...local.db, getRun: () => null } }))?.status).toBe(404);
     expect(resumeRun).toHaveBeenCalledTimes(1);
   });
-  it('serves only public GitHub profile fields without using the selected galleon', async () => {
-    const githubProfile = vi.fn(async () => ({ displayName: 'Captain Example', login: 'captain', token: 'private' }));
-    expect(await handleApi('GET', '/api/github/profile', new URLSearchParams('repo=o/r'), null, { ...deps, githubProfile }))
-      .toEqual({ status: 200, json: { displayName: 'Captain Example', login: 'captain' } });
-    expect(githubProfile).toHaveBeenCalledExactlyOnceWith();
-  });
-
-  it('returns empty profile fields when the GitHub profile source is unavailable', async () => {
-    expect(await handleApi('GET', '/api/github/profile', new URLSearchParams(), null, deps))
-      .toEqual({ status: 200, json: { displayName: null, login: null } });
+  it('retires the shell-owned GitHub profile endpoint', async () => {
+    expect((await handleApi('GET', '/api/github/profile', new URLSearchParams(), null, deps))?.status).toBe(410);
   });
 
   describe('retry failed voyages', () => {

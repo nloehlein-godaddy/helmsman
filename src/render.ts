@@ -1,7 +1,7 @@
 import { term, isPirateMode, TERMINOLOGY, TERMINOLOGY_REFERENCE_KEYS } from './logic/terminology';
 import { renderThemePreview } from './renderThemePreview';
 import { routeHref, type PageView } from './logic/routes';
-import { appPages, COSTS_PAGE_ID, COSTS_PAGE_SLOT, builtinPageSlots, SOURCE_SETTINGS_PAGE_SLOT } from './plugins/builtins';
+import { appPages, builtinPageSlots, SOURCE_SETTINGS_PAGE_SLOT } from './plugins/builtins';
 import { escapeHtml as esc } from './logic/html';
 import { PRE_PR_CONFIG_KEYS, PRE_PR_SETTING_DEFINITIONS } from './logic/prePrSettings';
 
@@ -46,13 +46,13 @@ const PAGE_TABS: { view: PageView; label: string }[] = [
   { view: 'cmux', label: 'Terminal' },
   { view: 'bugs', label: 'Bugs' },
   { view: 'runs', get label() { return term('runs'); } },
+  { view: 'outcomes', get label() { return term('costsOutcomes'); } },
   { view: 'campaigns', get label() { return term('campaigns'); } },
   { view: 'clarifications', get label() { return term('clarifications'); } },
   { view: 'config', label: 'Config' },
 ];
 
 export interface HelmHeadOpts {
-  greetingName?: string | null;
   active: PageView;
   jiraEnabled?: boolean;
   repos: string[];
@@ -63,33 +63,50 @@ export interface HelmHeadOpts {
   readout: { running: number | null; queued: number | null; review: number | null } | null;
 }
 
-function pageTabs(opts: HelmHeadOpts) {
-  const tabs = PAGE_TABS.map(t => {
-    const href = routeHref({ view: t.view, repo: opts.selectedRepo });
+function shippedPageTabs(opts: HelmHeadOpts) {
+  return PAGE_TABS.map(tab => {
+    const href = routeHref({ view: tab.view, repo: opts.selectedRepo });
     const slot = builtinPageSlots.find(value => value.alias === href.split('?')[0]);
     const selected = slot ? appPages.selected(slot.id) : null;
-    return { ...t, id: `page-tab-${t.view}`,
-      label: selected?.page && selected.contributionId !== slot?.defaultContributionId ? selected.page.title : t.label,
-      active: t.view === opts.active || !!slot && (opts.pluginSlot === slot.id || !!opts.pluginPage && opts.pluginPage === selected?.contributionId), href };
+    const active = opts.pluginSlot ? opts.pluginSlot === slot?.id
+      : opts.pluginPage ? opts.pluginPage === selected?.page?.contributionId : tab.view === opts.active;
+    return { ...tab, id: `page-tab-${tab.view}`, contributionId: selected?.page?.contributionId ?? null,
+      label: selected?.page && selected.contributionId !== slot?.defaultContributionId ? selected.page.title : tab.label,
+      active, href };
   });
-  const costs = appPages.selected(COSTS_PAGE_SLOT);
-  const costsActive = opts.pluginSlot === COSTS_PAGE_SLOT || opts.pluginPage === costs.contributionId
-    || opts.active === 'outcomes' && !opts.pluginPage && costs.page?.contributionId === COSTS_PAGE_ID;
-  const costsTab = {
-    id: 'page-tab-outcomes', view: costs.page?.contributionId === COSTS_PAGE_ID ? 'outcomes' as const : 'plugin' as const,
-    label: costs.page?.contributionId === COSTS_PAGE_ID ? term('costsOutcomes') : costs.page?.title ?? term('costsOutcomes'),
-    active: costsActive, href: routeHref({ view: 'outcomes', repo: opts.selectedRepo }),
-  };
-  const campaignsIndex = tabs.findIndex(tab => tab.view === 'campaigns');
-  tabs.splice(campaignsIndex < 0 ? tabs.length : campaignsIndex, 0, costsTab);
-  if ((opts.active === 'plugin' || opts.active === 'outcomes') && !costsActive && !tabs.some(tab => tab.active)) {
+}
+
+function pageTabs(opts: HelmHeadOpts) {
+  const tabs = shippedPageTabs(opts);
+  if ((opts.active === 'plugin' || opts.active === 'outcomes') && !tabs.some(tab => tab.active)) {
     const page = opts.pluginPage ? appPages.getPage(opts.pluginPage) : null;
-    tabs.push({ id: 'page-tab-plugin', view: opts.active, active: true,
-      label: page?.contributionId === COSTS_PAGE_ID ? term('costsOutcomes') : page?.title ?? term('unavailablePluginPage'),
-      href: routeHref({ view: opts.active, repo: opts.selectedRepo, pluginPage: opts.pluginPage }),
+    const shipped = PAGE_TABS.find(tab => {
+      const alias = routeHref({ view: tab.view }).split('?')[0];
+      return builtinPageSlots.some(slot => slot.alias === alias && slot.defaultContributionId === page?.contributionId);
+    });
+    tabs.push({ id: 'page-tab-plugin', view: opts.active, active: true, contributionId: opts.pluginPage ?? null,
+      label: shipped?.label ?? page?.title ?? term('unavailablePluginPage'),
+      href: routeHref({ view: opts.active, repo: opts.selectedRepo, pluginPage: opts.pluginPage, pluginSlot: opts.pluginSlot }),
     });
   }
   return tabs;
+}
+
+export function renderPagesMenu(opts: HelmHeadOpts): string {
+  const represented = new Set(shippedPageTabs(opts).map(tab => tab.contributionId).filter(Boolean));
+  const pages = appPages.listPages().filter(page => page.navigation !== false && !represented.has(page.contributionId))
+    .sort((a, b) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' }) || (a.contributionId < b.contributionId ? -1 : a.contributionId > b.contributionId ? 1 : 0));
+  const titles = new Map<string, number>();
+  for (const page of pages) { const key = page.title.toLocaleLowerCase('en'); titles.set(key, (titles.get(key) ?? 0) + 1); }
+  const links = pages.map(page => {
+    const selectedSlot = [...builtinPageSlots].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      .find(slot => appPages.selected(slot.id).page?.contributionId === page.contributionId);
+    const href = routeHref({ view: 'plugin', repo: opts.selectedRepo, ...(selectedSlot ? { pluginSlot: selectedSlot.id } : { pluginPage: page.contributionId }) });
+    const active = opts.pluginSlot ? opts.pluginSlot === selectedSlot?.id : opts.pluginPage === page.contributionId;
+    const duplicate = (titles.get(page.title.toLocaleLowerCase('en')) ?? 0) > 1;
+    return `<a class="app-link" data-page-link data-page-contribution="${esc(page.contributionId)}" href="${esc(href)}"${active ? ' aria-current="page"' : ''}><span>${esc(page.title)}</span>${duplicate ? `<small>${esc(page.contributionId)}</small>` : ''}</a>`;
+  }).join('');
+  return `<details class="pages-menu" data-pages-menu><summary data-pages-menu-summary>Pages</summary><nav data-pages-menu-items aria-label="Installed pages">${links || '<p>No additional pages are enabled.</p>'}</nav></details>`;
 }
 
 export function activePageTabId(opts: HelmHeadOpts): string {
@@ -125,11 +142,12 @@ export function renderHelmHead(opts: HelmHeadOpts): string {
         <div class="nameplate-scope">
           <span class="nameplate-name">Helmsman <span class="nameplate-alpha">Alpha</span></span>
           <select class="repo-select" aria-label="${term('scopeByRepository')}">${scopeOptions}</select>
-          <span class="helm-greeting" data-greeting>${term('greeting')}${typeof opts.greetingName === 'string' && opts.greetingName.trim() ? `, ${esc(opts.greetingName.trim())}` : ''}!</span>
+          <span class="helm-greeting"><span data-greeting>${term('greeting')}</span><span data-profile-header></span>!</span>
         </div>
       </div>
       ${readout}
       <div class="helm-controls">
+        ${renderPagesMenu(opts)}
         <span class="lamp lamp-live is-pulsing" role="img" aria-label="Live">LIVE</span>
       </div>
     </header>

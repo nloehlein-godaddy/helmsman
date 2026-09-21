@@ -1,3 +1,5 @@
+import { handleProfileApi } from './profile-routes';
+import type { ProfileServerService } from './profile-service';
 import { handleIntegrationSettingsApi } from './integration-settings-routes';
 import type { IntegrationSettingsServerService } from './integration-settings-service';
 import { handleLocalGitApi } from './local-git-routes';
@@ -25,7 +27,6 @@ import type { BugsResponse, PrFileDiff } from '../../src/types';
 import type { CmuxTab } from './cmux/model';
 import { isAllowedKey } from './cmux/keys';
 import type { SlackState } from '../../src/data/slack';
-import type { GithubProfile } from '../../src/data/profile';
 import { retryIntent, RetryError, type LaunchIntent } from './retry';
 import { ResumeError } from './resume';
 import type { OutcomeService } from './outcome-service';
@@ -131,7 +132,9 @@ export interface RouterDeps {
   campaignCaller?: string;
   clarifications?: ClarificationStore;
   resumeRun?: (runId: string) => Promise<void>;
-  githubProfile?: () => Promise<GithubProfile>;
+  profile?: ProfileServerService;
+  profileCaller?: string;
+  profileSignal?: AbortSignal;
   slackReviewRequest?: (input: unknown) => Promise<SlackReviewResult>;
   todos?: TodoApi;
   jiraEnabled?: () => boolean;
@@ -338,10 +341,7 @@ export async function handleApi(
   if (path === '/api/context' && method === 'GET') {
     return deps.context ? { status: 200, json: deps.context() } : { status: 503, json: { error: 'Context unavailable.' } };
   }
-  if (path === '/api/github/profile' && method === 'GET') {
-    const profile = await deps.githubProfile?.();
-    return { status: 200, json: { displayName: profile?.displayName ?? null, login: profile?.login ?? null } };
-  }
+  if (path === '/api/github/profile') return { status: 410, json: { error: 'Use the public profile contribution service.' } };
   if (path === '/api/usage/external' && method === 'GET') {
     return { status: 200, json: deps.outboundUsage?.() ?? null };
   }
@@ -497,6 +497,8 @@ export async function handleApi(
     deps.setAutoClaim(repo, enabled);
     return { status: 200, json: { repo, enabled } };
   }
+  const profileResult = await handleProfileApi({ method, path, query, caller: deps.profileCaller, service: deps.profile, signal: deps.profileSignal });
+  if (profileResult) return profileResult;
   const settingsResult = await handleIntegrationSettingsApi({ method, path, query, body: _body, caller: deps.integrationSettingsCaller, service: deps.integrationSettings });
   if (settingsResult) return settingsResult;
   if (path === '/api/config' && method === 'GET') {
