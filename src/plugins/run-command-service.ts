@@ -92,6 +92,17 @@ export function createHostRunCommandService(lifetime: AbortSignal, options: {
       const result = await call.request('/api/run-commands', command, command);
       return result.status === 'unavailable' ? result : result.value === null ? unavailable('invalid-response') : available(result.value);
     },
+    async retry(value, caller) {
+      const query = parseRunCommandReceiptQueryV1(value); const call = operation(caller);
+      if (!call.permitted(query.repo)) return unavailable('forbidden');
+      let command;
+      try { command = await abortable(journal.retained(query, call.signal), call.signal); }
+      catch (error) { call.check(); return unavailable(error instanceof RunCommandJournalValidationError || error instanceof RunCommandValidationError ? 'invalid-response' : 'service-unavailable'); }
+      call.check();
+      if (!command) return unavailable('not-found');
+      const result = await call.request('/api/run-commands', command, command);
+      return result.status === 'unavailable' ? result : result.value === null ? unavailable('invalid-response') : available(result.value);
+    },
     async receipt(value, caller) {
       const input = parseRunCommandReceiptQueryV1(value); const call = operation(caller);
       if (!call.permitted(input.repo)) return unavailable('forbidden');

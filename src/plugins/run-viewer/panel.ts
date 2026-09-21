@@ -1,5 +1,5 @@
 import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PresentationLocatorV1,
-  RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, RunInspectLogPageV1, RunInspectTargetV1 } from '@helmsman/plugin-sdk';
+  RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptQueryV1, RunCommandReceiptV1, RunInspectLogPageV1, RunInspectTargetV1 } from '@helmsman/plugin-sdk';
 import { emptyState, mergeLog, newTab, readState, saveState, tabKey, type RunTab } from './state.js';
 import { styles } from './styles.js';
 
@@ -214,11 +214,13 @@ class ViewerPanel implements PluginPanelInstance {
       || (action === 'stop' ? tab.summary.status !== 'running' : tab.summary.status !== 'failed')) return;
     await this.deliver({ version: 1, repo: tab.repo, action, target: { runId: target.runId, expectedAttempt: target.expectedAttempt } });
   }
-  private async deliver(input: RunCommandInputV1) {
+  private async deliver(input: RunCommandInputV1 | RunCommandReceiptQueryV1) {
     if (!this.active() || !this.evidenceReady || this.commandBusy || !this.inScope(input.repo)) return;
     const generation = this.generation; this.commandBusy = true; this.commandError = ''; this.draw();
     try {
-      const result = await this.context.services.runCommands!.submit(input, this.controller?.signal);
+      const service = this.context.services.runCommands!;
+      if ('requestId' in input && !service.retry) throw new Error('Original request retry is unavailable.');
+      const result = 'requestId' in input ? await service.retry!(input, this.controller?.signal) : await service.submit(input, this.controller?.signal);
       if (!this.active(generation)) return;
       if (result?.status !== 'available') this.commandError = 'Command outcome is not confirmed. Check the saved request before trying again.';
       else this.message = `Request ${result.value?.status ?? 'pending'}. Worker status is reported separately.`;
@@ -344,8 +346,8 @@ class ViewerPanel implements PluginPanelInstance {
         else {
           tools.append(this.button('Check request', () => { void this.checkRequest(entry); }, this.commandBusy));
           if (!entry.receipt || entry.receipt.status === 'pending') tools.append(this.button('Retry delivery', () => {
-            const { requestId: _requestId, ...input } = command; void this.deliver(input);
-          }, this.commandBusy || !this.evidenceReady));
+            void this.deliver({ repo: command.repo, requestId: command.requestId });
+          }, this.commandBusy || !this.evidenceReady || !this.context.services.runCommands?.retry));
           if (entry.receipt?.status === 'recovery-required') tools.append(node('p', 'Requires Recovery. No new request will be issued.'));
         }
         if (entry.receipt?.status === 'accepted' && command.action === 'retry' && entry.receipt.runId) {

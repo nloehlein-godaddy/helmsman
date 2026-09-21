@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { fixture } from './isolated-fixture';
+import { fixture, pendingCommandCount } from './isolated-fixture';
 
 test('independent Todo package preserves drafts and one durable create through response loss and reload', async ({ page, request }) => {
   const host = await fixture(); host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER'; const errors: string[] = [];
@@ -23,8 +23,20 @@ test('independent Todo package preserves drafts and one durable create through r
     await expect.poll(async () => (await (await request.get(`${origin}/api/todos?repo=org/a`)).json()).todos.length).toBe(1);
     await page.reload();
     await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Newer unsent instructions');
+    const stalePeer = await page.context().newPage();
+    await stalePeer.goto(`${origin}/plugins/example.todos-view/page?repo=org/a`);
+    await expect(stalePeer.getByRole('button', { name: 'Retry delivery', exact: true })).toBeEnabled();
+    let stalePosts = 0;
+    stalePeer.on('request', request => { if (new URL(request.url()).pathname === '/api/source-commands' && request.method() === 'POST') stalePosts++; });
     await page.getByRole('button', { name: 'Check request', exact: true }).click();
     await page.getByRole('button', { name: 'Apply saved result', exact: true }).click();
+    await expect.poll(() => pendingCommandCount(page, 'helmsman.source-commands', 'example.todos-view/panel')).toBe(0);
+    await stalePeer.getByRole('button', { name: 'Retry delivery', exact: true }).click();
+    await expect(stalePeer.getByRole('button', { name: 'Retry delivery', exact: true })).toHaveCount(0);
+    expect(stalePosts).toBe(0);
+    expect(await pendingCommandCount(page, 'helmsman.source-commands', 'example.todos-view/panel')).toBe(0);
+    expect((await (await request.get(`${origin}/api/todos?repo=org/a`)).json()).todos).toHaveLength(1);
+    await stalePeer.close();
     await expect(page.getByRole('button', { name: 'Apply saved result', exact: true })).toHaveCount(0);
     expect(submitted).toHaveLength(1);
     await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Newer unsent instructions');

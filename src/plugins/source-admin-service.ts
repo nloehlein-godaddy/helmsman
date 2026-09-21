@@ -1,6 +1,7 @@
 import { parseSourceAdminInputV1, parseSourceAdminReceiptQueryV1, parseSourceAdminReceiptV1, parseSourceAdminSnapshotV1, parseSourceAdminValidationInputV1, parseSourceAdminValidationV1,
   type SourceAdminServiceV1, type SourceAdminReceiptV1 } from './source-admin';
-import { createSourceAdminJournal, type SourceAdminJournal } from './source-admin-journal';
+import { createSourceAdminJournal, SourceAdminJournalValidationError, type SourceAdminJournal } from './source-admin-journal';
+import { SourceContractValidationError } from './source-contract-validation';
 import type { SourceCommandResultV1, SourceCommandUnavailableReasonV1 } from './source-command';
 import type { TaskReadScopeV1 } from './task-read-service';
 const available = <T>(value: T): SourceCommandResultV1<T> => Object.freeze({ status: 'available', value });
@@ -73,6 +74,17 @@ export function createHostSourceAdminService(lifetime: AbortSignal, options: { c
       try { command = await abortable(journal.reserve(input, call.signal), call.signal); }
       catch { call.check(); return unavailable('service-unavailable'); }
       call.check();
+      const result = await call.request('/api/source-admin/commands', body => parseSourceAdminReceiptV1(body, command), command);
+      return result.status === 'unavailable' ? result : call.record(result.value);
+    },
+    async retry(value, signal) {
+      const query = parseSourceAdminReceiptQueryV1(value); const call = operation(signal);
+      if (!call.permitted(query.repo)) return unavailable('forbidden');
+      let command;
+      try { command = await abortable(journal.retained(query, call.signal), call.signal); }
+      catch (error) { call.check(); return unavailable(error instanceof SourceAdminJournalValidationError || error instanceof SourceContractValidationError ? 'invalid-response' : 'service-unavailable'); }
+      call.check();
+      if (!command) return unavailable('not-found');
       const result = await call.request('/api/source-admin/commands', body => parseSourceAdminReceiptV1(body, command), command);
       return result.status === 'unavailable' ? result : call.record(result.value);
     },

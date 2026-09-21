@@ -29,6 +29,10 @@ function fixture() {
       : { kind: 'changed' as const, ref: task.ref, repo: input.destinationRepo!, revision: 'record-2' }, message: null };
     journal.splice(0, journal.length, { command, receipt }); return { status: 'available', value: receipt };
   });
+  const retry = vi.fn<NonNullable<SourceCommandServiceV1['retry']>>(async query => {
+    const entry = journal.find(value => value.command.selection.repo === query.repo && value.command.requestId === query.requestId);
+    return entry?.receipt ? { status: 'available', value: entry.receipt } : { status: 'unavailable', reason: entry ? 'connection-failed' : 'not-found' };
+  });
   const pending = vi.fn<SourceCommandServiceV1['pending']>(async () => [...journal]);
   const receipt = vi.fn<SourceCommandServiceV1['receipt']>(async () => ({ status: 'available', value: journal[0]?.receipt ?? null }));
   const acknowledge = vi.fn<SourceCommandServiceV1['acknowledge']>(async () => { journal.splice(0); });
@@ -40,11 +44,15 @@ function fixture() {
     const receipt = { version: 1 as const, action: input.action, repo: input.repo, requestId: command.requestId, status: 'accepted' as const, runId: 'run-one', attempt: 1, message: null };
     runJournal.splice(0, runJournal.length, { command, receipt }); return { status: 'available', value: receipt };
   });
+  const runRetry = vi.fn<NonNullable<RunCommandServiceV1['retry']>>(async query => {
+    const entry = runJournal.find(value => value.command.repo === query.repo && value.command.requestId === query.requestId);
+    return entry?.receipt ? { status: 'available', value: entry.receipt } : { status: 'unavailable', reason: entry ? 'connection-failed' : 'not-found' };
+  });
   const runAcknowledge = vi.fn<RunCommandServiceV1['acknowledge']>(async () => { runJournal.splice(0); });
   const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, onDispose: vi.fn(), navigate: vi.fn(), saveState, setScope,
-    services: { version: 1, taskEdit: { version: 1, discover, list, create, load }, sourceCommands: { version: 1, submit, pending, receipt, acknowledge },
-      runCommands: { version: 1, submit: runSubmit, pending: vi.fn(async () => [...runJournal]), receipt: vi.fn<RunCommandServiceV1['receipt']>(async () => ({ status: 'available', value: runJournal[0]?.receipt ?? null })), acknowledge: runAcknowledge } } };
-  return { container, lifetime, activity, state, context, discover, list, create, load, journal, submit, pending, receipt, acknowledge, saveState, setScope, runJournal, runSubmit, runAcknowledge };
+    services: { version: 1, taskEdit: { version: 1, discover, list, create, load }, sourceCommands: { version: 1, submit, retry, pending, receipt, acknowledge },
+      runCommands: { version: 1, submit: runSubmit, retry: runRetry, pending: vi.fn(async () => [...runJournal]), receipt: vi.fn<RunCommandServiceV1['receipt']>(async () => ({ status: 'available', value: runJournal[0]?.receipt ?? null })), acknowledge: runAcknowledge } } };
+  return { container, lifetime, activity, state, context, discover, list, create, load, journal, submit, retry, pending, receipt, acknowledge, saveState, setScope, runJournal, runSubmit, runRetry, runAcknowledge };
 }
 function button(container: HTMLElement, label: string) { const value = [...container.querySelectorAll('button')].find(value => value.textContent === label || value.firstChild?.textContent === label); if (!value) throw new Error(`Missing ${label}: ${container.textContent}`); return value; }
 function field(container: HTMLElement, label: string) { const value = [...container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('[aria-label]')].find(value => value.getAttribute('aria-label') === label); if (!value) throw new Error(`Missing ${label}`); return value; }
@@ -118,7 +126,7 @@ describe('authored Todo editor', () => {
     button(f.container, 'Confirm deletion').click(); await vi.waitFor(() => expect(f.submit).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(f.container.textContent).toContain('Retry delivery'));
     expect(button(f.container, 'Save Todo').disabled).toBe(true); button(f.container, 'Retry delivery').click();
-    await vi.waitFor(() => expect(f.submit).toHaveBeenCalledTimes(2)); expect(f.submit.mock.calls[1]![0]).toEqual(f.submit.mock.calls[0]![0]); expect(f.acknowledge).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(f.retry).toHaveBeenCalledOnce()); expect(f.submit).toHaveBeenCalledOnce(); expect(f.retry).toHaveBeenCalledWith({ repo, requestId: f.journal[0]?.command.requestId }, expect.any(AbortSignal)); expect(f.acknowledge).not.toHaveBeenCalled();
   });
   it('keeps stale revisions for explicit reconciliation and blocks active claim edits', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await open(f); edit(f.container, 'Description', 'My draft');
@@ -316,4 +324,56 @@ describe('authored Todo editor', () => {
     await vi.waitFor(() => expect(acknowledge).toHaveBeenCalledWith(requestId, expect.any(AbortSignal)));
     expect(field(f.container, 'Description').value).toBe('Keep current draft'); expect(f.submit).not.toHaveBeenCalled();
   });
+});
+
+it.each(['source', 'launch'] as const)('never creates another %s request from a peer-acknowledged row', async kind => {
+  const f = fixture(); const requestId = '22222222-2222-4222-8222-222222222222';
+  const sourceEntry: SourceCommandPendingV1 = { command: { version: 1, selection: source.selection, sourceRevision: 3, editor: { id: 'helmsman/local-task-editor', version: 1 }, action: 'update', commandId: 'edit', target: { ref: task.ref, expectedRevision: task.revision }, destinationRepo: repo, input: { ...fields }, requestId }, receipt: null };
+  const runEntry: RunCommandPendingV1 = { command: { version: 1, action: 'launch', repo, launch: { mode: 'source', workRef: task.ref, sourceInstanceId: source.selection.instanceId, sourceInstanceRevision: 2 }, requestId }, receipt: null };
+  if (kind === 'source') f.journal.push(sourceEntry); else f.runJournal.push(runEntry);
+  await panel.mount(f.container, f.context); const label = kind === 'source' ? 'Retry delivery' : 'Retry launch delivery'; await vi.waitFor(() => expect(button(f.container, label).disabled).toBe(false));
+  const newerId = '44444444-4444-4444-8444-444444444444';
+  if (kind === 'source') f.journal.splice(0, 1, { ...sourceEntry, command: { ...sourceEntry.command, requestId: newerId, input: { ...fields, title: 'New explicit intent' } } });
+  else f.runJournal.splice(0, 1, { ...runEntry, command: { ...runEntry.command, requestId: newerId } });
+  button(f.container, label).click(); const retry = kind === 'source' ? f.retry : f.runRetry;
+  await vi.waitFor(() => expect(retry).toHaveBeenCalledWith({ repo, requestId }, expect.any(AbortSignal)));
+  await vi.waitFor(() => expect(button(f.container, label).disabled).toBe(false));
+  expect(f.journal[0]?.command.requestId ?? f.runJournal[0]?.command.requestId).toBe(newerId);
+  expect(f.submit).not.toHaveBeenCalled(); expect(f.runSubmit).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled(); expect(f.runAcknowledge).not.toHaveBeenCalled();
+});
+it.each(['source', 'launch'] as const)('disables %s delivery retry on older hosts while retaining receipt checks', async kind => {
+  const f = fixture(); const requestId = '22222222-2222-4222-8222-222222222222';
+  if (kind === 'source') {
+    delete f.context.services.sourceCommands!.retry;
+    f.journal.push({ command: { version: 1, selection: source.selection, sourceRevision: 3, editor: { id: 'helmsman/local-task-editor', version: 1 }, action: 'update', commandId: 'edit', target: { ref: task.ref, expectedRevision: task.revision }, destinationRepo: repo, input: { ...fields }, requestId }, receipt: null });
+  } else {
+    delete f.context.services.runCommands!.retry;
+    f.runJournal.push({ command: { version: 1, action: 'launch', repo, launch: { mode: 'source', workRef: task.ref, sourceInstanceId: source.selection.instanceId, sourceInstanceRevision: 2 }, requestId }, receipt: null });
+  }
+  await panel.mount(f.container, f.context); const label = kind === 'source' ? 'Retry delivery' : 'Retry launch delivery';
+  await vi.waitFor(() => expect(button(f.container, label).disabled).toBe(true));
+  expect(button(f.container, kind === 'source' ? 'Check request' : 'Check launch request').disabled).toBe(false);
+  button(f.container, label).click(); expect(f.submit).not.toHaveBeenCalled(); expect(f.runSubmit).not.toHaveBeenCalled();
+});
+it.each(['absent', 'matching', 'changed-intent'] as const)('reconciles an ID-less saved Todo submission with %s journal evidence without sending', async evidence => {
+  const first = fixture(); await panel.mount(first.container, first.context); await open(first); edit(first.container, 'Description', 'Original submitted text');
+  first.submit.mockResolvedValue({ status: 'unavailable', reason: 'connection-failed' }); button(first.container, 'Save Todo').click();
+  await vi.waitFor(() => expect(button(first.container, 'Reconcile saved submission').disabled).toBe(false)); edit(first.container, 'Description', 'Newer retained text');
+  await vi.waitFor(() => expect(JSON.stringify(first.saveState.mock.calls.at(-1)?.[0])).toContain('Newer retained text'));
+  const submitted = first.submit.mock.calls[0]![0]; const saved = first.saveState.mock.calls.at(-1)?.[0] ?? null; first.lifetime.abort();
+  const f = fixture(); await panel.mount(f.container, { ...f.context, state: { ...f.state, savedState: saved } });
+  await vi.waitFor(() => expect(button(f.container, 'Reconcile saved submission').disabled).toBe(false));
+  const entry: SourceCommandPendingV1 = { command: { ...submitted, ...(evidence === 'changed-intent' ? { input: { ...fields, description: 'Original submitted text', title: 'Another explicit intent' } } : {}), requestId: '22222222-2222-4222-8222-222222222222' }, receipt: null };
+  if (evidence !== 'absent') f.journal.push(entry);
+  button(f.container, 'Reconcile saved submission').click();
+  if (evidence === 'matching') {
+    await vi.waitFor(() => expect(f.receipt).toHaveBeenCalledWith({ repo, requestId: entry.command.requestId }, expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(button(f.container, 'Retry delivery').disabled).toBe(false));
+  } else {
+    await vi.waitFor(() => expect(f.container.textContent).toContain('The original request identity is unavailable'));
+    expect(f.receipt).not.toHaveBeenCalled(); button(f.container, 'Open submission Recovery').click(); expect(f.context.navigate).toHaveBeenCalledWith('/recovery?repo=owner%2Fproject');
+  }
+  expect(f.submit).not.toHaveBeenCalled(); expect(f.retry).not.toHaveBeenCalled(); expect(f.runSubmit).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled();
+  expect(field(f.container, 'Description').value).toBe('Newer retained text'); expect(button(f.container, 'Save Todo').disabled).toBe(true);
+  expect(JSON.stringify(f.saveState.mock.calls.at(-1)?.[0])).toContain('Original submitted text');
 });

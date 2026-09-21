@@ -33,13 +33,19 @@ function fixture() {
       status: 'accepted' as const, runId: 'new-run', attempt: 1, message: null };
     journal[journal.indexOf(entry)] = { command: entry.command, receipt }; return { status: 'available', value: receipt };
   });
+  const retry = vi.fn<NonNullable<RunCommandServiceV1['retry']>>(async query => {
+    const entry = journal.find(value => value.command.repo === query.repo && value.command.requestId === query.requestId);
+    if (!entry) return { status: 'unavailable', reason: 'not-found' };
+    const receipt = { version: 1 as const, ...query, action: entry.command.action, status: 'accepted' as const, runId: 'new-run', attempt: 1, message: null };
+    journal[journal.indexOf(entry)] = { command: entry.command, receipt }; return { status: 'available', value: receipt };
+  });
   const pending = vi.fn<RunCommandServiceV1['pending']>(async () => [...journal]);
   const receipt = vi.fn<RunCommandServiceV1['receipt']>(async query => ({ status: 'available', value: journal.find(entry => entry.command.requestId === query.requestId && entry.command.repo === query.repo)?.receipt ?? null }));
   const acknowledge = vi.fn<RunCommandServiceV1['acknowledge']>(async query => { const index = journal.findIndex(entry => entry.command.requestId === query.requestId && entry.command.repo === query.repo); if (index >= 0) journal.splice(index, 1); });
   const saveState = vi.fn<PluginPanelContext['saveState']>(async () => {});
   const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, onDispose: vi.fn(), navigate: vi.fn(), saveState,
-    services: { version: 1, tasks: { version: 1, discover, list, load, lookup }, runCommands: { version: 1, submit, pending, receipt, acknowledge } } };
-  return { container, lifetime, activity, state, context, discover, list, load, lookup, saveState, journal, reserve, submit, pending, receipt, acknowledge };
+    services: { version: 1, tasks: { version: 1, discover, list, load, lookup }, runCommands: { version: 1, submit, retry, pending, receipt, acknowledge } } };
+  return { container, lifetime, activity, state, context, discover, list, load, lookup, saveState, journal, reserve, submit, retry, pending, receipt, acknowledge };
 }
 function button(container: HTMLElement, text: string): HTMLButtonElement {
   const value = Array.from(container.querySelectorAll('button')).find(button => button.textContent === text);
@@ -220,8 +226,8 @@ describe('New Run authored panel', () => {
     await vi.waitFor(() => expect(f.container.textContent).toContain('delivery unconfirmed'));
     const requestId = f.journal[0]!.command.requestId; expect(button(f.container, 'Start run').disabled).toBe(true);
     button(f.container, 'Check request').click(); await vi.waitFor(() => expect(f.container.textContent).toContain('No recorded receipt'));
-    button(f.container, 'Retry delivery').click(); await vi.waitFor(() => expect(f.submit).toHaveBeenCalledTimes(2));
-    expect(f.journal).toHaveLength(1); expect(f.journal[0]?.command.requestId).toBe(requestId); expect(f.submit.mock.calls[1]?.[0]).toEqual(f.submit.mock.calls[0]?.[0]);
+    button(f.container, 'Retry delivery').click(); await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId }, expect.any(AbortSignal)));
+    expect(f.journal).toHaveLength(1); expect(f.journal[0]?.command.requestId).toBe(requestId); expect(f.submit).toHaveBeenCalledOnce();
   });
   it('keeps unknown outcomes after scope cancellation without clearing the draft', async () => {
     const f = fixture(); let finish!: () => void;
@@ -288,4 +294,22 @@ describe('New Run authored panel', () => {
     await instance.refresh?.(); expect(f.container.textContent).toContain('Linked task: OLD-42'); expect(f.submit).not.toHaveBeenCalled();
     edit(f.container, 'Launch mode', 'freeform'); expect(field(f.container, 'Task instructions').value).toBe('Retained instructions');
   });
+});
+
+it.each(['missing', 'newer', 'unsupported'] as const)('does not create a launch from a stale delivery row when original request is %s', async scenario => {
+  const f = fixture(); const entry = f.reserve({ version: 1, repo, action: 'launch', launch: { mode: 'freeform', task: 'Original task' } });
+  if (scenario === 'unsupported') delete f.context.services.runCommands!.retry;
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(button(f.container, 'Check request').disabled).toBe(false));
+  edit(f.container, 'Task instructions', 'New unsent task');
+  if (scenario === 'unsupported') {
+    expect(button(f.container, 'Retry delivery').disabled).toBe(true); button(f.container, 'Retry delivery').click(); expect(f.retry).not.toHaveBeenCalled();
+    button(f.container, 'Check request').click(); await vi.waitFor(() => expect(f.receipt).toHaveBeenCalledOnce());
+  } else {
+    f.journal.splice(0);
+    if (scenario === 'newer') f.journal.push({ command: { ...entry.command, requestId: '00000000-0000-4000-8000-000000000002' }, receipt: null });
+    const preserved = structuredClone(f.journal);
+    button(f.container, 'Retry delivery').click(); await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId: entry.command.requestId }, expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(f.container.textContent).toContain('Launch outcome is unconfirmed')); expect(f.journal).toEqual(preserved);
+  }
+  expect(f.submit).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled(); expect(field(f.container, 'Task instructions').value).toBe('New unsent task');
 });

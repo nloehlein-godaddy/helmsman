@@ -6,7 +6,7 @@ The flow now includes Moon Units-inspired intake, frozen execution settings, iso
 
 ## Plugin task presentation and command authority
 
-Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads, provisional viewer/history pages and public clarification services are reviewed and pushed as b49c6ca; shared-viewer convergence and fully authored question/contact panels are in progress; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
+Costs, Helm, Todos, Triage, Bugs and Source settings use public plugin services. Task aliases select their registered page implementations; core Config links to the separate Source settings page. Default task-page cutover is reviewed and pushed. E4 run inspection, bounded downloads, provisional viewer/history pages and public clarification services are reviewed and pushed through 773cce4, including shared-viewer convergence and authored question/contact panels; sibling run/source retry corrections are in progress; interchangeable execution/policy (F) and compatibility retirement (G) remain pending. See the [implementation ledger](plugin-implementation-progress.md).
 
 ```mermaid
 flowchart TD
@@ -26,6 +26,11 @@ flowchart TD
     Core --> Accepted[Verified terminal receipt<br/>Consume result and save draft, then acknowledge]
     Core --> Uncertain[Lost response or ambiguous preparation<br/>Preserve original request; reconcile same identity]
     Uncertain --> Lookup[Same-ID receipt lookup<br/>Retain original input; no blind resend]
+    Lookup -->|Explicit redelivery| Retry[Optional retry of exact retained request ID<br/>No new reservation or rebinding]
+    Retry -->|Entry acknowledged or missing| Missing[Unavailable; preserve evidence]
+    Retry -->|Original entry retained| Core
+    NoId[Submitted Todo draft without request ID] --> Match[Read journal; find exact input and check receipt]
+    Match -->|No match| Missing
     Lookup -->|Recovery-required source or run command| Recovery[Core Recovery and retained evidence<br/>No automatic provider rebind]
     Panel --> Admin[Source administration<br/>Revision-checked settings and schedules<br/>Process-local automatic-start state]
     Admin --> AdminLookup[Retain admin intent; same-ID lookup in settings UI<br/>Historical receipt or prior-process expiry<br/>No Core Recovery resolution]
@@ -125,9 +130,9 @@ Saved browser drafts and results remain until explicit cleanup. Fresh successful
 
 Answer acceptance does not prove worker consumption. Contacts are global metadata; saving them sends no messages. Disabled contributions retain browser journals and reconcile after reenablement. Legacy HTTP ingestion, ID-only answers and unversioned contact writes return 410 when the public services are active. Trusted worker ingestion still requires its retained attempt channel. See [backend contracts](clarification-backend.md) and [author lifecycle](panel-authoring.md).
 
-## Conditional panel-state saves in development
+## Conditional panel-state saves
 
-The next E4 slice adds conditional panel-state saves for authored question/contact panels. These changes are local until their independent package and production acceptance gates pass:
+Authored question/contact panels use conditional panel-state saves. This behavior passed independent package and production acceptance and is pushed as 773cce4:
 
 ```mermaid
 flowchart TD
@@ -215,7 +220,7 @@ flowchart LR
     Usage --> Outcomes[Costs & Outcomes<br/>Reported spend + separate Codex API estimates<br/>Usage coverage, tokens, duration, PR outcomes<br/>Separate task assessment with evidence]
 ```
 
-- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Public answer commands now retain durable receipts; the compatibility renderer uses those services. Fully authored clarification presentation and Runs/PR cutover remain pending.
+- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Public answer commands now retain durable receipts; the compatibility renderer uses those services. Authored clarification panels are available through their canonical page; clarification alias migration and Runs/PR cutover remain pending.
 - **Evidence and recovery:** validated reports are recorded with immutable identities and hashes. A checkpoint continuation revalidates saved evidence before reusing it; legacy checkpoints without manifests follow an explicit compatibility path. A fresh retry preserves the original task/provider, workflow snapshot and Docker image pin; changed prompts or skills fail preflight. Restart reattachment and checkpoint continuation are different from restarting an entire failed voyage.
 - **Costs and outcomes:** provider token/cost events and stage timing feed a persistent ledger. Reported spend can be partial; unreported billed costs stay unknown. Eligible unpriced Codex usage receives a separate Standard short-context API baseline estimate, using published rates checked September 19, 2026. The UI exposes estimated/unpriced record coverage and runs without usage records. Missing model/token data remains unknown; service tier, per-request context and cache-write usage are unavailable, and subscription charges may differ. Estimates do not affect budget caps or cost-per-PR metrics, which use fully priced runs. Process success does not itself establish task completion: assessment state (complete/partial/failed/not-assessed) is separate from task outcome (achieved/partial/not-achieved/unknown), with supporting evidence. PR visibility is best-effort with explicit stale/unavailable status.
 

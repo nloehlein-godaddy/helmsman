@@ -32,7 +32,8 @@ flowchart TD
     Logs --> Older[Pause follow; independent older cursor]
     Logs --> Follow[Drain follow cursor; retain backpressure]
     Resolve --> Commands[Stop or retry exact attempt<br/>Host retains immutable request identity]
-    Commands --> Receipt[Read original receipt or explicitly retry delivery]
+    Commands --> Receipt[Read original receipt or retry retained request ID]
+    Receipt -->|Original journal entry missing| Unavailable[Unavailable; no replacement identity]
     Receipt --> Save[Save terminal result in panel state]
     Save -->|Saved successfully| Ack[Acknowledge original journal request]
     Viewer --> Download[Click invokes download sink]
@@ -43,7 +44,7 @@ flowchart TD
 
 History retains a cursor stack rather than every page of runs. Counts share the insertion bound and filters but describe mutable state at observation time. Viewer log pagination keeps backward and follow cursors separate. Browsing earlier logs pauses following; releasing an end of the 300-event window is disclosed, and returning to that end rebases to a bounded latest window. Preview clipping never changes full export text.
 
-Closing a viewer tab never clears its journal entries. Unknown receipts and recovery-required results remain visible independently of tabs. Reading a receipt is distinct from redelivery. Redelivery supplies the same saved input to the host journal, retaining its original request ID and attempt. Terminal results persist before acknowledgment; a failed save prevents acknowledgment. Saved result removal is an explicit local action, not reversal of a command.
+Closing a viewer tab never clears its journal entries. Unknown receipts and recovery-required results remain visible independently of tabs. Reading a receipt is distinct from redelivery. Redelivery calls optional `runCommands.retry({repo,requestId}, signal?)`. The host reads the exact retained command and never reserves a new request. Missing or acknowledged requests cannot create work; a concurrent acknowledgment after lookup still delivers only original IDs. Older hosts without retry retain receipt checks and disable redelivery. This is separate from an intentional new Retry run action against a failed attempt. Terminal results persist before acknowledgment; a failed save prevents acknowledgment. Saved result removal is an explicit local action, not reversal of a command.
 
 Copy uses only the bounded preview. Full download follows [download authoring](download-authoring.md): open the export after destination readiness, retain scope/attempt fences, and distinguish disk-save confirmation from delivery to the browser. Cancellation cannot promise that every browser dismisses its native download UI.
 

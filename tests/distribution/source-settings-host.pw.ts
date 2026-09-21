@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { fixture } from './isolated-fixture';
+import { fixture, pendingCommandCount } from './isolated-fixture';
 const id = 'example.source-settings';
 const headers = { 'X-Helmsman-Contribution': `${id}/panel` };
 
@@ -15,7 +15,18 @@ test('independent source settings resolves configuration response loss after rem
     const sent: unknown[] = []; await page.route('**/api/source-admin/commands', async route => { sent.push(route.request().postDataJSON()); await route.fetch(); await route.abort('failed'); });
     await page.getByRole('button', { name: 'Apply source configuration', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Check saved request', exact: true })).toBeVisible(); await page.reload();
+    const stalePeer = await page.context().newPage();
+    await stalePeer.goto(`${origin}/plugins/${id}/page?repo=org/a`);
+    await expect(stalePeer.getByRole('button', { name: 'Retry original settings request', exact: true })).toBeEnabled();
+    let stalePosts = 0;
+    stalePeer.on('request', request => { if (new URL(request.url()).pathname === '/api/source-admin/commands' && request.method() === 'POST') stalePosts++; });
     await page.getByRole('button', { name: 'Check saved request', exact: true }).click(); await page.getByRole('button', { name: 'Accept outcome and dismiss', exact: true }).click();
+    await expect.poll(() => pendingCommandCount(page, 'helmsman.source-admin', `${id}/panel`)).toBe(0);
+    await stalePeer.getByRole('button', { name: 'Retry original settings request', exact: true }).click();
+    await expect(stalePeer.getByRole('button', { name: 'Retry original settings request', exact: true })).toHaveCount(0);
+    expect(stalePosts).toBe(0);
+    expect(await pendingCommandCount(page, 'helmsman.source-admin', `${id}/panel`)).toBe(0);
+    await stalePeer.close();
     await expect(page.getByRole('button', { name: 'Accept outcome and dismiss', exact: true })).toHaveCount(0); expect(sent).toHaveLength(1);
     const after = await (await request.get(`${origin}/api/source-admin`, { headers })).json(); expect(after.sources.find((value: { target: { instanceId: string } }) => value.target.instanceId === source.target.instanceId)).toMatchObject({ label: 'Configured independently', allowedRepos: [], target: { instanceRevision: source.target.instanceRevision + 1 } });
     await page.getByRole('combobox', { name: 'Administration galleon' }).selectOption('');

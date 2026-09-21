@@ -223,7 +223,10 @@ class NewRunPanel implements PluginPanelInstance {
         await this.context.services.runCommands!.acknowledge({ repo: entry.command.repo, requestId: entry.command.requestId });
       } else if (action === 'retry') {
         if (entry.receipt && entry.receipt.status !== 'pending') return;
-        const { requestId: _requestId, ...input } = entry.command; await this.deliver(input, generation);
+        const service = this.context.services.runCommands!;
+        if (!service.retry) throw new Error('Original request retry is unavailable.');
+        const result = await service.retry({ repo: entry.command.repo, requestId: entry.command.requestId }, this.controller?.signal);
+        if (this.active(generation) && result?.status !== 'available') this.error = 'Launch outcome is unconfirmed. Check the original request before trying again.';
       } else {
         const result = await this.context.services.runCommands!.receipt({ repo: entry.command.repo, requestId: entry.command.requestId }, this.controller?.signal);
         if (this.active(generation) && (result?.status !== 'available' || !result.value)) this.error = 'No recorded receipt is available. The saved request remains protected; Retry delivery reuses its request ID.';
@@ -329,7 +332,7 @@ class NewRunPanel implements PluginPanelInstance {
         if (receipt && ['accepted', 'rejected'].includes(receipt.status)) row.append(this.button('Dismiss request', () => { void this.requestAction(entry, 'dismiss'); }, this.busy || !this.active()));
         else {
           row.append(this.button('Check request', () => { void this.requestAction(entry, 'check'); }, this.busy || !this.active()));
-          if (!receipt || receipt.status === 'pending') row.append(this.button('Retry delivery', () => { void this.requestAction(entry, 'retry'); }, this.busy || !this.active()));
+          if (!receipt || receipt.status === 'pending') row.append(this.button('Retry delivery', () => { void this.requestAction(entry, 'retry'); }, this.busy || !this.active() || !this.context.services.runCommands?.retry));
           if (receipt?.status === 'recovery-required') row.append(this.link('Recovery', `/recovery?${new URLSearchParams({ repo: entry.command.repo })}`));
         }
         section.append(row);

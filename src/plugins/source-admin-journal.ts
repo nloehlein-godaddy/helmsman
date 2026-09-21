@@ -7,6 +7,7 @@ interface Entry extends SourceAdminPendingV1 { readonly key: string; readonly ca
 export class SourceAdminJournalValidationError extends Error {}
 export interface SourceAdminJournal {
   reserve(input: SourceAdminInputV1, signal?: AbortSignal): Promise<SourceAdminCommandV1>;
+  retained(query: SourceAdminReceiptQueryV1, signal?: AbortSignal): Promise<SourceAdminCommandV1 | null>;
   record(receipt: SourceAdminReceiptV1): Promise<SourceAdminReceiptV1>;
   acknowledge(query: SourceAdminReceiptQueryV1, signal?: AbortSignal): Promise<void>;
   pending(): Promise<readonly SourceAdminPendingV1[]>;
@@ -48,15 +49,28 @@ export function createSourceAdminJournal(caller: string, options: { indexedDB?: 
     } finally { database.close(); }
   }
   function entry(value: unknown): Entry {
-    if (!value || typeof value !== 'object') throw new TypeError('Invalid saved command');
+    if (!value || typeof value !== 'object') throw new SourceAdminJournalValidationError('Invalid saved command');
     const data = value as Partial<Entry>;
     const command = parseSourceAdminCommandV1(data.command);
     const { requestId: _requestId, ...input } = command;
     const key = JSON.stringify([caller, parseSourceAdminInputV1(input)]);
-    if (data.caller !== caller || data.key !== key) throw new TypeError('Saved command identity changed');
+    if (data.caller !== caller || data.key !== key) throw new SourceAdminJournalValidationError('Saved command identity changed');
     return { caller, key, command, receipt: data.receipt === null ? null : parseSourceAdminReceiptV1(data.receipt, command) };
   }
   return {
+    retained(value, signal) {
+      const query = parseSourceAdminReceiptQueryV1(value);
+      return transaction<SourceAdminCommandV1 | null>((table, done, fail) => {
+        const read = table.index('request').get([caller, query.requestId]);
+        read.onsuccess = () => {
+          try {
+            if (read.result === undefined) { done(null); return; }
+            const saved = entry(read.result);
+            done(saved.command.repo === query.repo ? saved.command : null);
+          } catch (error) { fail(error); }
+        };
+      }, 'readonly', signal);
+    },
     reserve(input, signal) {
       const intent = parseSourceAdminInputV1(input); const key = JSON.stringify([caller, intent]);
       return transaction<SourceAdminCommandV1>((table, done, fail) => {

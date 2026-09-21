@@ -104,6 +104,16 @@ class Administration implements PluginPanelInstance {
     const snapshot = await this.service.snapshot(this.state.activity.signal);
     if (this.active(generation) && snapshot.status === 'available') this.snapshot = snapshot.value;
   }
+  private async retry(entry: SourceAdminPendingV1) {
+    const generation = this.generation;
+    if (!this.service.retry) throw new Error('Original settings retry is unavailable. Check its receipt instead.');
+    if (!this.pendingReady || !await this.save() || !this.active(generation)) return;
+    const result = await this.service.retry({ repo: entry.command.repo, requestId: entry.command.requestId }, this.state.activity.signal);
+    if (!this.active(generation)) return;
+    if (result.status === 'unavailable') this.error = `Original request unavailable: ${result.reason}. Your settings draft is retained.`;
+    const snapshot = await this.service.snapshot(this.state.activity.signal);
+    if (this.active(generation) && snapshot.status === 'available') this.snapshot = snapshot.value;
+  }
   private button(label: string, action: () => void, disabled = false) { const value = node('button', label); value.type = 'button'; value.disabled = disabled || this.busy || this.unsupported || !this.active(); value.addEventListener('click', () => { if (!value.disabled) action(); }); return value; }
   private text(label: string, value: string, change: (value: string) => void, multiline = false, max = 64000) {
     const wrapper = node('label', label); const input = multiline ? node('textarea') : node('input'); input.setAttribute('aria-label', label); input.value = value; input.maxLength = max; input.dataset.focus = label; input.disabled = this.busy || this.unsupported;
@@ -224,7 +234,7 @@ class Administration implements PluginPanelInstance {
         section.append(node('p', 'Outcome unknown. Keep the original request identity until its outcome is known.'), this.button('Check saved request', () => { void this.act(async () => {
           const generation = this.generation; const result = await this.service.receipt({ requestId: entry.command.requestId, repo: entry.command.repo }, this.state.activity.signal);
           if (this.active(generation)) { if (result.status === 'unavailable') throw new Error(`Receipt unavailable: ${result.reason}.`); if (!result.value) this.error = 'No terminal receipt yet. The original request is retained.'; }
-        }); }), this.button('Retry original settings request', () => { const { requestId: _requestId, ...input } = entry.command; void this.act(() => this.submit(input)); }));
+        }); }), this.button('Retry original settings request', () => { void this.act(() => this.retry(entry)); }, !this.service.retry));
       }
       root.append(section);
     }

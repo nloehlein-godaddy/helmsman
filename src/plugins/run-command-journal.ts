@@ -6,6 +6,7 @@ interface Entry extends RunCommandPendingV1 { readonly key: string; readonly cal
 export class RunCommandJournalValidationError extends Error {}
 export interface RunCommandJournal {
   reserve(input: RunCommandInputV1, signal?: AbortSignal): Promise<RunCommandV1>;
+  retained(query: RunCommandReceiptQueryV1, signal?: AbortSignal): Promise<RunCommandV1 | null>;
   record(receipt: RunCommandReceiptV1): Promise<RunCommandReceiptV1>;
   acknowledge(query: RunCommandReceiptQueryV1): Promise<void>;
   pending(): Promise<readonly RunCommandPendingV1[]>;
@@ -47,15 +48,28 @@ export function createRunCommandJournal(caller: string, options: { indexedDB?: I
     } finally { database.close(); }
   }
   function entry(value: unknown): Entry {
-    if (!value || typeof value !== 'object') throw new TypeError('Invalid saved command');
+    if (!value || typeof value !== 'object') throw new RunCommandJournalValidationError('Invalid saved command');
     const data = value as Partial<Entry>;
     const command = parseRunCommandV1(data.command);
     const { requestId: _requestId, ...input } = command;
     const key = JSON.stringify([caller, parseRunCommandInputV1(input)]);
-    if (data.caller !== caller || data.key !== key) throw new TypeError('Saved command identity changed');
+    if (data.caller !== caller || data.key !== key) throw new RunCommandJournalValidationError('Saved command identity changed');
     return { caller, key, command, receipt: data.receipt === null ? null : parseRunCommandReceiptV1(data.receipt, command) };
   }
   return {
+    retained(value, signal) {
+      const query = parseRunCommandReceiptQueryV1(value);
+      return transaction<RunCommandV1 | null>((table, done, fail) => {
+        const read = table.index('request').get([caller, query.requestId]);
+        read.onsuccess = () => {
+          try {
+            if (read.result === undefined) { done(null); return; }
+            const saved = entry(read.result);
+            done(saved.command.repo === query.repo ? saved.command : null);
+          } catch (error) { fail(error); }
+        };
+      }, 'readonly', signal);
+    },
     reserve(input, signal) {
       const intent = parseRunCommandInputV1(input); const key = JSON.stringify([caller, intent]);
       return transaction<RunCommandV1>((table, done, fail) => {

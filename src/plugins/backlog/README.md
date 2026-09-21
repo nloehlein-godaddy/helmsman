@@ -13,3 +13,5 @@ node /absolute/path/to/release/server/helmsman/plugins/cli.js pack ./dist ./back
 The entry is `panel.ts`; production code imports only public SDK types and its own relative modules. Styles use a package-specific root and supported host theme tokens. The descriptor uses the reserved `helmsman` namespace for the shipped contribution. External authors should choose their own publisher namespace.
 
 Unmounting, hiding or replacing this presentation never alters admitted work. Activity epochs and abort signals fence reads across scope changes, suspension and disposal. Task links come from validated task data; no global Jira URL is inferred.
+
+Delivery retry requires the host's optional `retry({ repo, requestId }, signal)` operation. It reads only the original caller-owned retained request and never reserves another identity. Missing requests remain unavailable; older hosts disable retry while keeping receipt checks available. New intentional submissions use `submit` separately.

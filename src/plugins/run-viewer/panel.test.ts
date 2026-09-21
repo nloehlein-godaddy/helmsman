@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DownloadRequestV1, PluginPanelContext, PluginPanelInstance, PluginPanelState, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, RunInspectLogPageV1, RunInspectServiceV1, RunReadSummaryV1 } from '@helmsman/plugin-sdk';
+import type { DownloadRequestV1, PluginPanelContext, PluginPanelInstance, PluginPanelState, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, RunCommandServiceV1, RunInspectLogPageV1, RunInspectServiceV1, RunReadSummaryV1 } from '@helmsman/plugin-sdk';
 import panel from './panel';
 
 const instances: PluginPanelInstance[] = [];
@@ -24,6 +24,11 @@ async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Par
   const runs = { version: 1 as const, list: vi.fn(), log: vi.fn(), load: vi.fn(async (input: { runId: string }) => available({ version: 1 as const, repo: 'org/a', runId: input.runId, run: summary(input.runId) })), watchList: vi.fn(), watchLoad: vi.fn(), watchLog: vi.fn() };
   const commands = { version: 1 as const,
     submit: vi.fn(async (input: RunCommandInputV1) => { const result = { ...receipt(), action: input.action }; pending = [{ command: { ...input, requestId }, receipt: result }]; return available(result); }),
+    retry: vi.fn<NonNullable<RunCommandServiceV1['retry']>>(async query => {
+      const entry = pending.find(value => value.command.repo === query.repo && value.command.requestId === query.requestId);
+      if (!entry) return { status: 'unavailable', reason: 'not-found' };
+      const result = { ...receipt(), ...query, action: entry.command.action }; pending = pending.map(value => value === entry ? { ...entry, receipt: result } : value); return available(result);
+    }),
     pending: vi.fn(async () => pending), receipt: vi.fn(async () => available(pending[0]?.receipt ?? null)),
     acknowledge: vi.fn(async () => { pending = []; }) };
   const downloads = { version: 1 as const, save: vi.fn(async (_request: DownloadRequestV1, _signal?: AbortSignal) => ({ status: 'delivered-to-browser' as const, bytesWritten: 1 })) };
@@ -96,8 +101,8 @@ describe('authored run viewer lifecycle and commands', () => {
     vi.mocked(f.inspect.resolve).mockImplementation(async () => available({ version: 1, target: { ...target, expectedAttempt: 2 }, observedAt: when }));
     f.runs.load.mockImplementation(async () => available({ version: 1, repo: 'org/a', runId: 'one', run: summary('one', 2) }));
     await f.instance.refresh?.(); expect(f.container.textContent).toContain('Original attempt 1'); expect(button(f.container, 'Stop run').disabled).toBe(true);
-    button(f.container, 'Retry delivery').click(); await vi.waitFor(() => expect(f.commands.submit).toHaveBeenCalledTimes(2));
-    expect(f.commands.submit.mock.calls[1]?.[0]).toEqual({ version: 1, repo: 'org/a', action: 'stop', target: { runId: 'one', expectedAttempt: 1 } });
+    button(f.container, 'Retry delivery').click(); await vi.waitFor(() => expect(f.commands.retry).toHaveBeenCalledWith({ repo: 'org/a', requestId }, expect.any(AbortSignal)));
+    expect(f.commands.submit).toHaveBeenCalledOnce(); expect(f.pending()[0]?.command).toEqual({ version: 1, repo: 'org/a', requestId, action: 'stop', target: { runId: 'one', expectedAttempt: 1 } });
   });
   it('checks receipts without resubmitting and does not retry recovery-required requests', async () => {
     const f = await mount({ saved: [{ command: { version: 1, requestId, repo: 'org/a', action: 'stop', target: { runId: 'one', expectedAttempt: 1 } }, receipt: receipt('recovery-required') }] });
@@ -147,4 +152,20 @@ describe('authored run viewer lifecycle and commands', () => {
     await ready(f.container); first.resolve({ status: 'unavailable', reason: 'connection-failed' }); await Promise.resolve();
     expect(f.container.querySelector('pre')?.textContent).toContain('event 51'); expect(f.container.textContent).not.toContain('Selected run is unavailable');
   });
+});
+
+it.each(['missing', 'newer', 'unsupported'] as const)('does not create another viewer command when original request is %s', async scenario => {
+  const saved: RunCommandPendingV1 = { command: { version: 1, requestId, repo: 'org/a', action: 'stop', target: { runId: 'one', expectedAttempt: 1 } }, receipt: null };
+  const f = await mount({ saved: [saved] }); await vi.waitFor(() => expect(button(f.container, 'Retry delivery')?.disabled).toBe(false));
+  if (scenario === 'unsupported') {
+    const retry = f.commands.retry; delete f.context.services.runCommands!.retry; await f.instance.refresh?.();
+    expect(button(f.container, 'Retry delivery').disabled).toBe(true); button(f.container, 'Retry delivery').click(); expect(retry).not.toHaveBeenCalled();
+    button(f.container, 'Check request').click(); await vi.waitFor(() => expect(f.commands.receipt).toHaveBeenCalledOnce());
+  } else {
+    const preserved: RunCommandPendingV1[] = scenario === 'newer' ? [{ ...saved, command: { ...saved.command, requestId: '00000000-0000-4000-8000-000000000002' } }] : [];
+    f.setPending(preserved); button(f.container, 'Retry delivery').click();
+    await vi.waitFor(() => expect(f.commands.retry).toHaveBeenCalledWith({ repo: 'org/a', requestId }, expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(f.container.querySelector(`[data-request-id="${requestId}"]`)).toBeNull()); expect(f.pending()).toEqual(preserved);
+  }
+  expect(f.commands.submit).not.toHaveBeenCalled(); expect(f.commands.acknowledge).not.toHaveBeenCalled();
 });

@@ -160,7 +160,8 @@ class UnderwayPanel implements PluginPanelInstance {
       if (action === 'dismiss') await this.context.services.runCommands!.acknowledge(query);
       else {
         if (action === 'retry' && command.receipt?.status === 'recovery-required') return;
-        const result = action === 'retry' ? await this.context.services.runCommands!.submit(command.input, this.state.activity.signal)
+        if (action === 'retry' && !this.context.services.runCommands?.retry) throw new Error('Original request retry is unavailable. Check its receipt instead.');
+        const result = action === 'retry' ? await this.context.services.runCommands!.retry!(query, this.state.activity.signal)
           : await this.context.services.runCommands!.receipt(query, this.state.activity.signal);
         if (this.current(generation)) {
           if (result.status === 'available' && result.value) { command.receipt = result.value; command.message = ''; }
@@ -200,7 +201,7 @@ class UnderwayPanel implements PluginPanelInstance {
         const action = element('button', terminal ? 'Dismiss saved launch' : 'Check launch receipt'); action.type = 'button'; action.disabled = command.busy;
         action.addEventListener('click', () => { void this.commandAction(command, terminal ? 'dismiss' : 'receipt'); }); box.append(action);
         if (!receipt || receipt.status === 'pending') {
-          const retry = element('button', 'Retry delivery'); retry.type = 'button'; retry.disabled = command.busy;
+          const retry = element('button', 'Retry delivery'); retry.type = 'button'; retry.disabled = command.busy || !this.context.services.runCommands?.retry;
           retry.addEventListener('click', () => { void this.commandAction(command, 'retry'); }); box.append(retry);
         }
       }

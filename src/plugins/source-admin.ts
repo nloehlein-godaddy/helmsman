@@ -48,6 +48,7 @@ export interface SourceAdminServiceV1 {
   snapshot(signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminSnapshotV1>>;
   validateReplacement(input: SourceAdminValidationInputV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminValidationV1>>;
   submit(input: SourceAdminInputV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminReceiptV1>>;
+  retry?(query: SourceAdminReceiptQueryV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminReceiptV1>>;
   receipt(query: SourceAdminReceiptQueryV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminReceiptV1 | null>>;
   pending(): Promise<readonly SourceAdminPendingV1[]>;
   acknowledge(query: SourceAdminReceiptQueryV1): Promise<void>;

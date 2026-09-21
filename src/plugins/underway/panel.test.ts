@@ -19,12 +19,16 @@ function fixture() {
   let entries: readonly RunCommandPendingV1[] = [];
   const pending = vi.fn<RunCommandServiceV1['pending']>(async () => entries);
   const submit = vi.fn<RunCommandServiceV1['submit']>(async submitted => { entries = [{ command: { ...submitted, requestId: receipt.requestId }, receipt }]; return { status: 'available', value: receipt }; });
+  const retry = vi.fn<NonNullable<RunCommandServiceV1['retry']>>(async query => {
+    const entry = entries.find(value => value.command.repo === query.repo && value.command.requestId === query.requestId);
+    return entry ? { status: 'available', value: { ...receipt, requestId: query.requestId } } : { status: 'unavailable', reason: 'not-found' };
+  });
   const reconcile = vi.fn<RunCommandServiceV1['receipt']>(async () => { entries = entries.map(entry => ({ ...entry, receipt })); return { status: 'available', value: receipt }; });
   const acknowledge = vi.fn<RunCommandServiceV1['acknowledge']>(async query => { entries = entries.filter(entry => entry.command.requestId !== query.requestId); });
-  const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, services: { version: 1, tasks: { version: 1, discover, list, underway: read, load: vi.fn() }, runCommands: { version: 1, submit, pending, receipt: reconcile, acknowledge } }, saveState: vi.fn(), navigate: vi.fn(), onDispose: vi.fn() };
+  const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, services: { version: 1, tasks: { version: 1, discover, list, underway: read, load: vi.fn() }, runCommands: { version: 1, submit, retry, pending, receipt: reconcile, acknowledge } }, saveState: vi.fn(), navigate: vi.fn(), onDispose: vi.fn() };
   const buttons = (name: string) => [...container.querySelectorAll('button')].filter(button => button.textContent === name);
   const button = (name: string) => buttons(name)[0];
-  return { container, lifetime, activity, state, context, discover, read, list, pending, submit, reconcile, acknowledge, button, buttons, set entries(value: readonly RunCommandPendingV1[]) { entries = value; } };
+  return { container, lifetime, activity, state, context, discover, read, list, pending, submit, retry, reconcile, acknowledge, button, buttons, set entries(value: readonly RunCommandPendingV1[]) { entries = value; } };
 }
 afterEach(() => document.body.replaceChildren());
 
@@ -55,8 +59,8 @@ describe('standalone Underway panel', () => {
   it('restores uncertain delivery and retries the saved input across source revision changes', async () => {
     const f = fixture(); f.entries = [saved]; f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo, galleons: [{ repo, sources: { status: 'available', value: [{ ...source, instanceRevision: 9 }] } }] } });
     await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Retry delivery')?.disabled).toBe(false));
-    expect(f.button('Launch')?.disabled).toBe(true); f.button('Retry delivery')!.click(); await vi.waitFor(() => expect(f.submit).toHaveBeenCalledWith(input, expect.any(AbortSignal)));
-    expect(f.submit.mock.calls[0]?.[0]).not.toHaveProperty('requestId'); f.lifetime.abort();
+    expect(f.button('Launch')?.disabled).toBe(true); f.button('Retry delivery')!.click(); await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId: receipt.requestId }, expect.any(AbortSignal)));
+    expect(f.submit).not.toHaveBeenCalled(); f.lifetime.abort();
   });
   it('recovers an uncertain response and retains its receipt independently of visible tasks', async () => {
     const f = fixture(); f.submit.mockImplementation(async () => { f.entries = [saved]; return { status: 'unavailable', reason: 'connection-failed' }; });
@@ -98,4 +102,18 @@ describe('standalone Underway panel', () => {
     const activity = new AbortController(); await instance.update({ ...f.state, repo: 'owner/other', activity: { repo: 'owner/other', epoch: 2, active: false, signal: activity.signal } });
     finish({ status: 'available', value: { selection: source, items: [task], nextCursor: null } }); await Promise.resolve(); await Promise.resolve(); expect(f.container.textContent).not.toContain(task.title); f.lifetime.abort();
   });
+});
+
+it.each(['missing-retry', 'removed-request', 'newer-request'] as const)('never allocates launch identity from a retained row after %s', async scenario => {
+  const f = fixture(); const original: RunCommandPendingV1 = { command: { ...input, requestId: sourceId }, receipt: null }; f.entries = [original];
+  if (scenario === 'missing-retry') delete f.context.services.runCommands!.retry;
+  await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Check launch receipt')[0]?.disabled).toBe(false));
+  const retry = f.buttons('Retry delivery')[0]!;
+  if (scenario === 'missing-retry') { expect(retry.disabled).toBe(true); retry.click(); expect(f.retry).not.toHaveBeenCalled(); }
+  else {
+    const next: readonly RunCommandPendingV1[] = scenario === 'newer-request' ? [{ command: { ...input, requestId: '22222222-2222-4222-8222-222222222222' }, receipt: null }] : [];
+    f.entries = next; retry.click(); await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId: sourceId }, expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(f.buttons('Retry delivery')).toHaveLength(next.length)); expect(await f.pending()).toEqual(next);
+  }
+  expect(f.submit).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled(); f.lifetime.abort();
 });

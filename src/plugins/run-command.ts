@@ -38,6 +38,7 @@ export type RunCommandResultV1<T> = { readonly status: 'available'; readonly val
 export interface RunCommandServiceV1 {
   readonly version: 1;
   submit(input: RunCommandInputV1, signal?: AbortSignal): Promise<RunCommandResultV1<RunCommandReceiptV1>>;
+  retry?(query: RunCommandReceiptQueryV1, signal?: AbortSignal): Promise<RunCommandResultV1<RunCommandReceiptV1>>;
   receipt(input: RunCommandReceiptQueryV1, signal?: AbortSignal): Promise<RunCommandResultV1<RunCommandReceiptV1 | null>>;
   pending(): Promise<readonly RunCommandPendingV1[]>;
   acknowledge(input: RunCommandReceiptQueryV1): Promise<void>;

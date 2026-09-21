@@ -100,14 +100,17 @@ class RunListPanel implements PluginPanelInstance {
     if (!this.active() || !this.evidenceReady || prior?.busy || prior?.uncertain || !!prior?.receipt && ['accepted', 'rejected'].includes(prior.receipt.status)
       || !this.rows.some(current => key(current) === id && current.status === run.status)) return;
     const command: CommandState = { repo: run.repo, runId: run.id, attempt: run.attempt, requestId: null, receipt: null, busy: true, uncertain: true, message: '' };
-    this.commands.set(id, command); await this.deliver(command);
+    this.commands.set(id, command); await this.deliver(command, 'submit');
   }
-  private async deliver(command: CommandState): Promise<void> {
+  private async deliver(command: CommandState, action: 'submit' | 'retry'): Promise<void> {
     if (!this.active() || !this.evidenceReady || command.receipt && ['accepted', 'rejected', 'recovery-required'].includes(command.receipt.status)) return;
     const generation = this.generation; command.busy = true; this.draw();
     try {
-      const result = await this.context.services.runCommands!.submit({ version: 1, repo: command.repo, action: presentation.action,
-        target: { runId: command.runId, expectedAttempt: command.attempt } }, this.controller?.signal);
+      const service = this.context.services.runCommands!;
+      if (action === 'retry' && (!command.requestId || !service.retry)) throw new Error('Original request retry is unavailable.');
+      const result = action === 'retry' ? await service.retry!({ repo: command.repo, requestId: command.requestId! }, this.controller?.signal)
+        : await service.submit({ version: 1, repo: command.repo, action: presentation.action,
+          target: { runId: command.runId, expectedAttempt: command.attempt } }, this.controller?.signal);
       if (!this.active(generation)) return;
       if (result?.status === 'available' && result.value) { command.receipt = result.value; command.requestId = result.value.requestId; command.uncertain = ['pending', 'recovery-required'].includes(result.value.status); }
       else command.message = 'Command outcome is not confirmed. Check the saved request before trying again.';
@@ -161,7 +164,7 @@ class RunListPanel implements PluginPanelInstance {
     }
     if (command.uncertain || receipt?.status === 'recovery-required') {
       parent.append(this.button('Check request', () => { void this.reconcile(command); }, command.busy || !this.active()));
-      if (command.requestId && (!receipt || receipt.status === 'pending')) parent.append(this.button('Retry delivery', () => { if (!command.busy) void this.deliver(command); }, command.busy || !this.active() || !this.evidenceReady));
+      if (command.requestId && (!receipt || receipt.status === 'pending')) parent.append(this.button('Retry delivery', () => { if (!command.busy) void this.deliver(command, 'retry'); }, command.busy || !this.active() || !this.evidenceReady || !this.context.services.runCommands?.retry));
       parent.append(this.link('Recovery', `/recovery?${new URLSearchParams({ repo: command.repo })}`));
     }
   }

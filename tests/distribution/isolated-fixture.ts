@@ -13,6 +13,21 @@ export async function seedBacklogLayout(page: Page): Promise<void> {
   await page.addInitScript(() => { if (localStorage.getItem('helmsman.rackLayout') === null) localStorage.setItem('helmsman.rackLayout', JSON.stringify([[{ panels: ['backlog'], active: 'backlog', collapsed: false }]])); });
 }
 
+export async function pendingCommandCount(page: Page, database: string, caller: string): Promise<number> {
+  return page.evaluate(({ database, caller }) => new Promise<number>((resolve, reject) => {
+    const opened = indexedDB.open(database, 1);
+    opened.onerror = () => reject(opened.error);
+    opened.onupgradeneeded = () => opened.transaction?.abort();
+    opened.onsuccess = () => {
+      const connection = opened.result;
+      const transaction = connection.transaction('pending', 'readonly');
+      const request = transaction.objectStore('pending').index('caller').count(caller);
+      transaction.oncomplete = () => { connection.close(); resolve(request.result); };
+      transaction.onabort = () => { connection.close(); reject(transaction.error); };
+    };
+  }), { database, caller });
+}
+
 export async function run(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((done, fail) => {
     const child = spawn(cmd, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });

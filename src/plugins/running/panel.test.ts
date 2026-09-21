@@ -18,14 +18,18 @@ function fixture(action: 'stop' | 'retry') {
   });
   const pending = vi.fn<RunCommandServiceV1['pending']>(async () => []);
   const submit = vi.fn<RunCommandServiceV1['submit']>(async () => ({ status: 'available', value: { ...receipt, action, status: 'accepted' } }));
+  const retry = vi.fn<NonNullable<RunCommandServiceV1['retry']>>(async query => {
+    const entry = (await pending()).find(value => value.command.repo === query.repo && value.command.requestId === query.requestId);
+    return entry ? { status: 'available', value: { ...receipt, ...query, action, status: 'accepted' } } : { status: 'unavailable', reason: 'not-found' };
+  });
   const reconcile = vi.fn<RunCommandServiceV1['receipt']>(async () => ({ status: 'available', value: { ...receipt, action, status: 'accepted' } }));
   const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, services: { version: 1,
     runs: { version: 1, list: vi.fn(), load: vi.fn(), log: vi.fn(), watchList, watchLoad: vi.fn(), watchLog: vi.fn() },
-    runCommands: { version: 1, pending, submit, receipt: reconcile, acknowledge: vi.fn(async () => {}) } }, saveState: vi.fn(), navigate: vi.fn(), onDispose: vi.fn() };
+    runCommands: { version: 1, pending, submit, retry, receipt: reconcile, acknowledge: vi.fn(async () => {}) } }, saveState: vi.fn(), navigate: vi.fn(), onDispose: vi.fn() };
   const emit = (items: RunReadSummaryV1[], index = listeners.length - 1) => listeners[index]?.({ status: 'available', value: { version: 1, repo: state.repo, items, nextCursor: null } });
   const button = (name: string) => [...container.querySelectorAll('button')].find(value => value.textContent === name)!;
   const saved: RunCommandPendingV1 = { command: { version: 1, repo, requestId: receipt.requestId, action, target: { runId: run.id, expectedAttempt: run.attempt } }, receipt: null };
-  return { container, lifetime, activity, state, item, context, cleanup, watchList, pending, submit, reconcile, emit, button, saved };
+  return { container, lifetime, activity, state, item, context, cleanup, watchList, pending, submit, retry, reconcile, emit, button, saved };
 }
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 
@@ -97,11 +101,26 @@ describe.each([['running', running, 'stop', 'Stop', 100], ['recent', recent, 're
   it('explicitly retries delivery of an unresolved saved intent and never offers it for recovery-required receipts', async () => {
     const f = fixture(action); f.pending.mockResolvedValue([f.saved]); await module.mount(f.container, f.context);
     await vi.waitFor(() => expect(f.button('Retry delivery')?.disabled).toBe(false)); f.button('Retry delivery').click();
-    await vi.waitFor(() => expect(f.submit).toHaveBeenCalledWith({ version: 1, repo, action, target: { runId: run.id, expectedAttempt: 3 } }, expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId: receipt.requestId }, expect.any(AbortSignal))); expect(f.submit).not.toHaveBeenCalled();
     f.lifetime.abort();
     const protectedRequest = fixture(action); protectedRequest.pending.mockResolvedValue([{ ...protectedRequest.saved, receipt: { ...receipt, action, status: 'recovery-required' } }]);
     await module.mount(protectedRequest.container, protectedRequest.context); await vi.waitFor(() => expect(protectedRequest.button('Check request')).toBeDefined());
     expect(protectedRequest.button('Retry delivery')).toBeUndefined(); protectedRequest.lifetime.abort();
+  });
+  it.each(['missing', 'newer', 'unsupported'] as const)('does not create another list command when original request is %s', async scenario => {
+    const f = fixture(action); f.pending.mockResolvedValue([f.saved]);
+    if (scenario === 'unsupported') delete f.context.services.runCommands!.retry;
+    await module.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Check request')?.disabled).toBe(false));
+    if (scenario === 'unsupported') {
+      expect(f.button('Retry delivery').disabled).toBe(true); f.button('Retry delivery').click(); expect(f.retry).not.toHaveBeenCalled();
+      f.button('Check request').click(); await vi.waitFor(() => expect(f.reconcile).toHaveBeenCalledOnce());
+    } else {
+      const preserved: RunCommandPendingV1[] = scenario === 'newer' ? [{ ...f.saved, command: { ...f.saved.command, requestId: '22222222-2222-4222-8222-222222222222' } }] : [];
+      f.pending.mockResolvedValue(preserved); f.button('Retry delivery').click();
+      await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId: receipt.requestId }, expect.any(AbortSignal)));
+      await vi.waitFor(() => expect(f.button('Retry delivery')?.disabled).toBe(false)); expect(await f.pending()).toEqual(preserved);
+    }
+    expect(f.submit).not.toHaveBeenCalled(); expect(f.context.services.runCommands!.acknowledge).not.toHaveBeenCalled(); f.lifetime.abort();
   });
   it('blocks commands if saved evidence cannot be loaded', async () => {
     const f = fixture(action); f.pending.mockRejectedValue(new Error('Storage blocked')); await module.mount(f.container, f.context);

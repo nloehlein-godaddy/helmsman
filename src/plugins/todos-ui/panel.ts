@@ -359,8 +359,8 @@ class TodosPanel implements PluginPanelInstance {
         this.saved.consumedRequests = this.saved.consumedRequests.filter(id => id !== query.requestId); this.change();
       } else if (action === 'retry') {
         if (entry.receipt && entry.receipt.status !== 'pending') return;
-        const { requestId: _requestId, ...input } = entry.command;
-        const response = await this.context.services.sourceCommands!.submit(input, this.state.activity.signal);
+        if (!this.context.services.sourceCommands?.retry) throw new Error('Original request retry is unavailable. Check its receipt instead.');
+        const response = await this.context.services.sourceCommands.retry(query, this.state.activity.signal);
         if (response?.status !== 'available') throw new Error('The outcome remains unconfirmed. Keep this request.');
       } else {
         const response = await this.context.services.sourceCommands!.receipt(query, this.state.activity.signal);
@@ -416,7 +416,8 @@ class TodosPanel implements PluginPanelInstance {
         await service.acknowledge(query);
       } else if (action === 'retry') {
         if (entry.receipt && entry.receipt.status !== 'pending') return;
-        const { requestId: _requestId, ...input } = entry.command; const response = await service.submit(input, this.state.activity.signal);
+        if (!service.retry) throw new Error('Original launch retry is unavailable. Check its receipt instead.');
+        const response = await service.retry(query, this.state.activity.signal);
         if (response?.status !== 'available') throw new Error('Launch outcome is still unconfirmed. Keep the original request.');
       } else {
         const response = await service.receipt(query, this.state.activity.signal);
@@ -468,7 +469,7 @@ class TodosPanel implements PluginPanelInstance {
     const draft = this.draft(); const envelope = draft && this.currentEnvelope(draft);
     const signature = JSON.stringify([draft?.key, draft?.target, draft?.selection, draft?.sourceRevision, !!draft?.submitted,
       envelope?.sourceRevision, envelope?.commands, envelope?.destinationRepos, envelope?.relatedRun, this.busy, this.active(), this.state.activity.repo, this.state.pirateMode, this.unsupported, this.confirmedDelete, this.discardDraftKey, this.pendingReady, !envelope && this.loading,
-      draft && this.taskPending(draft), this.saved.drafts.map(value => value.key)]);
+      draft && this.taskPending(draft), draft?.submitted && this.pending.some(entry => sameSubmission(draft.submitted, entry)), this.saved.drafts.map(value => value.key)]);
     if (signature === this.editorSignature) return; this.editorSignature = signature;
     const focused = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement ? document.activeElement : null;
     const focus = focused && this.editor.contains(focused) ? { label: focused.getAttribute('aria-label'), start: focused.selectionStart, end: focused.selectionEnd } : null;
@@ -512,7 +513,10 @@ class TodosPanel implements PluginPanelInstance {
     const launch = this.button(this.state.pirateMode ? 'Weigh anchor' : 'Start run', () => { void this.launch(); }); launch.dataset.todoLaunch = '';
     const hint = node('p'); hint.dataset.todoLaunchHint = ''; hint.id = `${this.state.instanceId}-launch-hint`; launch.setAttribute('aria-describedby', hint.id); this.editor.append(launch, hint);
     if (envelope?.relatedRun) this.editor.append(this.link(this.state.pirateMode ? 'Open related voyage' : 'Open related run', envelope.relatedRun.repo, envelope.relatedRun.runId));
-    if (draft.submitted && !this.pending.some(entry => sameSubmission(draft.submitted, entry))) this.editor.append(node('p', 'This draft has an unconfirmed submission. Refresh saved requests before retrying.'), this.button('Retry saved submission', () => { void this.retrySaved(draft); }, this.busy || !this.pendingReady));
+    if (draft.submitted && !this.pending.some(entry => sameSubmission(draft.submitted, entry))) this.editor.append(
+      node('p', 'This draft has an unconfirmed submission without a retained request identity. It cannot be retried. Reconcile saved requests or inspect Recovery; your draft is kept.'),
+      this.button('Reconcile saved submission', () => { void this.reconcileSaved(draft); }, this.busy || !this.active() || !this.inScope(draft.selection.repo)),
+      this.button('Open submission Recovery', () => { this.context.navigate(`/recovery?${new URLSearchParams({ repo: draft.selection.repo })}`); }));
     if (!draft.submitted) {
       this.editor.append(this.button('Discard draft', () => { this.discardDraftKey = draft.key; this.draw(); }, this.busy || this.unsupported));
       if (this.discardDraftKey === draft.key) this.editor.append(node('p', `Discard the saved draft for ${draft.values.title || 'this new Todo'}? The stored task is unchanged.`),
@@ -549,12 +553,22 @@ class TodosPanel implements PluginPanelInstance {
       if (this.active()) await this.refresh();
     } catch { this.error = 'The header scope could not be restored. Your draft is kept.'; this.draw(); }
   }
-  private async retrySaved(draft: Draft) {
-    if (!draft.submitted || !this.active() || this.busy || !this.pendingReady) return;
-    const generation = this.generation; this.busy = true; this.draw();
-    try { if (await this.save() && this.active(generation)) await this.context.services.sourceCommands!.submit(draft.submitted, this.state.activity.signal); }
-    catch { if (this.active(generation)) this.error = 'The outcome is still unconfirmed. Keep this draft.'; }
-    finally { if (this.active(generation)) { await this.restorePending(generation); this.busy = false; this.draw(); } }
+  private async reconcileSaved(draft: Draft) {
+    if (!draft.submitted || !this.active() || this.busy || !this.inScope(draft.selection.repo)) return;
+    const generation = this.generation; this.busy = true; this.error = ''; this.draw();
+    try {
+      if (!await this.save() || !this.active(generation)) return;
+      await this.restorePending(generation);
+      if (!this.active(generation) || !this.pendingReady) return;
+      const matches = this.pending.filter(entry => sameSubmission(draft.submitted, entry));
+      if (matches.length !== 1) throw new Error(matches.length ? 'Several saved requests match this submission. Review their original outcomes below.' : 'The original request identity is unavailable. Your draft and submission evidence are retained; inspect Recovery before making a new request.');
+      const entry = matches[0]!;
+      const result = await this.context.services.sourceCommands!.receipt({ repo: entry.command.selection.repo, requestId: entry.command.requestId }, this.state.activity.signal);
+      if (!this.active(generation)) return;
+      this.error = result?.status === 'available' && result.value ? 'Original receipt found. Review the saved request below.' : 'Original request found. Check or explicitly retry its saved delivery below.';
+      await this.restorePending(generation);
+    } catch (error) { if (this.active(generation)) this.error = error instanceof Error ? error.message : 'The original submission could not be reconciled. Your draft is retained.'; }
+    finally { if (this.active(generation)) { this.busy = false; this.draw(); } }
   }
   private drawRequests() {
     this.requests.replaceChildren();
@@ -580,7 +594,7 @@ class TodosPanel implements PluginPanelInstance {
       if (terminal) row.append(this.button(entry.receipt?.status === 'succeeded' ? 'Apply saved result' : 'Dismiss rejection', () => { void this.request(entry, 'consume'); }, this.busy || !this.active()));
       else {
         row.append(this.button('Check request', () => { void this.request(entry, 'check'); }, this.busy || !this.active()));
-        if (!entry.receipt || entry.receipt.status === 'pending') row.append(this.button('Retry delivery', () => { void this.request(entry, 'retry'); }, this.busy || !this.active()));
+        if (!entry.receipt || entry.receipt.status === 'pending') row.append(this.button('Retry delivery', () => { void this.request(entry, 'retry'); }, this.busy || !this.active() || !this.context.services.sourceCommands?.retry));
         row.append(this.button('Open Recovery', () => this.context.navigate(`/recovery?${new URLSearchParams({ repo: entry.command.selection.repo })}`), !this.active()));
       }
       this.requests.append(row);
@@ -593,7 +607,7 @@ class TodosPanel implements PluginPanelInstance {
       if (receipt && ['accepted', 'rejected'].includes(receipt.status)) row.append(this.button('Dismiss launch request', () => { void this.runRequest(entry, 'dismiss'); }, this.busy || !this.active()));
       else {
         row.append(this.button('Check launch request', () => { void this.runRequest(entry, 'check'); }, this.busy || !this.active()));
-        if (!receipt || receipt.status === 'pending') row.append(this.button('Retry launch delivery', () => { void this.runRequest(entry, 'retry'); }, this.busy || !this.active()));
+        if (!receipt || receipt.status === 'pending') row.append(this.button('Retry launch delivery', () => { void this.runRequest(entry, 'retry'); }, this.busy || !this.active() || !this.context.services.runCommands?.retry));
         row.append(this.button('Open Recovery', () => this.context.navigate(`/recovery?${new URLSearchParams({ repo: entry.command.repo })}`), !this.active()));
       }
       this.requests.append(row);

@@ -243,3 +243,24 @@ Correction validation passed 32 host-service/contract tests and 52 consumer test
 A sibling scan found the same submit-as-retry pattern in run, task-source and source-administration consumers; the next verification/fix batch must cover those public services and every retry consumer before continuing page cutovers. This finding does not reopen unrelated completed extraction work, but its command-identity guarantee requires explicit correction evidence. No completion or push of this correction is claimed here.
 
 _Helmsman · not reported - not reported_
+
+
+## Phase E4 authored forms pushed; sibling retry corrections underway
+
+`612057b` and correction `773cce4f3888c10f5cabd6199b56c8ba3205398b` are pushed to `godaddy/master`; the remote SHA was verified. All three exact-fix-commit Senior Software Architect reviews were clean, including an independent 84-test rerun. The preceding production, build, documentation and visual evidence is delivered with this checkpoint.
+
+The next local increment corrects exact-request redelivery across run commands, task-source commands and source administration. Three agents own the service/journal contracts, run presentation consumers and task/source consumers respectively. The inventory covers 11 retry entry paths across nine packages, including submitted Todo drafts that lack a request ID. No accepted completion is claimed for this new increment. Runs/PR extraction, clarification alias migration, remaining Phase E integrations and phases F/G remain open.
+
+_Helmsman · not reported - not reported_
+
+## Phase E4 sibling exact-request retry acceptance
+
+Run, task-source and source-administration services now expose optional exact-request retry. Caller/request-indexed journal reads validate immutable commands and stored receipts without allocating identities. Missing or acknowledged entries send nothing; acknowledgment after lookup can only replay original IDs and cannot recreate the journal. Source-command transport validates all receipt identity fields against the retained source command while preserving its original input, even when acknowledgment removes the journal before response recording. Receipts do not echo the input payload.
+
+All 11 identified retry entry paths across New run, Run viewer, Running, Recent, Backlog, Underway, Triage, Todos and Source settings use these operations. Initial intentional commands still submit normally. Older hosts disable redelivery while preserving receipt checks. ID-less submitted Todo drafts reconcile a unique exact-input journal match and check its receipt; absent or ambiguous identity retains the draft and submission evidence without dispatch or rebinding.
+
+Independent cross-reviews are clean. Validation passed 4,480 tests across 307 files, TypeScript and the production/distribution build, 23 existing browser/visual tests and all nine Node distribution checks. Ten source-denied production scenarios passed: New Run/Underway, six Todo and three source-settings scenarios, including existing visual baselines. Real stale-peer retries after acknowledgment send zero POSTs and recreate no journal in all three service families; the Todo remains a single record. The New Run peer explicitly disables cross-tab notifications so automatic refresh cannot hide the stale-row race. Focused tests also cover freeform launch identity, newer reservations, acknowledgment during lookup, cancellation, corrupted storage, original authority, missing optional methods and ID-less draft preservation.
+
+Root/package READMEs, SDK/source/recovery guides and matching Markdown/offline HTML flows describe the corrected APIs and remaining work. All 83 documentation files pass local-target checks. Desktop/mobile HTML flows render without overflow and were visually inspected. Exact-commit review and push remain pending. The next work is PR compatibility extraction and Runs cutover, followed by clarification alias/recovery migration and the remaining E/F/G scope.
+
+_Helmsman · not reported - not reported_

@@ -74,7 +74,7 @@ flowchart TD
   Draft[Persist current draft] --> Submit[Submit exact immutable intent]
   Submit --> Journal[Host reserves request ID]
   Journal --> Outcome{Terminal receipt?}
-  Outcome -->|No| Pending[Check receipt or retry original input]
+  Outcome -->|No| Pending[Check receipt or retry retained request ID]
   Pending --> Outcome
   Outcome -->|Yes| Review[Explicitly accept outcome]
   Review --> Save[Persist updated draft and consumed marker]
@@ -84,7 +84,7 @@ flowchart TD
   Runtime --> Disabled[Historical receipts cannot enable this process]
 ```
 
-`pending()` is the authoritative host journal. `receipt()` checks the original request and scope; `acknowledge()` is called only after the terminal transition is persisted. Unknown outcomes retain their immutable input for explicit retry. Matching unresolved or unacknowledged requests block new configure/schedule/runtime/replacement intents. Confirmed acknowledgments remove consumed markers, preventing receipt history from exhausting draft bounds.
+`pending()` is the authoritative host journal. `receipt()` checks the original request and scope; `acknowledge()` is called only after the terminal transition is persisted. Unknown outcomes retain their immutable input and request identity for explicit retry. Matching unresolved or unacknowledged requests block new configure/schedule/runtime/replacement intents. Confirmed acknowledgments remove consumed markers, preventing receipt history from exhausting draft bounds.
 
 A runtime `expired` receipt means the previous process ended with an unknown outcome; it does not mean the command was unapplied. Historical successful receipts are also distinct from current runtime state. Neither receipt automatically reenables the new process. Configuration receipt lookup remains available for its original scope even after a successful edit removes the source's last allowed galleon.
 
@@ -95,3 +95,5 @@ Thirteen focused tests cover schema defaults/JSON validation, revision merging, 
 [The isolated distribution gate](../../../tests/distribution/source-settings-host.pw.ts) installs the package under `example.source-settings`, builds only against the released SDK, and denies application-source imports. It covers configuration response loss after removing the last allowed galleon, persistent scheduling plus runtime restart, and stale pinned replacement rejection. Its inspected visual snapshot masks the generated source instance identity.
 
 The builtin alias and Config link replace the legacy source-settings presentation. Historical APIs remain available for existing clients and recovery. Current cutover validation and remaining rollout work are tracked in [implementation progress](../../../docs/plugin-implementation-progress.md).
+
+Delivery retry requires the host's optional `retry({ repo, requestId }, signal)` operation. It reads only the original caller-owned retained request and never reserves another identity. Missing requests remain unavailable; older hosts disable retry while keeping receipt checks available. New intentional submissions use `submit` separately.

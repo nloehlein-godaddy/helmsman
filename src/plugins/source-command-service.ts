@@ -1,7 +1,7 @@
 import { SourceContractValidationError } from './source-contract-validation';
 import { createSourceCommandJournal, SourceCommandJournalValidationError, type SourceCommandJournal } from './source-command-journal';
 import { parseSourceCommandInputV1, parseSourceCommandReceiptQueryV1, parseSourceCommandReceiptV1, SOURCE_COMMAND_LIMITS } from './source-command';
-import type { SourceCommandInputV1, SourceCommandReceiptQueryV1, SourceCommandReceiptV1, SourceCommandResultV1, SourceCommandServiceV1, SourceCommandUnavailableReasonV1 } from './source-command';
+import type { SourceCommandV1, SourceCommandReceiptQueryV1, SourceCommandReceiptV1, SourceCommandResultV1, SourceCommandServiceV1, SourceCommandUnavailableReasonV1 } from './source-command';
 import type { RunReadScopeV1 } from './run-read-service';
 
 const available = <T>(value: T): SourceCommandResultV1<T> => Object.freeze({ status: 'available', value });
@@ -48,7 +48,7 @@ export function createHostSourceCommandService(lifetime: AbortSignal, options: {
     check();
     const timeout = AbortSignal.timeout(30_000);
     const signal = AbortSignal.any([lifetime, scope.signal, timeout, ...(caller ? [caller] : [])]);
-    async function request(path: string, expected: SourceCommandReceiptQueryV1 & { action?: SourceCommandInputV1['action'] }, command?: unknown): Promise<SourceCommandResultV1<SourceCommandReceiptV1 | null>> {
+    async function request(path: string, expected: SourceCommandReceiptQueryV1 | SourceCommandV1, command?: unknown): Promise<SourceCommandResultV1<SourceCommandReceiptV1 | null>> {
       let response: Response | undefined;
       try {
         check(); signal.throwIfAborted();
@@ -90,7 +90,18 @@ export function createHostSourceCommandService(lifetime: AbortSignal, options: {
       try { command = await abortable(journal.reserve(input, call.signal), call.signal); }
       catch { call.check(); return unavailable('service-unavailable'); }
       call.check();
-      const result = await call.request('/api/source-commands', { repo: command.selection.repo, requestId: command.requestId, action: command.action }, command);
+      const result = await call.request('/api/source-commands', command, command);
+      return result.status === 'unavailable' ? result : result.value === null ? unavailable('invalid-response') : available(result.value);
+    },
+    async retry(value, caller) {
+      const query = parseSourceCommandReceiptQueryV1(value); const call = operation(caller);
+      if (!call.permitted(query.repo)) return unavailable('forbidden');
+      let command;
+      try { command = await abortable(journal.retained(query, call.signal), call.signal); }
+      catch (error) { call.check(); return unavailable(error instanceof SourceCommandJournalValidationError || error instanceof SourceContractValidationError ? 'invalid-response' : 'service-unavailable'); }
+      call.check();
+      if (!command) return unavailable('not-found');
+      const result = await call.request('/api/source-commands', command, command);
       return result.status === 'unavailable' ? result : result.value === null ? unavailable('invalid-response') : available(result.value);
     },
     async receipt(value, caller) {

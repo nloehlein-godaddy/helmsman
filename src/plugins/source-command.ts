@@ -32,6 +32,7 @@ export type SourceCommandResultV1<T> = { readonly status: 'available'; readonly 
 export interface SourceCommandServiceV1 {
   readonly version: 1;
   submit(input: SourceCommandInputV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceCommandReceiptV1>>;
+  retry?(query: SourceCommandReceiptQueryV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceCommandReceiptV1>>;
   receipt(input: SourceCommandReceiptQueryV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceCommandReceiptV1 | null>>;
   pending(): Promise<readonly SourceCommandPendingV1[]>;
   acknowledge(input: SourceCommandReceiptQueryV1): Promise<void>;

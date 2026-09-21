@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { contribution, fixture, pluginId, run, seedBacklogLayout, sourceRoot } from './isolated-fixture';
+import { contribution, fixture, pluginId, pendingCommandCount, run, seedBacklogLayout, sourceRoot } from './isolated-fixture';
 
 test('isolated production distribution installs an independently compiled SDK page and reloads its route', async ({ page, request }) => {
   const host = await fixture();
@@ -497,13 +497,27 @@ test('source-denied New Run and Underway packages preserve typed task identity, 
     await expect(newrun.getByText('org/a · source · delivery unconfirmed', { exact: true })).toBeVisible();
     expect(commands[0]).toMatchObject({ action: 'launch', repo: 'org/a', launch: { mode: 'source', workRef: { sourceId: local.sourceId, externalId: todo.id }, sourceInstanceId: local.id, sourceInstanceRevision: local.revision } });
     expect(delivered[0]).toMatchObject({ status: 'accepted', action: 'launch', repo: 'org/a' });
-    await page.reload(); await newrun.getByRole('button', { name: 'Retry delivery', exact: true }).click();
+    await page.reload();
+    const stalePeer = await page.context().newPage();
+    await stalePeer.addInitScript(() => { Object.defineProperty(window, 'BroadcastChannel', { configurable: true, value: undefined }); });
+    await stalePeer.goto(`${origin}/helm?repo=org/a`);
+    const staleNewrun = stalePeer.locator('.plugin-newrun');
+    await expect(staleNewrun.getByRole('button', { name: 'Retry delivery', exact: true })).toBeEnabled();
+    let stalePosts = 0;
+    stalePeer.on('request', request => { if (new URL(request.url()).pathname === '/api/run-commands' && request.method() === 'POST') stalePosts++; });
+    await newrun.getByRole('button', { name: 'Retry delivery', exact: true }).click();
     await expect(newrun.getByRole('link', { name: 'Open voyage', exact: true })).toBeVisible();
     expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]); expect(delivered[1]).toEqual(delivered[0]);
     const href = await newrun.getByRole('link', { name: 'Open voyage', exact: true }).getAttribute('href');
     expect(new URL(href!, origin).searchParams.get('run')).toBe(delivered[0]?.runId);
     await page.reload(); await expect(newrun.getByRole('link', { name: 'Open voyage', exact: true })).toHaveAttribute('href', href!);
     await newrun.getByRole('button', { name: 'Dismiss request', exact: true }).click(); await expect(newrun.getByRole('heading', { name: 'Saved launch requests', exact: true })).toHaveCount(0);
+    await expect.poll(() => pendingCommandCount(page, 'helmsman.run-commands', 'example.newrun/panel')).toBe(0);
+    await staleNewrun.getByRole('button', { name: 'Retry delivery', exact: true }).click();
+    await expect(staleNewrun.getByRole('heading', { name: 'Saved launch requests', exact: true })).toHaveCount(0);
+    expect(stalePosts).toBe(0);
+    expect(await pendingCommandCount(page, 'helmsman.run-commands', 'example.newrun/panel')).toBe(0);
+    await stalePeer.close();
     await page.reload(); await expect(newrun.getByRole('heading', { name: 'Saved launch requests', exact: true })).toHaveCount(0);
     await expect.poll(async () => (await (await request.get(`${origin}/api/agents/${delivered[0]?.runId}`)).json()).status, { timeout: 15_000 }).toBe('failed');
     await expect(underway.getByText('Not ready for a new run.', { exact: true })).toBeVisible();

@@ -14,11 +14,15 @@ function fixture() {
   let entries: readonly RunCommandPendingV1[] = [];
   const pending = vi.fn<RunCommandServiceV1['pending']>(async () => entries);
   const submit = vi.fn<RunCommandServiceV1['submit']>(async submitted => { entries = [{ command: { ...submitted, requestId: receipt.requestId }, receipt }]; return { status: 'available', value: receipt }; });
+  const retry = vi.fn<NonNullable<RunCommandServiceV1['retry']>>(async query => {
+    const entry = entries.find(value => value.command.repo === query.repo && value.command.requestId === query.requestId);
+    return entry ? { status: 'available', value: { ...receipt, requestId: query.requestId } } : { status: 'unavailable', reason: 'not-found' };
+  });
   const reconcile = vi.fn<RunCommandServiceV1['receipt']>(async () => { entries = entries.map(entry => ({ ...entry, receipt })); return { status: 'available', value: receipt }; });
   const acknowledge = vi.fn<RunCommandServiceV1['acknowledge']>(async query => { entries = entries.filter(entry => entry.command.requestId !== query.requestId); });
-  const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, services: { version: 1, tasks: { version: 1, discover, list: vi.fn(), load: vi.fn() }, taskViews: { version: 1, triage, bugs: vi.fn() }, runCommands: { version: 1, submit, pending, receipt: reconcile, acknowledge } }, saveState: vi.fn(async () => {}), navigate: vi.fn(), onDispose: vi.fn() };
+  const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, services: { version: 1, tasks: { version: 1, discover, list: vi.fn(), load: vi.fn() }, taskViews: { version: 1, triage, bugs: vi.fn() }, runCommands: { version: 1, submit, retry, pending, receipt: reconcile, acknowledge } }, saveState: vi.fn(async () => {}), navigate: vi.fn(), onDispose: vi.fn() };
   const buttons = (name: string) => [...container.querySelectorAll('button')].filter(button => button.textContent === name);
-  return { container, lifetime, activity, state, context, discover, triage, pending, submit, reconcile, acknowledge, buttons, set entries(value: readonly RunCommandPendingV1[]) { entries = value; } };
+  return { container, lifetime, activity, state, context, discover, triage, pending, submit, retry, reconcile, acknowledge, buttons, set entries(value: readonly RunCommandPendingV1[]) { entries = value; } };
 }
 afterEach(() => document.body.replaceChildren());
 describe('standalone Triage presentation', () => {
@@ -121,4 +125,18 @@ it('clears old rows during an active repository change and rejects a late previo
   const nextActivity = new AbortController(); f.activity.abort(); await instance.update({ ...f.state, repo: nextRepo, activity: { repo: nextRepo, epoch: 2, active: true, signal: nextActivity.signal } });
   expect(f.container.textContent).not.toContain(task.title); await vi.waitFor(() => expect(f.container.textContent).toContain('Current scoped task'));
   finish(); await Promise.resolve(); await Promise.resolve(); expect(f.container.textContent).not.toContain('Late former task'); expect(f.container.textContent).toContain('Current scoped task'); f.lifetime.abort();
+});
+
+it.each(['missing-retry', 'removed-request', 'newer-request'] as const)('never allocates launch identity from a retained row after %s', async scenario => {
+  const f = fixture(); const original: RunCommandPendingV1 = { command: { ...input, requestId: sourceId }, receipt: null }; f.entries = [original];
+  if (scenario === 'missing-retry') delete f.context.services.runCommands!.retry;
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Check launch receipt')[0]?.disabled).toBe(false));
+  const retry = f.buttons('Retry delivery')[0]!;
+  if (scenario === 'missing-retry') { expect(retry.disabled).toBe(true); retry.click(); expect(f.retry).not.toHaveBeenCalled(); }
+  else {
+    const next: readonly RunCommandPendingV1[] = scenario === 'newer-request' ? [{ command: { ...input, requestId: '22222222-2222-4222-8222-222222222222' }, receipt: null }] : [];
+    f.entries = next; retry.click(); await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId: sourceId }, expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(f.buttons('Retry delivery')).toHaveLength(next.length)); expect(await f.pending()).toEqual(next);
+  }
+  expect(f.submit).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled(); f.lifetime.abort();
 });

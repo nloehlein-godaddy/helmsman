@@ -15,13 +15,17 @@ function fixture() {
   const journal: SourceAdminPendingV1[] = [];
   const snapshot = vi.fn<SourceAdminServiceV1['snapshot']>(async () => ({ status: 'available', value: current }));
   const submit = vi.fn<SourceAdminServiceV1['submit']>(async input => { journal.splice(0, journal.length, { command: { ...input, requestId: '33333333-3333-4333-8333-333333333333' }, receipt: null }); return { status: 'unavailable', reason: 'connection-failed' }; });
+  const retry = vi.fn<NonNullable<SourceAdminServiceV1['retry']>>(async query => {
+    const entry = journal.find(value => value.command.repo === query.repo && value.command.requestId === query.requestId);
+    return entry?.receipt ? { status: 'available', value: entry.receipt } : { status: 'unavailable', reason: entry ? 'connection-failed' : 'not-found' };
+  });
   const pending = vi.fn<SourceAdminServiceV1['pending']>(async () => [...journal]);
   const receipt = vi.fn<SourceAdminServiceV1['receipt']>(async () => ({ status: 'available', value: journal[0]?.receipt ?? null }));
   const acknowledge = vi.fn<SourceAdminServiceV1['acknowledge']>(async () => { journal.splice(0); });
   const validateReplacement = vi.fn<SourceAdminServiceV1['validateReplacement']>(async input => ({ status: 'available', value: { ...input, validationId: '44444444-4444-4444-8444-444444444444', instanceId: 'next', evidenceHash: 'b'.repeat(64) } }));
   const saveState = vi.fn<PluginPanelContext['saveState']>(async () => {});
-  const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, onDispose: vi.fn(), saveState, navigate: vi.fn(), setScope: vi.fn(), services: { version: 1, sourceAdmin: { version: 1, snapshot, submit, pending, receipt, acknowledge, validateReplacement } } };
-  return { container, state, context, activity, journal, snapshot, submit, pending, receipt, acknowledge, validateReplacement, saveState, setSnapshot(value: SourceAdminSnapshotV1) { current = value; }, current: () => current };
+  const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, onDispose: vi.fn(), saveState, navigate: vi.fn(), setScope: vi.fn(), services: { version: 1, sourceAdmin: { version: 1, snapshot, submit, retry, pending, receipt, acknowledge, validateReplacement } } };
+  return { container, state, context, activity, journal, snapshot, submit, retry, pending, receipt, acknowledge, validateReplacement, saveState, setSnapshot(value: SourceAdminSnapshotV1) { current = value; }, current: () => current };
 }
 function button(f: ReturnType<typeof fixture>, label: string) { const value = [...f.container.querySelectorAll('button')].find(item => item.textContent === label); if (!value) throw new Error(`Missing ${label}: ${f.container.textContent}`); return value; }
 function field(f: ReturnType<typeof fixture>, label: string) { const value = [...f.container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('[aria-label]')].find(item => item.getAttribute('aria-label') === label); if (!value) throw new Error(`Missing ${label}`); return value; }
@@ -53,7 +57,7 @@ describe('source settings authored panel', () => {
     const f = fixture(); await panel.mount(f.container, f.context); await open(f); edit(f, 'Source label', 'Original submission'); button(f, 'Apply source configuration').click();
     await vi.waitFor(() => expect(f.submit).toHaveBeenCalledOnce()); await vi.waitFor(() => expect(button(f, 'Retry original settings request').disabled).toBe(false));
     expect(f.saveState.mock.invocationCallOrder[0]).toBeLessThan(f.submit.mock.invocationCallOrder[0]!);
-    edit(f, 'Source label', 'Newer draft'); button(f, 'Retry original settings request').click(); await vi.waitFor(() => expect(f.submit).toHaveBeenCalledTimes(2)); expect(f.submit.mock.calls[1]?.[0]).toEqual(f.submit.mock.calls[0]?.[0]);
+    edit(f, 'Source label', 'Newer draft'); button(f, 'Retry original settings request').click(); await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId: f.journal[0]?.command.requestId }, expect.any(AbortSignal))); expect(f.submit).toHaveBeenCalledOnce(); expect(field(f, 'Source label').value).toBe('Newer draft');
   });
   it('does not acknowledge outcomes if saving the consumed state fails', async () => {
     const f = fixture(); const input = { version: 1 as const, kind: 'runtime' as const, repo, epoch: f.current().runtimes[0]!.epoch, expectedRevision: 0, enabled: true }; const requestId = '33333333-3333-4333-8333-333333333333';
@@ -99,4 +103,21 @@ describe('source settings authored panel', () => {
   it('never overwrites unsupported saved state', async () => {
     const f = fixture(); await panel.mount(f.container, { ...f.context, state: { ...f.state, savedState: { version: 2, value: { future: true } } } }); expect(f.container.textContent).toContain('unsupported'); expect(f.snapshot).not.toHaveBeenCalled(); expect(f.saveState).not.toHaveBeenCalled();
   });
+});
+
+it.each([['configuration', panel], ['automatic', automatic]] as const)('%s retry never recreates a peer-acknowledged request or changes a newer reservation', async (_name, module) => {
+  const f = fixture(); const input = { version: 1 as const, kind: 'runtime' as const, repo, epoch: f.current().runtimes[0]!.epoch, expectedRevision: 0, enabled: true };
+  const requestId = '33333333-3333-4333-8333-333333333333'; f.journal.push({ command: { ...input, requestId }, receipt: null });
+  await module.mount(f.container, f.context); await vi.waitFor(() => expect(button(f, 'Retry original settings request').disabled).toBe(false));
+  const next = { command: { ...input, requestId: '55555555-5555-4555-8555-555555555555', enabled: false }, receipt: null };
+  f.journal.splice(0, f.journal.length, next); button(f, 'Retry original settings request').click();
+  await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId }, expect.any(AbortSignal)));
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Original request unavailable: not-found'));
+  expect(f.journal).toEqual([next]); expect(f.submit).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled();
+});
+it('keeps source settings receipt checks available when exact retry is absent', async () => {
+  const f = fixture(); delete f.context.services.sourceAdmin!.retry;
+  f.journal.push({ command: { version: 1, kind: 'runtime', repo, epoch: f.current().runtimes[0]!.epoch, expectedRevision: 0, enabled: true, requestId: '33333333-3333-4333-8333-333333333333' }, receipt: null });
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(button(f, 'Check saved request').disabled).toBe(false));
+  expect(button(f, 'Retry original settings request').disabled).toBe(true); button(f, 'Retry original settings request').click(); expect(f.submit).not.toHaveBeenCalled(); expect(f.retry).not.toHaveBeenCalled();
 });
