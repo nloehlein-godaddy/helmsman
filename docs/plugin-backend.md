@@ -1,6 +1,6 @@
 # Experimental usage and pricing plugins
 
-This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [agent providers](agent-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Execution hosts and native terminal/browser providers are extracted. [Workflow providers](workflow-authoring.md) are accepted and pushed through `eb8ad1a`. [Trigger providers](trigger-authoring.md) are in active implementation, pending final acceptance; broader compatibility retirement remains pending.
+This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [agent providers](agent-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Execution hosts and native terminal/browser providers are extracted. [Workflow providers](workflow-authoring.md) are accepted and pushed through `eb8ad1a`. [Trigger providers](trigger-authoring.md) are reviewed and pushed through `12a62c9`; the Phase F aggregate gate and Phase G compatibility retirement remain open.
 
 ## Build an independent package
 
@@ -59,7 +59,7 @@ The selected page preserves header scope; explicit panel `All` includes configur
 
 ## Campaign coordination boundary
 
-Campaign presentation uses `helmsman/campaigns@1`. Core commits each validated campaign mutation and its exact-request receipt atomically in the existing campaign database. Revision, preview-digest, task-attempt and configured-galleon checks preserve user intent. The existing dispatcher retains phase ordering, durable claims, stable run IDs and concurrency gates; a command receipt confirms recorded state, not worker execution. The active trigger implementation moves candidate ordering into a selected campaign policy, pending final acceptance; core keeps those coordination gates. See [Campaign authoring](campaigns-authoring.md).
+Campaign presentation uses `helmsman/campaigns@1`. Core commits each validated campaign mutation and its exact-request receipt atomically in the existing campaign database. Revision, preview-digest, task-attempt and configured-galleon checks preserve user intent. The existing dispatcher retains phase ordering, durable claims, stable run IDs and concurrency gates; a command receipt confirms recorded state, not worker execution. The selected campaign policy owns candidate ordering; core keeps those coordination gates. Trigger extraction is reviewed and pushed through `12a62c9`. See [Campaign authoring](campaigns-authoring.md).
 
 ## Measured usage and estimates
 
@@ -106,7 +106,7 @@ Select coding, review and branch independently with `select-workflow <mode> <plu
 
 ## Trigger providers
 
-Trigger extraction is active, pending final acceptance. Backend-only packages declare `helmsman/trigger@1` and matching `triggers` access: `campaign-candidates`, `review-discovery` or `authenticated-event`. A trigger package contains only trigger capabilities. `TriggerBackendContextV1` exposes `pluginId`, immutable nonsecret `settings`, `signal`, `registerTrigger` and `onDispose`; it supplies no launch, queue, credential or storage authority.
+Trigger extraction is reviewed and pushed through `12a62c9`. Backend-only packages declare `helmsman/trigger@1` and matching `triggers` access: `campaign-candidates`, `review-discovery` or `authenticated-event`. A trigger package contains only trigger capabilities. `TriggerBackendContextV1` exposes `pluginId`, immutable nonsecret `settings`, `signal`, `registerTrigger` and `onDispose`; it supplies no launch, queue, credential or storage authority.
 
 Campaign decisions are synchronous choices over eligible candidate handles. Review scans are bounded, read-only invocations using selected communication/native-browser/PR providers; core validates observed handles and exact target heads. Webhook parsers receive authenticated JSON only. Core owns polling from selected provider metadata, cancellation, revision fences, durable claims, admission and publication.
 

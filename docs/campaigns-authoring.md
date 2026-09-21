@@ -39,7 +39,7 @@ npm run plugins -- select helmsman/campaigns-page example.campaigns/page
 
 Saved empty layouts and missing or disabled selected contributions remain authoritative. See [plugin packages](plugin-packages.md) and [panel authoring](panel-authoring.md) for installation and lifecycle conventions.
 
-The existing campaign store and dispatcher remain behind this public service. Durable task claims, stable run IDs, per-galleon writer exclusion, workflow availability, phase ordering and concurrency gates remain in force. Scheduling, execution hosts and workflows are accepted. The active trigger implementation supplies campaign candidate ordering through `helmsman/trigger@1`, pending final acceptance.
+The existing campaign store and dispatcher remain behind this public service. Durable task claims, stable run IDs, per-galleon writer exclusion, workflow availability, phase ordering and concurrency gates remain in force. Scheduling, execution hosts and workflows are accepted. The selected trigger supplies campaign candidate ordering through `helmsman/trigger@1`. Trigger extraction is reviewed and pushed through `12a62c9`.
 
 Workflow choices come from available coding contributions, not a hardcoded Coding entry. Versioned contribution references use `<plugin-id>/<local-id>@1`; the old `coding@1` reference remains a compatibility alias for new admission. A selected unavailable workflow blocks launch. Each admitted voyage retains its original workflow rather than following a later campaign/default change. See [workflow authoring](workflow-authoring.md).
 

@@ -139,7 +139,7 @@ Jira and GitHub settings have independent authored page/panel packages with name
 
 Scheduling backends declare `helmsman/scheduling@1`, matching `scheduling` access metadata and an SDK-only `registerScheduling` implementation. Select independently through `select-scheduling`; provider absence blocks automatic decisions without changing existing run bindings. See [scheduling authoring](scheduling-authoring.md).
 
-Agent backends declare `helmsman/agent@1` with only process-description access and register an SDK-only provider. A selection retains its exact writer, ordered reviewers, settings, artifact closure and metadata for recovery. Use `select-agent` and `select-agent-reviewers`; package configuration is namespaced. The shipped Codex, Claude Code and command packages are extracted and have passed focused and installed acceptance checks, execution hosts and native terminal/browser providers are accepted, workflow extraction is accepted and pushed through `eb8ad1a`, and trigger extraction is active, pending final acceptance.
+Agent backends declare `helmsman/agent@1` with only process-description access and register an SDK-only provider. A selection retains its exact writer, ordered reviewers, settings, artifact closure and metadata for recovery. Use `select-agent` and `select-agent-reviewers`; package configuration is namespaced. The shipped Codex, Claude Code and command packages are extracted and have passed focused and installed acceptance checks, execution hosts and native terminal/browser providers are accepted, workflow extraction is accepted and pushed through `eb8ad1a`, and trigger extraction is reviewed and pushed through `12a62c9`.
 
 Execution-host packages declare `helmsman/execution-host@1` with `executionHosts` execution access and register through the restricted `ExecutionHostBackendModuleV1` context. Use `select-execution-host`; missing or disabled selections block new work without fallback. Captured bindings, settings and run configuration govern recovery and isolated stages. The local and Docker author packages bundle the public Node receipt helpers separately from the browser SDK. See [execution host authoring](execution-host-authoring.md).
 
@@ -152,7 +152,7 @@ Use `select-agent-reviewers ID[,ID...]` for the complete ordered reviewer list. 
 
 ## Trigger selection and settings
 
-Trigger extraction is active, pending final acceptance. Each role has an independent persisted selection:
+Trigger extraction is reviewed and pushed through `12a62c9`. Each role has an independent persisted selection:
 
 | Role | Shipped contribution | Policy settings |
 |---|---|---|

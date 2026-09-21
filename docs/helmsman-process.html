@@ -184,7 +184,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Lost response</h3><p>Inspect the original receipt or explicitly retry the exact retained UUID and input. Recovery cannot reserve another campaign or task attempt.</p></article>
 <article class="flow-step"><h3>Recorded state → existing dispatcher</h3><p>A receipt confirms campaign state, not worker launch or termination. Phase ordering, concurrency, one writer per galleon, durable claims and stable run IDs remain in force. Finish and stop retain explicit confirmation.</p></article>
 </div>
-<p class="limit-note">Missing or disabled selections preserve layouts and command evidence. The active trigger implementation moves candidate ordering into the selected campaign policy; core retains durable claims and execution gates. Final trigger acceptance is pending. See <a href="campaigns-authoring.md">Campaign authoring</a>.</p>
+<p class="limit-note">Missing or disabled selections preserve layouts and command evidence. The selected campaign policy owns candidate ordering; core retains durable claims and execution gates. Trigger extraction is reviewed and pushed through <code>12a62c9</code>; the Phase F aggregate gate and Phase G remain open. See <a href="campaigns-authoring.md">Campaign authoring</a>.</p>
 </section>
 <section aria-labelledby="local-git-heading">
 <h2 class="section-heading" id="local-git-heading">Local Git confirmation and recovery</h2>
@@ -213,7 +213,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Retained workflow prompt → SDK-only agent</h3><p>The retained workflow renders authored prompts. Core resolves effective model/effort and guards admission, execution, recovery and completion. Agent metadata declares skills, delegation, Docker and cost semantics.</p></article>
 <article class="flow-step"><h3>Validated events → explicit failure gate</h3><p>A result failure is persisted as attempt evidence and fails an exit-zero process. Unknown is not failure. Codex uses review-agent metadata; Claude uses native subagents.</p></article>
 </div>
-<p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent, execution-host and native terminal extraction have passed acceptance; workflow extraction is accepted and pushed through eb8ad1a; trigger extraction is active, pending final acceptance.</p>
+<p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent, execution-host and native terminal extraction have passed acceptance; workflow extraction is accepted and pushed through eb8ad1a; trigger extraction is reviewed and pushed through <code>12a62c9</code>.</p>
 </section>
 <section aria-labelledby="workflow-provider-heading">
 <h2 class="section-heading" id="workflow-provider-heading">Workflow selection, guarded stages and continuation</h2>
@@ -277,7 +277,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </section>
 <section aria-labelledby="trigger-heading">
 <h2 class="section-heading" id="trigger-heading">Trigger selection, capture and guarded dispatch</h2>
-<p class="section-intro">Trigger extraction is active, pending final acceptance. Campaign, Slack review, GitHub review and GitHub webhook roles have independent selections. Default restores a shipped role; disabled or null disables it. Selected metadata supplies polling intervals.</p>
+<p class="section-intro">Trigger extraction is reviewed and pushed through <code>12a62c9</code>. Campaign, Slack review, GitHub review and GitHub webhook roles have independent selections. Default restores a shipped role; disabled or null disables it. Selected metadata supplies polling intervals.</p>
 <div class="host-options">
 <article class="flow-step"><h3>Selected policy → bounded observations</h3><p>Campaign policies choose eligible candidate handles. Review policies read through selected communication, browser and PR providers with captured source revisions and observed event/target handles.</p></article>
 <article class="flow-step"><h3>Core credential → raw-body HMAC → selected parser</h3><p>Authenticate before duplicate lookup. The parser sees authenticated JSON only and returns one normalized intent or an ignored result. Ignored events also retain their digest.</p></article>

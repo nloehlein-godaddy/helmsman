@@ -249,7 +249,7 @@ flowchart TD
     Preview --> Confirm[Explicit confirmation imports queued tasks<br/>Import alone does not start work]
 ```
 
-A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. The active trigger implementation moves candidate ordering into the selected campaign policy; core retains durable claims and execution gates. Final trigger acceptance is pending. See [Campaign authoring](campaigns-authoring.md).
+A receipt confirms campaign state, not worker launch or termination. Missing or disabled selected plugins preserve layouts and command evidence. Start, pause, resume, finish and stop keep existing coordination gates; finish/stop retain explicit confirmation. The selected campaign policy owns candidate ordering; core retains durable claims and execution gates. Trigger extraction is reviewed and pushed through `12a62c9`; the Phase F aggregate gate and Phase G remain open. See [Campaign authoring](campaigns-authoring.md).
 
 ## Local Git confirmation and recovery
 
@@ -305,7 +305,7 @@ flowchart TD
     Exit --> Recovery
 ```
 
-Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent, execution-host and native terminal extraction have passed acceptance; workflow extraction is accepted and pushed through eb8ad1a; trigger extraction is active, pending final acceptance.
+Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent, execution-host and native terminal extraction have passed acceptance; workflow extraction is accepted and pushed through eb8ad1a; trigger extraction is reviewed and pushed through `12a62c9`.
 
 ## Workflow selection, guarded stages and continuation
 
@@ -424,7 +424,7 @@ flowchart TD
 
 ## Trigger selection, capture and guarded dispatch
 
-Trigger extraction is active, pending final acceptance. The roles `campaign`, `slack-review`, `github-review` and `github-webhook` have independent selections. `default` restores a shipped role; `disabled` or `null` disables it. Polling intervals come from selected trigger metadata.
+Trigger extraction is reviewed and pushed through `12a62c9`. The roles `campaign`, `slack-review`, `github-review` and `github-webhook` have independent selections. `default` restores a shipped role; `disabled` or `null` disables it. Polling intervals come from selected trigger metadata.
 
 ```mermaid
 flowchart TD
