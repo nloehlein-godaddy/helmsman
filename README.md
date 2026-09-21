@@ -24,7 +24,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 ## Plugin implementation status
 
-Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service while the existing core bridge remains the Phase E adapter. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Hosts, workflows and native terminal implementations remain pending, followed by Phase G compatibility retirement.
+Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use replaceable packages and public services. Terminal uses an authored page and panel through the public terminal service while the existing core bridge remains the Phase E adapter. Campaigns use an authored composition with scoped campaign reads and atomic mutation receipts while the existing dispatcher remains in core. Task-source providers support Jira and local Todos together. The task packages own `/todos`, `/triage`, `/bugs` and `/source-settings`; the Communication package owns `/communication` and the selected notification header, with Slack delivery in a separate backend provider. Local Git uses an authored page/panel linked from Config; core `/config` retains runtime configuration and customization. Phase F scheduling is delivered through a public backend contract; agent-provider extraction has passed focused and installed acceptance checks. Execution-host extraction is active, including Docker child stages; workflows, triggers and native terminal implementations remain pending, followed by Phase G compatibility retirement.
 
 Start with [package installation](docs/plugin-packages.md), [panel authoring](docs/panel-authoring.md), [task-source authoring](docs/task-source-authoring.md), and the [implementation ledger](docs/plugin-implementation-progress.md). The [voyage flow diagrams](docs/helmsman-process.md) include the public task read, command and recovery boundaries. [E4](docs/plugin-phase-e4-implementation.md) run inspection, streamed downloads, provisional viewer/history pages and durable clarification services are reviewed and pushed through `3806090`, including exact-request retry, clarification alias selection and public PR inspection. The [run-inspection contract](docs/run-inspect-authoring.md) and [presentation guide](docs/run-presentation-authoring.md) are available. Shared viewer convergence and authored question/contact panels are delivered; `/runs` now selects an authored composition with history, the public PR panel and the shared auxiliary viewer. The `/prs` alias selects the public PR composition.
 
@@ -489,10 +489,25 @@ values remain readable for legacy recovery. The adapter seeds the initial select
 once; command text is never copied automatically because it may contain credentials.
 Configure a nonsecret `commandTemplate` explicitly; Config cannot edit retired keys.
 
-Core renders prompts, chooses effective model/effort, owns workflow/host/recovery and
+Core renders prompts, chooses effective model/effort, owns admission, workflow and recovery, and
 validates every provider command and event. A provider-reported result failure makes
 the run fail even when its process exits zero; an unknown result does not. Providers
 do not emit core completion events.
+
+### Execution hosts
+
+Select a host with `helmsman plugins select-execution-host <plugin/id>`. The shipped
+providers are `helmsman.host-local/detached`, `helmsman.host-local/cmux`,
+`helmsman.host-local/wezterm` and `helmsman.host-docker/docker`. Configure namespaced
+settings and restart after selection. Docker's `image` setting resolves to a fixed
+image digest for each run; native terminal settings belong to the local package.
+
+Every admitted run retains its provider artifact, settings and run configuration.
+Launch, discovery, stop, recovery and isolated child stages use that retained
+provider after settings/default changes or disablement. Disablement blocks new
+admission. Unknown ownership blocks recovery without launching a replacement.
+Core retains durable receipts, concurrency, workspace and publication safeguards.
+See [execution host authoring](docs/execution-host-authoring.md).
 
 ### Caps
 
@@ -617,7 +632,7 @@ Recovery. See [Communication authoring](docs/communication-authoring.md).
 | `AUTO_CLAIM_INTERVAL_MS` | `60000` | One-time migration seed for the shipped scheduling plugin’s `intervalMs`. Does not enable automatic starts or control PR watchers. | Bootstrap only; then configure plugin settings |
 | `AGENTS_ROOT` | Server working directory | Parent directory of target repo checkouts, e.g. `/absolute/path/to/agent-repos`; not the path to a single checkout. | Restart |
 | `RUNS_DIR` | `<AGENTS_ROOT>/.helmsman-runs` | Directory for detached-run specifications, logs, and exit records. Created on startup; use a writable absolute path. | Restart |
-| `RUN_HOST` | Detached process | Set `cmux` to prefer new cmux workspaces for runs. Falls back to detached processes when cmux is unavailable. Slack reading can use cmux regardless of this setting. | Restart |
+| `RUN_HOST` | Detached process | One-time execution-host selection seed: `detached`, `cmux`, `wezterm` or `docker`. Unknown names fail; unavailable hosts never fall back. After migration use `plugins select-execution-host`. | Bootstrap only; then plugin selection and restart |
 | `HELMSMAN_DB` | `<server working directory>/.helmsman.sqlite` | SQLite file for runs, config overrides, watcher state, and notifications. Use a writable path and retain it across restarts. A saved Jira token is stored here, so treat this file as sensitive. | Restart |
 | `HELMSMAN_PORT` | `8787` | Local API/static-server port, bound to `127.0.0.1`; the Vite API proxy uses the same value. | Restart server and Vite |
 

@@ -14,6 +14,7 @@ import type { DurableRunnerCoordinator } from './runner';
 import { parsePrMetadata, readPrePrReport } from './pre-pr-runtime';
 import { parsePrePrReview, PrePrSummaryTooLongError } from './pre-pr-workflow';
 import { createRunArtifactStore, prePrArtifactFilename } from './artifacts';
+import { parseExecutionHostRetainedProviderV1 } from './execution-host-providers';
 import { parseAgentSelectionV1 } from './agent-providers';
 import { persistenceHash } from './persistence';
 
@@ -93,6 +94,12 @@ export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
   if (selection && persistenceHash(originalTask?.agentRuntime) !== persistenceHash(task.agentRuntime)) {
     throw new ResumeError('The retained agent artifact closure differs from the original worker specification.');
   }
+  if (task.executionHost !== undefined) {
+    parseExecutionHostRetainedProviderV1(task.executionHost);
+    for (const field of ['executionHost', 'hostRuntime', 'hostConfiguration'] as const) {
+      if (persistenceHash(task[field]) !== persistenceHash(originalTask?.[field])) throw new ResumeError('The retained execution host differs from the original worker specification.');
+    }
+  }
   const savedSettings = record(original?.settings);
   const settings = {} as PrePrSettings;
   for (const definition of PRE_PR_SETTING_DEFINITIONS) {
@@ -169,7 +176,10 @@ export async function resumeFailedPrePrRun(row: RunRow, deps: { publication?: Pr
   }
   const retainedAgentRuntime = checkpoint.task.agentRuntime ? persistenceHash(checkpoint.task.agentRuntime) : null;
   const retainedAgentSelection = checkpoint.task.agentSelection ? persistenceHash(checkpoint.task.agentSelection) : null;
+  const hostState = (task: AgentTask) => persistenceHash([task.executionHost ?? null, task.hostRuntime ?? null, task.hostConfiguration ?? null]);
+  const retainedHost = hostState(checkpoint.task);
   if (deps.prepareTask) checkpoint.task = await deps.prepareTask(checkpoint.task);
+  if (hostState(checkpoint.task) !== retainedHost) throw new ResumeError('Continuation must retain the original execution host configuration.');
   if ((checkpoint.task.agentRuntime ? persistenceHash(checkpoint.task.agentRuntime) : null) !== retainedAgentRuntime
     || (checkpoint.task.agentSelection ? persistenceHash(checkpoint.task.agentSelection) : null) !== retainedAgentSelection) {
     throw new ResumeError('Continuation must retain the original agent provider records and artifact closure.');

@@ -10,8 +10,8 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const marker = '.helmsman-distribution.json';
 const ignoredSource = /(?:\.test\.[cm]?[jt]s|\.d\.ts)$/;
 const nodeMajor = Number(process.versions.node.split('.')[0]);
-const authorPackages = ['agent-codex', 'agent-claude', 'agent-command', 'scheduling', 'profile', 'github-settings', 'jira-settings', 'local-git', 'campaigns', 'terminal', 'compat-pr', 'communication', 'github', 'slack', 'runs', 'compat-clarifications', 'clarifications', 'suggested-contacts', 'run-viewer', 'run-history', 'costs', 'pricing', 'todos', 'todos-ui', 'source-settings', 'triage', 'bugs', 'jira', 'local-tasks-alternative', 'helm', 'backlog', 'helm-alternative', 'backlog-alternative', 'running', 'recent', 'underway', 'newrun', 'repoprs', 'shipped', 'activity'];
-const authorGuides = ['agent-authoring.md', 'scheduling-authoring.md', 'profile-authoring.md', 'integration-settings-authoring.md', 'local-git-authoring.md', 'campaigns-authoring.md', 'terminal-authoring.md', 'communication-authoring.md', 'pull-request-authoring.md', 'panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'pull-request-inspect-authoring.md', 'download-authoring.md', 'run-presentation-authoring.md', 'clarification-authoring.md', 'authored-clarifications.md', 'clarification-backend.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md', 'helmsman-process.md'];
+const authorPackages = ['agent-codex', 'agent-claude', 'agent-command', 'host-local', 'host-docker', 'scheduling', 'profile', 'github-settings', 'jira-settings', 'local-git', 'campaigns', 'terminal', 'compat-pr', 'communication', 'github', 'slack', 'runs', 'compat-clarifications', 'clarifications', 'suggested-contacts', 'run-viewer', 'run-history', 'costs', 'pricing', 'todos', 'todos-ui', 'source-settings', 'triage', 'bugs', 'jira', 'local-tasks-alternative', 'helm', 'backlog', 'helm-alternative', 'backlog-alternative', 'running', 'recent', 'underway', 'newrun', 'repoprs', 'shipped', 'activity'];
+const authorGuides = ['agent-authoring.md', 'execution-host-authoring.md', 'scheduling-authoring.md', 'profile-authoring.md', 'integration-settings-authoring.md', 'local-git-authoring.md', 'campaigns-authoring.md', 'terminal-authoring.md', 'communication-authoring.md', 'pull-request-authoring.md', 'panel-authoring.md', 'task-source-authoring.md', 'run-inspect-authoring.md', 'pull-request-inspect-authoring.md', 'download-authoring.md', 'run-presentation-authoring.md', 'clarification-authoring.md', 'authored-clarifications.md', 'clarification-backend.md', 'plugin-packages.md', 'plugin-backend.md', 'plugin-page-registry.md', 'distribution.md', 'helmsman-process.md'];
 
 async function exists(path) {
   try { await lstat(path); return true; }
@@ -170,8 +170,9 @@ function transformImports(filename, dependencies) {
   function specifier(node) {
     if (!node || !ts.isStringLiteralLike(node)) return node;
     let original = node.text;
-    if (original === '@helmsman/plugin-sdk') {
-      original = relative(dirname(filename), join(root, 'src/plugins/sdk.ts')).split(sep).join('/');
+    if (original === '@helmsman/plugin-sdk' || original === '@helmsman/plugin-sdk/node') {
+      const entry = original.endsWith('/node') ? 'execution-host-node.ts' : 'sdk.ts';
+      original = relative(dirname(filename), join(root, 'src/plugins', entry)).split(sep).join('/');
       if (!original.startsWith('.')) original = `./${original}`;
     }
     if (!original.startsWith('.')) return node;
@@ -238,8 +239,8 @@ async function copyDependencies(staging, dependencies) {
 
 async function buildSdk(destination, version) {
   const sourceRoot = join(root, 'src', 'plugins');
-  const publicModules = new Set(['agent-provider.ts', 'scheduling-provider.ts', 'profile.ts', 'github-settings.ts', 'jira-settings.ts', 'local-git.ts', 'campaigns.ts', 'terminal.ts', 'terminal-route.ts', 'sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'task-views.ts', 'task-edit.ts', 'todo-legacy-recovery.ts', 'task-editor-contract.ts', 'source-command.ts', 'source-settings.ts', 'source-admin.ts', 'source-contract-validation.ts', 'run-read.ts', 'run-inspect.ts', 'download.ts', 'presentation.ts', 'clarification-read.ts', 'clarification-command.ts', 'suggested-contact-admin.ts', 'clarification-validation.ts', 'run-command.ts', 'pull-request-read.ts', 'pull-request-inspect.ts', 'pull-request-command.ts', 'pull-request-provider.ts', 'communication-provider.ts', 'communication.ts', 'communication-command.ts', 'activity-read.ts']);
-  const queued = new Set([join(sourceRoot, 'sdk.ts')]);
+  const publicModules = new Set(['agent-provider.ts', 'execution-host.ts', 'execution-host-node.ts', 'scheduling-provider.ts', 'profile.ts', 'github-settings.ts', 'jira-settings.ts', 'local-git.ts', 'campaigns.ts', 'terminal.ts', 'terminal-route.ts', 'sdk.ts', 'usage.ts', 'backend.ts', 'services.ts', 'outcomes.ts', 'tasks.ts', 'composition.ts', 'task-read.ts', 'task-views.ts', 'task-edit.ts', 'todo-legacy-recovery.ts', 'task-editor-contract.ts', 'source-command.ts', 'source-settings.ts', 'source-admin.ts', 'source-contract-validation.ts', 'run-read.ts', 'run-inspect.ts', 'download.ts', 'presentation.ts', 'clarification-read.ts', 'clarification-command.ts', 'suggested-contact-admin.ts', 'clarification-validation.ts', 'run-command.ts', 'pull-request-read.ts', 'pull-request-inspect.ts', 'pull-request-command.ts', 'pull-request-provider.ts', 'communication-provider.ts', 'communication.ts', 'communication-command.ts', 'activity-read.ts']);
+  const queued = new Set([join(sourceRoot, 'sdk.ts'), join(sourceRoot, 'execution-host-node.ts')]);
   await mkdir(destination);
   for (const source of queued) {
     const local = relative(sourceRoot, source);
@@ -264,8 +265,13 @@ async function buildSdk(destination, version) {
   }
   await writeFile(join(destination, 'index.d.ts'), "export * from './sdk.js';\n");
   await writeFile(join(destination, 'index.js'), "export * from './sdk.js';\n");
+  await writeFile(join(destination, 'node.d.ts'), "export * from './execution-host-node.js';\n");
+  await writeFile(join(destination, 'node.js'), "export * from './execution-host-node.js';\n");
   await writeFile(join(destination, 'package.json'), `${JSON.stringify({ name: '@helmsman/plugin-sdk', version,
-    type: 'module', types: './index.d.ts', main: './index.js', exports: { '.': { types: './index.d.ts', import: './index.js' } } }, null, 2)}\n`);
+    type: 'module', types: './index.d.ts', main: './index.js', exports: {
+      '.': { types: './index.d.ts', import: './index.js' },
+      './node': { types: './node.d.ts', import: './node.js' },
+    } }, null, 2)}\n`);
 }
 
 export async function buildDistribution(options = {}) {

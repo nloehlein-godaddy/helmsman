@@ -7,6 +7,7 @@ const meta = buildMeta();
 export default defineConfig({
   resolve: {
     alias: {
+      '@helmsman/plugin-sdk/node': fileURLToPath(new URL('./src/plugins/execution-host-node.ts', import.meta.url)),
       '@helmsman/plugin-sdk': fileURLToPath(new URL('./src/plugins/sdk.ts', import.meta.url)),
     },
   },

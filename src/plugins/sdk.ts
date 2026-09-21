@@ -121,3 +121,5 @@ export interface PluginPageModule {
 export * from './scheduling-provider';
 
 export * from './agent-provider';
+
+export * from './execution-host';

@@ -210,10 +210,20 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <h2 class="section-heading" id="agent-provider-heading">Agent-provider selection and execution</h2>
 <div class="host-options">
 <article class="flow-step"><h3>Immutable selection → retained closure</h3><p>One writer and ordered reviewers retain exact package artifacts, nonsecret settings and provider metadata. Recovery resolves that retained selection, never a current default.</p></article>
-<article class="flow-step"><h3>Core prompt/workflow → SDK-only provider</h3><p>Core renders prompts and effective model/effort, owns host, workflow, recovery and completion. Provider metadata declares skills, delegation, Docker and cost semantics.</p></article>
+<article class="flow-step"><h3>Core prompt/workflow → SDK-only provider</h3><p>Core renders prompts and effective model/effort, owns admission, workflow, recovery and completion. Provider metadata declares skills, delegation, Docker and cost semantics.</p></article>
 <article class="flow-step"><h3>Validated events → explicit failure gate</h3><p>A result failure is persisted as attempt evidence and fails an exit-zero process. Unknown is not failure. Codex uses review-agent metadata; Claude uses native subagents.</p></article>
 </div>
-<p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent extraction has passed focused and installed acceptance checks; hosts, workflows and triggers remain Phase F work.</p>
+<p class="limit-note">Configure the selected package, then use <code>select-agent</code> and <code>select-agent-reviewers</code>. The legacy adapter seeds selection once. Command text is never copied automatically; explicitly configure a nonsecret <code>commandTemplate</code>. Empty command configuration has no implicit Codex fallback. Agent extraction has passed focused and installed acceptance checks; execution-host extraction is active; workflows, native terminals and triggers remain Phase F work.</p>
+</section>
+<section aria-labelledby="execution-host-heading">
+<h2 class="section-heading" id="execution-host-heading">Execution-host selection and recovery</h2>
+<div class="host-options">
+<article class="flow-step"><h3>Selection → capture → admission</h3><p>Retain the exact host package, settings and nonsecret run configuration alongside agent and workflow bindings. Core reserves scope and concurrency; Docker captures an immutable image digest.</p></article>
+<article class="flow-step"><h3>Launch → ownership evidence → attachment</h3><p>The retained provider launches and discovers a durable attempt. Matching native ownership and wrapper receipts permit monitoring and stop. Missing or ambiguous evidence preserves the reservation and workspace; no fallback or duplicate launch occurs.</p></article>
+<article class="flow-step"><h3>Retained stages → core completion gates</h3><p>Isolated child stages use the original host, mapped paths and a scoped gateway. Core verifies exit evidence, reports and publication gates. Gateway tokens never enter immutable snapshots.</p></article>
+<article class="flow-step"><h3>Restart or changed defaults → original provider</h3><p>Recovery loads the original artifact and captured settings. Shutdown releases owned leases; bounded startup retry waits for crash leases without overlapping attachment. Disablement blocks new admission while existing obligations retain their provider. Unavailable retained artifacts require recovery, not substitution.</p></article>
+</div>
+<p class="limit-note">Use <code>select-execution-host</code> and restart after selection. Local detached/cmux/WezTerm and Docker packages use the same contract as authored replacements. Backend receipt helpers live only in <code>@helmsman/plugin-sdk/node</code>. See <a href="execution-host-authoring.md">execution host authoring</a>.</p>
 </section>
 <section aria-labelledby="profile-navigation-heading">
 <h2 class="section-heading" id="profile-navigation-heading">Header identity and installed-page discovery</h2>
@@ -256,7 +266,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="host-options">
 <article class="flow-step"><h3>Trusted local host · default</h3><p>Agent stages use the existing local runtime and its host permissions.</p></article>
-<article class="flow-step"><h3>Docker agent stages · optional</h3><p>Pin the image; use private workspaces and read-only skills. A run-scoped gateway permits provider operations and restricted GitHub reads. Upstream credentials remain on the host.</p></article>
+<article class="flow-step"><h3>Retained isolated host package</h3><p>Pin the image; use private workspaces and read-only skills. A run-scoped gateway permits provider operations and restricted GitHub reads. Upstream credentials remain on the host.</p></article>
 </div>
 <p class="section-intro" style="margin-top: 14px">The host supervises, verifies evidence, and publishes. Missing skills, snapshot drift, or unavailable Docker requirements fail preflight; isolated execution never falls back silently to the local host.</p>
 <div class="flow-arrow" aria-hidden="true">↓</div>
@@ -396,7 +406,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <section class="notes" aria-label="Flow boundaries">
 <div><h2>Review selection and concurrency</h2><p>The writer CLI must be available in the selected execution environment. If the alternate CLI is unavailable, one reviewer is allowed even when two are configured. Lead sessions run sequentially; prompts request concurrent focused sub-agents, but runtime does not verify delegation.</p></div>
 <div><h2>Round and session limits</h2><p>Configuration allows 1–2 reviewers, 1–5 rounds, and 5–180 minutes per session. Summary correction gets one separate session per report and does not use another review round. The 2,000-character limit uses JavaScript string length, including whitespace and bylines.</p></div>
-<div><h2>Resume preserved work</h2><p>A valid checkpoint verifies saved artifact hashes and its frozen snapshot, skips implementation, and reuses the original reports for its saved review round. The current branch, base, head, and complete reviewer set must match. Legacy checkpoints without manifests use an explicit compatibility path. Oversized saved summaries can use the same correction step.</p></div>
+<div><h2>Resume preserved work</h2><p>A valid checkpoint verifies saved artifact hashes and its frozen snapshot, skips implementation, and reuses the original reports for its saved review round. The current branch, base, head, and complete reviewer set must match. Bound agent checkpoints require immutable manifests; legacy checkpoints retain an explicit compatibility path. Accepted corrected summaries resume from their verified corrected artifacts. Oversized saved summaries can use the same correction step.</p></div>
 <div><h2>Publication and follow-up boundaries</h2><p>Pre-PR voyages have one outer attempt. Failures preserve work; a push may already have happened if a later publication check fails. Jira transitions apply to eligible Jira tasks, not todos or freeform tasks. The separate Helmsman review waits for availability and may reuse an existing review of the current head.</p></div>
 </section>
 <footer>Static HTML and SVG · No external scripts, fonts, or network dependencies. <a href="moonunit-adoption.md">Adoption evidence</a> · <a href="docker-run-host.md">Docker setup</a> · <a href="webhooks.md">Webhook setup</a></footer>

@@ -1,0 +1,31 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 1,
+    "id": "helmsman.host-local",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": []
+  },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "backend.js",
+    "provides": [
+      { "id": "helmsman/execution-host", "version": 1, "localId": "detached" },
+      { "id": "helmsman/execution-host", "version": 1, "localId": "cmux" },
+      { "id": "helmsman/execution-host", "version": 1, "localId": "wezterm" }
+    ],
+    "executionHosts": {
+      "detached": { "access": ["execution"] },
+      "cmux": { "access": ["execution"] },
+      "wezterm": { "access": ["execution"] }
+    },
+    "settings": {
+      "cmuxSocketPath": { "type": "string", "default": "", "maxLength": 4096 },
+      "weztermBin": { "type": "string", "default": "wezterm", "maxLength": 4096 },
+      "weztermRunWorkspace": { "type": "string", "default": "helmsman-runs", "maxLength": 128 }
+    },
+    "storageVersion": 1
+  }
+}

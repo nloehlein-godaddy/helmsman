@@ -84,6 +84,8 @@ The E3 gates independently compile the shipped Jira provider and task presentati
 
 The [backend author guide](plugin-backend.md) covers external Costs and pricing packages, persisted settings/storage, communication providers, and independently usable sources in `release/plugin-sources`.
 
+The distribution also includes `plugin-sources/host-local`, `plugin-sources/host-docker`, the `@helmsman/plugin-sdk/node` receipt helpers, and the [execution host author guide](execution-host-authoring.md). Host packages compile only against the copied public SDK and retain exact attempt ownership without provider fallback.
+
 The E4 foundation gate independently builds a page using the run-inspection and download SDK facets, then installs it against a copied production server with checkout access denied. It checks canonical resolution, scoped history and preview, foreign-scope and stale-attempt rejection, the exact static worker route and a real Unicode log download with byte equality. Run `npx playwright test --config playwright.distribution.config.ts tests/distribution/run-inspect-foundation.pw.ts` after building the distribution. This verifies the foundations; viewer/history replacement remains a separate acceptance gate.
 
 

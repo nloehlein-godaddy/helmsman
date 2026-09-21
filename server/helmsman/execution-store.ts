@@ -1,3 +1,4 @@
+import { parsePluginHostRef } from './execution-host-execution';
 import { randomUUID } from 'node:crypto';
 import type { PluginJson } from '../../src/plugins/backend';
 import type { RunStatus } from './db';
@@ -178,6 +179,7 @@ function decodeSnapshot(row: SnapshotRow): ExecutionSnapshot {
 
 function validateHostRef(value: unknown): HostRef {
   const ref = object(persistedJson(value));
+  if (ref?.kind === 'plugin') return parsePluginHostRef(ref);
   if (!ref || !(ref.kind === 'detached' && Number.isSafeInteger(ref.pid) && Number(ref.pid) > 0
     || ref.kind === 'cmux' && nonempty(ref.workspace)
     || ref.kind === 'wezterm' && nonempty(ref.paneId) && (ref.socket === undefined || ref.socket === null || nonempty(ref.socket))
@@ -419,6 +421,14 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
       transaction(() => {
         const item = owned(lease);
         if (item.outcome || !['launching', 'launched'].includes(item.preparation) || item.hostRef && stableJson(item.hostRef) !== stableJson(hostRef)) throw new PersistenceConflictError('Execution host reference conflicts with launch');
+        const binding = snapshot(item.snapshotId)?.bindings.find(value => value.role === 'host');
+        if (binding?.capability === 'helmsman/execution-host' || hostRef.kind === 'plugin') {
+          if (hostRef.kind !== 'plugin' || binding?.capability !== 'helmsman/execution-host' || hostRef.providerId !== binding.contributionId
+            || hostRef.reference.identity.runId !== item.runId || hostRef.reference.identity.attempt !== item.attempt
+            || hostRef.reference.identity.launchId !== item.launchId || hostRef.reference.identity.receiptPath !== `${item.paths.spec}.receipt`) {
+            throw new PersistenceConflictError('Execution host reference differs from its retained launch binding');
+          }
+        }
         save({ ...item, hostRef, preparation: 'launched' }); evidence(item, 'launch', ownershipEvidence);
         sql.prepare("UPDATE execution_reservations SET reason='executing' WHERE runId=?").run(item.runId);
       });

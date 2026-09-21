@@ -1,3 +1,4 @@
+import { hostExecutionSnapshot } from './execution-host-execution';
 import { agentExecutionSnapshot } from './agent-execution';
 import type { AppConfig } from '../config';
 import type { AgentTask } from './agents/adapter';
@@ -33,6 +34,7 @@ export function restoreExecutionConfig(snapshot: ExecutionSnapshot, current: App
 
 export function nonsecretExecutionTask(task: AgentTask) {
   const safeTask = { ...task,
+    ...(task.hostIsolation ? { hostIsolation: { ...task.hostIsolation, capability: undefined } } : {}),
     ...(task.dockerExecution ? { dockerExecution: { ...task.dockerExecution, capability: undefined } } : {}),
     ...(task.clarification ? { clarification: { ...task.clarification, gateToken: undefined } } : {}) };
   return persistedJson(JSON.parse(JSON.stringify(safeTask)));
@@ -62,10 +64,10 @@ export function legacyExecutionSnapshot(input: {
     binding('workflow', 'workflow', task.review ? 'review' : 'coding')];
   if (jiraIdentity) bindings.push(binding('effect', 'jira', 'jira-actions', jiraIdentity, 'jira-primary'));
   if (githubIdentity) bindings.push(binding('effect', 'github', 'github-publication', githubIdentity, 'github-primary'));
-  return agentExecutionSnapshot({ version: 1, runId: run.id, attempt: run.attempt, repo: run.repo,
+  return hostExecutionSnapshot(agentExecutionSnapshot({ version: 1, runId: run.id, attempt: run.attempt, repo: run.repo,
     logicalWork: { source, instance: source === 'jira' ? jiraIdentity ?? 'unconfigured' : source === 'github-review' ? githubIdentity ?? 'unconfigured' : 'local', taskId: task.todoId ?? task.ticketId },
     task: nonsecretExecutionTask(task), workflowSnapshotId: task.workflowSnapshotId ?? null,
     artifacts: [artifact], bindings, settings: { execution: legacyExecutionSettings(config, Boolean(task.agentSelection)) },
     schemas: [{ owner: 'core.runs', minimum: 1, maximum: 1 }, { owner: 'core.execution', minimum: 1, maximum: 1 }],
-    provenance: { kind: 'admission', evidence: { runtimeHash: artifact.artifactHash } } }, task);
+    provenance: { kind: 'admission', evidence: { runtimeHash: artifact.artifactHash } } }, task), task);
 }

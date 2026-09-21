@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { writeFileSync } from 'node:fs';
 import { resolveSocket } from './wezterm/socket';
 import { launchIdentity, processStartIdentity, readExitEvidence, readLaunchReceipt, type LaunchIdentity } from './host-evidence';
+import type { ExecutionHostReferenceV1 } from '../../src/plugins/execution-host';
 export { launchIdentity, readExitEvidence, readLaunchReceipt } from './host-evidence';
 
 export interface LaunchSpec {
@@ -19,6 +20,7 @@ export interface LaunchSpec {
 }
 
 export type HostRef = (
+  | { kind: 'plugin'; providerId: string; reference: ExecutionHostReferenceV1 }
   | { kind: 'detached'; pid: number }
   | { kind: 'cmux'; workspace: string }
   | { kind: 'wezterm'; paneId: string; socket?: string | null }

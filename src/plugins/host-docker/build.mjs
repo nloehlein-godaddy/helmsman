@@ -1,0 +1,23 @@
+import { spawnSync } from 'node:child_process';
+import { copyFile, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = fileURLToPath(new URL('.', import.meta.url));
+const require = createRequire(import.meta.url);
+await rm(new URL('./dist', import.meta.url), { recursive: true, force: true });
+const result = spawnSync(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', root], { cwd: root, stdio: 'inherit' });
+if (result.error) throw result.error;
+if (result.status !== 0) process.exit(result.status ?? 1);
+const providerPath = new URL('./dist/provider.js', import.meta.url);
+const provider = await readFile(providerPath, 'utf8');
+const rewritten = provider.replaceAll("'@helmsman/plugin-sdk/node'", "'./sdk-node.js'");
+if (rewritten === provider) throw new Error('Node SDK runtime import was not emitted');
+await writeFile(providerPath, rewritten);
+const sdkNode = fileURLToPath(import.meta.resolve('@helmsman/plugin-sdk/node'));
+await Promise.all([
+  copyFile(sdkNode, new URL('./dist/sdk-node.js', import.meta.url)),
+  copyFile(join(dirname(sdkNode), 'execution-host-node.js'), new URL('./dist/execution-host-node.js', import.meta.url)),
+  copyFile(new URL('./plugin-package.json', import.meta.url), new URL('./dist/plugin-package.json', import.meta.url)),
+]);

@@ -295,7 +295,7 @@ The shipped policy rotates sources; alternatives can choose different ordering a
 ```mermaid
 flowchart TD
     Select[Select immutable writer<br/>ordered immutable reviewers] --> Closure[Retain package/artifact closure<br/>nonsecret settings and metadata]
-    Closure --> Core[Core renders prompt and effective model/effort<br/>owns host, workflow, recovery and completion]
+    Closure --> Core[Core renders prompt and effective model/effort<br/>owns admission, workflow, recovery and completion]
     Core --> Provider[Selected SDK-only agent provider]
     Provider --> Events[Validated command and event stream]
     Events --> Failure{Result outcome failure?}
@@ -305,7 +305,28 @@ flowchart TD
     Exit --> Recovery
 ```
 
-Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent extraction has passed focused and installed acceptance checks; execution-host, workflow and trigger extraction remain Phase F work.
+Codex metadata declares its review-agent skill and delta costs; Claude Code declares native subagents and cumulative costs; command declares no pre-PR support and uses a namespaced template setting. Configure packages, then use `select-agent` and `select-agent-reviewers`. The legacy adapter seeds the initial provider selection once. Legacy command text stays available for old-run recovery but is never copied into plugin settings; configure a nonsecret commandTemplate explicitly. Empty command configuration never falls back to Codex. Agent extraction has passed focused and installed acceptance checks; execution-host extraction is active; workflow, native terminal and trigger extraction remain Phase F work.
+
+## Execution-host selection and recovery
+
+```mermaid
+flowchart TD
+    Select[Selected execution-host provider] --> Capture[Capture exact package, settings and run configuration]
+    Capture --> Admit[Core reserves scope and concurrency<br/>Pins host with agent and workflow snapshot]
+    Admit --> Launch[Retained provider launches durable attempt]
+    Launch --> Evidence{Matching native ownership<br/>and wrapper receipts?}
+    Evidence -->|Verified| Monitor[Attach, monitor and stop through retained provider]
+    Evidence -->|Missing or ambiguous| Block[Preserve reservation and workspace<br/>No provider fallback or duplicate launch]
+    Monitor --> Stages[Isolated stages use retained host<br/>Mapped paths and scoped gateway]
+    Stages --> Complete[Core verifies exit, reports and publication gates]
+    Restart[Restart, changed defaults or disablement] --> Retained[Load original artifact and captured settings]
+    Retained --> Lease{Original lease available?}
+    Lease -->|Yes| Evidence
+    Lease -->|No| Retry[Bounded startup retry after crash lease expires<br/>No overlapping attachment]
+    Retry --> Lease
+```
+
+`select-execution-host` selects the local detached/cmux/WezTerm package or Docker package, and accepts independently authored replacements. `prepareRun` captures nonsecret configuration; Docker resolves its image digest there. The browser SDK remains Node-free; backend packages can bundle receipt helpers from `@helmsman/plugin-sdk/node`. New isolated selections require restart for the scoped gateway listener. Disabled providers cannot admit work; existing obligations retain their original host. Graceful shutdown releases only this instance’s leases; startup retries unresolved attachment while crash leases expire. See [execution host authoring](execution-host-authoring.md).
 
 ## Header identity and installed-page discovery
 
@@ -369,9 +390,9 @@ flowchart TD
     Campaign[Campaign: create phases<br/>CSV/JSONL preview → confirm → start phase<br/>Import and task deduplication] --> Dispatch
     Webhook[GitHub webhook, when configured<br/>Raw-body HMAC + explicit event/action/workflow mapping<br/>Persistent delivery deduplication] --> Dispatch
     Dispatch[Check scope and capacity<br/>One active writer per galleon<br/>Automated dispatch uses durable claims] --> Snapshot[Freeze workflow version, prompts, skills and settings<br/>Verify required skills and provision private copies<br/>Retry/resume must match the saved snapshot]
-    Snapshot --> Host{Configured execution host}
-    Host --> Local[Trusted local execution<br/>Default host]
-    Host --> Docker[Docker agent stages<br/>Pinned image; private workspace and runtime<br/>Run-scoped gateway; host keeps upstream credentials]
+    Snapshot --> Host{Pinned execution-host provider}
+    Host --> Local[Retained local host package<br/>Detached, cmux, WezTerm or authored provider]
+    Host --> Docker[Retained isolated host package<br/>Pinned image; private workspace and runtime<br/>Run-scoped gateway; host keeps upstream credentials]
     Local --> Workflow{Task workflow}
     Docker --> Workflow
     Workflow -->|New coding task| Coding[Implementation and exact-revision review loop below]

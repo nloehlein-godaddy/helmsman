@@ -351,3 +351,51 @@ export function initializeCommandAgentSettings(root: string, pkg: PluginPackage,
     return Boolean(legacyTemplate?.trim()) && !configured;
   }); } finally { sql.close(); }
 }
+
+export interface ExecutionHostProviderSelection { readonly providerId: string | null; readonly revision: string; }
+function executionHostSelection(sql: Database.Database): ExecutionHostProviderSelection {
+  const row = sql.prepare('SELECT value FROM backend_meta WHERE key=?').get('execution-host-selection-v1') as { value: string } | undefined;
+  if (!row) return { providerId: null, revision: 'initial' };
+  const value = pluginJson(JSON.parse(row.value)) as unknown as ExecutionHostProviderSelection;
+  if (!value || typeof value !== 'object' || Object.keys(value).length !== 2 || value.providerId !== null && !isContributionId(value.providerId)
+    || typeof value.revision !== 'string' || !/^[a-f\d-]{36}$/.test(value.revision)) throw new Error('Invalid execution host selection');
+  return value;
+}
+export function readExecutionHostProviderSelection(root: string): ExecutionHostProviderSelection {
+  const sql = database(root); try { return executionHostSelection(sql); } finally { sql.close(); }
+}
+function writeExecutionHostSelection(sql: Database.Database, providerId: string | null): void {
+  sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run('execution-host-selection-v1', JSON.stringify({ providerId, revision: randomUUID() }));
+}
+export function selectExecutionHostProvider(root: string, providerId: string | null): void {
+  if (providerId !== null && !isContributionId(providerId)) throw new Error('Invalid execution host provider ID');
+  const sql = database(root); try { immediateTransaction(sql, () => writeExecutionHostSelection(sql, providerId)); } finally { sql.close(); }
+}
+export function executionHostProviderSelectionInitialized(root: string): boolean {
+  const sql = database(root);
+  try { return Boolean(sql.prepare('SELECT 1 FROM backend_meta WHERE key IN (?,?)').get('execution-host-selection-initialized-v1', 'execution-host-selection-v1')); } finally { sql.close(); }
+}
+export function initializeExecutionHostProviderSelection(root: string, providerId: string): void {
+  if (!isContributionId(providerId)) throw new Error('Invalid initial execution host provider ID');
+  const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run('execution-host-selection-initialized-v1', '1').changes;
+    if (first && !sql.prepare('SELECT 1 FROM backend_meta WHERE key=?').get('execution-host-selection-v1')) writeExecutionHostSelection(sql, providerId);
+  }); } finally { sql.close(); }
+}
+export function initializeExecutionHostSettings(root: string, pkg: PluginPackage, input: Readonly<Record<string, PluginJson>>): void {
+  const sql = database(root);
+  try { immediateTransaction(sql, () => {
+    const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(`execution-host-settings-initialized-v1:${pkg.manifest.id}`, '1').changes;
+    if (!first) return;
+    const values = pluginJson(input);
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('Execution host settings must be a JSON object');
+    if (!pkg.backend?.executionHosts) throw new Error('Execution host package declaration is required');
+    for (const [name, value] of Object.entries(values)) {
+      const field = Object.hasOwn(pkg.backend.settings, name) ? pkg.backend.settings[name] : undefined;
+      if (!field) throw new Error('Unknown initial execution host setting'); validatePluginSetting(field, value);
+    }
+    for (const [name, value] of Object.entries(values)) sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO NOTHING').run(pkg.manifest.id, name, JSON.stringify(value));
+  }); } finally { sql.close(); }
+}

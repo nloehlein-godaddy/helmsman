@@ -63,6 +63,7 @@ export interface DurableRunnerAttempt {
   terminal(outcome: { status: 'succeeded' | 'failed' | 'stopped'; exitCode: number; evidence: unknown }): void;
   finalize(row: RunRow): void;
   renew(): void;
+  assertActive?(): void;
   close(): void;
 }
 
@@ -566,7 +567,7 @@ function durableHeartbeat(session: DurableRunnerAttempt) {
   const timer = setInterval(() => { try { session.renew(); } catch (error) { failure = error; } }, 10_000);
   timer.unref?.();
   return {
-    check() { if (failure) throw failure; },
+    check() { if (failure) throw failure; session.assertActive?.(); },
     close() { clearInterval(timer); try { session.close(); } catch {} },
   };
 }

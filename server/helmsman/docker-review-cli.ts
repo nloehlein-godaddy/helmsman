@@ -7,6 +7,7 @@ import { assertClarificationReady, executePrePrStage, stageEventEmitter } from '
 import { sanitizeDockerGit } from './docker-stage';
 import { loadRetainedAgentProvider } from './agent-retained-loader';
 import { agentProviderAdapter } from './agents/provider';
+import { usesIsolatedExecution } from './execution-host-stage';
 
 const emit = (event: AgentEvent) => process.stdout.write(`${JSON.stringify({ __helmsmanPrePr: 1, ...event })}\n`);
 const abort = new AbortController();
@@ -19,7 +20,7 @@ let dispose: (() => Promise<void>) | undefined;
 try {
   const input = JSON.parse(process.argv[2] ?? 'null') as { task?: AgentTask; reviewerId?: string } | null;
   const task = input?.task;
-  if (!task?.review || !task.dockerExecution) throw new Error('Invalid Docker review task');
+  if (!task?.review || !usesIsolatedExecution(task)) throw new Error('Invalid isolated review task');
   const record = task.agentSelection?.writer;
   const runtime = task.agentRuntime;
   const loaded = record && runtime ? await loadRetainedAgentProvider({ ...runtime, record, signal: abort.signal }) : undefined;
@@ -32,7 +33,9 @@ try {
   await sanitizeDockerGit(process.cwd(), task.repo);
   forward({ kind: 'phase', text: 'Starting isolated review' });
   await executePrePrStage(adapter, task, process.cwd(), forward, abort.signal);
-  await assertClarificationReady(task, task.dockerExecution.runId);
+  const isolationRunId = task.hostIsolation?.runId ?? task.dockerExecution?.runId;
+  if (!isolationRunId) throw new Error('Isolated review run identity is unavailable');
+  await assertClarificationReady(task, isolationRunId);
 } catch (error) {
   await clearOutputs().catch(() => undefined);
   emit({ kind: 'error', text: error instanceof Error ? error.message : String(error), stage: 'review', round: 1 });

@@ -12,7 +12,8 @@ import { selectReviewModel, type ReviewScope } from './review-policy';
 import { agentAttribution } from './agent-attribution';
 import { DEFAULT_PRE_PR_SETTINGS, normalizePrePrSettings, type PrePrSettings } from '../../src/logic/prePrSettings';
 import { createRunArtifactStore, prePrArtifactFilename } from './artifacts';
-import { prepareDockerStage, sanitizeDockerGit } from './docker-stage';
+import { sanitizeDockerGit } from './docker-stage';
+import { prepareExecutionHostStage, usesIsolatedExecution } from './execution-host-stage';
 import { publishApprovedRevision, validatePublicationConnection, type PrePrPublicationConnection } from './publication-client';
 import { parseAgentSelectionV1, type AgentRetainedProviderV1 } from './agent-providers';
 import { loadRetainedAgentProvider } from './agent-retained-loader';
@@ -110,8 +111,8 @@ export async function assertClarificationReady(task: AgentTask, runId: string, f
 export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, cwd: string, emit: (event: AgentEvent) => void,
   signal: AbortSignal, timeoutMs = STAGE_TIMEOUT): Promise<void> {
   if (signal.aborted) throw new Error('Voyage stopped');
-  const docker = task.dockerExecution ? await prepareDockerStage(adapter, task, cwd) : undefined;
-  const command = docker?.command ?? adapter.buildCommand(task);
+  const isolated = usesIsolatedExecution(task) ? await prepareExecutionHostStage(adapter, task, cwd) : undefined;
+  const command = isolated?.command ?? adapter.buildCommand(task);
   let success = false;
   try {
     await new Promise<void>((done, reject) => {
@@ -129,7 +130,7 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
     };
     const stop = (message: string) => {
       failure ??= new Error(message);
-      if (docker) void docker.stop().catch(() => undefined);
+      if (isolated) void isolated.stop().catch(() => undefined);
       killStage('SIGTERM');
       killTimer ??= setTimeout(() => killStage('SIGKILL'), 5000);
       killTimer.unref();
@@ -179,7 +180,7 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
     if (signal.aborted) abort();
     });
     success = true;
-  } finally { await docker?.cleanup(success); }
+  } finally { await isolated?.cleanup(success); }
 }
 
 export function stageEventEmitter(adapter: AgentAdapter | string, task: AgentTask, emit: (event: AgentEvent) => void): (event: AgentEvent) => void {
@@ -274,7 +275,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
   try {
     loaded = await retainedPrePrAdapters(input.task, input.writerId, settings.reviewerCount, abort.signal);
     const { writerId, reviewerIds, adapters } = loaded;
-    if (input.task.dockerExecution) await sanitizeDockerGit(cwd, input.task.repo);
+    if (usesIsolatedExecution(input.task)) await sanitizeDockerGit(cwd, input.task.repo);
     emit({ kind: 'phase', text: `Pre-PR gate: ${reviewerIds.length} reviewer(s), up to ${settings.maxRounds} rounds, ${settings.stageTimeoutMinutes} minutes per session` });
     const initialHead = await git(['rev-parse', 'HEAD']);
     const branch = await git(['symbolic-ref', '--quiet', '--short', 'HEAD']);
@@ -332,7 +333,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
       const reportPath = savedReportPath ?? join(artifactDir, prePrArtifactFilename('review', context.round, reviewerId));
       try {
         if (!savedReportPath) await rm(reportPath, { force: true });
-        if (input.task.dockerExecution) {
+        if (usesIsolatedExecution(input.task)) {
           await git(['clone', '--no-hardlinks', '--no-local', cwd, worktree]);
           await git(['checkout', '--detach', context.headSha], worktree);
           await sanitizeDockerGit(worktree, input.task.repo);
@@ -374,7 +375,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
           }
         }
       } finally {
-        if (!input.task.dockerExecution) {
+        if (!usesIsolatedExecution(input.task)) {
           try { await exec('git', ['worktree', 'remove', '--force', worktree], { cwd, timeout: 15_000 }); } catch { /* Failed worktree creation needs no git cleanup. */ }
         }
         await rm(root, { recursive: true, force: true });

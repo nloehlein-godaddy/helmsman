@@ -1,8 +1,14 @@
 import type { AgentProviderMetadataV1 } from '../../../src/plugins/agent-provider';
 import type { AgentSelectionV1 } from '../agent-providers';
 import type { ArtifactBinding } from '../execution-store';
+import type { PluginJson } from '../../../src/plugins/backend';
+import type { ExecutionHostRetainedProviderV1 } from '../execution-host-providers';
 
 export interface AgentTask {
+  executionHost?: ExecutionHostRetainedProviderV1;
+  hostRuntime?: { pluginsRoot: string; runtimeArtifactsRoot: string; artifacts: readonly ArtifactBinding[] };
+  hostConfiguration?: PluginJson;
+  hostIsolation?: { runId: string; gatewayUrl: string; capability: string; runtimeRoot?: string };
   agentSelection?: AgentSelectionV1;
   agentRuntime?: { pluginsRoot: string; runtimeArtifactsRoot: string; artifacts: readonly ArtifactBinding[] };
   source?: { version: 1; taskSnapshotHash: string; claimId: string; instanceId: string };

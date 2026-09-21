@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db, type RunRow } from './db';
-import { recoverRuns } from './recovery';
+import { recoverRuns, startRunRecovery, type AttachmentHandshake } from './recovery';
 
 let db: Db;
-afterEach(() => db?.close());
+afterEach(() => { vi.useRealTimers(); db?.close(); });
 
 function run(over: Partial<RunRow> = {}): RunRow {
   return {
@@ -126,4 +126,48 @@ describe('recoverRuns', () => {
     const result = await recoverRuns(db, { rows: () => [prepared], reattach: async () => ({ status: 'blocked', reason: 'Launch ownership unknown' }) });
     expect(result.blocked).toEqual(['r1']);
   });
+});
+
+it('keeps an in-flight attachment deduplicated after a handshake timeout', async () => {
+  vi.useFakeTimers(); db = openDb(':memory:'); db.insertRun(run());
+  let finish!: (value: AttachmentHandshake) => void;
+  const reattach = vi.fn(() => new Promise<AttachmentHandshake>(resolve => { finish = resolve; }));
+  const first = recoverRuns(db, { reattach, handshakeTimeoutMs: 10 }); await vi.advanceTimersByTimeAsync(10); expect((await first).blocked).toEqual(['r1']);
+  const second = recoverRuns(db, { reattach, handshakeTimeoutMs: 10 }); await vi.advanceTimersByTimeAsync(10); expect((await second).blocked).toEqual(['r1']);
+  expect(reattach).toHaveBeenCalledOnce(); finish({ status: 'attached', completion: new Promise(() => {}) });
+  expect((await recoverRuns(db, { reattach, handshakeTimeoutMs: 10 })).reattached).toEqual(['r1']); expect(reattach).toHaveBeenCalledOnce();
+});
+
+it('retries startup crash leases until expiry without reattaching live controls or new runs', async () => {
+  vi.useFakeTimers(); db = openDb(':memory:'); db.insertRun(run({ id: 'leased' })); db.insertRun(run({ id: 'attached' }));
+  const started = Date.now();
+  const reattach = vi.fn(async (row: RunRow): Promise<AttachmentHandshake> => row.id === 'leased' && Date.now() - started < 60_000
+    ? { status: 'blocked', reason: 'Another coordinator owns this execution attempt' } : { status: 'attached', completion: new Promise(() => {}) });
+  const onResult = vi.fn(); const recovery = startRunRecovery(db, { reattach, onResult });
+  expect(await recovery.initial).toEqual({ reattached: ['attached'], blocked: ['leased'], failed: [] });
+  db.insertRun(run({ id: 'new' }));
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(onResult.mock.calls.at(-1)?.[0]).toEqual({ reattached: ['leased'], blocked: [], failed: [] });
+  expect(reattach.mock.calls.filter(([row]) => row.id === 'attached')).toHaveLength(1);
+  expect(reattach.mock.calls.some(([row]) => row.id === 'new')).toBe(false);
+  const count = reattach.mock.calls.length; await vi.advanceTimersByTimeAsync(120_000); expect(reattach).toHaveBeenCalledTimes(count); recovery.dispose();
+});
+
+it('bounds retries for unresolved startup work and stops scheduling on disposal', async () => {
+  vi.useFakeTimers(); db = openDb(':memory:'); db.insertRun(run());
+  const reattach = vi.fn(async (): Promise<AttachmentHandshake> => ({ status: 'blocked', reason: 'Artifact unavailable' }));
+  const recovery = startRunRecovery(db, { reattach, retryIntervalMs: 250, retryWindowMs: 1000 }); await recovery.initial;
+  await vi.advanceTimersByTimeAsync(10_000); expect(reattach).toHaveBeenCalledTimes(5); recovery.dispose();
+  const stopped = startRunRecovery(db, { reattach, retryIntervalMs: 250, retryWindowMs: 1000 }); await stopped.initial; stopped.dispose();
+  const count = reattach.mock.calls.length; await vi.advanceTimersByTimeAsync(10_000); expect(reattach).toHaveBeenCalledTimes(count);
+});
+
+it('does not overlap slow startup recovery or retry a superseded attempt', async () => {
+  vi.useFakeTimers(); db = openDb(':memory:'); db.insertRun(run());
+  let finish!: (value: AttachmentHandshake) => void;
+  const reattach = vi.fn(() => new Promise<AttachmentHandshake>(resolve => { finish = resolve; }));
+  const recovery = startRunRecovery(db, { reattach, handshakeTimeoutMs: 10, retryIntervalMs: 250, retryWindowMs: 1000 });
+  await vi.advanceTimersByTimeAsync(10); await recovery.initial; await vi.advanceTimersByTimeAsync(500); expect(reattach).toHaveBeenCalledOnce();
+  finish({ status: 'blocked', reason: 'Original attempt unavailable' }); db.updateRun('r1', { attempt: 2 });
+  await vi.advanceTimersByTimeAsync(1000); expect(reattach).toHaveBeenCalledOnce(); recovery.dispose();
 });

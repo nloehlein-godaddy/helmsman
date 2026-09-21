@@ -9,7 +9,10 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
-    "paths": { "@helmsman/plugin-sdk": ["./src/plugins/sdk.ts"] },
+    "paths": {
+      "@helmsman/plugin-sdk": ["./src/plugins/sdk.ts"],
+      "@helmsman/plugin-sdk/node": ["./src/plugins/execution-host-node.ts"]
+    },
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",

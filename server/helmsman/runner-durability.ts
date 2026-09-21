@@ -25,6 +25,7 @@ export interface RunnerDurabilityOptions {
   verify(snapshot: ExecutionSnapshot): Promise<void>;
   finalize?(run: RunRow, snapshot: ExecutionSnapshot): void;
   now?: () => string;
+  shutdownSignal?: AbortSignal;
 }
 
 const LEASE_MS = 60_000;
@@ -33,10 +34,19 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
   const { persistence, db, executions } = options;
   const now = options.now ?? (() => new Date().toISOString());
   function session(initial: ExecutionAttempt): DurableRunnerAttempt {
-    let lease: AttemptLease | null = executions.lease(initial, LEASE_MS);
-    if (!lease) throw new PersistenceConflictError('Another coordinator owns this execution attempt');
+    options.shutdownSignal?.throwIfAborted();
     const snapshot = executions.snapshot(initial.snapshotId);
     if (!snapshot) throw new PersistenceConflictError('Execution snapshot is unavailable');
+    let lease: AttemptLease | null = executions.lease(initial, LEASE_MS);
+    if (!lease) throw new PersistenceConflictError('Another coordinator owns this execution attempt');
+    const shutdown = () => { try { close(); } catch {} };
+    function close(): void {
+      options.shutdownSignal?.removeEventListener('abort', shutdown);
+      if (!lease) return;
+      const releasing = lease; lease = null;
+      executions.releaseLease(releasing);
+    }
+    options.shutdownSignal?.addEventListener('abort', shutdown, { once: true });
     const owned = (): AttemptLease => {
       if (!lease) throw new PersistenceConflictError('Execution attachment has closed');
       return lease;
@@ -92,16 +102,13 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
         if (!next) throw new PersistenceConflictError('Execution ownership lease was lost');
         lease = next;
       },
-      close() {
-        if (!lease) return;
-        const releasing = lease;
-        lease = null;
-        executions.releaseLease(releasing);
-      },
+      assertActive() { options.shutdownSignal?.throwIfAborted(); executions.assertLease(owned()); },
+      close,
     };
   }
   return {
     async prepare(run, task) {
+      options.shutdownSignal?.throwIfAborted();
       const input = options.snapshot(run, task);
       if (options.clarificationProtocol && task.clarification) {
         const channel = parseClarificationChannel(task.clarification);
@@ -151,6 +158,7 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
       return session(attempt);
     },
     async recover(row) {
+      options.shutdownSignal?.throwIfAborted();
       const attempt = executions.attempt({ runId: row.id, attempt: row.attempt });
       if (!attempt) throw new PersistenceConflictError('Legacy voyage needs verified binding and ownership adoption before attachment');
       const snapshot = executions.snapshot(attempt.snapshotId);
@@ -159,6 +167,7 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
       if (row.repo !== snapshot.repo || row.worktreePath !== attempt.paths.worktree || row.logPath !== attempt.paths.log
         || row.exitPath !== attempt.paths.exit || row.specPath !== attempt.paths.spec) throw new PersistenceConflictError('Run paths or scope differ from the retained execution');
       await options.verify(snapshot);
+      options.shutdownSignal?.throwIfAborted();
       options.lifecycle?.assertObligation(snapshot);
       return session(attempt);
     },

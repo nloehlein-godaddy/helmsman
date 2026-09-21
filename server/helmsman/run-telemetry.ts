@@ -4,6 +4,7 @@ import type { AgentEvent, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
 import type { UsageRecorder } from './usage-store';
 import { parseAgentSelectionV1 } from './agent-providers';
+import { usesIsolatedExecution } from './execution-host-stage';
 
 export interface RunTelemetryCompletion {
   runId: string;
@@ -22,7 +23,7 @@ function providerId(run: RunRow, event: AgentEvent): string {
 }
 
 function costReporting(run: RunRow, task: AgentTask): 'delta' | 'cumulative' {
-  if (run.adapter.startsWith('pre-pr:') || run.adapter.startsWith('docker-review:') || task.review && task.dockerExecution) return 'delta';
+  if (run.adapter.startsWith('pre-pr:') || run.adapter.startsWith('docker-review:') || task.review && usesIsolatedExecution(task)) return 'delta';
   if (!task.agentSelection) return 'delta';
   const provider = run.adapter;
   const selection = parseAgentSelectionV1(task.agentSelection);

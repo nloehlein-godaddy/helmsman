@@ -1,3 +1,5 @@
+import type { ExecutionHostBackendContextV1, ExecutionHostProviderV1 } from '../../../src/plugins/execution-host';
+import { boundedExecutionHostProvider, createExecutionHostProviderRegistry } from '../execution-host-providers';
 import type { AgentBackendContextV1, AgentProviderV1 } from '../../../src/plugins/agent-provider';
 import { createAgentProviderRegistry } from '../agent-providers';
 import { materializePluginBackend } from './materialize';
@@ -34,6 +36,7 @@ export interface BackendRuntime {
   readonly pullRequests: PullRequestProviderRegistry;
   readonly communications: CommunicationProviderRegistry;
   readonly scheduling: ReturnType<typeof createSchedulingProviderRegistry>;
+  readonly executionHosts: ReturnType<typeof createExecutionHostProviderRegistry>;
   readonly agents: ReturnType<typeof createAgentProviderRegistry>;
   activePluginIds(): readonly string[];
   providers(): readonly string[];
@@ -128,6 +131,16 @@ export async function activateBackendPlugins(options: {
     if (purpose === 'obligation') return true;
     try { return agentSettings.get(binding.pluginId)?.() === true; } catch { return false; }
   } });
+  const executionHostSettings = new Map<string, () => boolean>();
+  const executionHosts = createExecutionHostProviderRegistry({ eligible(binding, purpose) {
+    if (disposed || !activeIds.has(binding.pluginId) || purpose === 'admission' && draining.has(binding.pluginId)) return false;
+    if (options.coordinator && !options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) {
+      const state = options.coordinator.state(binding.pluginId);
+      if (purpose !== 'obligation' || !state?.obligationsOnly || state.artifactHash !== binding.artifactHash) return false;
+    }
+    if (purpose === 'obligation') return true;
+    try { return executionHostSettings.get(binding.pluginId)?.() === true; } catch { return false; }
+  } });
   let bindingInitializationFailed = false;
   async function bounded<T>(work: () => Promise<T>, label: string): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -143,12 +156,12 @@ export async function activateBackendPlugins(options: {
     const canServeOrdinary = () => !options.coordinator || options.coordinator.canActivate(id, artifactHash);
     const canServeObligations = () => {
       const state = options.coordinator?.state(id);
-      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents);
+      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts);
     };
     if (options.coordinator) {
       const state = options.coordinator.state(id);
       if (!options.coordinator.canActivate(id, artifactHash)
-        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents))) return;
+        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts))) return;
     }
     let data: ReturnType<typeof openPluginData> | undefined;
     const abort = new AbortController();
@@ -158,6 +171,7 @@ export async function activateBackendPlugins(options: {
     const pendingSources = new Map<string, TaskSourceProviderV1>();
     const pendingPullRequests = new Map<string, PullRequestProviderV1>();
     const pendingCommunications = new Map<string, CommunicationProviderV1>();
+    const pendingExecutionHosts = new Map<string, ExecutionHostProviderV1>();
     const pendingAgents = new Map<string, AgentProviderV1>();
     const pendingScheduling = new Map<string, SchedulingProviderV1>();
     let publishedSources = false;
@@ -174,6 +188,7 @@ export async function activateBackendPlugins(options: {
       if (publishedPullRequests) pullRequests.removePlugin(id);
       if (publishedCommunications) communications.removePlugin(id);
       agents.removePlugin(id); agentSettings.delete(id);
+      executionHosts.removePlugin(id); executionHostSettings.delete(id);
       scheduling.removePlugin(id); schedulingSettings.delete(id);
       pluginDrains.delete(id);
       for (const provider of pending.keys()) providers.delete(provider);
@@ -230,6 +245,11 @@ export async function activateBackendPlugins(options: {
           if (pendingAgents.has(localId)) throw new Error('Duplicate agent provider registration.');
           pendingAgents.set(localId, provider);
         },
+        registerExecutionHost: (localId: string, provider: ExecutionHostProviderV1) => {
+          if (phase !== 'activating' || !pkg.backend?.executionHosts?.[localId] || !pkg.backend.provides.some(item => item.id === 'helmsman/execution-host' && item.localId === localId)) throw new Error('Undeclared execution host provider registration.');
+          if (pendingExecutionHosts.has(localId)) throw new Error('Duplicate execution host provider registration.');
+          pendingExecutionHosts.set(localId, boundedExecutionHostProvider(provider, abort.signal));
+        },
         registerScheduling: (localId: string, provider: SchedulingProviderV1) => {
           if (phase !== 'activating' || !pkg.backend?.scheduling?.[localId] || !pkg.backend.provides.some(item => item.id === 'helmsman/scheduling' && item.localId === localId)) throw new Error('Undeclared scheduling provider registration.');
           if (pendingScheduling.has(localId)) throw new Error('Duplicate scheduling provider registration.');
@@ -251,13 +271,13 @@ export async function activateBackendPlugins(options: {
         }
         const module = imported && typeof imported === 'object' && 'default' in imported ? imported.default : null;
         if (!module || typeof module !== 'object' || !('activate' in module) || typeof module.activate !== 'function') throw new Error('Backend entry must default-export an activate module.');
-        const activationContext = pkg.backend?.agents ? Object.freeze<AgentBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerAgent: context.registerAgent, onDispose: context.onDispose }) : context;
+        const activationContext = pkg.backend?.executionHosts ? Object.freeze<ExecutionHostBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerExecutionHost: context.registerExecutionHost, onDispose: context.onDispose }) : pkg.backend?.agents ? Object.freeze<AgentBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerAgent: context.registerAgent, onDispose: context.onDispose }) : context;
         await module.activate(activationContext);
       })();
       await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Backend activation timed out.')), timeoutMs); })]);
-      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size + pendingAgents.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
+      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size + pendingAgents.size + pendingExecutionHosts.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
       const ordinary = canServeOrdinary();
-      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
+      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
       const sourceRegistrations = [...pendingSources].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Task source registration requires an exact artifact.');
         return taskSources.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, pkg.backend!.taskSources![localId]!, provider);
@@ -289,11 +309,17 @@ export async function activateBackendPlugins(options: {
       });
       agentSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
       agents.publish(agentRegistrations);
+      const hostRegistrations = [...pendingExecutionHosts].map(([localId, provider]) => {
+        if (!artifactHash) throw new Error('Execution host registration requires an exact artifact.');
+        return executionHosts.stage({ binding: { providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1 }, provider, package: pkg, settings: data!.settings, origin: id.startsWith('helmsman.') ? 'builtin' : 'external' });
+      });
+      executionHostSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
+      executionHosts.publish(hostRegistrations);
       if (ordinary) data.commit(staged);
       staged.clear();
       for (const [providerId, provider] of pending) providers.set(providerId, provider);
       phase = 'active'; activeIds.add(id); owners.push(cleanup); pluginCleanups.set(id, cleanup);
-      if (pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
+      if (pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
       if (options.coordinator && artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'active', null);
       if (options.coordinator?.state(id)?.obligationsOnly) pluginDrains.get(id)?.();
     } catch (error) {
@@ -338,6 +364,7 @@ export async function activateBackendPlugins(options: {
     communications,
     scheduling,
     agents,
+    executionHosts,
     activePluginIds: () => Object.freeze([...activeIds].sort()),
     providers: () => Object.freeze([...providers.keys()].sort()),
     async pricing(snapshot, selections = {}) {

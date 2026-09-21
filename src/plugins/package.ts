@@ -1,3 +1,4 @@
+import type { ExecutionHostDeclarationV1 } from './execution-host';
 import type { AgentDeclarationV1 } from './agent-provider';
 import type { SchedulingDeclaration } from './scheduling-provider';
 import { parseTaskEditorDeclarationV1 } from './task-edit';
@@ -68,16 +69,17 @@ function record(value: unknown, fields: readonly string[], label: string): Recor
 function parseBackend(value: unknown): PluginBackendDefinition {
   const hasSources = value !== null && typeof value === 'object' && Object.hasOwn(value, 'taskSources');
   const hasPullRequests = value !== null && typeof value === 'object' && Object.hasOwn(value, 'pullRequests');
+  const hasExecutionHosts = value !== null && typeof value === 'object' && Object.hasOwn(value, 'executionHosts');
   const hasAgents = value !== null && typeof value === 'object' && Object.hasOwn(value, 'agents');
   const hasScheduling = value !== null && typeof value === 'object' && Object.hasOwn(value, 'scheduling');
   const hasCommunications = value !== null && typeof value === 'object' && Object.hasOwn(value, 'communications');
-  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : []), ...(hasCommunications ? ['communications'] : []), ...(hasScheduling ? ['scheduling'] : []), ...(hasAgents ? ['agents'] : [])], 'Backend');
+  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : []), ...(hasCommunications ? ['communications'] : []), ...(hasScheduling ? ['scheduling'] : []), ...(hasAgents ? ['agents'] : []), ...(hasExecutionHosts ? ['executionHosts'] : [])], 'Backend');
   if (!isPluginAssetPath(input.entry) || !/\.m?js$/.test(input.entry) || input.storageVersion !== 1) throw new PluginPackageError('Invalid backend entry or storage version.');
   if (!Array.isArray(input.provides) || input.provides.length > 16) throw new PluginPackageError('Invalid backend capabilities.');
   const provides = input.provides.map(value => {
     const item = record(value, ['id', 'version', 'localId'], 'Capability');
-    if (!['helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request', 'helmsman/communication', 'helmsman/scheduling', 'helmsman/agent'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
-    return Object.freeze({ id: item.id as 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent', version: 1 as const, localId: item.localId });
+    if (!['helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request', 'helmsman/communication', 'helmsman/scheduling', 'helmsman/agent', 'helmsman/execution-host'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
+    return Object.freeze({ id: item.id as 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent' | 'helmsman/execution-host', version: 1 as const, localId: item.localId });
   });
   if (new Set(provides.map(item => item.localId)).size !== provides.length) throw new PluginPackageError('Duplicate backend capability.');
   const sourceIds = provides.filter(item => item.id === 'helmsman/task-source').map(item => item.localId);
@@ -86,6 +88,17 @@ function parseBackend(value: unknown): PluginBackendDefinition {
   if (hasPullRequests !== (pullRequestIds.length > 0)) throw new PluginPackageError('Pull request providers require matching access declarations.');
   const communicationIds = provides.filter(item => item.id === 'helmsman/communication').map(item => item.localId);
   if (hasCommunications !== (communicationIds.length > 0)) throw new PluginPackageError('Communication providers require matching access declarations.');
+  const hostIds = provides.filter(item => item.id === 'helmsman/execution-host').map(item => item.localId);
+  if (hasExecutionHosts !== (hostIds.length > 0) || hasExecutionHosts && hostIds.length !== provides.length) throw new PluginPackageError('Execution hosts require a host-only package with matching execution declarations.');
+  const executionHosts: Record<string, ExecutionHostDeclarationV1> = Object.create(null);
+  if (hasExecutionHosts) {
+    const declarations = record(input.executionHosts, hostIds, 'Execution host providers');
+    for (const localId of hostIds) {
+      const declaration = record(declarations[localId], ['access'], 'Execution host declaration');
+      if (!Array.isArray(declaration.access) || declaration.access.length !== 1 || declaration.access[0] !== 'execution') throw new PluginPackageError('Execution hosts require execution access.');
+      executionHosts[localId] = Object.freeze({ access: Object.freeze(['execution']) as readonly ['execution'] });
+    }
+  }
   const agentIds = provides.filter(item => item.id === 'helmsman/agent').map(item => item.localId);
   if (hasAgents !== (agentIds.length > 0) || hasAgents && agentIds.length !== provides.length) throw new PluginPackageError('Agents require an agent-only package with matching process declarations.');
   const agents: Record<string, AgentDeclarationV1> = Object.create(null);
@@ -181,6 +194,7 @@ function parseBackend(value: unknown): PluginBackendDefinition {
     settings[key] = parsed;
   }
   return Object.freeze({ entry: input.entry, provides: Object.freeze(provides), settings: Object.freeze(settings), storageVersion: 1,
+    ...(hasExecutionHosts ? { executionHosts: Object.freeze(executionHosts) } : {}),
     ...(hasAgents ? { agents: Object.freeze(agents) } : {}),
     ...(hasScheduling ? { scheduling: Object.freeze(scheduling) } : {}),
     ...(hasSources ? { taskSources: Object.freeze(taskSources) } : {}),

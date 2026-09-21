@@ -7,6 +7,7 @@ import { dockerReviewAdapter } from './docker-review';
 import { isPrePrAdapter, prePrAdapter } from './pre-pr';
 import type { PrePrSettings } from '../../../src/logic/prePrSettings';
 import type { PrePrPublicationConnection } from '../publication-client';
+import { usesIsolatedExecution } from '../execution-host-stage';
 
 export function restoreRunAdapter(row: Pick<RunRow, 'adapter' | 'taskJson'>, options: { runsDir: string; agentCmd?: string | null; publication?: PrePrPublicationConnection; reviewSettings?: PrePrSettings; retained?: AgentAdapter }): AgentAdapter {
   const id = row.adapter.replace(/^pre-pr:/, '');
@@ -19,7 +20,7 @@ export function restoreRunAdapter(row: Pick<RunRow, 'adapter' | 'taskJson'>, opt
   catch { return provider; }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return provider;
   const task = value as Partial<AgentTask>;
-  if (task.review === true && task.dockerExecution && typeof task.dockerExecution === 'object' && !Array.isArray(task.dockerExecution)) {
+  if (task.review === true && usesIsolatedExecution(task)) {
     return dockerReviewAdapter(provider);
   }
   return provider;

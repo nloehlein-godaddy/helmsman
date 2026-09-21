@@ -145,3 +145,46 @@ describe('durable admission and runner integration', () => {
   });
 
 });
+
+describe('coordinator shutdown', () => {
+  it('releases only its held lease without stopping the worker or releasing reservations and pins', async () => {
+    const { persistence, db, executions, coordinator } = setup(); const shutdown = new AbortController();
+    const departing = createRunnerDurability({ persistence, db, executions, runsDir: '/runs', maxConcurrency: 1, snapshot, verify: async () => {}, shutdownSignal: shutdown.signal });
+    const first = await departing.prepare(run, task); first.ready('/worktree'); first.launching(); first.launched({ kind: 'detached', pid: 123 }, { launchId: first.launchId });
+    const before = executions.attempt({ runId: run.id, attempt: run.attempt }); const pins = executions.pins();
+    await expect(coordinator.recover(db.getRun(run.id)!)).rejects.toThrow('Another coordinator');
+    shutdown.abort(); expect(() => first.assertActive?.()).toThrow(); expect(() => first.renew()).toThrow();
+    expect(executions.attempt({ runId: run.id, attempt: run.attempt })).toEqual(before); expect(executions.pins()).toEqual(pins); expect(executions.reservations()).toHaveLength(1);
+    const next = await coordinator.recover(db.getRun(run.id)!); expect(next.launchId).toBe(first.launchId); expect(() => next.assertActive?.()).not.toThrow(); next.close();
+    expect(() => first.close()).not.toThrow();
+  });
+
+  it('never clears a replacement coordinator lease when the old shutdown arrives after expiry', async () => {
+    const { persistence, db, executions, coordinator } = setup(); const shutdown = new AbortController();
+    const departing = createRunnerDurability({ persistence, db, executions, runsDir: '/runs', maxConcurrency: 1, snapshot, verify: async () => {}, shutdownSignal: shutdown.signal });
+    await departing.prepare(run, task);
+    persistence.sql.prepare('UPDATE execution_attempts SET leaseExpiresAt=? WHERE runId=?').run('2000-01-01T00:00:00.000Z', run.id);
+    const next = await coordinator.recover(db.getRun(run.id)!);
+    const lease = persistence.sql.prepare('SELECT leaseToken,leaseGeneration FROM execution_attempts WHERE runId=?').get(run.id);
+    expect(() => shutdown.abort()).not.toThrow();
+    expect(persistence.sql.prepare('SELECT leaseToken,leaseGeneration FROM execution_attempts WHERE runId=?').get(run.id)).toEqual(lease);
+    expect(() => next.renew()).not.toThrow(); next.close();
+  });
+
+  it('fences new preparation and recovery awaiting asynchronous verification', async () => {
+    const { persistence, db, executions, coordinator } = setup(); const first = await coordinator.prepare(run, task); first.close();
+    const shutdown = new AbortController(); let verified!: () => void;
+    const pending = new Promise<void>(resolve => { verified = resolve; });
+    const departing = createRunnerDurability({ persistence, db, executions, runsDir: '/runs', maxConcurrency: 1, snapshot, verify: () => pending, shutdownSignal: shutdown.signal });
+    const recovery = expect(departing.recover(db.getRun(run.id)!)).rejects.toThrow(); shutdown.abort(); verified(); await recovery;
+    expect(persistence.sql.prepare('SELECT leaseToken FROM execution_attempts WHERE runId=?').get(run.id)).toEqual({ leaseToken: null });
+    await expect(departing.prepare({ ...run, id: 'never-created', repo: 'owner/other' }, task)).rejects.toThrow(); expect(db.getRun('never-created')).toBeNull();
+  });
+
+  it('does not acquire a lease when the prepared snapshot is unavailable', async () => {
+    const { persistence, db, executions } = setup();
+    const unavailable = createRunnerDurability({ persistence, db, executions: { ...executions, snapshot: () => null }, runsDir: '/runs', maxConcurrency: 1, snapshot, verify: async () => {} });
+    await expect(unavailable.prepare(run, task)).rejects.toThrow('snapshot is unavailable');
+    expect(persistence.sql.prepare('SELECT leaseToken FROM execution_attempts WHERE runId=?').get(run.id)).toEqual({ leaseToken: null });
+  });
+});

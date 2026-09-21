@@ -1,6 +1,6 @@
 # Experimental usage and pricing plugins
 
-This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [agent providers](agent-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Interchangeable execution hosts, workflows and remaining triggers remain Phase F work; broader compatibility retirement is still pending.
+This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [agent providers](agent-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Execution-host extraction is active; workflows, native terminal adapters and remaining triggers remain Phase F work; broader compatibility retirement is still pending.
 
 ## Build an independent package
 
@@ -88,3 +88,7 @@ The pull-request provider's optional `profile(context)` method supplies bounded 
 ## Agent providers
 
 Agent-only packages declare `helmsman/agent@1` and use `AgentBackendModuleV1`. Their restricted context exposes captured settings, registration, cancellation and disposal, with no mutable storage or ordinary backend services. Core retains exact writer/reviewer bindings and artifact closure for every child stage and continuation. Explicit failed results override an exit-zero process, while measured cumulative costs are normalized durably for budgets and pricing. See [agent authoring](agent-authoring.md) for metadata, independent builds, selection and migration.
+
+## Execution hosts
+
+`helmsman/execution-host@1` packages use `ExecutionHostBackendModuleV1` with captured settings, registration, cancellation and disposal. The provider owns launch, native ownership discovery, stop, nonsecret run preparation and optional isolated child stages. Core pins the provider and configuration in the execution snapshot and retains receipts, workspace, concurrency and publication safeguards. Backend packages can bundle the separate `@helmsman/plugin-sdk/node` helpers; the browser entry contains no Node imports. See [execution host authoring](execution-host-authoring.md).

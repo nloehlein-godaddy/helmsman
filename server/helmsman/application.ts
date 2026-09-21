@@ -39,7 +39,7 @@ import { createTaskEditService } from './task-edit-service';
 import { createTaskViewsReadService } from './task-views-read-service';
 import { createServerPageCatalog } from './plugins/page-catalog';
 import { handlePluginRequest } from './plugins/http';
-import { applicationRoot, isHostCoordinatorCommand, retainedRuntimePath } from './runtime-paths';
+import { applicationRoot, retainedRuntimePath } from './runtime-paths';
 import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -70,6 +70,11 @@ import { openUsageStore } from './usage-store';
 import { createUsageQueryService } from './usage-service';
 import { builtinPricing } from './plugins/builtin-pricing';
 import { builtinAgents } from './plugins/builtin-agents';
+import { builtinExecutionHosts } from './plugins/builtin-hosts';
+import { resolveExecutionHostSelection, assertExecutionHostSelectionCurrent } from './execution-host-selection';
+import { parseExecutionHostRetainedProviderV1 } from './execution-host-providers';
+import { loadExecutionHost, executionHostAdapter, verifyHostExecution, retainedLegacyHostKind } from './execution-host-execution';
+import { initializeExecutionHostProviderSelection, executionHostProviderSelectionInitialized, readExecutionHostProviderSelection, initializeExecutionHostSettings } from './plugins/data';
 import { resolveAgentSelection, assertAgentSelectionCurrent } from './agent-selection';
 import { parseAgentSelectionV1 } from './agent-providers';
 import { mergeExecutionArtifacts, loadExecutionAgents, verifyAgentExecution } from './agent-execution';
@@ -99,12 +104,12 @@ import { openClarificationStore } from './clarifications';
 import { createScopedGateway } from './scoped-gateway';
 import { listenScopedGateway } from './gateway-listener';
 import { createDockerWorkspace, removeDockerWorkspace } from './docker-workspace';
-import { dockerHost, dockerRun, hasDocker } from './docker-host';
+import { dockerHost, dockerRun } from './docker-host';
 import { createClarificationRuntime } from './clarification-runtime';
 import { createClarificationChannel } from './clarification-protocol-store';
 import { createClarificationGate } from './clarification-gate';
 import { createOutcomeService } from './outcome-service';
-import { recoverRuns, type AttachmentHandshake } from './recovery';
+import { startRunRecovery, type AttachmentHandshake } from './recovery';
 import { createRecoveryService } from './recovery-service';
 import { handleRecoveryRequest } from './recovery-http';
 import { recoveryPage } from './recovery-page';
@@ -114,7 +119,7 @@ import { RunBus } from './event-bus';
 import { handleRunLog } from './run-log';
 import { startRun, reattachRun, type RunnerDeps } from './runner';
 import { resumeFailedPrePrRun, ResumeError } from './resume';
-import { hasCmux, hasWezTerm, pickHost, detachedHost, type HostRef, type RunHost } from './run-host';
+import { cmuxHost, weztermHost, detachedHost, type RunHost } from './run-host';
 import { isPrePrAdapter, prePrAdapter } from './agents/pre-pr';
 import { dockerReviewAdapter } from './agents/docker-review';
 import { restoreRunAdapter } from './agents/restore';
@@ -198,7 +203,20 @@ const commandAgentPackage = builtinAgents.find(value => value.package.manifest.i
 if (commandAgentPackage && initializeCommandAgentSettings(pluginDirectory(), commandAgentPackage, configStore.current().agentCmd)) {
   process.stderr.write('Legacy command agent requires an explicit nonsecret commandTemplate setting on helmsman.agent-command before new launches.\n');
 }
-const builtinBackends = [...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
+if (!executionHostProviderSelectionInitialized(pluginDirectory())) {
+  const legacy = process.env.RUN_HOST?.trim() || 'detached';
+  const providerId = ({ detached: 'helmsman.host-local/detached', cmux: 'helmsman.host-local/cmux', wezterm: 'helmsman.host-local/wezterm', docker: 'helmsman.host-docker/docker' } as Record<string, string>)[legacy];
+  if (!providerId) throw new Error('Unknown RUN_HOST. Select an execution host with plugins select-execution-host.');
+  initializeExecutionHostProviderSelection(pluginDirectory(), providerId);
+}
+for (const plugin of builtinExecutionHosts) {
+  const mapping = plugin.package.manifest.id === 'helmsman.host-local'
+    ? { weztermBin: process.env.WEZTERM_BIN, weztermRunWorkspace: process.env.WEZTERM_RUN_WORKSPACE, cmuxSocketPath: process.env.CMUX_SOCKET_PATH }
+    : plugin.package.manifest.id === 'helmsman.host-docker' ? { image: process.env.HELMSMAN_DOCKER_IMAGE } : {};
+  const values = Object.fromEntries(Object.entries(mapping).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0));
+  initializeExecutionHostSettings(pluginDirectory(), plugin.package, values);
+}
+const builtinBackends = [...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -341,8 +359,8 @@ const terminal = createTerminalService({ persistence, bridge: cmux, sessionIdent
   },
 });
 
-const RUN_HOSTS: ReadonlyArray<HostRef['kind']> = ['cmux', 'wezterm', 'detached', 'docker'];
-const runHost = RUN_HOSTS.find((k) => k === process.env.RUN_HOST) ?? null;
+const executionHostOptions = { root: pluginDirectory(), registry: backendPlugins.executionHosts };
+const selectExecutionHost = () => resolveExecutionHostSelection({ ...executionHostOptions, defaultProviderId: 'helmsman.host-local/detached' });
 const DOCKER_WORKSPACES = join(AGENTS_ROOT, '.helmsman-docker-workspaces');
 function stopRequested(runId: string): boolean {
   return executionControls.isStopRequested({ runId, attempt: db.getRun(runId)?.attempt ?? 1 });
@@ -369,7 +387,6 @@ const gateway = createScopedGateway({ path: persistence.sql, openaiKey: () => pr
   },
   clarificationReady, clarificationGate,
 });
-if (runHost === 'docker' && !process.env.HELMSMAN_DOCKER_IMAGE) throw new Error('Set HELMSMAN_DOCKER_IMAGE to a built Helmsman runtime image before selecting Docker');
 const integrationSettings = createIntegrationSettingsService({ persistence,
   githubValues: () => { const env = configStore.effectiveEnv(); return { defaultRepo: env.GITHUB_REPO ?? '', author: env.GITHUB_PR_AUTHOR ?? '', reviewWatchEnabled: env.GITHUB_REVIEW_WATCH_ENABLED === 'true' }; },
   writeGithub: values => {
@@ -408,32 +425,58 @@ const webhooks = openWebhookIntake(persistence.sql, {
 await taskSourceRuntime.recoverAdmissions();
 applicationStartup.ready();
 const gatewayServer = gateway.server();
-const gatewayPort = await listenScopedGateway(gatewayServer, { runsDir: RUNS_DIR, docker: runHost === 'docker',
+const retainedIsolation = (persistence.sql.prepare('SELECT taskJson FROM runs WHERE taskJson IS NOT NULL').all() as Array<{ taskJson: string }>).some(row => {
+  try { const task = JSON.parse(row.taskJson) as AgentTask | null; return Boolean(task?.hostIsolation || task?.dockerExecution); } catch { return false; }
+});
+let selectedIsolation = false;
+try { selectedIsolation = selectExecutionHost().record.metadata.stageExecution === 'isolated'; } catch {}
+const gatewayAllowsIsolation = selectedIsolation || retainedIsolation;
+const gatewayPort = await listenScopedGateway(gatewayServer, { runsDir: RUNS_DIR, docker: gatewayAllowsIsolation,
   configuredPort: process.env.HELMSMAN_GATEWAY_PORT === undefined ? undefined : Number(process.env.HELMSMAN_GATEWAY_PORT) });
 const gatewayUrl = `http://host.docker.internal:${gatewayPort}`;
 function publicationConnection(runId: string) {
   return { url: `http://127.0.0.1:${gatewayPort}/publication/v1`, token: gateway.issuePublication(runId, 86_400_000).token };
 }
-const selectedHost = await pickHost({ hasCmux, hasWezTerm, hasDocker, wrapperPath: WRAPPER, prefer: runHost,
-  dockerHost: () => dockerHost({ image: process.env.HELMSMAN_DOCKER_IMAGE ?? '', runtimeRoot: RUNS_DIR, wrapperPath: WRAPPER, run: dockerRun, enabled: true }) });
-const localHost = detachedHost(WRAPPER);
-const selectedRunHost: RunHost = selectedHost.kind === 'docker' ? {
-  kind: 'docker',
-  launch: spec => isHostCoordinatorCommand(spec) ? localHost.launch(spec) : selectedHost.launch(spec),
-  discover: (spec, ref) => (isHostCoordinatorCommand(spec) || ref?.kind === 'detached' ? localHost : selectedHost).discover?.(spec, ref)
-    ?? Promise.resolve({ status: 'unknown', reason: 'Retained host discovery is unavailable' }),
-  isAlive: ref => ref.kind === 'detached' ? localHost.isAlive(ref) : selectedHost.isAlive(ref),
-  stop: async ref => {
-    await (ref.kind === 'detached' ? localHost.stop(ref) : selectedHost.stop(ref));
-    const run = db.activeRuns().find(row => row.hostRef === JSON.stringify(ref));
-    if (run) await stopDockerStages(run.id);
-  },
-} : selectedHost;
-const host: RunHost = { ...selectedRunHost, launch: spec => {
-  const remap = (value: string) => retainedRuntimePath(value, applicationRoot(), currentRuntime.root);
-  return selectedRunHost.launch({ ...spec, cmd: remap(spec.cmd), args: spec.args.map(remap) });
-} };
-async function stopDockerStages(runId: string): Promise<void> {
+interface RunHostContext { host: RunHost; workspace: 'worktree' | 'clone'; isolated: boolean; }
+function boundRunHost(runId: string, task: AgentTask, loaded: Awaited<ReturnType<typeof loadExecutionHost>>): RunHostContext {
+  if (!task.executionHost || task.hostConfiguration === undefined) throw new Error('Retained execution host is incomplete');
+  return { host: executionHostAdapter({ runId, providerId: task.executionHost.binding.providerId, provider: loaded.provider,
+    configuration: task.hostConfiguration, wrapperPath: WRAPPER, runtimeRoot: currentRuntime.root }),
+    workspace: task.executionHost.metadata.workspace, isolated: task.executionHost.metadata.stageExecution === 'isolated' };
+}
+function legacyRunHost(row: RunRow, task: AgentTask | null): RunHostContext {
+  const retainedKind = retainedLegacyHostKind(row, executionSnapshot(row));
+  let host: RunHost;
+  if (retainedKind === 'detached') host = detachedHost(WRAPPER);
+  else if (retainedKind === 'cmux') host = cmuxHost(WRAPPER);
+  else if (retainedKind === 'wezterm') host = weztermHost(WRAPPER);
+  else if (retainedKind === 'docker' && task?.dockerExecution?.image) host = dockerHost({ image: task.dockerExecution.image,
+    runtimeRoot: RUNS_DIR, wrapperPath: WRAPPER, run: dockerRun, enabled: true });
+  else throw new Error('The original legacy execution host is unavailable');
+  const selected = host;
+  host = { ...selected, launch: spec => {
+    const remap = (value: string) => retainedRuntimePath(value, applicationRoot(), currentRuntime.root);
+    return selected.launch({ ...spec, cmd: remap(spec.cmd), args: spec.args.map(remap) });
+  } };
+  return { host, workspace: task?.dockerExecution ? 'clone' : 'worktree', isolated: Boolean(task?.dockerExecution) };
+}
+async function retainedRunHost(row: RunRow) {
+  const task = row.taskJson ? JSON.parse(row.taskJson) as AgentTask : null;
+  if (!task?.executionHost) return { context: legacyRunHost(row, task), async dispose() {} };
+  const snapshot = executionSnapshot(row);
+  if (persistenceHash(nonsecretExecutionTask(task)) !== persistenceHash(snapshot.task)) throw new Error('Saved host task differs from its immutable snapshot');
+  verifyHostExecution(task, snapshot);
+  const loaded = await loadExecutionHost({ ...task, hostRuntime: { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: snapshot.artifacts } });
+  return { context: boundRunHost(row.id, task, loaded), dispose: () => releaseRunHost(row.id, loaded) };
+}
+async function releaseRunHost(runId: string, loaded: Awaited<ReturnType<typeof loadExecutionHost>>): Promise<void> {
+  try {
+    const row = db.getRun(runId);
+    if (row && executions.attempt({ runId, attempt: row.attempt })?.outcome) await loaded.provider.stopStages?.(runId);
+  } catch (error) { process.stderr.write(`Retained host stage cleanup failed: ${String(error)}\n`); }
+  finally { await loaded.dispose(); }
+}
+async function stopLegacyDockerStages(runId: string): Promise<void> {
   if (!/^[a-z\d_-]{1,128}$/i.test(runId)) return;
   try {
     const result = await dockerRun(['docker', 'ps', '-aq', '--filter', `label=helmsman.runId=${runId}`]);
@@ -444,21 +487,23 @@ async function stopDockerStages(runId: string): Promise<void> {
     if (networkIds.length) await dockerRun(['docker', 'network', 'rm', ...networkIds]);
   } catch (error) { process.stderr.write(`Docker stage cleanup failed: ${String(error)}\n`); }
 }
-async function standaloneWorkspace(repo: string, runId: string, mode: 'fresh' | 'review' | 'branch',
+async function standaloneWorkspace(context: RunHostContext, repo: string, runId: string, mode: 'fresh' | 'review' | 'branch',
   create: () => Promise<{ path: string; branch: string }>, headSha?: string): Promise<{ path: string; branch: string }> {
   const source = await create();
-  if (host.kind !== 'docker') return source;
+  if (context.workspace !== 'clone') return source;
   try {
     return await createDockerWorkspace({ source: source.path, root: DOCKER_WORKSPACES, runId, mode,
       branch: source.branch, ...(headSha ? { headSha } : {}) });
   } finally { await removeWorktree(AGENTS_ROOT, repo, source.path); }
 }
 
-process.stdout.write(`run host: ${host.kind}\n`);
-if (host.kind === 'docker') {
-  for (const row of db.listRuns(1000)) {
-    if (row.status !== 'running' && executions.cleanupEligibility(row.id).allowed && row.taskJson?.includes('dockerExecution')) void stopDockerStages(row.id);
-  }
+try { process.stdout.write(`execution host: ${selectExecutionHost().record.binding.providerId}\n`); }
+catch (error) { process.stderr.write(`Execution host unavailable for new launches: ${String(error)}\n`); }
+for (const row of db.listRuns(10_000)) {
+  if (row.status === 'running') continue;
+  if (row.taskJson?.includes('hostIsolation') && executions.attempt({ runId: row.id, attempt: row.attempt })?.outcome) {
+    void retainedRunHost(row).then(loaded => loaded.dispose()).catch(error => process.stderr.write(`Retained host cleanup blocked: ${String(error)}\n`));
+  } else if (executions.cleanupEligibility(row.id).allowed && row.taskJson?.includes('dockerExecution')) void stopLegacyDockerStages(row.id);
 }
 
 
@@ -687,11 +732,14 @@ function executionSnapshot(row: RunRow) {
   return snapshot;
 }
 
+const runnerShutdown = new AbortController();
+
 function runnerDurability(cfg: AppConfig) {
-  return createRunnerDurability({ persistence, db, executions, admissions, lifecycle, operations, clarificationProtocol: clarifications.protocol, runsDir: RUNS_DIR, maxConcurrency,
+  return createRunnerDurability({ shutdownSignal: runnerShutdown.signal, persistence, db, executions, admissions, lifecycle, operations, clarificationProtocol: clarifications.protocol, runsDir: RUNS_DIR, maxConcurrency,
     finalize: (row, snapshot) => { taskSourceRuntime.finalize(row); effectsFor(row.id).prepareFinalization(row, snapshot); },
     snapshot: (run, task) => {
-      const input = { run, task, artifact: currentRuntime.artifact, host: host.kind === 'docker' && (isPrePrAdapter(run.adapter) || run.adapter.startsWith('docker-review:')) ? 'detached' as const : host.kind, config: cfg };
+      const hostKind = task.executionHost ? 'plugin' as const : retainedLegacyHostKind(run, executionSnapshot(db.getRun(run.id) ?? run));
+      const input = { run, task, artifact: currentRuntime.artifact, host: hostKind, config: cfg };
       if (!task.source) return legacyExecutionSnapshot(input);
       const claim = sourceStore.claim(task.source.claimId);
       const source = sourceStore.taskSnapshot(task.source.taskSnapshotHash);
@@ -702,11 +750,11 @@ function runnerDurability(cfg: AppConfig) {
       const runtime = snapshot.artifacts.find(artifact => artifact.pluginId === currentRuntime.artifact.pluginId);
       if (!runtime || runtime.artifactHash !== currentRuntime.artifact.artifactHash
         || !await verifyLegacyRuntime(runtimeArtifactsRoot, runtime.artifactHash)) throw new Error('Restore the exact retained runtime before recovering this voyage');
-      const hostBinding = snapshot.bindings.find(binding => binding.role === 'host');
       const savedRun = db.getRun(snapshot.runId);
       if (!savedRun?.taskJson || persistenceHash(nonsecretExecutionTask(JSON.parse(savedRun.taskJson) as AgentTask)) !== persistenceHash(snapshot.task)) throw new Error('Saved task differs from the immutable execution snapshot');
-      const expectedHost = host.kind === 'docker' && savedRun && (isPrePrAdapter(savedRun.adapter) || savedRun.adapter.startsWith('docker-review:')) ? 'detached' : host.kind;
-      if (hostBinding?.contributionId !== expectedHost) throw new Error('Restore the retained worker host before recovery');
+      const savedTask = JSON.parse(savedRun.taskJson) as AgentTask;
+      if (savedTask.executionHost) verifyHostExecution(savedTask, snapshot);
+      else retainedLegacyHostKind(savedRun, snapshot);
       await verifyEffectArtifacts(snapshot.artifacts);
       verifyAgentExecution(JSON.parse(savedRun.taskJson) as AgentTask, snapshot);
       const expected = snapshot.bindings.some(binding => binding.capability === 'helmsman/task-source') ? sourceExecutionSettings(cfg, snapshot.settings.agents !== undefined) : legacyExecutionSettings(cfg, snapshot.settings.agents !== undefined);
@@ -716,23 +764,23 @@ function runnerDurability(cfg: AppConfig) {
   });
 }
 
-function baseRunnerDeps(cfg: AppConfig, runId: string): Omit<RunnerDeps, 'adapter' | 'genId' | 'onLaunch' | 'isStopped'> {
+function baseRunnerDeps(cfg: AppConfig, runId: string, context: RunHostContext): Omit<RunnerDeps, 'adapter' | 'genId' | 'onLaunch' | 'isStopped'> {
   return {
     db,
     durable: runnerDurability(cfg),
     bus,
-    host,
+    host: context.host,
     runsDir: RUNS_DIR,
     recordAgentEvent: runTelemetry.record,
     pollClarifications: (runId, attempt, terminal) => clarificationRuntime.poll(runId, attempt, undefined, terminal),
     hasRequiredUnanswered: clarificationRuntime.hasUnanswered,
     onRunComplete: run => {
       try { runTelemetry.complete(run); clarificationRuntime.complete(run.id, run.attempt); }
-      finally { gateway.revokeRun(run.id); if (host.kind === 'docker') void stopDockerStages(run.id); }
+      finally { gateway.revokeRun(run.id); if (context.isolated && context.host.kind !== 'plugin') void stopLegacyDockerStages(run.id); }
     },
-    createWorktree: (repo: string, id: string) => standaloneWorkspace(repo, id, 'fresh', () => createWorktree(AGENTS_ROOT, repo, id)),
-    createWorktreeFromBranch: (repo: string, id: string, branch: string) => standaloneWorkspace(repo, id, 'branch', () => createWorktreeFromBranch(AGENTS_ROOT, repo, id, branch)),
-    createReviewWorktree: (repo, id, number, headSha) => standaloneWorkspace(repo, id, 'review', () => createReviewWorktree(AGENTS_ROOT, repo, id, number, headSha), headSha),
+    createWorktree: (repo: string, id: string) => standaloneWorkspace(context, repo, id, 'fresh', () => createWorktree(AGENTS_ROOT, repo, id)),
+    createWorktreeFromBranch: (repo: string, id: string, branch: string) => standaloneWorkspace(context, repo, id, 'branch', () => createWorktreeFromBranch(AGENTS_ROOT, repo, id, branch)),
+    createReviewWorktree: (repo, id, number, headSha) => standaloneWorkspace(context, repo, id, 'review', () => createReviewWorktree(AGENTS_ROOT, repo, id, number, headSha), headSha),
     removeWorktree: (repo: string, path: string) => path.startsWith(`${DOCKER_WORKSPACES}${sep}`) ? removeDockerWorkspace(DOCKER_WORKSPACES, path) : removeWorktree(AGENTS_ROOT, repo, path),
     now: () => new Date().toISOString(),
     jira: cfg.jira ? effectsFor(runId).jira : null,
@@ -811,16 +859,18 @@ async function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: 
   const cfg = executions.attempt({ runId: row.id, attempt: row.attempt })
     ? restoreExecutionConfig(executionSnapshot(row), loadConfig({ ...configStore.effectiveEnv(), JIRA_ENABLED: 'true' })) : configStore.current();
   const retained = await retainedRunAgents(row);
+  let hosting: Awaited<ReturnType<typeof retainedRunHost>>;
+  try { hosting = await retainedRunHost(row); } catch (error) { await retained?.dispose(); throw error; }
   let adapter: AgentAdapter;
   try { adapter = restoreRunAdapter(row, { retained: retained?.writer, runsDir: RUNS_DIR, agentCmd: cfg.agentCmd, reviewSettings: cfg.prePr, publication: isPrePrAdapter(row.adapter) ? publicationConnection(row.id) : undefined }); }
-  catch (error) { await retained?.dispose(); throw error; }
+  catch (error) { await retained?.dispose(); await hosting.dispose(); throw error; }
   pm.add(row.id, row.repo, () => {
     recordStopRequest(row.id);
     control.stopped = true;
     void control.stop?.();
   });
   const deps: RunnerDeps = {
-    ...baseRunnerDeps(cfg, row.id),
+    ...baseRunnerDeps(cfg, row.id, hosting.context),
     adapter,
     preserveWorktreeOnFailure: isPrePrAdapter(row.adapter),
     genId: () => row.id,
@@ -831,11 +881,12 @@ async function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: 
     isStopped: () => control.stopped || stopRequested(row.id),
   };
   let result: Awaited<ReturnType<typeof reattachRun>>;
-  try { result = await reattachRun(row, deps); } catch (error) { await retained?.dispose(); pm.remove(row.id); throw error; }
-  if (!result) { await retained?.dispose(); pm.remove(row.id); return { status: 'blocked', reason: 'Worker ownership needs verified recovery' }; }
-  if (result.status !== 'attached') { await retained?.dispose(); pm.remove(row.id); return result; }
+  try { result = await reattachRun(row, deps); } catch (error) { await retained?.dispose(); await hosting.dispose(); pm.remove(row.id); throw error; }
+  if (!result) { await retained?.dispose(); await hosting.dispose(); pm.remove(row.id); return { status: 'blocked', reason: 'Worker ownership needs verified recovery' }; }
+  if (result.status !== 'attached') { await retained?.dispose(); await hosting.dispose(); pm.remove(row.id); return result; }
   return { ...result, completion: result.completion.finally(async () => {
     await retained?.dispose();
+    await hosting.dispose();
     const status = db.getRun(row.id)?.status;
     if (status && status !== 'running' && !taskSourceRuntime.claimForRun(row.id)) todos.finishRun(row.id, status);
     pm.remove(row.id);
@@ -861,16 +912,21 @@ async function resumeVoyage(runId: string): Promise<void> {
   if (!task?.task && !task?.todoId && !cfg.jira) throw new ResumeError('Configure Jira before continuing this Jira voyage.');
   const retained = await retainedRunAgents(row);
   await retained?.dispose();
+  const hosting = await retainedRunHost(row);
   const control: { stopped: boolean; stop: (() => Promise<void>) | null } = { stopped: false, stop: null };
   pm.add(row.id, row.repo, () => { recordStopRequest(row.id); control.stopped = true; void control.stop?.(); });
   try {
-    const resumed = await resumeFailedPrePrRun(row, { db, durable: runnerDurability(cfg), host: host.kind === 'docker' && row.hostKind === 'detached' ? { ...host, kind: 'detached' } : host,
+    const resumed = await resumeFailedPrePrRun(row, { db, durable: runnerDurability(cfg), host: hosting.context.host,
       runsDir: RUNS_DIR, publication: publicationConnection(runId), now: () => new Date().toISOString(), isStopped: () => control.stopped,
       prepareTask: async task => {
         task.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: row.attempt + 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
         const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^pre-pr:/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort });
+        if (prepared.task.hostIsolation) {
+          if (!hosting.context.isolated) throw new ResumeError('The retained host cannot continue an isolated voyage.');
+          prepared.task.hostIsolation = { ...prepared.task.hostIsolation, capability: gateway.issue(runId, 86_400_000).token };
+        }
         if (prepared.task.dockerExecution) {
-          if (host.kind !== 'docker') throw new ResumeError('Select the Docker host before continuing an isolated voyage.');
+          if (!hosting.context.isolated) throw new ResumeError('The retained host cannot continue an isolated voyage.');
           prepared.task.dockerExecution = { ...prepared.task.dockerExecution, capability: gateway.issue(runId, 86_400_000).token };
         }
         return prepared.task;
@@ -879,7 +935,7 @@ async function resumeVoyage(runId: string): Promise<void> {
   } catch (error) {
     pm.remove(row.id);
     throw error;
-  }
+  } finally { await hosting.dispose(); }
 }
 
 const reattachIds: string[] = db.reattachableRuns().map((r: RunRow) => r.id);
@@ -906,11 +962,17 @@ try {
   process.stderr.write(`worktree sweep failed: ${String(err)}\n`);
 }
 
-void recoverRuns(db, { reattach: (row: RunRow) => dispatchReattach(row) })
-  .then((result: { reattached: string[]; failed: string[] }) => {
+const runRecovery = startRunRecovery(db, {
+  reattach: (row: RunRow) => dispatchReattach(row),
+  recordAttachment: (row, state, reason) => {
+    if (state === 'blocked' || state === 'failed') process.stderr.write(`Run ${row.id} recovery ${state}: ${reason}\n`);
+  },
+  onResult: result => {
     if (result.reattached.length > 0) process.stdout.write(`reattached ${result.reattached.length} run(s)\n`);
-  })
-  .catch((err: unknown) => process.stderr.write(`run recovery failed: ${String(err)}\n`));
+  },
+  onError: error => process.stderr.write(`run recovery failed: ${String(error)}\n`),
+});
+void runRecovery.initial.catch(() => {});
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json' };
 
@@ -927,8 +989,15 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const priorRun = body.retryOf ? db.getRun(body.retryOf) : null;
   const adapterId = priorRun?.adapter.replace(/^pre-pr:/, '') ?? body.adapter;
   const priorTask = priorRun?.taskJson ? JSON.parse(priorRun.taskJson) as AgentTask | null : null;
-  if (priorTask && Boolean(priorTask.dockerExecution) !== (host.kind === 'docker')) throw new RetryError('Retry requires the original local or Docker execution mode.');
   if (priorRun && !priorTask?.agentSelection) throw new RetryError('Legacy agent bindings cannot be migrated by retry. Continue the original retained voyage or start a new voyage.');
+  if (priorRun && !priorTask?.executionHost) throw new RetryError('Legacy execution hosts cannot be migrated by retry. Continue the retained voyage or start a new voyage.');
+  const selectedExecutionHost = priorTask?.executionHost
+    ? { revision: readExecutionHostProviderSelection(pluginDirectory()).revision, record: parseExecutionHostRetainedProviderV1(priorTask.executionHost) }
+    : selectExecutionHost();
+  if (selectedExecutionHost.record.metadata.stageExecution === 'isolated' && !gatewayAllowsIsolation) throw new Error('Restart Helmsman after selecting an isolated execution host so its scoped gateway is reachable.');
+  if (priorTask && priorRun) verifyHostExecution(priorTask, executionSnapshot(priorRun));
+  const hostArtifacts = priorTask?.hostRuntime?.artifacts ?? providerArtifacts(selectedExecutionHost.record.binding);
+  const hostRuntime = { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: hostArtifacts };
   const agentOptions = { root: pluginDirectory(), registry: backendPlugins.agents };
   const selectedAgents = priorTask?.agentSelection
     ? { selection: parseAgentSelectionV1(priorTask.agentSelection), revision: readAgentProviderSelection(pluginDirectory()).revision }
@@ -941,11 +1010,12 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   let sourceSelection = taskSourceRuntime.selection(body, body.retryOf);
   if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
   let launchJson = launchIntentJson(body);
-  const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
+  const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, hostArtifacts, sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
   persistence.transaction(() => {
     assertAgentSelectionCurrent(agentOptions, selectedAgents);
+    assertExecutionHostSelectionCurrent(executionHostOptions, selectedExecutionHost);
     const scheduling = taskSourceRuntime.schedule.assertAdmission(body);
-    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, ...(scheduling ? { scheduling } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
+    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, host: selectedExecutionHost.record, ...(scheduling ? { scheduling } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
       settings: sourceSelection ? sourceExecutionSettings(cfg, true) : legacyExecutionSettings(cfg, true), artifacts: admissionArtifacts }, maxConcurrency); };
     if (sourceSelection) taskSourceRuntime.reserve(runId, body.repo, sourceSelection, admit, body.retryOf);
     else admit();
@@ -960,8 +1030,11 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   });
   void (async (): Promise<void> => {
     let loadedAgents: Awaited<ReturnType<typeof loadExecutionAgents>> | undefined;
+    let loadedHost: Awaited<ReturnType<typeof loadExecutionHost>> | undefined;
     try {
       loadedAgents = await loadExecutionAgents({ agentSelection: selectedAgents.selection, agentRuntime }, admissionController.signal);
+      loadedHost = await loadExecutionHost({ executionHost: selectedExecutionHost.record, hostRuntime }, admissionController.signal);
+      const hostConfiguration = priorTask?.hostConfiguration !== undefined ? priorTask.hostConfiguration : await loadedHost.provider.prepareRun({ version: 1, runId, repo: body.repo, mode: body.mode === 'review' ? 'review' : body.mode === 'rerun' ? 'branch' : 'coding' });
       const adapter = loadedAgents.writer;
       let taskObj: AgentTask;
       if (sourceSelection) {
@@ -1028,6 +1101,10 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         const ticketId: string = body.ticketId ?? 'freeform';
         taskObj = { ticketId, title: body.title ?? ticketId, repo: body.repo, jiraBaseUrl: cfg.jira?.baseUrl ?? '', task: body.task };
       }
+      taskObj.executionHost = selectedExecutionHost.record;
+      taskObj.hostRuntime = hostRuntime;
+      taskObj.hostConfiguration = hostConfiguration;
+      const hosting = boundRunHost(runId, taskObj, loadedHost);
       taskObj.agentSelection = selectedAgents.selection;
       taskObj.agentRuntime = agentRuntime;
       taskObj.model ??= body.model;
@@ -1037,26 +1114,25 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         const priorTask = previous?.taskJson ? JSON.parse(previous.taskJson) as Partial<AgentTask> | null : null;
         if (priorTask?.workflowSnapshotId) taskObj.workflowSnapshotId = priorTask.workflowSnapshotId;
       }
-      if (host.kind === 'docker') {
+      if (hosting.isolated) {
         if (taskObj.prBranch && !taskObj.review) throw new Error('Docker branch reruns require host publication support; use the trusted local run host for this mode.');
         for (const record of [selectedAgents.selection.writer, ...selectedAgents.selection.reviewers]) {
           const transport = record.metadata.docker;
           if (!transport) throw new Error('Selected agent does not support Docker execution');
           if (transport === 'openai-responses' && !process.env.OPENAI_API_KEY || transport === 'anthropic-messages' && !process.env.ANTHROPIC_API_KEY) throw new Error('Configure the selected agent API key on the host before Docker execution.');
         }
-        const image = priorTask?.dockerExecution?.image ?? (await dockerRun(['docker', 'image', 'inspect', '--format', '{{.Id}}', process.env.HELMSMAN_DOCKER_IMAGE!])).stdout.trim();
-        if (!/^sha256:[a-f\d]{64}$/.test(image)) throw new Error('Docker image identity could not be pinned');
         const capability = gateway.issue(runId, 86_400_000);
-        taskObj.dockerExecution = { image, gatewayUrl, capability: capability.token, runId };
+        taskObj.hostIsolation = { gatewayUrl, capability: capability.token, runId };
+        taskObj.dockerExecution = undefined;
       }
       taskObj.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
       const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task: taskObj,
         provider: adapter.id, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort });
       taskObj = prepared.task;
-      const runAdapter = !taskObj.review && !taskObj.prBranch ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.dockerExecution ? dockerReviewAdapter(adapter) : adapter;
+      const runAdapter = !taskObj.review && !taskObj.prBranch ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.hostIsolation ? dockerReviewAdapter(adapter) : adapter;
       admissionController.signal.throwIfAborted();
       await startRun(taskObj, {
-        ...baseRunnerDeps(cfg, runId),
+        ...baseRunnerDeps(cfg, runId, hosting),
         launchJson,
         adapter: runAdapter,
         ...(isPrePrAdapter(runAdapter.id) ? { maxAttempts: 1, preserveWorktreeOnFailure: true } : {}),
@@ -1092,6 +1168,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       bus.publish(runId, { kind: 'run-complete', text: 'failed' });
     } finally {
       await loadedAgents?.dispose();
+      if (loadedHost) await releaseRunHost(runId, loadedHost);
       const finalRun = db.getRun(runId);
       if (finalRun?.status === 'failed' && !finalRun.taskJson && !outcomeStore.getAssessment(runId)) {
         outcomeStore.saveAssessment({ runId, state: 'not-assessed', outcome: 'unknown', summary: 'Launch preflight failed before execution.', evidence: [], failureStage: 'preflight', correctionRounds: null });
@@ -1467,8 +1544,10 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   });
 });
 
-server.on('close', () => { gatewayServer.close(); clearInterval(effectTimer); pluginCoordinator.dispose(); void backendPlugins.dispose(); });
+server.on('close', () => { runRecovery.dispose(); runnerShutdown.abort(); gatewayServer.close(); clearInterval(effectTimer); pluginCoordinator.dispose(); void backendPlugins.dispose(); });
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => {
+  runRecovery.dispose();
+  runnerShutdown.abort();
   server.close();
   void backendPlugins.dispose().finally(() => process.exit(0));
 });

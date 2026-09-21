@@ -1,0 +1,25 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 1,
+    "id": "helmsman.host-docker",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": []
+  },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "backend.js",
+    "provides": [
+      { "id": "helmsman/execution-host", "version": 1, "localId": "docker" }
+    ],
+    "executionHosts": {
+      "docker": { "access": ["execution"] }
+    },
+    "settings": {
+      "image": { "type": "string", "default": "helmsman-agent:latest", "maxLength": 256 }
+    },
+    "storageVersion": 1
+  }
+}
