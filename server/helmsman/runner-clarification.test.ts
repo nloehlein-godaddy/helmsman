@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openPersistence, persistedJson, type Persistence } from './persistence';
@@ -12,11 +12,12 @@ import { createClarificationRuntime } from './clarification-runtime';
 import { createRunnerDurability } from './runner-durability';
 import { startRun, reattachRun, type RunnerDeps } from './runner';
 import { detachedHost, readExitEvidence, type LaunchSpec, type RunHost } from './run-host';
+import * as runHost from './run-host';
 import { RunBus } from './event-bus';
 import type { AgentTask } from './agents/adapter';
 
 const roots: string[] = []; const connections = new Set<Persistence>();
-afterEach(() => { for (const p of connections) p.close(); connections.clear(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); for (const p of connections) p.close(); connections.clear(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const task: AgentTask = { ticketId: 'task', title: 'Task', repo: 'org/galleon', jiraBaseUrl: '', task: 'Work' };
 const artifact = { pluginId: 'example.runtime', artifactHash: 'a'.repeat(64), packageVersion: '1', requires: [] };
 function fixture() {
@@ -38,7 +39,8 @@ function fixture() {
       if (!snapshot) throw new Error('Snapshot unavailable'); return { attempt: row.attempt, channel: store.protocol.verify(snapshot) };
     } });
     const deps: RunnerDeps = { db, durable: coordinator, host: runtimeHost, runsDir: root, bus: new RunBus(), now: () => new Date().toISOString(), genId: () => 'run-1', pollIntervalMs: 5,
-      pollClarifications: runtime.poll, hasRequiredUnanswered: runtime.hasUnanswered, onRunComplete: row => runtime.complete(row.id, row.attempt),
+      pollClarifications: (runId, attempt, terminal) => runtime.poll(runId, attempt, undefined, terminal),
+      hasRequiredUnanswered: runtime.hasUnanswered, onRunComplete: row => runtime.complete(row.id, row.attempt),
       adapter: { id: 'test', buildCommand: () => ({ cmd: process.execPath, args: ['-e', 'process.exit(0)'] }), parseLine: () => null },
       createWorktree: async () => ({ path: root, branch: 'agent/run-1' }), removeWorktree: async () => {} };
     return { persistence, db, executions, store, coordinator, deps, close() { persistence.close(); connections.delete(persistence); } };
@@ -75,6 +77,61 @@ it('recovers the exact immutable channel after a lost worker launch response and
   expect(result?.status).toBe('attached'); if (result?.status === 'attached') await result.completion;
   expect(second.store.protocol.verify(before)).toEqual(preparedTask.clarification); expect(launch).toHaveBeenCalledOnce();
   expect(second.executions.snapshot(before.id)).toEqual(before);
+});
+
+it.each([1, 2])('ingests the final required question observed during exit reading with %i allowed attempts', async maxAttempts => {
+  const f = fixture(); const state = f.open(); const preparedTask = f.task();
+  state.deps.maxAttempts = maxAttempts;
+  state.deps.adapter.buildCommand = value => ({ cmd: process.execPath,
+    args: ['-e', `process.exit(${maxAttempts === 2 && value.clarification?.attempt === 1 ? 1 : 0})`] });
+  const originalRead = runHost.readExitEvidence;
+  let injected = false;
+  vi.spyOn(runHost, 'readExitEvidence').mockImplementation(async spec => {
+    const exit = await originalRead(spec);
+    if (exit && spec.attempt === 1 && !injected) {
+      injected = true;
+      writeFileSync(preparedTask.clarification.questionsPath,
+        `${JSON.stringify({ kind: 'question', id: 'last-required', required: true, prompt: 'Authorize publication?' })}\n`);
+    }
+    return exit;
+  });
+  await startRun(preparedTask, state.deps);
+  expect(injected).toBe(true);
+  expect(state.db.getRun('run-1')).toMatchObject({ status: 'failed', attempt: maxAttempts });
+  expect(state.store.listForChannel(preparedTask.clarification)).toHaveLength(1);
+  expect(state.store.protocol.provenance('last-required')).toMatchObject({ attempt: 1, channelId: preparedTask.clarification.channelId });
+  if (maxAttempts === 2) expect(state.store.hasRequiredUnanswered('run-1')).toBe(true);
+});
+
+it.each([
+  ['complete JSON without newline', JSON.stringify({ kind: 'question', id: 'unfinished', required: true, prompt: 'Proceed?' }), false],
+  ['malformed suffix', '{"kind":"question",', false],
+  ['whitespace suffix', ' \t\r', true],
+] as const)('drains terminal clarification files with %s before allowing retry', async (_name, suffix, valid) => {
+  const f = fixture(); const state = f.open(); const preparedTask = f.task(); state.deps.maxAttempts = 2;
+  state.deps.adapter.buildCommand = value => ({ cmd: process.execPath,
+    args: ['-e', `process.exit(${value.clarification?.attempt === 1 ? 1 : 0})`] });
+  const originalRead = runHost.readExitEvidence;
+  let injected = false;
+  vi.spyOn(runHost, 'readExitEvidence').mockImplementation(async spec => {
+    const exit = await originalRead(spec);
+    if (exit && spec.attempt === 1 && !injected) {
+      injected = true;
+      writeFileSync(preparedTask.clarification.questionsPath,
+        `${JSON.stringify({ kind: 'question', id: 'complete', required: false, prompt: 'Proceed?' })}\n${suffix}`);
+    }
+    return exit;
+  });
+  await startRun(preparedTask, state.deps);
+  expect(injected).toBe(true);
+  expect(state.store.listForChannel(preparedTask.clarification)).toHaveLength(1);
+  if (valid) expect(state.db.getRun('run-1')).toMatchObject({ status: 'succeeded', attempt: 2 });
+  else {
+    expect(state.db.getRun('run-1')).toMatchObject({ status: 'running', attempt: 1 });
+    expect(state.executions.attempt({ runId: 'run-1', attempt: 2 })).toBeNull();
+    expect(state.store.protocol.channel('run-1', 1)).toEqual(preparedTask.clarification);
+    expect(state.db.listEvents('run-1')).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'error', text: expect.stringContaining('incomplete record') })]));
+  }
 });
 
 it('binds a fresh continuation channel without rewriting the failed pre-PR checkpoint', async () => {

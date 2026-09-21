@@ -191,7 +191,7 @@ export function openClarificationStore(
     ingestQuestion(run, record, channel) { return immediateTransaction(sql, () => {
       const id = validId(run, 'run ID');
       const boundRun = deps.getRun(id);
-      if (!boundRun || boundRun.status !== 'running') {
+      if (!boundRun) {
         throw new ClarificationValidationError('Run is not active');
       }
       if (channel && (channel.runId !== id || boundRun.attempt !== channel.attempt
@@ -213,6 +213,8 @@ export function openClarificationStore(
         }
         return existing;
       }
+
+      if (boundRun.status !== 'running') throw new ClarificationValidationError('Run is not active');
 
       const questionCount = sql.prepare('SELECT COUNT(*) AS count FROM clarifications WHERE runId = ?').get(id) as { count: number };
       if (questionCount.count >= MAX_CLARIFICATIONS_PER_RUN) {

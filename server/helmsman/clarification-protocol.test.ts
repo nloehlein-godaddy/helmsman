@@ -112,6 +112,37 @@ describe('attempt-bound clarification protocol', () => {
     expect(f.store.list()).toHaveLength(2); expect(f.store.protocol.provenance('one')?.revision).toBe(1);
   });
 
+  it.each(['channel', 'shared'] as const)('rejects incomplete terminal records in the %s file while active polling waits', path => {
+    const f = fixture(); const channel = f.channel(); f.bind(channel); const runtime = f.runtime();
+    const questionsPath = path === 'channel' ? channel.questionsPath : clarificationPaths(f.root, 'run-1').questionsPath;
+    writeFileSync(questionsPath, JSON.stringify(question('unfinished')));
+    expect(() => runtime.poll('run-1', 1)).not.toThrow(); expect(f.store.list()).toHaveLength(0);
+    expect(() => runtime.poll('run-1', 1, channel.channelId, true)).toThrow('incomplete record');
+    writeFileSync(questionsPath, line('unfinished') + ' \t\r');
+    expect(() => runtime.poll('run-1', 1, channel.channelId, true)).not.toThrow();
+    expect(runtime.hasUnanswered('run-1', 1)).toBe(true);
+  });
+
+  it('replays known answered records after success while rejecting new, changed and foreign terminal records', () => {
+    const f = fixture(); const channel = f.channel(); f.bind(channel); const runtime = f.runtime();
+    writeFileSync(channel.questionsPath, line('answered')); runtime.poll('run-1', 1);
+    f.store.answer('answered', { answer: 'Yes' });
+    const before = f.store.list(); const provenance = f.store.protocol.provenance('answered');
+    f.run.status = 'succeeded';
+    expect(() => runtime.poll('run-1', 1)).not.toThrow();
+    expect(runtime.hasUnanswered('run-1', 1)).toBe(false);
+    expect(f.store.list()).toEqual(before); expect(f.store.protocol.provenance('answered')).toEqual(provenance);
+    expect(readFileSync(channel.answersPath, 'utf8')).toContain('Yes');
+    expect(() => f.store.ingestQuestion('run-1', question('new'), channel)).toThrow('not active');
+    for (const change of [{ prompt: 'Different?' }, { required: false }, { timeoutAt: '2027-01-01T00:00:00Z' }]) {
+      expect(() => f.store.ingestQuestion('run-1', { ...question('answered'), ...change }, channel)).toThrow('conflicts');
+    }
+    expect(() => f.store.ingestQuestion('run-1', question('answered'), f.channel())).toThrow('active clarification channel');
+    expect(() => f.store.ingestQuestion('run-1', question('answered'))).toThrow('another clarification channel');
+    f.run.attempt = 2;
+    expect(() => f.store.ingestQuestion('run-1', question('answered'), channel)).toThrow('active clarification channel');
+  });
+
   it('increments compatibility lifecycle and contact revisions atomically and rolls them back with their records', () => {
     const f = fixture(); const channel = f.channel(); f.bind(channel); f.store.ingestQuestion('run-1', question('answer'), channel);
     const contact = f.store.saveContact({ name: 'Person', address: 'address' });

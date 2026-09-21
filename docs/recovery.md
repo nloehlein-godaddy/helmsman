@@ -33,6 +33,8 @@ Each new execution attempt retains its clarification channel ID and question/ans
 
 Existing shared-file questions have unknown attempt provenance. They remain visible, and new answers are rejected even through the compatibility HTTP route. Complete unread legacy records are ingested as unknown; neither the current attempt number nor a timestamp assigns them to a new worker. Required unanswered questions from prior or unknown attempts continue to block publication. This foundation adds no operator action that resolves, discards or reassigns those obligations. Preserve the original run for investigation; a new run has its own question history.
 
+After verified worker exit, the host drains complete clarification records before terminal processing or retry. A non-whitespace suffix without a newline in either the bound or legacy shared question file blocks processing and retains the current attempt/channel, even if that suffix is valid JSON. Active polling tolerates partial writes; terminal effect authorization does not. Preserve the original files when investigating an incomplete-record error. Exact already-ingested records can replay after success without changing their answers or revisions; this does not permit new terminal questions or restore answer eligibility.
+
 Only an attempt's own terminal question records are published to its answer file. Durable answer acceptance and worker consumption are separate facts. The current compatibility answer endpoint has no durable request receipt; the forthcoming public answer-command service supplies that recovery protocol. Disabling a presentation plugin does not suspend ingestion, timeout handling, answer delivery or publication gates.
 
 ## Startup and endpoint ownership

@@ -21,7 +21,7 @@ export function createClarificationRuntime(store: ClarificationStore, runsDir: s
         || dirname(retained.channel.questionsPath) !== resolve(runsDir) || dirname(retained.channel.answersPath) !== resolve(runsDir))) throw new Error('Clarification attempt binding changed');
     return retained?.channel ?? null;
   }
-  function ingest(runId: string, questionsPath: string, channel?: ClarificationChannel): void {
+  function ingest(runId: string, questionsPath: string, channel?: ClarificationChannel, terminal = false): void {
     let data = '';
     try {
       const stat = lstatSync(questionsPath);
@@ -32,13 +32,14 @@ export function createClarificationRuntime(store: ClarificationStore, runsDir: s
     }
     const lines = data.slice(0, data.lastIndexOf('\n') + 1).split('\n').filter(line => line.trim());
     for (const line of lines) store.ingestQuestion(runId, parseClarificationQuestionLine(line), channel);
+    if (terminal && data.slice(data.lastIndexOf('\n') + 1).trim()) throw new Error('Terminal clarification question file has an incomplete record');
   }
   return {
-    poll(runId: string, expectedAttempt?: number, expectedChannelId?: string) {
+    poll(runId: string, expectedAttempt?: number, expectedChannelId?: string, terminal = false) {
       const channel = binding(runId, expectedAttempt, expectedChannelId);
       const paths = channel ?? clarificationPaths(runsDir, runId);
-      if (channel) ingest(runId, clarificationPaths(runsDir, runId).questionsPath);
-      ingest(runId, paths.questionsPath, channel ?? undefined);
+      if (channel) ingest(runId, clarificationPaths(runsDir, runId).questionsPath, undefined, terminal);
+      ingest(runId, paths.questionsPath, channel ?? undefined, terminal);
       store.timeoutDue();
       const questions = channel ? store.listForChannel(channel)
         : store.listForRun(runId).filter(question => store.protocol.provenance(question.id)?.kind === 'legacy-unproven');

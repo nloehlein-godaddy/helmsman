@@ -16,7 +16,7 @@ export interface RunnerDeps {
   durable?: DurableRunnerCoordinator;
   db: Db;
   recordAgentEvent?: (run: RunRow, task: AgentTask, event: AgentEvent, byteOffset: number) => number | null;
-  pollClarifications?: (runId: string, expectedAttempt?: number) => void;
+  pollClarifications?: (runId: string, expectedAttempt?: number, terminal?: boolean) => void;
   hasRequiredUnanswered?: (runId: string, expectedAttempt?: number) => boolean;
   onRunComplete?: (run: RunRow) => void;
   prepareFinalization?: (run: RunRow) => Promise<void>;
@@ -595,6 +595,8 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
       check();
       if (recordedStatus === null) stopped ||= deps.isStopped?.() ?? false;
       if (exit) {
+        deps.pollClarifications?.(row.id, row.attempt, true);
+        check();
         tail.stop();
         const offset = readLogLines(spec.logPath, deps.db.getRun(row.id)?.logOffset ?? row.logOffset ?? 0, events.consume, true);
         deps.db.updateRun(row.id, { logOffset: offset });

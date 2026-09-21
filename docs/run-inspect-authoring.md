@@ -1,6 +1,6 @@
 # Run inspection service
 
-`helmsman/run-inspect@1` is an E4 development foundation. It does not establish accepted viewer/history replacement or browser download parity. Existing `helmsman/run-read@1` consumers, routes, cursor behavior and text bounds remain unchanged. See the [E4 implementation plan](plugin-phase-e4-implementation.md) and [implementation ledger](plugin-implementation-progress.md).
+`helmsman/run-inspect@1` is an E4 foundation. The existing viewer/history remain active pending replacement acceptance. Browser downloads use the implemented [download service](download-authoring.md), with explicit result and cancellation limits. Existing `helmsman/run-read@1` consumers, routes, cursor behavior and text bounds remain unchanged. See the [E4 implementation plan](plugin-phase-e4-implementation.md) and [implementation ledger](plugin-implementation-progress.md).
 
 Declare the service requirement and use `context.services.runInspect`. Import public types such as `RunInspectServiceV1` from `@helmsman/plugin-sdk`. Runtime imports of application files are unnecessary. Methods return `available` with validated, frozen DTOs or `unavailable` with a bounded reason. Lifetime, activity and caller cancellation reject with an abort error instead of producing a stale result. This facet has no watchers; a package owns cancellable polling through its activity lifecycle.
 
@@ -56,7 +56,7 @@ if (result.status === 'available') {
 }
 ```
 
-`destination` must be a real streaming sink. The service supplies a host-owned `ReadableStream<Uint8Array>` and metadata: canonical target, observation time, run-wide provenance, captured `throughSequence`, safe filename and `text/plain; charset=utf-8` content type. A portable browser download sink is separate work. Do not collect a complete `Blob`, string or array of chunks and describe that as bounded-memory export.
+`destination` must be a real streaming sink. The service supplies a host-owned `ReadableStream<Uint8Array>` and metadata: canonical target, observation time, run-wide provenance, captured `throughSequence`, safe filename and `text/plain; charset=utf-8` content type. For browser downloads, use the implemented [`helmsman/download@1` service](download-authoring.md): call its `save` method from the click handler and invoke `exportLog` inside its lazy `open` callback. The destination is selected before the export watermark is captured. The sink prefers the native file picker and falls back to the scoped streaming download worker. Do not collect a complete `Blob`, string or array of chunks and describe that as bounded-memory export.
 
 The export includes every complete stored event through its captured watermark as `[timestamp] kind: text` followed by a newline. Later appends belong to a new export. Preview clipping does not alter exported text. UTF-8 bytes, including embedded NUL and multi-byte characters, are preserved; byte chunk boundaries may divide a UTF-8 sequence, so a text consumer must use a streaming decoder.
 
@@ -66,6 +66,6 @@ Do not expose transport URLs, response metadata headers or private run paths in 
 
 ## Verification
 
-Codec, browser-adapter, SQLite-service and real HTTP tests cover scoped resolution, truthful counts under insertion/status changes, stale/tampered/direction-bound cursors, backward/live independence, empty logs, attempt changes, Unicode/NUL preview and export, bounded reads, slow sinks and cancellation before/after response delivery. Existing run-read and legacy export regressions remain in the verification batch. Authored viewer installation, shared-session rehoming, portable download saving and E4 cutover acceptance remain open.
+Codec, browser-adapter, SQLite-service and real HTTP tests cover scoped resolution, truthful counts under insertion/status changes, stale/tampered/direction-bound cursors, backward/live independence, empty logs, attempt changes, Unicode/NUL preview and export, bounded reads, slow sinks and cancellation before/after response delivery. Existing run-read and legacy export regressions remain in the verification batch. Actual Chromium, WebKit and Firefox downloads and a source-denied production export-to-download test pass. Firefox can leave its native download UI pending after stream cancellation; the application does not promise to dismiss that UI. Authored viewer installation, shared-session rehoming and E4 presentation cutover acceptance remain open.
 
 _Helmsman · not reported - not reported_

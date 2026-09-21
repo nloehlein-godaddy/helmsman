@@ -48,11 +48,15 @@ flowchart TD
     Resolve --> Preview[Run-wide log preview<br/>Attempt and direction bound cursors]
     Preview --> Older[Older pages retain captured watermark]
     Preview --> Follow[Follow drains captured watermark<br/>Then observes later appends]
-    Resolve --> Export[Capture export watermark<br/>Stream complete stored text in bounded byte chunks]
-    Export --> Sink[Host download service<br/>Open source after destination selection]
-    Sink --> Picker[File picker when available<br/>Saved only after writable close succeeds]
-    Sink --> Browser[Scoped service worker fallback<br/>One-use token and backpressure]
-    Browser --> Delivered[Delivered to browser<br/>Disk save is not confirmed]
+    Resolve --> Sink[User requests download<br/>Host selects destination before opening source]
+    Sink --> Picker[File picker when available<br/>Wait for destination acceptance]
+    Sink --> Browser[Scoped service worker fallback<br/>Prepare one-use download token]
+    Picker -->|Accepted| Export[Open source and capture export watermark<br/>Stream complete stored text in bounded byte chunks]
+    Browser -->|Ready| Export
+    Export --> Transfer[Write with backpressure<br/>Wait for destination demand]
+    Transfer --> End{Destination kind}
+    End -->|Picker| Saved[Saved only after writable close succeeds]
+    End -->|Worker| Delivered[Delivered to browser<br/>Disk save is not confirmed]
     Inactive[Hidden, disposed or changed scope] --> Abort[Cancel source and sink streams]
     Abort --> Export
     Abort --> Sink
@@ -120,9 +124,12 @@ flowchart TD
 flowchart LR
     Channel[Fresh attempt channel<br/>Pinned with immutable execution snapshot] --> Stage[Agent stages]
     Stage --> Question[Agent asks a question<br/>Exact channel and deadline saved]
+    Stage --> Exit[Verified worker exit]
+    Exit --> Drain[Drain final complete question records]
+    Drain -->|Unfinished non-whitespace record| Block
     Question --> Human[Agent Questions page<br/>Accept answer only for proven current attempt]
     Human --> Continue[Publish matching channel answer<br/>Agent reads answer and continues]
-    Legacy[Legacy shared-file question<br/>Unknown attempt; read-only] --> Block
+    Legacy[Legacy shared-file question<br/>Unknown attempt; read-only] -->|Required and unanswered| Block
     Question -->|Required answer missing, expired or cancelled| Block[Block completion and publication<br/>Timeout is never an answer]
     Stage --> Evidence[Host validates reports<br/>Immutable artifacts + content hashes]
     Evidence --> Recovery[Restart: reattach durable process/container identity<br/>Checkpoint: verify snapshot, hashes and pinned revision]
@@ -130,7 +137,7 @@ flowchart LR
     Usage --> Outcomes[Costs & Outcomes<br/>Reported spend + separate Codex API estimates<br/>Usage coverage, tokens, duration, PR outcomes<br/>Separate task assessment with evidence]
 ```
 
-- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Durable answer receipts and replacement presentation remain pending.
+- **Questions:** the E4 foundation pins new channels to immutable execution attempts before preparation; recovery verifies the retained channel, and continuation receives a new one. The operator can answer proven current-attempt questions. Legacy shared-file questions remain unknown and read-only; prior or unknown required unanswered obligations still block publication. Local and Docker gates verify the retained attempt/channel pair. After verified exit, a final drain captures late questions before retry or completion; unfinished non-whitespace records block progress. Waiting retains capacity. Contacts are optional suggested respondents and never send notifications. Durable answer receipts and replacement presentation remain pending.
 - **Evidence and recovery:** validated reports are recorded with immutable identities and hashes. A checkpoint continuation revalidates saved evidence before reusing it; legacy checkpoints without manifests follow an explicit compatibility path. A fresh retry preserves the original task/provider, workflow snapshot and Docker image pin; changed prompts or skills fail preflight. Restart reattachment and checkpoint continuation are different from restarting an entire failed voyage.
 - **Costs and outcomes:** provider token/cost events and stage timing feed a persistent ledger. Reported spend can be partial; unreported billed costs stay unknown. Eligible unpriced Codex usage receives a separate Standard short-context API baseline estimate, using published rates checked September 19, 2026. The UI exposes estimated/unpriced record coverage and runs without usage records. Missing model/token data remains unknown; service tier, per-request context and cache-write usage are unavailable, and subscription charges may differ. Estimates do not affect budget caps or cost-per-PR metrics, which use fully priced runs. Process success does not itself establish task completion: assessment state (complete/partial/failed/not-assessed) is separate from task outcome (achieved/partial/not-achieved/unknown), with supporting evidence. PR visibility is best-effort with explicit stale/unavailable status.
 

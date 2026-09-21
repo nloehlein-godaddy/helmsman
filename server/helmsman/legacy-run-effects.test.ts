@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { loadConfig } from '../config';
 import { openDb, type RunRow } from './db';
 import { openExecutionStore } from './execution-store';
@@ -8,6 +11,9 @@ import { authorizeRunEffect, createLegacyRunEffects, type CreatedReviewTarget } 
 import { openOperationStore } from './operations';
 import { openPersistence, type Persistence } from './persistence';
 import type { AgentTask } from './agents/adapter';
+import { openClarificationStore } from './clarifications';
+import { createClarificationRuntime } from './clarification-runtime';
+import { createClarificationChannel } from './clarification-protocol-store';
 
 const databases: Persistence[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
@@ -63,6 +69,52 @@ function fixture(taskOverrides: Partial<AgentTask> = {}) {
 }
 
 describe('legacy run effects cutover facade', () => {
+  it('dispatches successful finalization effects through an answered terminal clarification channel', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'terminal-clarification-effects-'));
+    try {
+      const channel = createClarificationChannel(root, { runId: 'run', attempt: 1 });
+      const data = fixture({ clarification: channel });
+      const store = openClarificationStore(data.persistence.sql, { getRun: data.db.getRun });
+      store.protocol.bind(data.snapshot);
+      const runtime = createClarificationRuntime(store, root, { resolve(id, expectedAttempt) {
+        const row = data.db.getRun(id);
+        if (!row || expectedAttempt !== row.attempt) throw new Error('Attempt changed');
+        return { attempt: row.attempt, channel: store.protocol.verify(data.snapshot) };
+      } });
+      const questionLine = `${JSON.stringify({ kind: 'question', id: 'answered', required: true, prompt: 'Proceed?' })}\n`;
+      writeFileSync(channel.questionsPath, questionLine);
+      runtime.poll('run', 1); store.answer('answered', { answer: 'Yes' });
+      const before = store.list(); const provenance = store.protocol.provenance('answered');
+      const authorize = vi.fn(async (operation: Parameters<typeof authorizeRunEffect>[0]) => {
+        const row = data.db.getRun('run');
+        const authorization = authorizeRunEffect(operation, row);
+        if (!authorization.allowed) return authorization;
+        if (!row || operation.origin.attempt === null) return { allowed: false as const, reason: 'Run unavailable' };
+        runtime.poll(row.id, operation.origin.attempt, undefined, row.status !== 'running');
+        return runtime.hasUnanswered(row.id, operation.origin.attempt)
+          ? { allowed: false as const, reason: 'Required clarification unanswered' } : { allowed: true as const };
+      });
+      const effects = createLegacyRunEffects({ ...data.options, authorize });
+      const finalRow = { ...data.row, status: 'succeeded' as const, prNumber: 12 };
+      await effects.prepareFinalizationLookups(finalRow, data.snapshot);
+      data.persistence.transaction(() => {
+        effects.prepareFinalization(finalRow, data.snapshot);
+        data.db.updateRun('run', { status: 'succeeded', prNumber: 12 });
+      });
+      for (const suffix of ['{"kind":', JSON.stringify({ kind: 'question', id: 'late', required: true, prompt: 'Proceed?' })]) {
+        writeFileSync(channel.questionsPath, questionLine + suffix);
+        await expect(authorize(data.operations.list()[0]!)).rejects.toThrow('incomplete record');
+        expect(data.enqueue).not.toHaveBeenCalled();
+      }
+      writeFileSync(channel.questionsPath, questionLine + ' \t\r');
+      await effects.drainPending('run');
+      expect(data.operations.list()).toHaveLength(3);
+      expect(data.operations.list().every(operation => operation.status === 'completed')).toBe(true);
+      expect(authorize).toHaveBeenCalled(); expect(data.enqueue).toHaveBeenCalledOnce();
+      expect(store.list()).toEqual(before); expect(store.protocol.provenance('answered')).toEqual(provenance);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('authorizes only current running claims/reviews and matching successful finalization', async () => {
     const data = fixture();
     await data.effects.jira.assign('TASK-1', 'bot');

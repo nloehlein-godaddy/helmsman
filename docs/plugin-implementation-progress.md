@@ -177,3 +177,11 @@ Cross-review fixed oversized network chunks crossing the export/download boundar
 README, authoring/distribution and operational guidance now describe the foundations and remaining boundaries. Matching Markdown/offline HTML flows show inspection, watermark export and browser completion limits; the HTML was rendered and visually inspected at desktop/mobile sizes. Local targets in 74 documentation files were checked. Documentation remains an acceptance gate for this and every later extraction.
 
 _Helmsman · not reported - not reported_
+
+## Phase E4 foundation review corrections
+
+Exact review of `039f516` found two lifecycle errors: the final question-file write could arrive between polling and exit observation, and replaying an answered question after run completion could block durable finalization effects. Both are corrected. A verified exit now triggers an attempt-fenced final drain before completion or retry. Complete records are retained; unfinished non-whitespace JSONL suffixes block progress. Active polling still tolerates partial writes. Existing terminal records replay only after identity/channel/content validation, without changing answers or revisions; new or altered terminal records remain rejected.
+
+Regressions cover one- and two-attempt exit races, incomplete and whitespace-only suffixes, preserved attempt/channel state and dispatch of all three successful finalization effects through the real clarification gate. Independent review is clean. The corrected tree passed 4,224 tests across 288 files, TypeScript and the production/distribution build, and the source-denied Unicode inspection/download production test. Prior unchanged frontend evidence remains 23 browser tests, nine real cross-browser download scenarios and seven Node distribution checks. Documentation now correctly identifies the implemented download facet and shows destination readiness before lazy export capture in both process diagram formats. All 74 documentation files passed local-target checks. Correction-commit review and push remain the checkpoint's final steps.
+
+_Helmsman · not reported - not reported_

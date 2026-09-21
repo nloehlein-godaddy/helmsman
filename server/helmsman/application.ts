@@ -436,7 +436,7 @@ function effectsFor(runId: string): LegacyRunEffects {
       const authorization = authorizeRunEffect(operation, run);
       if (!authorization.allowed) return authorization;
       if (!run || operation.origin.attempt === null || stopRequested(run.id)) return { allowed: false, reason: 'The originating voyage is unavailable or stopped' };
-      clarificationRuntime.poll(run.id, operation.origin.attempt);
+      clarificationRuntime.poll(run.id, operation.origin.attempt, undefined, run.status !== 'running');
       return clarificationRuntime.hasUnanswered(run.id, operation.origin.attempt) ? { allowed: false, reason: 'A required clarification remains unanswered' } : { allowed: true };
     },
   });
@@ -486,7 +486,7 @@ function baseRunnerDeps(cfg: AppConfig, runId: string): Omit<RunnerDeps, 'adapte
     host,
     runsDir: RUNS_DIR,
     recordAgentEvent: runTelemetry.record,
-    pollClarifications: clarificationRuntime.poll,
+    pollClarifications: (runId, attempt, terminal) => clarificationRuntime.poll(runId, attempt, undefined, terminal),
     hasRequiredUnanswered: clarificationRuntime.hasUnanswered,
     onRunComplete: run => {
       try { runTelemetry.complete(run); clarificationRuntime.complete(run.id, run.attempt); }
