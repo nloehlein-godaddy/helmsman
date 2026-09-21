@@ -114,6 +114,31 @@ describe('durable admission and runner integration', () => {
     attempt.close();
   });
 
+  it('keeps unresolved legacy source claims protected when stopping a never-launched execution', async () => {
+    const { coordinator, executions, db, operations } = setup();
+    const first = await coordinator.prepare(run, task); first.ready('/worktree');
+    const retained = executions.snapshot(executions.attempt({ runId: run.id, attempt: 1 })!.snapshotId)!;
+    const claim = operations.enqueue({ version: 1, key: 'uncertain-assignment', kind: 'jira.assign',
+      origin: { kind: 'run-claim', id: retained.id, revision: retained.contentHash, runId: run.id, attempt: 1 },
+      artifacts: retained.artifacts, binding: { ...retained.bindings[0]!, role: 'effect' }, target: { repo: run.repo }, payload: {} });
+    const lease = operations.lease(claim.id, 60_000)!;
+    operations.markInvoked(lease);
+    operations.settle(lease, { status: 'unknown', evidence: null, reason: 'Assignment response lost' });
+    expect(first.terminalUnlaunched('stopped', 'Stop while claiming')).toBe(false);
+    expect(executions.attempt({ runId: run.id, attempt: 1 })?.outcome).toBeNull();
+    expect(executions.reservations()).toHaveLength(1);
+    expect(executions.pins().map(pin => pin.kind).sort()).toEqual(['execution', 'operation']);
+    first.close();
+    const recovered = await coordinator.recover(db.getRun(run.id)!);
+    expect(recovered.terminalUnlaunched('stopped', 'Stop after restart')).toBe(false);
+    const reconciliation = operations.lease(claim.id, 60_000, { reconcile: true })!;
+    operations.settle(reconciliation, { status: 'acknowledged', receipt: { assignment: 'verified' } });
+    expect(recovered.terminalUnlaunched('stopped', 'Claim reconciled before Stop')).toBe(true);
+    recovered.finalize({ ...db.getRun(run.id)!, status: 'stopped' }); recovered.close();
+    expect(executions.reservations()).toEqual([]);
+    expect(executions.pins()).toEqual([]);
+  });
+
   it('fences stale coordinators from settling preparation after lease replacement', async () => {
     const { persistence, coordinator, executions, db } = setup();
     const stale = await coordinator.prepare(run, task);

@@ -89,6 +89,8 @@ function reportedCost(total: number | null, event: AgentEvent, adapter: AgentAda
   return { total: (total ?? 0) + Math.max(0, event.costUsd - prior), previous: Math.max(prior, event.costUsd) };
 }
 
+class SourceClaimUnresolvedError extends Error {}
+
 async function claimTicket(
   jira: JiraActions,
   ticketId: string,
@@ -103,7 +105,7 @@ async function claimTicket(
     if (required && !transitioned) throw new Error('Required source transition is not settled');
     onEvent({ kind: 'log', text: `claimed ticket ${ticketId}: assigned bot and transitioned to ${statusInProgress}` });
   } catch (err) {
-    if (required) throw err;
+    if (required) throw new SourceClaimUnresolvedError(err instanceof Error ? err.message : String(err), { cause: err });
     const text: string = err instanceof Error ? err.message : String(err);
     onEvent({ kind: 'log', text: `jira claim failed (non-fatal): ${text}` });
   }
@@ -758,7 +760,7 @@ async function startDurableRun(task: AgentTask, deps: RunnerDeps): Promise<strin
       return runId;
     } catch (error) {
       try {
-        if (await settleUnlaunchedAttempt(row, session, deps, error instanceof Error ? error.message : String(error), heartbeat.check)) return runId;
+        if (!(error instanceof SourceClaimUnresolvedError) && await settleUnlaunchedAttempt(row, session, deps, error instanceof Error ? error.message : String(error), heartbeat.check)) return runId;
       } catch (settlementError) { error = settlementError; }
       blockDurableAttempt(row, session, deps, error);
       return runId;
@@ -827,7 +829,7 @@ async function reattachDurableRun(row: RunRow, deps: RunnerDeps): Promise<Attach
     return { status: 'attached', completion };
   } catch (error) {
     try {
-      if (!settlementAttempted && await settleUnlaunchedAttempt(row, session, deps, error instanceof Error ? error.message : String(error), heartbeat.check)) {
+      if (!settlementAttempted && !(error instanceof SourceClaimUnresolvedError) && await settleUnlaunchedAttempt(row, session, deps, error instanceof Error ? error.message : String(error), heartbeat.check)) {
         heartbeat.close();
         return { status: 'attached', completion: Promise.resolve() };
       }

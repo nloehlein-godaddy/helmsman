@@ -81,6 +81,8 @@ export function createRunnerDurability(options: RunnerDurabilityOptions): Durabl
           executions.assertLease(owned());
           const current = executions.attempt(initial);
           if (!current || !['prepared', 'ready'].includes(current.preparation) || current.hostRef) return false;
+          if (options.operations?.list({ runId: initial.runId }).some(operation => operation.origin.kind === 'run-claim'
+            && operation.origin.attempt === initial.attempt && operation.status !== 'completed')) return false;
           if (current.outcome) return hasUnlaunchedOutcome(current) && current.outcome.status === status;
           if (!['failed', 'stopped'].includes(status) || typeof reason !== 'string' || !reason.trim()) throw new PersistenceConflictError('Preparation failure evidence is required');
           executions.recordOutcome(owned(), { status, endedAt: now(), evidence: { kind: 'never-launched', reason,
