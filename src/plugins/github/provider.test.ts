@@ -40,6 +40,22 @@ describe('GitHub pull request provider', () => {
     expect(call).toHaveBeenCalledOnce();
   });
 
+  it.each(['search', 'local'] as const)('handles concurrent review reads when %s fails first', async first => {
+    let rejectSearch!: (reason: Error) => void;
+    let rejectLocal!: (reason: Error) => void;
+    const search = new Promise<{ status: number; body: unknown }>((_, reject) => { rejectSearch = reject; });
+    const local = new Promise<{ status: number; body: unknown }>((_, reject) => { rejectLocal = reject; });
+    const ctx = context(input => input.path === '/search/issues' ? search : local);
+    const result = githubPullRequestProvider.list({ query: { version: 1, repo: null, kind: 'review-requested', limit: 100 }, repos: [target.repo] }, ctx);
+    const failures = first === 'search' ? [rejectSearch, rejectLocal] : [rejectLocal, rejectSearch];
+    failures[0]!(new TypeError('fetch failed'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    failures[1]!(new TypeError('fetch failed'));
+    await expect(result).resolves.toMatchObject({ quality: 'degraded', items: [] });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(ctx.http.request).toHaveBeenCalledTimes(2);
+  });
+
   it('projects checks and effective viewer approval from the immutable PR observation', async () => {
     const result = await githubPullRequestProvider.detail(query, context(async input => {
       if (input.path.endsWith('/check-runs')) return { status: 200, body: { total_count: 1, check_runs: [check()] } };

@@ -210,7 +210,8 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
       } else {
         const search = collection(context, '/search/issues', { q: `is:pr is:open review-requested:${author}${query.repo ? ` repo:${query.repo}` : ''}`, sort: 'created', order: 'desc' }, 'items');
         const local = Promise.all(repoPaths.map(async ({ repo }) => ({ repo, result: await direct(repo), reviewRequested: true })));
-        sources = [{ repo: '', result: await search, reviewRequested: true }, ...(await local)];
+        const [searchResult, localResults] = await Promise.all([search, local]);
+        sources = [{ repo: '', result: searchResult, reviewRequested: true }, ...localResults];
       }
     } catch { return Object.freeze({ items: Object.freeze([]), quality: 'degraded' as const, truncated: false, browseUrl: null }); }
     const items = []; let partial = false; let degraded = false;
