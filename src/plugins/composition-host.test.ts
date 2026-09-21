@@ -40,6 +40,43 @@ function setup(module: PluginPanelModule) {
 afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); });
 
 describe('page-owned composition', () => {
+  it('persists explicit panel scope changes without changing the header or other panels and cancels prior reads', async () => {
+    const contexts: PluginPanelContext[] = [];
+    const { host, first, second, current } = setup({ mount(_element, context) {
+      contexts.push(context); return { update() {}, dispose() {} };
+    } });
+    await host.service.mount('first', first); await host.service.mount('second', second);
+    await contexts[0]!.saveState({ version: 1, value: { draft: 'Keep me' } });
+    const activity = contexts[0]!.activity;
+    await contexts[0]!.setScope!({ kind: 'galleon', repo: 'org/draft' });
+    expect(activity.signal.aborted).toBe(true);
+    expect(contexts.map(context => context.activity.repo)).toEqual(['org/draft', 'org/override']);
+    expect(current().instances[0]?.state).toEqual({ 'example.backlog/panel': { version: 1, value: { draft: 'Keep me' } } });
+    host.update({ ...page, repo: 'org/next' });
+    expect(contexts[0]!.activity.repo).toBe('org/draft');
+    await contexts[0]!.setScope!({ kind: 'inherit' });
+    expect(contexts[0]!.activity.repo).toBe('org/next');
+    expect(page.repo).toBe('org/header');
+    await expect(contexts[0]!.setScope!({ kind: 'galleon', repo: '../invalid' })).rejects.toThrow();
+    host.dispose();
+    await expect(contexts[0]!.setScope!({ kind: 'all' })).rejects.toThrow(/inactive/);
+  });
+
+  it('rejects a pending scope selection when the header scope changes before storage returns', async () => {
+    let context!: PluginPanelContext;
+    const { host, first, read, current } = setup({ mount(_element, value) {
+      context = value; return { update() {}, dispose() {} };
+    } });
+    await host.service.mount('first', first);
+    let finish!: (value: CompositionLayoutV1) => void;
+    read.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const pending = context.setScope!({ kind: 'galleon', repo: 'org/draft' });
+    host.update({ ...page, repo: 'org/next' });
+    finish(current());
+    await expect(pending).rejects.toThrow();
+    expect(current().instances[0]?.scope).toEqual({ kind: 'inherit' });
+    expect(context.activity.repo).toBe('org/next');
+  });
   it('delivers ephemeral route state only to the selected instance and contribution without saving it', async () => {
     const states = new Map<string, PluginPanelState>();
     const { host, first, second, current, update } = setup({ mount(_element, context) {

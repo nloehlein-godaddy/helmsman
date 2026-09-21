@@ -1,5 +1,5 @@
 import type { PluginManifest, PluginPageDefinition } from './sdk';
-import type { PageCompositionDefinitionV1, PanelContractV1, PluginPanelDefinition, PluginServiceRequirementV1 } from './composition';
+import type { InitialCompositionLayoutV1, PageCompositionDefinitionV1, PanelContractV1, PluginPanelDefinition, PluginServiceRequirementV1 } from './composition';
 
 export class PluginManifestError extends Error {
   constructor(message: string) {
@@ -86,13 +86,46 @@ function requirements(value: unknown): readonly PluginServiceRequirementV1[] {
   return Object.freeze(parsed);
 }
 
+function initialLayout(value: unknown): InitialCompositionLayoutV1 {
+  const input = record(value, ['instances', 'columns'], 'Initial layout');
+  if (!Array.isArray(input.instances) || input.instances.length > 128 || !Array.isArray(input.columns) || input.columns.length > 8) {
+    throw new PluginManifestError('Invalid initial layout dimensions.');
+  }
+  const ids = new Set<string>();
+  const instances = Array.from(input.instances, value => {
+    const item = record(value, ['instanceId', 'contributionId'], 'Initial panel');
+    if (typeof item.instanceId !== 'string' || !/^[a-z\d][a-z\d_.:-]{0,159}$/i.test(item.instanceId)
+      || ids.has(item.instanceId) || !isContributionId(item.contributionId)) throw new PluginManifestError('Invalid initial panel identity.');
+    ids.add(item.instanceId);
+    return Object.freeze({ instanceId: item.instanceId, contributionId: item.contributionId });
+  });
+  const placed = new Set<string>();
+  const columns = Array.from(input.columns, value => {
+    if (!Array.isArray(value) || value.length > 128) throw new PluginManifestError('Invalid initial layout column.');
+    return Object.freeze(Array.from(value, value => {
+      const item = record(value, ['instances', 'activeInstanceId', 'collapsed'], 'Initial stack');
+      if (!Array.isArray(item.instances) || !item.instances.length || item.instances.length > 128
+        || typeof item.activeInstanceId !== 'string' || !item.instances.includes(item.activeInstanceId)
+        || typeof item.collapsed !== 'boolean') throw new PluginManifestError('Invalid initial panel stack.');
+      const members = Array.from(item.instances, id => {
+        if (typeof id !== 'string' || !ids.has(id) || placed.has(id)) throw new PluginManifestError('Initial panels require exactly one stack.');
+        placed.add(id); return id;
+      });
+      return Object.freeze({ instances: Object.freeze(members), activeInstanceId: item.activeInstanceId, collapsed: item.collapsed });
+    }));
+  });
+  if (placed.size !== ids.size) throw new PluginManifestError('Initial panel is missing its stack.');
+  return Object.freeze({ instances: Object.freeze(instances), columns: Object.freeze(columns) });
+}
+
 function composition(value: unknown): PageCompositionDefinitionV1 {
-  const input = record(value, ['id', 'version', 'accepts'], 'Composition');
+  const input = record(value, ['id', 'version', 'accepts'], 'Composition', ['initialLayout']);
   if (!isSlotId(input.id) || input.version !== 1 || !Array.isArray(input.accepts)
     || input.accepts.length < 1 || input.accepts.length > 32) throw new PluginManifestError('Invalid composition.');
   const accepts = Array.from(input.accepts, contract);
   if (new Set(accepts.map(item => item.id)).size !== accepts.length) throw new PluginManifestError('Composition contracts must be unique.');
-  return Object.freeze({ id: input.id, version: 1, accepts: Object.freeze(accepts) });
+  return Object.freeze({ id: input.id, version: 1, accepts: Object.freeze(accepts),
+    ...(Object.hasOwn(input, 'initialLayout') ? { initialLayout: initialLayout(input.initialLayout) } : {}) });
 }
 
 function parsePanel(value: unknown): PluginPanelDefinition {

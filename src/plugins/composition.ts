@@ -26,6 +26,12 @@ export interface PageCompositionDefinitionV1 {
   readonly id: string;
   readonly version: 1;
   readonly accepts: readonly PanelContractV1[];
+  readonly initialLayout?: InitialCompositionLayoutV1;
+}
+
+export interface InitialCompositionLayoutV1 {
+  readonly instances: readonly Pick<PanelLayoutInstanceV1, 'instanceId' | 'contributionId'>[];
+  readonly columns: readonly (readonly PanelLayoutStackV1[])[];
 }
 
 export interface RegisteredPluginPanel extends PluginPanelDefinition {
@@ -85,6 +91,7 @@ export interface PluginPanelContext {
   readonly navigate: (href: string) => void;
   readonly onDispose: (cleanup: () => void) => void;
   readonly saveState: (state: PanelOpaqueStateV1 | null) => Promise<void>;
+  readonly setScope?: (scope: PanelScopeV1) => Promise<void>;
 }
 
 export interface PluginPanelServicesV1 {

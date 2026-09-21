@@ -2,16 +2,14 @@ import { appPages, HELM_PAGE_SLOT } from './builtins';
 import { appPanels } from './panels';
 import { openCompositionLayoutStore, type CompositionLayoutStore } from './composition-layout';
 import { PluginCompositionHost, type CompositionLayoutPort } from './composition-host';
-import type { CompositionLayoutV1 } from './composition';
+import type { CompositionLayoutV1, PageCompositionDefinitionV1 } from './composition';
 import type { PluginPageState } from './sdk';
 import { loadRackLayoutRaw } from '../logic/prefs';
 
-export function initialCompositionLayout(compositionId: string): CompositionLayoutV1 {
-  if (compositionId !== HELM_PAGE_SLOT) return { version: 1, compositionId, revision: 0, instances: [], columns: [] };
-  const columns = [['underway', 'newrun', 'backlog', 'running', 'repoprs'], ['recent', 'activity', 'shipped']];
-  return { version: 1, compositionId, revision: 0,
-    instances: columns.flat().map(instanceId => ({ instanceId, contributionId: `helmsman.${instanceId}/panel`, hidden: false, scope: { kind: 'inherit' }, state: {} })),
-    columns: columns.map(column => column.map(instanceId => ({ instances: [instanceId], activeInstanceId: instanceId, collapsed: false }))) };
+export function initialCompositionLayout(definition: PageCompositionDefinitionV1): CompositionLayoutV1 {
+  return { version: 1, compositionId: definition.id, revision: 0,
+    instances: definition.initialLayout?.instances.map(instance => ({ ...instance, hidden: false, scope: { kind: 'inherit' }, state: {} })) ?? [],
+    columns: definition.initialLayout?.columns ?? [] };
 }
 
 export class AppCompositionFactory {
@@ -29,7 +27,7 @@ export class AppCompositionFactory {
     }
     let pending = this.stores.get(definition.id);
     if (!pending) {
-      pending = openCompositionLayoutStore({ compositionId: definition.id, initialLayout: initialCompositionLayout(definition.id),
+      pending = openCompositionLayoutStore({ compositionId: definition.id, initialLayout: initialCompositionLayout(definition),
         ...(definition.id === HELM_PAGE_SLOT ? { legacy: { rackRaw: this.legacyRack } } : {}) });
       this.stores.set(definition.id, pending);
       void pending.then(store => { if (this.disposed) store.close(); }).catch(() => {});

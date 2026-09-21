@@ -21,7 +21,26 @@
               "id": "helmsman/helm-panel",
               "version": 1
             }
-          ]
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "queue",
+                "contributionId": "example.backlog/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "queue"
+                  ],
+                  "activeInstanceId": "queue",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
         },
         "requires": [
           {

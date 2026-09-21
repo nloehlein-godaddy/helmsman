@@ -1,4 +1,4 @@
-import type { PanelActivityV1, PanelOpaqueStateV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PluginPanelServicesV1 } from './composition';
+import type { PanelActivityV1, PanelOpaqueStateV1, PanelScopeV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PluginPanelServicesV1 } from './composition';
 import type { PluginPageState } from './sdk';
 
 export interface PanelHostOptions {
@@ -6,6 +6,7 @@ export interface PanelHostOptions {
   readonly services: (lifetime: AbortSignal, activity: () => PanelActivityV1) => PluginPanelServicesV1;
   readonly navigate: (href: string) => void;
   readonly saveState: (state: PanelOpaqueStateV1 | null, signal: AbortSignal) => Promise<void>;
+  readonly setScope?: (scope: PanelScopeV1, signal: AbortSignal) => Promise<void>;
   readonly errorMessage: () => string;
 }
 
@@ -33,6 +34,7 @@ export class PluginPanelHost {
     this.element.hidden = !state.visible;
     container.replaceChildren(this.element);
     const host = this;
+    const setScope = options.setScope;
     const context = Object.freeze<PluginPanelContext>({
       state: this.state, signal: this.lifetime.signal,
       get activity() { return host.state.activity; },
@@ -42,6 +44,10 @@ export class PluginPanelHost {
         if (this.lifetime.signal.aborted) throw new DOMException('Panel disposed.', 'AbortError');
         await options.saveState(value, this.lifetime.signal);
       },
+      ...(setScope ? { setScope: async (scope: PanelScopeV1) => {
+        if (!this.state.activity.active || this.lifetime.signal.aborted) throw new DOMException('Panel is inactive.', 'AbortError');
+        await setScope(scope, this.state.activity.signal);
+      } } : {}),
       onDispose: cleanup => {
         if (typeof cleanup !== 'function') throw new TypeError('Panel cleanup must be a function.');
         if (this.lifetime.signal.aborted) this.cleanup(cleanup);

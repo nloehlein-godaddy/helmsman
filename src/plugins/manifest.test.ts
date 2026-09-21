@@ -35,6 +35,26 @@ describe('plugin manifest validation', () => {
     expect(() => parsePluginManifest({ ...input, panels: [{ ...input.panels[0], requires: [input.panels[0]!.requires[0], input.panels[0]!.requires[0]] }] })).toThrow(/unique/);
   });
 
+  it('validates and freezes package-owned initial layouts without requiring installed panels', () => {
+    const input = composed();
+    const initialLayout = { instances: [{ instanceId: 'editor', contributionId: 'external.tasks/panel' }],
+      columns: [[{ instances: ['editor'], activeInstanceId: 'editor', collapsed: false }]] };
+    const parse = (value: unknown) => parsePluginManifest({ ...input, pages: [{ ...input.pages[0],
+      composition: { ...input.pages[0]!.composition, initialLayout: value } }] });
+    const parsed = parse(initialLayout).pages[0]?.composition?.initialLayout;
+    expect(parsed).toEqual(initialLayout);
+    expect(Object.isFrozen(parsed?.columns[0]?.[0]?.instances)).toBe(true);
+    initialLayout.instances[0]!.contributionId = 'external.changed/panel';
+    expect(parsed?.instances[0]?.contributionId).toBe('external.tasks/panel');
+    expect(() => parse({ ...initialLayout, columns: [] })).toThrow(/missing/);
+    expect(() => parse({ ...initialLayout, instances: [...initialLayout.instances, ...initialLayout.instances] })).toThrow(/identity/);
+    expect(() => parse({ ...initialLayout, columns: [...initialLayout.columns, ...initialLayout.columns] })).toThrow(/exactly one/);
+    expect(() => parse({ ...initialLayout, instances: [{ ...initialLayout.instances[0], state: {} }] })).toThrow(/unsupported/);
+    expect(() => parse({ ...initialLayout, columns: [[{ instances: ['missing'], activeInstanceId: 'missing', collapsed: false }]] })).toThrow();
+    expect(() => parse({ instances: new Array(1), columns: [] })).toThrow();
+    expect(() => parse({ instances: [], columns: [] })).not.toThrow();
+  });
+
   it('keeps version 1 strict and rejects malformed composition and accessor fields', () => {
     const input = composed();
     expect(() => parsePluginManifest({ ...manifest(), pages: input.pages })).toThrow();

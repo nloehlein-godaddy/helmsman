@@ -49,6 +49,19 @@ function fixture() {
 }
 
 describe('composition layout validation and raw migration', () => {
+  it('preserves several maximum-sized Unicode editor drafts while bounding UTF-8 instance and total layout storage', async () => {
+    const draft = { description: '界'.repeat(20_000), acceptance: '界'.repeat(20_000) };
+    const state = { 'example.tasks/panel': { version: 1, value: { drafts: Array.from({ length: 4 }, () => draft) } } };
+    const f = fixture(); const store = await f.open(); const current = await store.read();
+    const saved = await store.update({ ...current, instances: [{ ...current.instances[0]!, state }] }, current.revision);
+    store.close();
+    expect(await (await f.open()).read()).toEqual(saved);
+    const oversized = { owner: { version: 1, value: '界'.repeat(350_000) } };
+    expect(() => parseCompositionLayout({ ...layout(), instances: [{ ...instance('one'), state: oversized }] })).toThrow(/large/);
+    const instances = Array.from({ length: 10 }, (_, i) => ({ ...instance(`draft-${i}`), state }));
+    const aggregate = { ...layout(), instances, columns: [instances.map(item => ({ instances: [item.instanceId], activeInstanceId: item.instanceId, collapsed: false }))] };
+    expect(() => parseCompositionLayout(aggregate)).toThrow(/large/);
+  });
   it('preserves unknown contributions, duplicate panel instances, explicit scope and versioned opaque state', () => {
     const value = { ...layout(), instances: [instance('one'), { ...instance('two'), hidden: true, scope: { kind: 'galleon', repo: 'owner/repo' },
       state: { 'example.backlog/panel': { version: 7, value: { draft: 'Keep me', cursor: null } } } }],
@@ -62,7 +75,7 @@ describe('composition layout validation and raw migration', () => {
     { ...layout(), columns: [[{ instances: ['missing'], activeInstanceId: 'missing', collapsed: false }]] },
     { ...layout(), instances: [{ ...instance('one'), scope: { kind: 'galleon', repo: '../repo' } }] },
     { ...layout(), instances: [{ ...instance('one'), state: { owner: { version: 0, value: null } } }] },
-    { ...layout(), instances: [{ ...instance('one'), state: { owner: { version: 1, value: 'x'.repeat(16 * 1024) } } }] },
+    { ...layout(), instances: [{ ...instance('one'), state: { owner: { version: 1, value: 'x'.repeat(1024 * 1024) } } }] },
   ])('rejects invalid layout identity, placement, scope, or unbounded state', value => {
     expect(() => parseCompositionLayout(value)).toThrow(CompositionLayoutValidationError);
   });

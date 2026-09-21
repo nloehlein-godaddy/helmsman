@@ -21,7 +21,105 @@
               "id": "helmsman/helm-panel",
               "version": 1
             }
-          ]
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "underway",
+                "contributionId": "helmsman.underway/panel"
+              },
+              {
+                "instanceId": "newrun",
+                "contributionId": "helmsman.newrun/panel"
+              },
+              {
+                "instanceId": "backlog",
+                "contributionId": "helmsman.backlog/panel"
+              },
+              {
+                "instanceId": "running",
+                "contributionId": "helmsman.running/panel"
+              },
+              {
+                "instanceId": "repoprs",
+                "contributionId": "helmsman.repoprs/panel"
+              },
+              {
+                "instanceId": "recent",
+                "contributionId": "helmsman.recent/panel"
+              },
+              {
+                "instanceId": "activity",
+                "contributionId": "helmsman.activity/panel"
+              },
+              {
+                "instanceId": "shipped",
+                "contributionId": "helmsman.shipped/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "underway"
+                  ],
+                  "activeInstanceId": "underway",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "newrun"
+                  ],
+                  "activeInstanceId": "newrun",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "backlog"
+                  ],
+                  "activeInstanceId": "backlog",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "running"
+                  ],
+                  "activeInstanceId": "running",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "repoprs"
+                  ],
+                  "activeInstanceId": "repoprs",
+                  "collapsed": false
+                }
+              ],
+              [
+                {
+                  "instances": [
+                    "recent"
+                  ],
+                  "activeInstanceId": "recent",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "activity"
+                  ],
+                  "activeInstanceId": "activity",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "shipped"
+                  ],
+                  "activeInstanceId": "shipped",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
         },
         "requires": [
           {

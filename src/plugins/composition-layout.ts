@@ -4,8 +4,8 @@ import type { CompositionLayoutV1, PanelLayoutInstanceV1, PanelLayoutStackV1, Pa
 export class CompositionLayoutValidationError extends Error {}
 export class CompositionLayoutConflictError extends Error {}
 
-const layoutBytes = 256 * 1024;
-const stateBytes = 16 * 1024;
+const layoutBytes = 4 * 1024 * 1024;
+const stateBytes = 1024 * 1024;
 const maxInstances = 128;
 const instanceIdPattern = /^[a-z\d][a-z\d_.:-]{0,159}$/i;
 const repoPattern = /^[a-z\d_.-]+\/[a-z\d_.-]+$/i;

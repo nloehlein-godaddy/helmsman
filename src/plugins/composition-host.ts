@@ -1,5 +1,6 @@
 import type { CompositionLayoutV1, CompositionServiceV1, ManagedPanelInstanceV1, PageCompositionDefinitionV1,
-  PanelLayoutInstanceV1, PanelOpaqueStateV1, PluginPanelModule } from './composition';
+  PanelLayoutInstanceV1, PanelOpaqueStateV1, PanelScopeV1, PluginPanelModule } from './composition';
+import { parseCompositionLayout } from './composition-layout';
 import type { PluginPageState } from './sdk';
 import type { PluginPanelRegistry } from './panels';
 import { PluginPanelHost } from './panel-host';
@@ -209,10 +210,24 @@ export class PluginCompositionHost {
         runCommands: createHostRunCommandService(lifetime, { scope: activity, caller: instance.contributionId }) }),
       navigate: href => this.options.navigate(href), errorMessage: () => 'This panel could not load. Reload to try again.',
       saveState: (value, signal) => this.saveState(panel, instance.contributionId, value, signal),
+      setScope: (scope, signal) => this.setScope(panel, instance.contributionId, scope, signal),
     }, routeState);
   }
 
   private async saveState(panel: MountedPanel, contributionId: string, value: PanelOpaqueStateV1 | null, signal: AbortSignal): Promise<void> {
+    await this.updateInstance(panel, contributionId, signal, selected => {
+      const state = { ...selected.state };
+      if (value === null) delete state[contributionId]; else state[contributionId] = value;
+      return { ...selected, state };
+    });
+  }
+
+  private async setScope(panel: MountedPanel, contributionId: string, scope: PanelScopeV1, signal: AbortSignal): Promise<void> {
+    await this.updateInstance(panel, contributionId, signal, selected => ({ ...selected, scope }));
+  }
+
+  private async updateInstance(panel: MountedPanel, contributionId: string, signal: AbortSignal,
+    update: (instance: PanelLayoutInstanceV1) => PanelLayoutInstanceV1): Promise<void> {
     this.assertActive();
     signal.throwIfAborted();
     const current = await this.options.layout.read();
@@ -221,9 +236,7 @@ export class PluginCompositionHost {
     if (this.panels.get(panel.id) !== panel || panel.contributionId !== contributionId) throw new DOMException('Panel replaced.', 'AbortError');
     const selected = current.instances.find(instance => instance.instanceId === panel.id);
     if (!selected || selected.contributionId !== contributionId) throw new Error('Panel selection changed.');
-    const state = { ...selected.state };
-    if (value === null) delete state[contributionId]; else state[contributionId] = value;
-    const layout = { ...current, instances: current.instances.map(instance => instance === selected ? { ...instance, state } : instance) };
+    const layout = parseCompositionLayout({ ...current, instances: current.instances.map(instance => instance === selected ? update(instance) : instance) });
     const saved = await this.options.layout.update(layout, current.revision, signal);
     if (!this.disposed) this.accept(saved);
   }

@@ -21,7 +21,13 @@ export const costsManifest: PluginManifest = {
 export const helmManifest: PluginManifest = {
   manifestVersion: 2, id: 'helmsman.helm', version: '0.1.0', sdkVersion: 1,
   pages: [{ id: 'page', title: 'Helm', slots: [HELM_PAGE_SLOT], panes: [],
-    composition: { id: HELM_PAGE_SLOT, version: 1, accepts: [{ id: HELM_PANEL_CONTRACT, version: 1 }] },
+    composition: { id: HELM_PAGE_SLOT, version: 1, accepts: [{ id: HELM_PANEL_CONTRACT, version: 1 }],
+      initialLayout: {
+        instances: ['underway', 'newrun', 'backlog', 'running', 'repoprs', 'recent', 'activity', 'shipped'].map(instanceId =>
+          ({ instanceId, contributionId: `helmsman.${instanceId}/panel` })),
+        columns: [['underway', 'newrun', 'backlog', 'running', 'repoprs'], ['recent', 'activity', 'shipped']].map(column =>
+          column.map(instanceId => ({ instances: [instanceId], activeInstanceId: instanceId, collapsed: false }))),
+      } },
     requires: [{ id: 'helmsman/composition', version: 1 }] }], panels: [],
 };
 
