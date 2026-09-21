@@ -122,6 +122,7 @@ async function writeSpec(spec: ExecutionHostLaunchSpecV1): Promise<void> {
     logPath: spec.logPath,
     exitPath: spec.exitPath,
     receiptPath: spec.receiptPath,
+    coordinator: spec.coordinator,
   }), { mode: 0o600 });
 }
 

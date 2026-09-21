@@ -242,3 +242,52 @@ it('refuses new Windows local launches while preserving receipt inspection', asy
   } finally { Object.defineProperty(process, 'platform', descriptor); }
   expect((await createDetachedExecutionHost().discover(spec)).status).toBe('found');
 });
+
+it.skipIf(process.platform === 'win32')('lets a staged coordinator settle its separate process group before recording Stop', async () => {
+  const base = await fixture();
+  const stage = `
+    const fs = require('node:fs');
+    process.on('SIGTERM', () => {});
+    setInterval(() => fs.writeFileSync('stage-ticks', String(Date.now())), 20);
+    setTimeout(() => process.exit(0), 8000);
+  `;
+  const coordinator = `
+    const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(stage)}], { detached: true, stdio: 'ignore' });
+    process.on('SIGTERM', () => setTimeout(() => child.kill('SIGKILL'), 5200));
+    child.on('exit', () => process.exit(1));
+  `;
+  const spec = { ...base, args: ['-e', coordinator], coordinator: true };
+  const provider = createDetachedExecutionHost();
+  const ref = await provider.launch(spec);
+  await waitForFile(join(spec.cwd, 'stage-ticks'));
+  await provider.stop(ref);
+  await settled(spec, provider, ref);
+  const before = await readFile(join(spec.cwd, 'stage-ticks'), 'utf8');
+  await new Promise(resolve => setTimeout(resolve, 150));
+  expect(await readFile(join(spec.cwd, 'stage-ticks'), 'utf8')).toBe(before);
+}, 12000);
+
+it.skipIf(process.platform === 'win32')('does not invent stage settlement after a coordinator crashes', async () => {
+  const base = await fixture();
+  const stage = `
+    const fs = require('node:fs');
+    setInterval(() => fs.writeFileSync('stage-ticks', String(Date.now())), 20);
+    setTimeout(() => process.exit(0), 1200);
+  `;
+  const coordinator = `
+    const fs = require('node:fs');
+    require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(stage)}], { detached: true, stdio: 'ignore' });
+    const wait = setInterval(() => { if (fs.existsSync('stage-ticks')) process.kill(process.pid, 'SIGKILL'); }, 10);
+  `;
+  const spec = { ...base, args: ['-e', coordinator], coordinator: true };
+  const provider = createDetachedExecutionHost();
+  const ref = await provider.launch(spec);
+  await waitForFile(join(spec.cwd, 'stage-ticks'));
+  await vi.waitFor(async () => expect(await provider.discover(spec, ref)).toMatchObject({ status: 'unknown' }));
+  expect(existsSync(spec.exitPath)).toBe(false);
+  const before = await readFile(join(spec.cwd, 'stage-ticks'), 'utf8');
+  await new Promise(resolve => setTimeout(resolve, 100));
+  expect(await readFile(join(spec.cwd, 'stage-ticks'), 'utf8')).not.toBe(before);
+  await new Promise(resolve => setTimeout(resolve, 1250));
+  expect(existsSync(spec.exitPath)).toBe(false);
+});

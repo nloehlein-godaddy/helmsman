@@ -18,15 +18,15 @@ function supervise() {
   const terminate = signal => {
     if (stopping) return;
     stopping = true;
-    timer = setTimeout(() => settle(1), 5000);
+    if (!spec.coordinator) timer = setTimeout(() => settle(1), 5000);
     process.kill(-process.pid, signal);
   };
-  const settle = code => {
+  const settle = (code, settled = true) => {
     if (finished) return;
     finished = true;
     clearTimeout(timer);
     const killGroup = () => process.kill(-process.pid, 'SIGKILL');
-    if (process.connected) process.send({ exitCode: code }, killGroup);
+    if (process.connected) process.send({ exitCode: code, settled }, killGroup);
     else killGroup();
   };
   process.on('SIGTERM', () => terminate('SIGTERM'));
@@ -34,7 +34,7 @@ function supervise() {
   process.on('disconnect', () => terminate('SIGTERM'));
   const fd = openSync(spec.logPath, 'a');
   const worker = spawn(spec.cmd, spec.args ?? [], { cwd: spec.cwd, stdio: ['ignore', fd, fd] });
-  worker.once('exit', code => settle(code ?? 1));
+  worker.once('exit', code => settle(code ?? 1, !spec.coordinator || code !== null));
   worker.once('error', error => {
     try { writeFileSync(spec.logPath, `run-wrapper: cannot start ${spec.cmd}: ${error.message}\n`, { flag: 'a' }); } catch {}
     settle(127);
@@ -80,12 +80,16 @@ function runWrapper() {
   }
 
   let exitCode = 1;
+  let settled = !spec.coordinator;
   const child = spawn(process.execPath, [process.argv[1], specPath, '--supervise'], {
     detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
   });
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { child.kill(signal); });
   child.on('message', message => {
-    if (message && typeof message === 'object' && Number.isInteger(message.exitCode) && message.exitCode >= 0 && message.exitCode <= 255) exitCode = message.exitCode;
+    if (message && typeof message === 'object' && Number.isInteger(message.exitCode) && message.exitCode >= 0 && message.exitCode <= 255) {
+      exitCode = message.exitCode;
+      settled = message.settled === true;
+    }
   });
   child.once('error', error => {
     try { writeFileSync(spec.logPath, `run-wrapper: cannot start supervisor: ${error.message}\n`, { flag: 'a' }); } catch {}
@@ -100,7 +104,14 @@ function runWrapper() {
           const [group, state] = line.trim().split(/\s+/);
           return Number(group) === child.pid && state && !state.startsWith('Z');
         });
-        if (!running) { finish(exitCode); return; }
+        if (!running) {
+          if (!settled) {
+            writeFileSync(spec.logPath, 'run-wrapper: coordinator stage settlement is unknown; withholding terminal receipt\n', { flag: 'a' });
+            process.exit(1);
+          }
+          finish(exitCode);
+          return;
+        }
       } catch (error) {
         if (!reported) {
           reported = true;

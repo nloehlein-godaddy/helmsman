@@ -1,6 +1,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { writeFileSync } from 'node:fs';
+import { isHostCoordinatorCommand } from './runtime-paths';
 import { resolveSocket } from './wezterm/socket';
 import { launchIdentity, processStartIdentity, readExitEvidence, readLaunchReceipt, type LaunchIdentity } from './host-evidence';
 import type { ExecutionHostReferenceV1 } from '../../src/plugins/execution-host';
@@ -77,7 +78,7 @@ export type ArgvRunner = (argv: string[]) => Promise<{ stdout: string; code: num
 
 function writeSpecFile(spec: LaunchSpec): void {
   const identity = launchIdentity(spec);
-  writeFileSync(spec.specPath, JSON.stringify({ cmd: spec.cmd, args: spec.args, cwd: spec.cwd, logPath: spec.logPath, exitPath: spec.exitPath, ...(identity ?? {}) }));
+  writeFileSync(spec.specPath, JSON.stringify({ coordinator: isHostCoordinatorCommand(spec), cmd: spec.cmd, args: spec.args, cwd: spec.cwd, logPath: spec.logPath, exitPath: spec.exitPath, ...(identity ?? {}) }));
 }
 
 export function detachedHost(wrapperPath: string): RunHost {

@@ -4,7 +4,7 @@ This backend-only package registers `helmsman.host-local/detached`, `helmsman.ho
 
 The package settings `cmuxSocketPath`, `weztermBin`, and `weztermRunWorkspace` are captured with the retained provider binding. Build with `npm run build` after installing the released `@helmsman/plugin-sdk`, TypeScript and `@types/node`.
 
-Local execution uses POSIX process groups on macOS and Linux. The wrapper starts a dedicated supervisor group for the worker and its ordinary descendants; cmux and WezTerm terminal groups are never signalled. Stop verifies the retained wrapper PID and process-start identity, then asks the supervisor to terminate its own group. A five-second grace period is followed by forced termination. Natural worker exit also cleans remaining background descendants. The wrapper publishes its terminal receipt only after the group contains no live processes; unreaped zombies cannot continue execution.
+Local execution uses POSIX process groups on macOS and Linux. The wrapper starts a dedicated supervisor group for the worker and its ordinary descendants; cmux and WezTerm terminal groups are never signalled. Stop verifies the retained wrapper PID and process-start identity, then asks the supervisor to terminate its own group. Direct workers receive a five-second grace period before forced termination. Natural worker exit also cleans remaining background descendants. The wrapper publishes its terminal receipt only after the group contains no live processes; unreaped zombies cannot continue execution.
 
 ```mermaid
 flowchart TD
@@ -20,6 +20,6 @@ flowchart TD
     Wait --> Verify
 ```
 
-A crashed supervisor does not establish completion: the wrapper waits for any surviving group members before writing a failed outcome. A crashed wrapper disconnects the supervisor's ownership channel and triggers group cleanup, but cannot write a terminal receipt; recovery remains unknown until supported evidence is available. This containment covers ordinary inherited process groups, not deliberately daemonized descendants that escape into new sessions. Staged pre-PR workers retain their own additional stage-group cleanup.
+A crashed supervisor does not establish completion: the wrapper waits for any surviving group members before writing a failed outcome. A crashed wrapper disconnects the supervisor's ownership channel and triggers group cleanup, but cannot write a terminal receipt; recovery remains unknown until supported evidence is available. This containment covers ordinary inherited process groups, not deliberately daemonized descendants that escape into new sessions. Staged pre-PR coordinators retain their own separate stage-group cleanup; the outer supervisor does not race that cleanup with another escalation deadline. A coordinator that exits by signal, or whose supervisor crashes before returning settlement evidence, produces no terminal receipt because its isolated stages may still exist. A coordinator that stalls during cleanup retains its wrapper ownership and reservation.
 
 Windows local launches fail before worker execution because this implementation has no Windows Job Object equivalent. Existing ownership receipts remain inspectable and verified Stop remains available. No PID or terminal-wide group is guessed when ownership is missing.
