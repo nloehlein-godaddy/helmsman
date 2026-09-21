@@ -1,5 +1,7 @@
 # Phase E3: remaining feature packages
 
+> Historical checkpoint record: statuses, planned work and acceptance narratives below describe this extraction before the final A–G completion. All phases are now complete; use the [completion ledger](plugin-implementation-progress.md), [current process flows](helmsman-process.md) and [author guides](plugin-packages.md) for delivered behavior and final evidence.
+
 Status: task editors, durable source commands, source administration and standalone Todos/Triage/Bugs/source-settings packages passed independent review and isolated production acceptance. The task-package checkpoint and exact-commit fixes are pushed as `bc51ae6`. Default task-page cutover, legacy presentation retirement, preference migration and compatibility navigation are reviewed and pushed as `d21d9cb`. This is part of Phase E, not completion of the full architecture plan.
 
 ## Task presentation first

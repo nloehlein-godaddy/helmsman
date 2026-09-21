@@ -1,6 +1,6 @@
 # Remaining plugin delivery plan
 
-Updated: 2026-09-21. Implementation has resumed at the user's request under the revised delivery approach. This document supersedes the testing frequency, review cadence and work sequencing in earlier implementation plans. The architecture's A–G scope and final acceptance requirements remain unchanged.
+Updated: 2026-09-21. All phases A–G are complete through reviewed source `553dff4`; see the [completion ledger](plugin-implementation-progress.md) for the final acceptance evidence. The delivery approach below records how the remaining work was completed. This document supersedes the testing frequency, review cadence and work sequencing in earlier implementation plans. The architecture's A–G scope and final acceptance requirements remain unchanged.
 
 ## What changes
 
@@ -26,7 +26,7 @@ The main delay has been repeated integration builds, overlapping reviews, and sh
 | E Local Git — complete | Extract branches/worktrees, cleanup preview and confirmed local operations into an independently buildable page/panel linked from Config. Remove shell rendering, state and handlers. | Reviewed and pushed through `631ad13`; remote SHA verified. Checkout validation, active-worktree protection, expected commits and uncertain-operation recovery remain in core. |
 | E settings and inventory — complete | Move remaining optional feature settings/registrations into their owning packages. Audit every optional page/panel/integration against the original inventory and close gaps. | Reviewed and pushed through `85f1fe6`; remote SHA verified. The Phase E aggregate gate passed with focused corrections; see the completion ledger. Core plugin administration, runtime invariants and Recovery stay available. |
 | F: execution extensions — complete | Scheduling is complete through `dd98bf9`; agent extraction is reviewed and pushed through `c5576ed`. Execution hosts are accepted through `5849a30`; native terminal/browser providers are accepted and pushed through `c594605`. Workflow extraction is reviewed as `568cd82` and pushed through `eb8ad1a`. Trigger extraction is reviewed and pushed through `12a62c9`; the Phase F aggregate gate passed with test-only corrections in `6a56de6`. Phase G retires remaining active compatibility paths. | Reuse Phase C admission, recovery, operations and publication safeguards. Agent selections retain immutable writer/reviewer order, settings and artifact closure across restart. |
-| G: stabilization and removal — active | Remove remaining private-import exceptions and legacy switches; finish SDK templates/versioning/deprecation guidance. Verify an independent author can build frontend/backend replacements from the docs. Complete the repository-wide README/docs/flowchart audit. | Run final aggregate validation and check every original A–G deliverable. Compatibility bridges do not count as the final plugin architecture. |
+| G: stabilization and removal — complete | Selected public PR preparation, legacy route/intake retirement, SDK 1.0.0 compatibility/deprecation and author starters are accepted through `553dff4`. Independent release-only author proof and the repository-wide README/docs/flowchart audit pass. | Final unit/integration, browser/visual and distribution acceptance pass with focused fixture/correction reruns. The sole independent review finding is fixed and its correction review is clean. Required historical recovery remains supported. |
 
 These are exit criteria, not new architecture phases. Keep A–D closed unless a concrete regression reopens a specific requirement. No estimates or completion claims are inferred from the number of milestones.
 
@@ -69,7 +69,7 @@ The exact build command already invokes `tsc`; do not separately repeat `tsc` im
 4. Commit the complete feature. One independent Senior Software Architect reviews that exact commit. If a correction needs a new commit, review its changed behavior and immediate dependencies rather than restarting the entire review.
 5. Push the reviewed feature using existing authorization and verify the remote SHA. Proceed to the next finish line. Do not accumulate unrelated incomplete features to fill agent slots.
 
-## Preserved work at the stop
+## Historical record: preserved work at the stop
 
 The last verified pushed commit is `91429669d5727776f84a84d8d90438e9c9d39a1c`. The current E increment remains uncommitted; retain its source, tests and documentation.
 

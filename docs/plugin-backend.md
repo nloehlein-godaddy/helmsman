@@ -1,8 +1,8 @@
-# Experimental usage and pricing plugins
+# Usage and pricing plugins
 
 For a first backend replacement without an application checkout, follow the [release-only quickstart](plugin-quickstart.md). Public version-1 APIs follow the [SDK compatibility policy](plugin-compatibility.md).
 
-This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [agent providers](agent-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Execution hosts and native terminal/browser providers are extracted. [Workflow providers](workflow-authoring.md) are accepted and pushed through `eb8ad1a`. [Trigger providers](trigger-authoring.md) are reviewed and pushed through `12a62c9`; the Phase F aggregate gate and Phase G compatibility retirement remain open.
+This guide covers the usage/pricing surface introduced in Phase B. The SDK also supports [task-source providers and E3 task services](task-source-authoring.md), [page/panel composition](panel-authoring.md), [communication providers](communication-authoring.md), [scheduling policies](scheduling-authoring.md), [agent providers](agent-authoring.md), [terminal presentation](terminal-authoring.md), and durable [execution/plugin recovery](recovery.md). Execution hosts and native terminal/browser providers are extracted. [Workflow providers](workflow-authoring.md) are accepted and pushed through `eb8ad1a`. [Trigger providers](trigger-authoring.md) are reviewed and pushed through `12a62c9`; the Phase F aggregate gate and Phase G retirement, SDK and documentation gates are complete.
 
 ## Build an independent package
 

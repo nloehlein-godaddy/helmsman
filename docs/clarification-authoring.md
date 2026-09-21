@@ -80,6 +80,6 @@ The recovery page stores editable drafts separately from command journals. Each 
 
 Codecs reject malformed, oversized, accessor-backed, scope-rebound and identity-rebound data. Browser tests cover concurrent reservation, reload, conflicting drafts, response loss, receipt tampering, pending bounds, unavailable/quota-failed storage and transactional acknowledgment cancellation. Server tests cover exact restart replay, two-connection revision races, stop/deadline/attempt changes, provenance failures and mutation rollback when receipt storage fails.
 
-The host retires or constrains legacy ID-only answer, contact-upsert and unverified-question write endpoints when these services are active. Core ingestion, timeout/cancellation, delivery, final-file draining and publication gates continue when presentation is disabled. [Recovery guidance](recovery.md#clarification-channels-and-unresolved-questions) describes unresolved old obligations and incomplete terminal records.
+Legacy ID-only answer, contact-upsert and unverified-question write endpoints return 410 even when the replacement services are unavailable. Core ingestion, timeout/cancellation, delivery, final-file draining and publication gates continue when presentation is disabled. [Recovery guidance](recovery.md#clarification-channels-and-unresolved-questions) describes unresolved old obligations and incomplete terminal records.
 
 _Helmsman · not reported - not reported_

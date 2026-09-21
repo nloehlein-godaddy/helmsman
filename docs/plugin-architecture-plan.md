@@ -2,11 +2,11 @@
 
 > Historical planning and milestone text below is retained as written. For current implementation status and validation, use the [delivery ledger](plugin-implementation-progress.md) and [remaining delivery plan](plugin-remaining-delivery-plan.md). Current public contracts are documented in the [author guides](plugin-packages.md).
 
-Delivery update: implementation has resumed under the revised delivery cadence. The [remaining delivery plan](plugin-remaining-delivery-plan.md) supersedes earlier work sequencing and test/review frequency; the original A–G scope and final acceptance gates remain in force.
+Delivery update: Phases A–G are complete under the revised delivery cadence. The [remaining delivery plan](plugin-remaining-delivery-plan.md) supersedes earlier work sequencing and test/review frequency; the original A–G scope and final acceptance gates remain in force.
 
 Date: 2026-09-20  
 Revision: 3 — incorporates both independent reviews and the final readiness review.  
-Status: Phases A–F are complete; the Phase F aggregate gate is recorded as `6a56de6`. Phase G cleanup, SDK stabilization and current documentation updates are implemented, with final validation and independent review pending. The [completion ledger](plugin-implementation-progress.md) tracks acceptance evidence and the full objective.
+Status: Phases A–G are complete. Final aggregate validation and independent author acceptance passed. Independent review of `59f8b76` found one manual draft-review regression; `553dff4` corrects it and its correction-only review is clean. The [completion ledger](plugin-implementation-progress.md) tracks acceptance evidence and the full objective.
 
 The review findings are addressed in the proposal below and tracked in the review disposition table. Original review text is retained at the end and refers to revision 1 (`8259c2c`). Architectural choices here are proposed defaults, not claims about existing functionality.
 
@@ -24,7 +24,7 @@ The main obstacles are concentrated:
 - [`server/helmsman/router.ts`](../server/helmsman/router.ts) knows individual features and their dependencies.
 - [`server/helmsman/agents/adapter.ts`](../server/helmsman/agents/adapter.ts) includes Jira-specific task fields; runner and recovery paths know specific providers.
 
-Existing agent adapters, run hosts, data clients, store factories, and mounted page lifecycles provided the initial boundaries. Phase D removed the former Jira-versus-Todos mode split. E3 provides task presentations through public editor, command, task-view and source-admin services; default task-page cutover is reviewed and pushed as `d21d9cb`. See [E3 evidence](plugin-phase-e3-implementation.md) and the [E4 implementation plan](plugin-phase-e4-implementation.md). The remaining plan describes the target architecture, including unfinished F/G work.
+Existing agent adapters, run hosts, data clients, store factories, and mounted page lifecycles provided the initial boundaries. Phase D removed the former Jira-versus-Todos mode split. E3 provides task presentations through public editor, command, task-view and source-admin services; default task-page cutover is reviewed and pushed as `d21d9cb`. See [E3 evidence](plugin-phase-e3-implementation.md) and the [E4 implementation plan](plugin-phase-e4-implementation.md). The remaining proposal records the historical target architecture; current A–G acceptance is recorded in the completion ledger.
 
 ## 1. Define what stays in the core
 
@@ -174,6 +174,8 @@ Build an external alternative Costs view and a small external pricing provider w
 
 A and B form one narrow architectural milestone. Do not wrap every page before delivering it. C is a mandatory gate before task-provider extraction; F extends execution choices rather than introducing recovery safety for the first time.
 
+The following extraction notes record individual checkpoints before final A–G acceptance. Their milestone-specific limits are historical.
+
 ### F agent-provider extraction (complete)
 
 `helmsman/agent@1` packages register only a process-description provider. Admission retains an immutable writer plus ordered reviewers, exact package/artifact closure, compatible non-secret settings and validated metadata; recovery resolves that retained record rather than a current default. Metadata owns provider defaults, review model/effort policy, skills/delegation, Docker transport and delta-versus-cumulative cost reporting. Selected workflow packages own prompt rendering. Core retains effective execution settings, workflow/host lifecycle guards, budget enforcement, recovery and completion authority.
@@ -287,7 +289,7 @@ Do not begin broad extraction until this passes. Complete C's lifecycle, storage
 
 The first Phase A increment introduces validated, immutable page manifests and a shared route/slot registry. Costs uses this registry for navigation and its canonical URL. Its renderer and controller now live under `src/plugins/costs`, with injected read/save/link services, and mount through the same generic lifecycle as other in-process page modules. Browser and server page recognition share the same route definitions. Missing selections remain unavailable rather than selecting a fallback, and scope changes or disposal cancel pending Costs reads and writes. Failed saves preserve drafts, and edits no longer suppress refreshes or period changes.
 
-Current v1 implementation: [page lifecycle](plugin-page-registry.md), [package operations](plugin-packages.md), [backend contracts](plugin-backend.md) and the [independent quickstart](plugin-quickstart.md) describe the shipped API. The runnable distribution supplies compiled server/helpers, native dependencies and a standalone SDK. Installed acceptance builds SDK-only plugins with application source denied. Full safe start bypasses provider composition and opens retained state read-only. The SDK is stabilized at 1.0.0 with the [compatibility and deprecation policy](plugin-compatibility.md); final Phase G validation remains pending.
+Current v1 implementation: [page lifecycle](plugin-page-registry.md), [package operations](plugin-packages.md), [backend contracts](plugin-backend.md) and the [independent quickstart](plugin-quickstart.md) describe the shipped API. The runnable distribution supplies compiled server/helpers, native dependencies and a standalone SDK. Installed acceptance builds SDK-only plugins with application source denied. Full safe start bypasses provider composition and opens retained state read-only. The SDK is stabilized at 1.0.0 with the [compatibility and deprecation policy](plugin-compatibility.md); final Phase G validation and independent review are complete.
 
 The shipped v1 loader requires exact integer `sdkVersion: 1`. Packages bundle their runtime dependencies into self-contained archives; unsupported package dependency declarations are rejected. There is no general package-dependency or semver-range solver. Retained artifact closures record execution/provider dependencies and do not imply cross-package npm resolution. Broader dependency-resolution proposals and original review text below remain historical scope, not claims about shipped v1.
 

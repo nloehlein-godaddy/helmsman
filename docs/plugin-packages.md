@@ -123,7 +123,9 @@ The server maintains a reconciled snapshot of enabled packages and persisted sel
 
 For frontend recovery, start the server with `HELMSMAN_PLUGIN_UI_SAFE_MODE=1`. This disables optional frontend contributions, including shipped Costs, Helm and backlog, while preserving selections and saved layouts. Built-in code remains in the application bundle. Core administration and Recovery remain available, and backend scheduling/recovery continue normally. For full recovery use `HELMSMAN_SAFE_START=1` or `--safe-start`; see [safe-start recovery](distribution.md#safe-start-recovery). A damaged installation catalog or a failed browser catalog request also disables optional pages and emits a diagnostic, avoiding a silent fallback to built-in Costs. Restore the catalog or disable the failing package, then restart without the flag.
 
-## Validation and remaining gates
+## Validation and acceptance
+
+Phases A–G and their final acceptance gates are complete. Independent authors build and install frontend/backend replacements using only the distributed SDK; the [completion ledger](plugin-implementation-progress.md) records aggregate checks and independent review.
 
 Unit tests cover archive traversal/size/integrity, atomic publication, persisted state, import boundaries, CLI operations, HTTP handling, and browser activation rollback. Chromium tests copy the sample outside the checkout, pack/install it, serve real catalog/assets through the production HTTP handler, and import it into the built frontend. They cover deep-link reload, galleon scope, terminology, slot replacement, disable/re-enable, and UI safe mode.
 

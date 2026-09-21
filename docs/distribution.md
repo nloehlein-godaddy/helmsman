@@ -1,6 +1,6 @@
 # Runnable Helmsman distribution
 
-`npm run build:distribution` produces `release/` with compiled server entry points, the browser application, native production dependencies, execution helpers, examples, and the experimental page/backend SDK. Run it with the same OS, CPU architecture, and Node major used to build it. The manifest records those constraints and the native module ABI; build a new distribution for another target. The release does not install dependencies or run package installation scripts at startup.
+`npm run build:distribution` produces `release/` with compiled server entry points, the browser application, native production dependencies, execution helpers, examples, and the stable version-1 page/backend SDK. Run it with the same OS, CPU architecture, and Node major used to build it. The manifest records those constraints and the native module ABI; build a new distribution for another target. The release does not install dependencies or run package installation scripts at startup.
 
 ## Run from a separate data directory
 
@@ -120,6 +120,6 @@ The distribution includes `plugin-sources/workflow-coding`, `plugin-sources/work
 
 ## Final architecture verification
 
-Phases A–F are accepted. Phase G verification remains pending; current test commands are not a claim that its final aggregate gate has passed. Reuse a settled build for affected installed scenarios, and consult the [delivery ledger](plugin-implementation-progress.md) for evidence tied to the candidate commit.
+Phases A–G are complete. Final acceptance passed 4,828 full-suite unit/integration tests, 62 focused correction checks, 23 browser/visual tests, nine Node distribution checks and 48 installed scenarios. An independent author built and installed replacements from the public docs; their actual UI was inspected. Independent review of `59f8b76` identified one manual draft-review regression, corrected in `553dff4`; correction-only review is clean. Reuse settled artifacts for affected checks and consult the [delivery ledger](plugin-implementation-progress.md) for detailed evidence.
 
 The [quickstart](plugin-quickstart.md) builds an independent page and backend using only the copied SDK. [Compatibility guidance](plugin-compatibility.md) defines version negotiation, upgrade/deprecation expectations and preserved recovery identities. [Retired routes](plugin-legacy-retirement.md) documents unconditional 410 responses and the historical journals, normalized queues and execution/effect adapters that remain for recovery.

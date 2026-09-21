@@ -1,6 +1,6 @@
 # Agent provider plugins
 
-`helmsman/agent@1` supplies agent command construction, streaming event parsing and model/review metadata. The retained workflow provider owns authored prompts and pure stage sequencing. Core owns process launch, admission, budgets, guarded transitions, review artifacts and publication. Workflow extraction is active; see [workflow authoring](workflow-authoring.md). The shipped providers are `helmsman.agent-codex/codex`, `helmsman.agent-claude/claude-code` and `helmsman.agent-command/command`.
+`helmsman/agent@1` supplies agent command construction, streaming event parsing and model/review metadata. The retained workflow provider owns authored prompts and pure stage sequencing. Core owns process launch, admission, budgets, guarded transitions, review artifacts and publication. Workflow extraction is complete; see [workflow authoring](workflow-authoring.md). The shipped providers are `helmsman.agent-codex/codex`, `helmsman.agent-claude/claude-code` and `helmsman.agent-command/command`.
 
 ## Public contract
 

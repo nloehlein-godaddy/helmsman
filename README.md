@@ -26,7 +26,7 @@ fleet readouts, and a ship-wheel startup animation with compass bearings and cou
 
 Optional pages, panels and integrations use replaceable plugin contributions. Task sources, PR and communication providers, pricing, scheduling, agents, execution hosts, native terminal/browser providers, workflows and triggers have public contracts. Core retains scope, credentials, durable state, admission, budgets, concurrency, publication and recovery. Disabling a selected provider blocks new work without restoring a private fallback; saved layouts and existing obligations remain intact.
 
-Phases A–F are complete. Phase G removes obsolete entry points and finishes SDK/documentation checks; final validation and independent review are pending. See the [implementation ledger](docs/plugin-implementation-progress.md) for accepted evidence.
+Phases A–G are complete. Optional features use public plugin contracts, obsolete new-work routes are retired, and the stable SDK includes independent-author examples and compatibility guidance. Final acceptance and independent review passed, including the manual draft-review correction. See the [implementation ledger](docs/plugin-implementation-progress.md) for accepted evidence.
 
 Start with the [independent plugin quickstart](docs/plugin-quickstart.md), [package installation](docs/plugin-packages.md), [compatibility policy](docs/plugin-compatibility.md) and [retired routes](docs/plugin-legacy-retirement.md). The [voyage flow diagrams](docs/helmsman-process.md) describe current presentation, execution and recovery boundaries. Runs, history, the shared viewer and clarification panels are authored packages; `/runs` and `/prs` select compositions using public PR panels and the same auxiliary viewer.
 
