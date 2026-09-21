@@ -31,7 +31,7 @@ export function parseGithubSettingsSnapshotInputV1(input: unknown): { readonly v
 }
 export function parseGithubSettingsValuesV1(input: unknown): GithubSettingsValuesV1 {
   const value = clarificationObject(input); clarificationFields(value, ['defaultRepo', 'author', 'reviewWatchEnabled']);
-  const defaultRepo = value.defaultRepo === '' ? '' : parseTaskRepo(value.defaultRepo);
+  const defaultRepo = value.defaultRepo === '' ? '' : parseTaskRepo(sourceText(value.defaultRepo, GITHUB_SETTINGS_SCHEMA_V1.fields.defaultRepo.maxLength));
   const author = value.author === '' ? '' : sourceText(value.author, 100);
   if (author && !/^[a-z\d][a-z\d-]*(?:\[bot\])?$/i.test(author)) invalidClarification();
   return Object.freeze({ defaultRepo, author, reviewWatchEnabled: clarificationBoolean(value.reviewWatchEnabled) });

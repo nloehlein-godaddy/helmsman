@@ -10,7 +10,7 @@ test('independent global settings preserve scope, reconcile conflicts and redact
   const host = await fixture();
   host.env.REPO_PROJECT_MAP = 'org/a=TASK';
   host.env.GITHUB_REPO = 'org/a';
-  host.env.GITHUB_PR_AUTHOR = 'initial-author';
+  host.env.GITHUB_PR_AUTHOR = 'dependabot[bot]';
   try {
     await host.installAuthorPackage('plugin-sources/github-settings', githubId);
     await host.installAuthorPackage('plugin-sources/jira-settings', jiraId);
@@ -18,10 +18,10 @@ test('independent global settings preserve scope, reconcile conflicts and redact
     const githubUrl = `${origin}/api/github-settings?version=1&scope=global`;
     const jiraUrl = `${origin}/api/jira-settings?version=1&scope=global`;
     const initial = await (await request.get(githubUrl, { headers: githubHeaders })).json();
-    expect(initial).toMatchObject({ tokenSet: false, values: { defaultRepo: 'org/a', author: 'initial-author', reviewWatchEnabled: false } });
+    expect(initial).toMatchObject({ tokenSet: false, values: { defaultRepo: 'org/a', author: 'dependabot[bot]', reviewWatchEnabled: false } });
     await page.goto(`${origin}/plugins/${githubId}/page?repo=org/a`);
     const author = page.locator('[data-setting=author]');
-    await expect(author).toHaveValue('initial-author');
+    await expect(author).toHaveValue('dependabot[bot]');
     await author.fill('draft-author');
     const peer = await request.post(`${origin}/api/github-settings`, { headers: { ...githubHeaders, Origin: origin }, data: {
       version: 1, scope: 'global', namespace: initial.namespace, expectedRevision: initial.revision,

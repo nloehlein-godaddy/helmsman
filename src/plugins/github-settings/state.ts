@@ -8,7 +8,12 @@ export interface Draft { version: 1; namespace: 'helmsman.github/settings'; revi
 export const fromSnapshot = (value: GithubSettingsSnapshotV1): Draft => ({version:1,namespace:schema.namespace,revision:value.revision,values:{...value.values}});
 export function sameValues(a: GithubSettingsValuesV1, b: GithubSettingsValuesV1) { return a.defaultRepo === b.defaultRepo && a.author === b.author && a.reviewWatchEnabled === b.reviewWatchEnabled; }
 export const normalized = (value: GithubSettingsValuesV1): GithubSettingsValuesV1 => ({defaultRepo:value.defaultRepo.trim(),author:value.author.trim(),reviewWatchEnabled:value.reviewWatchEnabled});
-export function valuesReady(value: GithubSettingsValuesV1) { const next = normalized(value); return (!next.defaultRepo || /^[a-z\d][a-z\d-]*\/[a-z\d_.-]+$/i.test(next.defaultRepo)) && (!next.author || /^[a-z\d](?:[a-z\d-]*[a-z\d])?$/i.test(next.author)); }
+export function valuesReady(value: GithubSettingsValuesV1) {
+  const next = normalized(value);
+  return validValues(next)
+    && (!next.defaultRepo || /^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(next.defaultRepo) && !['.', '..'].includes(next.defaultRepo.split('/')[1]!))
+    && (!next.author || /^[a-z\d][a-z\d-]*(?:\[bot\])?$/i.test(next.author));
+}
 export class DraftStorage {
   private readonly key: string;
   constructor(contribution: string | undefined, instance: string) { if (!contribution || !/^[a-z\d][a-z\d._-]*\/[a-z\d][a-z\d._-]*$/i.test(contribution) || !instance) throw new Error('GitHub settings storage requires its mounted contribution and instance identity.'); this.key = `helmsman.github-settings.v1:${contribution}:${encodeURIComponent(instance)}:draft`; }
