@@ -2,6 +2,7 @@ import {
   PULL_REQUEST_INSPECT_LIMITS, parsePullRequestInspectDetailQueryV1, parsePullRequestInspectDetailV1, parsePullRequestInspectDiffQueryV1, parsePullRequestInspectDiffV1,
   parsePullRequestInspectTargetV1, parsePullRequestReadItemV1, parsePullRequestReadQueryV1, type PullRequestInspectDetailV1, type PullRequestInspectFileV1,
   type PullRequestInspectQualityV1, type PullRequestInspectReviewV1, type PullRequestInspectTargetV1, type PullRequestProviderContextV1, type PullRequestProviderV1,
+  formatPullRequestReviewBody,
 } from '@helmsman/plugin-sdk';
 
 const api = 'https://api.github.com';
@@ -11,7 +12,6 @@ const positive = (value: unknown): value is number => typeof value === 'number' 
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const object = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const array = (value: unknown, maximum: number): readonly unknown[] | null => Array.isArray(value) && value.length <= maximum ? value : null;
-const marker = (id: string, contentHash: string) => `<!-- helmsman-operation:${id}:${contentHash} -->`;
 const unavailable = (reason: string) => ({ status: 'unknown' as const, reason, evidence: { code: 'github-unconfirmed' } });
 const unknownChecks = (quality: PullRequestInspectQualityV1): PullRequestInspectDetailV1['checks'] => ({ quality, passed: null, failed: null, pending: null });
 const unknownReviews = (quality: PullRequestInspectQualityV1): PullRequestInspectDetailV1['reviews'] => ({ quality, approved: null, changesRequested: null, commented: null, requested: null, viewerReview: null, viewerReviewedAt: null, viewerReviewedCommitId: null });
@@ -255,7 +255,7 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
     try {
       const pinned = await prepared(input.repo, input.number, input.headSha, context);
       if (pinned.actor.toLowerCase() !== input.actor.toLowerCase()) throw new Error('Authenticated actor changed');
-      const response = await request(context, 'POST', `/repos/${input.repo}/pulls/${input.number}/reviews`, {}, { event: input.event, body: `${input.body}${input.body ? '\n\n' : ''}${marker(input.id, input.contentHash)}`, commit_id: input.headSha });
+      const response = await request(context, 'POST', `/repos/${input.repo}/pulls/${input.number}/reviews`, {}, { event: input.event, body: formatPullRequestReviewBody(input), commit_id: input.headSha });
       const posted = object(response.body); if (response.status < 200 || response.status >= 300 || !positive(posted?.id)) return response.status >= 400 && response.status < 500
         ? { status: 'definitely-not-applied' as const, retryable: response.status === 429, reason: `GitHub rejected the review (${response.status}).`, evidence: { httpStatus: response.status } }
         : unavailable(`GitHub rejected the review (${response.status}).`);
@@ -267,7 +267,8 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
       const pinned = await prepared(input.repo, input.number, input.headSha, context); if (pinned.actor.toLowerCase() !== input.actor.toLowerCase()) throw new Error('Authenticated actor changed');
       const response = await request(context, 'GET', `/repos/${input.repo}/pulls/${input.number}/reviews`, { per_page: '100', page: '1' }); const values = array(response.body, 100);
       if (response.status !== 200 || !values) return unavailable('Pinned GitHub review history is unavailable.');
-      const found = values.map(object).filter(value => positive(value?.id) && value?.commit_id === input.headSha && text(value?.body, 65536) && value.body.includes(marker(input.id, input.contentHash)) && String(object(value?.user)?.login).toLowerCase() === input.actor.toLowerCase());
+      const expectedBody = formatPullRequestReviewBody(input);
+      const found = values.map(object).filter(value => positive(value?.id) && value?.commit_id === input.headSha && value?.body === expectedBody && String(object(value?.user)?.login).toLowerCase() === input.actor.toLowerCase());
       if (found.length !== 1) return unavailable(found.length > 1 ? 'Multiple review receipts match this operation; operator reconciliation is required.' : 'No authenticated review receipt proves delivery; an earlier request may still be in flight.');
       return { status: 'acknowledged' as const, receipt: { repo: input.repo, prNumber: input.number, headSha: input.headSha, actor: input.actor, reviewId: found[0]!.id } };
     } catch { return unavailable('Pinned GitHub review history is unavailable.'); }

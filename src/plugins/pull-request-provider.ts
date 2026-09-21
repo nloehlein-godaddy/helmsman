@@ -41,6 +41,10 @@ export interface PullRequestReviewOperationV1 {
   readonly body: string;
 }
 
+export function formatPullRequestReviewBody(input: Readonly<{ id: string; contentHash: string; body: string }>): string {
+  return `${input.body}${input.body ? '\n\n' : ''}<!-- helmsman-operation:${input.id}:${input.contentHash} -->`;
+}
+
 export interface PullRequestReviewOperationResultV1 {
   readonly status: 'acknowledged' | 'definitely-not-applied' | 'unknown';
   readonly retryable?: boolean;

@@ -1,5 +1,5 @@
 import { parsePullRequestCommandInputV1, parsePullRequestCommandV1, type PullRequestCommandInputV1 } from '../../src/plugins/pull-request-command';
-import type { PullRequestHttpV1, PullRequestReviewOperationResultV1 } from '../../src/plugins/pull-request-provider';
+import { formatPullRequestReviewBody, type PullRequestHttpV1, type PullRequestReviewOperationResultV1 } from '../../src/plugins/pull-request-provider';
 import type { ArtifactBinding, ProviderBinding } from './execution-store';
 import type { OperationAdapter, OperationContext, OperationResolver } from './operation-dispatcher';
 import type { DurableOperation, OperationResult } from './operations';
@@ -12,6 +12,31 @@ const object = (value: unknown): Record<string, unknown> | null => value !== nul
 const text = (value: unknown, maximum = 2048): value is string => typeof value === 'string' && value.length > 0 && value.length <= maximum && !/[\x00-\x1f\x7f]/.test(value);
 const sha = (value: unknown): value is string => typeof value === 'string' && /^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(value);
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+
+function plainObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return null;
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string' || !('value' in (Object.getOwnPropertyDescriptor(value, key) ?? {}))) return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  return actual.length === keys.length && actual.every((key, index) => key === keys[index]);
+}
+
+function snapshotRequest(value: unknown): Parameters<PullRequestHttpV1['request']>[0] {
+  const request = plainObject(value); const query = plainObject(request?.query);
+  if (!request || !query || !exactKeys(request, ['body', 'method', 'path', 'query'])) throw new Error('Invalid pull request provider request.');
+  const copiedQuery: Record<string, string> = {};
+  for (const [key, item] of Object.entries(query)) {
+    if (typeof item !== 'string') throw new Error('Invalid pull request provider request.');
+    copiedQuery[key] = item;
+  }
+  return Object.freeze({ method: request.method as 'GET' | 'POST', path: request.path as string,
+    query: Object.freeze(copiedQuery), body: request.body });
+}
 
 function registryBinding(binding: ProviderBinding) {
   return { providerId: binding.contributionId, pluginId: binding.pluginId, artifactHash: binding.artifactHash, contractVersion: 1 as const, connectionId: null, credentialHandle: null };
@@ -36,6 +61,20 @@ function payload(value: unknown): ReviewPayload {
   const command = parsePullRequestCommandV1(input.command);
   if (command.event !== input.event || command.body !== input.body || command.expectedHeadSha !== input.expectedHeadSha) throw new Error('Recorded pull request review command differs from its payload.');
   return { repo: command.repo, number: command.number, event: command.event, body: command.body, manual: true, expectedHeadSha: command.expectedHeadSha };
+}
+
+function reviewRequest(operation: DurableOperation, target: ReviewTarget, input: ReviewPayload): Parameters<PullRequestHttpV1['request']>[0] {
+  return Object.freeze({ method: 'POST' as const, path: `/repos/${target.repo}/pulls/${target.prNumber}/reviews`, query: Object.freeze({}), body: Object.freeze({
+    event: input.event, body: formatPullRequestReviewBody({ id: operation.id, contentHash: operation.contentHash, body: input.body }), commit_id: target.headSha,
+  }) });
+}
+
+function matchesReviewRequest(value: unknown, expected: Parameters<PullRequestHttpV1['request']>[0]): boolean {
+  const request = plainObject(value); const expectedBody = plainObject(expected.body); const body = plainObject(request?.body);
+  if (!request || !expectedBody || !body || !exactKeys(request, ['body', 'method', 'path', 'query']) || !exactKeys(body, ['body', 'commit_id', 'event'])) return false;
+  const query = plainObject(request.query);
+  return request.method === expected.method && request.path === expected.path && query !== null && exactKeys(query, [])
+    && body.event === expectedBody.event && body.body === expectedBody.body && body.commit_id === expectedBody.commit_id;
 }
 
 function result(value: PullRequestReviewOperationResultV1, expected: ReviewTarget): OperationResult {
@@ -97,14 +136,17 @@ export function createPullRequestProviderEffects(options: {
     const execute = async (method: 'invokeReview' | 'reconcileReview', live: DurableOperation, context: OperationContext) => {
       const mutation = method === 'invokeReview'; const upstream = options.http(binding, context.signal, mutation);
       const http: PullRequestHttpV1 = Object.freeze({ request: async (input: Parameters<PullRequestHttpV1['request']>[0]) => {
-        context.signal.throwIfAborted();
-        if (input.method === 'POST') {
+        context.signal.throwIfAborted(); const requested = snapshotRequest(input);
+        if (requested.method === 'POST') {
           if (!mutation) throw new Error('Pull request reconciliation cannot mutate remote state.');
+          const expected = reviewRequest(live, reviewTarget, reviewPayload);
+          if (!matchesReviewRequest(requested, expected)) throw new Error('Pull request provider attempted an unbound review mutation.');
           const authorization = await options.authorize?.(binding, live, context);
           context.signal.throwIfAborted();
           if (authorization && !authorization.allowed) throw new Error(authorization.reason);
+          return upstream.request(expected);
         }
-        const response = await upstream.request(input); context.signal.throwIfAborted(); return response;
+        const response = await upstream.request(requested); context.signal.throwIfAborted(); return response;
       } });
       return result(await registration.provider[method]({ id: live.id, contentHash: live.contentHash,
         repo: reviewTarget.repo, number: reviewTarget.prNumber, headSha: reviewTarget.headSha, actor: reviewTarget.actor, event: reviewPayload.event, body: reviewPayload.body }, { signal: context.signal, http }), reviewTarget);
