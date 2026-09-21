@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fixture, contribution, pluginId } from './isolated-fixture';
@@ -12,12 +12,15 @@ test('independent profile and installed pages preserve scope, neutral fallback a
   try {
     host.env.REPO_PROJECT_MAP = 'org/a=TASK';
     host.env.GITHUB_TOKEN = 'isolated-profile-token'; host.env.GITHUB_PR_AUTHOR = 'reviewer';
+    const unavailable = join(host.root, 'profile-unavailable');
     const preload = join(host.root, 'github-profile-fixture.mjs');
-    await writeFile(preload, `const original=globalThis.fetch;
+    await writeFile(preload, `import { existsSync } from 'node:fs';
+const original=globalThis.fetch;
 globalThis.fetch=async(input,init)=>{
  const url=new URL(typeof input==='string'||input instanceof URL?input:input.url);
  if(['127.0.0.1','localhost'].includes(url.hostname))return original(input,init);
  if(url.origin!=='https://api.github.com'||init?.method==='POST')throw new Error('Unexpected external fixture request');
+ if(url.pathname==='/user'&&existsSync(${JSON.stringify(unavailable)}))return new Response(null,{status:401});
  if(url.pathname==='/user')return Response.json({login:'reviewer',name:'Pat <img src=x>'});
  if(url.pathname==='/search/issues')return Response.json({total_count:0,incomplete_results:false,items:[]});
  if(url.pathname.endsWith('/pulls'))return Response.json([]);
@@ -53,6 +56,16 @@ globalThis.fetch=async(input,init)=>{
     await expect(page.locator('[data-isolated-scope]')).toHaveText('org/a');
     await page.reload(); await expect(page.locator('[data-isolated-scope]')).toHaveText('org/a');
     await expect(page.locator('.helm-greeting')).toHaveText('Ahoy, Pat <img src=x>!');
+    await writeFile(unavailable, 'unavailable'); await page.reload();
+    await expect(page.locator('.helm-greeting')).toHaveText('Ahoy!');
+    expect(await (await request.get(`${origin}/api/profile?version=1&scope=global`, { headers: { 'X-Helmsman-Contribution': `${profileId}/header` } })).json()).toMatchObject({ profile: { displayName: null, login: null } });
+    await rm(unavailable);
+    const broken = await page.context().newPage();
+    await broken.route(`**/plugin-assets/${profileId}/**`, route => route.fulfill({ contentType: 'text/javascript', body: 'export default { mount() { throw new Error("Failed header"); } };' }));
+    await broken.goto(`${origin}/config?repo=org/a`);
+    await expect(broken.locator('.helm-greeting')).toHaveText('Ahoy!');
+    await expect(broken.locator('.helm-greeting .degraded-banner')).toHaveCount(0);
+    await broken.close();
     await page.goto(`${origin}/outcomes?repo=org/a`);
     await expect(page.locator('[data-plugin-page="helmsman.costs/page"]')).toBeVisible();
     await host.stop(); host.env.HELMSMAN_PORT = new URL(origin).port;

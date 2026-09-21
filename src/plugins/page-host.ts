@@ -223,10 +223,12 @@ export class PluginPageHost {
   private fail(session: PageSession): void {
     if (!this.active(session)) return;
     this.clear();
+    const text = this.options.errorMessage();
+    if (!text) { this.container.replaceChildren(); return; }
     const message = document.createElement('p');
     message.className = 'degraded-banner';
     message.setAttribute('role', 'alert');
-    message.textContent = this.options.errorMessage();
+    message.textContent = text;
     this.container.replaceChildren(message);
   }
 }

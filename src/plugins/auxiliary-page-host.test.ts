@@ -33,6 +33,15 @@ describe('auxiliary page lifecycle', () => {
     expect(broken).toHaveBeenCalledOnce(); expect(f.host.element.textContent).toBe('Failed');
   });
 
+  it('leaves neutral auxiliary content empty when failure copy is intentionally absent', async () => {
+    const f = setup(); f.options.errorMessage = () => ''; f.host.dispose();
+    const host = new AuxiliaryPageHost(state(), f.options); hosts.push(host);
+    f.removeModule(); f.modules.register('example.viewer/page', { mount: () => { throw new Error('Failed mount'); } });
+    host.rehome(f.first); await settle();
+    expect(host.element.childNodes).toHaveLength(0);
+    expect(host.element.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it('retains one mounted session when rehomed and revokes activity on detachment', async () => {
     const f = setup(); await settle();
     expect(f.mount).not.toHaveBeenCalled();
