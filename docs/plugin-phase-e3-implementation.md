@@ -1,6 +1,6 @@
 # Phase E3: remaining feature packages
 
-Status: shared composition foundation pushed as `edfe0eb`; task editors, durable source commands, source administration and opt-in Todos/Triage/Bugs/source-settings packages have passed independent review and isolated production acceptance. Documentation, installation recipes and flowcharts are synchronized and checked. The current increment awaits commit review and push. Legacy task pages remain active; default slot cutover and legacy presentation retirement are subsequent work. This is part of Phase E, not completion of the full architecture plan.
+Status: shared composition foundation pushed as `edfe0eb`; task editors, durable source commands, source administration and opt-in Todos/Triage/Bugs/source-settings packages have passed independent review and isolated production acceptance. Documentation, installation recipes and flowcharts are synchronized and checked. Exact-commit review of `77c856d` found two task-editor issues; both are fixed locally and undergoing final verification before the checkpoint push. Legacy task pages remain active; default slot cutover and legacy presentation retirement are subsequent work. This is part of Phase E, not completion of the full architecture plan.
 
 ## Task presentation first
 
@@ -63,3 +63,11 @@ The authored source-settings presentation passed isolated installation, response
 Verification passed 4,127 tests across 281 files, TypeScript/production-distribution build, 23 browser tests and seven Node distribution checks. Subsequent source-settings review fixes passed 13 focused tests and the final three-scenario isolated production gate. Todos passed four isolated scenarios; Triage/Bugs passed their expanded standalone service/UI gate with reproducible, inspected screenshots. Default task-page slot binding, compatibility navigation and legacy presentation retirement remain next; the [E4 proposal](plugin-phase-e4-implementation.md) describes the following run/clarification extraction. Every cutover also updates relevant READMEs, operator/author docs and flowcharts.
 
 _Helmsman · not reported - not reported_
+
+## Exact-commit task-editor corrections
+
+Review of `77c856d` found that a moved Todo could retain a related-run link under its new galleon, and that source configuration changes could strand preserved drafts at an obsolete instance revision. The host now exposes an editor run link only for an existing task and a retained run whose exact ID and galleon match the selection. The provider supplies the task association; this check establishes existence and scope, independently of Triage’s canonical-claim enrichment. Missing or failed verification yields no link.
+
+Explicit draft reconciliation may load the latest discovered revision of the same source, instance, galleon and editor, preserving dirty fields. It cannot cross provider-instance replacement or rewrite submitted/pending source or run intent. Ordinary refresh does not silently rebase a draft after source configuration. Reconciliation and refresh are serialized so an overlapping load cannot release another operation’s busy state. Relevant package documentation describes these constraints.
+
+The corrections passed 58 focused tests across five files, TypeScript and the production/distribution build, and all four isolated Todo production scenarios without snapshot updates. The live source-revision scenario verifies that explicit reconciliation retains unsent edits and makes the real save succeed. Exact-fix-commit review and checkpoint push are pending.

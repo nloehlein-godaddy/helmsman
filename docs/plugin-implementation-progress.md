@@ -135,3 +135,11 @@ Documentation is synchronized across README, PRODUCT/DESIGN, package/distributio
 This increment awaits exact-commit review and push. Legacy Todos, Triage and Bugs remain active; default task-page slot cutover and legacy presentation retirement are next. The [E4 proposal](plugin-phase-e4-implementation.md) covers following run/clarification work. Later E batches and phases F/G remain open.
 
 _Helmsman · not reported - not reported_
+
+## Phase E3 exact-commit task-editor corrections
+
+Review of `77c856d280a5e12d7dcad82757c7bac92334410d` found two P2 issues: a moved Todo could link to a retained run in its former galleon, and source configuration changes could prevent explicit reconciliation of preserved drafts. Both are fixed locally. Run links require a real retained run in the selected galleon; explicit reconciliation preserves dirty fields while advancing only the original source/instance/editor identity, with pending command identities kept immutable. A subsequent review also caught and fixed overlapping refresh/reconciliation ownership.
+
+The focused regression batch passed 58 tests across five files, and TypeScript plus the production/distribution build passed. All four isolated Todo production scenarios passed without snapshot updates, including live source configuration followed by explicit reconciliation and successful saving of preserved edits. Exact-fix-commit review remains pending. The implementation and correction commits have not yet been pushed. Default task-page cutover and the remaining E/F/G work remain open.
+
+_Helmsman · not reported - not reported_

@@ -72,6 +72,29 @@ it('atomically creates, moves and deletes canonical tasks and replays terminal r
   for (const [command, receipt] of [[create, created], [move, moved], [remove, deleted]] as const) expect(await f.coordinator.submit(caller, command)).toEqual(receipt);
   expect(f.local.get(ref.sourceId, ref.externalId)).toBeNull();
 });
+it('verifies actual retained run identity and galleon before exposing provider editor links', async () => {
+  const f = fixture({ ...todosProvider, async readEditor(input, context) {
+    const document = await todosProvider.readEditor!(input, context);
+    return document ? { ...document, relatedRun: { runId: 'original-run', repo: context.repo! } } : null;
+  } });
+  const created = await f.coordinator.submit(caller, f.create()); const ref = created.result!.ref;
+  const query = { selection: f.selection, editor: LOCAL_TASK_EDITOR_V1, ref };
+  const getRun = vi.fn((): { id: string; repo: string } | null => ({ id: 'original-run', repo: f.selection.repo }));
+  const edit = createTaskEditService({ ...f.options, getRun });
+  expect((await edit.load(query, new AbortController().signal))?.relatedRun).toEqual({ runId: 'original-run', repo: f.selection.repo });
+  expect((await edit.create({ selection: f.selection, editor: LOCAL_TASK_EDITOR_V1 }, new AbortController().signal)).relatedRun).toBeNull();
+  expect((await f.edit.load(query, new AbortController().signal))?.relatedRun).toBeNull();
+  getRun.mockReturnValueOnce(null);
+  expect((await edit.load(query, new AbortController().signal))?.relatedRun).toBeNull();
+  getRun.mockReturnValueOnce({ id: 'different-run', repo: f.selection.repo });
+  expect((await edit.load(query, new AbortController().signal))?.relatedRun).toBeNull();
+  getRun.mockImplementationOnce(() => { throw new Error('Related run storage unavailable'); });
+  expect((await edit.load(query, new AbortController().signal))?.relatedRun).toBeNull();
+  await f.coordinator.submit(caller, f.mutation('update', ref, { repo: 'owner/other' }));
+  const moved = { ...query, selection: { ...f.selection, repo: 'owner/other' } };
+  expect((await edit.load(moved, new AbortController().signal))?.relatedRun).toBeNull();
+  expect(getRun).toHaveBeenLastCalledWith('original-run');
+});
 it('rejects stale task revisions durably and never reinterprets a changed request', async () => {
   const f = fixture(); const created = await f.coordinator.submit(caller, f.create()); const ref = created.result!.ref;
   const first = f.mutation('update', ref, { title: 'First' }); const stale = f.mutation('update', ref, { title: 'Second' });

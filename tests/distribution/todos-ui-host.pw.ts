@@ -36,6 +36,15 @@ test('independent Todo package preserves drafts and one durable create through r
     await expect(page.getByRole('button', { name: 'Save Todo', exact: true })).toBeEnabled();
     await page.setViewportSize({ width: 1440, height: 1600 });
     await expect(page.locator('.plugin-todos').first()).toHaveScreenshot('todos-authored-editor.png');
+    await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Keep this draft through source configuration');
+    const sources = await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json();
+    const source = sources.instances.find((value: { providerId: string }) => value.providerId === 'helmsman.todos/todos'); expect(source).toBeTruthy();
+    const configured = await request.post(`${origin}/api/task-sources/${source.id}/configuration`, { data: { instanceRevision: source.revision, label: 'Configured source', desiredEnabled: source.desiredEnabled, allowedRepos: source.allowedRepos, settings: source.settings } }); expect(configured.ok()).toBe(true);
+    await page.getByRole('button', { name: 'Refresh Todos', exact: true }).click(); await expect(page.getByRole('button', { name: 'Save Todo', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: 'Reconcile with current revision', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Keep this draft through source configuration');
+    await page.getByRole('button', { name: 'Save Todo', exact: true }).click(); await page.getByRole('button', { name: 'Apply saved result', exact: true }).click();
+    await expect.poll(async () => (await (await request.get(`${origin}/api/todos?repo=org/a`)).json()).todos[0]?.description).toBe('Keep this draft through source configuration');
     expect(errors).toEqual([]);
   } finally { await host.close(); }
 });

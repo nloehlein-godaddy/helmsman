@@ -7,7 +7,10 @@ import type { TaskSourceRegistry } from './task-sources/registry';
 import type { TaskSourceService } from './task-source-service';
 import { PersistenceConflictError, stableJson } from './persistence';
 
-export interface TaskEditorServerOptions { store: TaskSourceStore; registry: TaskSourceRegistry; service: TaskSourceService; repos(): readonly string[]; }
+export interface TaskEditorServerOptions {
+  store: TaskSourceStore; registry: TaskSourceRegistry; service: TaskSourceService; repos(): readonly string[];
+  getRun?(runId: string): { id: string; repo: string } | null;
+}
 export function resolveTaskEditor(options: TaskEditorServerOptions, query: TaskEditQueryV1): { instance: SourceInstanceV1; sourceRevision: number; declaration: TaskEditorDeclarationV1 } {
   const { selection, editor } = query;
   const source = options.store.source(selection.sourceId); const instance = options.store.instance(selection.instanceId);
@@ -20,6 +23,14 @@ export function resolveTaskEditor(options: TaskEditorServerOptions, query: TaskE
   return { instance, sourceRevision: source.revision, declaration };
 }
 export function createTaskEditService(options: TaskEditorServerOptions) {
+  function relatedRun(envelope: TaskEditEnvelopeV1): TaskEditEnvelopeV1['relatedRun'] {
+    const suggested = envelope.relatedRun;
+    if (!envelope.target || !suggested) return null;
+    try {
+      const actual = options.getRun?.(suggested.runId);
+      return actual?.id === suggested.runId && actual?.repo === envelope.selection.repo ? suggested : null;
+    } catch { return null; }
+  }
   function unchanged(query: TaskEditQueryV1, original: ReturnType<typeof resolveTaskEditor>): void {
     const current = resolveTaskEditor(options, query);
     if (current.sourceRevision !== original.sourceRevision || stableJson(current.instance) !== stableJson(original.instance)
@@ -39,7 +50,7 @@ export function createTaskEditService(options: TaskEditorServerOptions) {
     }
     if (envelope.destinationRepos.some(repo => !selected.instance.allowedRepos.includes(repo))) throw new PersistenceConflictError('Task editor returned an unauthorized destination');
     if (envelope.target) options.store.assertUnquarantined(envelope.target.ref);
-    return Object.freeze({ ...envelope, destinationRepos: Object.freeze(envelope.destinationRepos.filter(repo => options.repos().includes(repo))) });
+    return Object.freeze({ ...envelope, relatedRun: relatedRun(envelope), destinationRepos: Object.freeze(envelope.destinationRepos.filter(repo => options.repos().includes(repo))) });
   }
   return {
     discover(repo: string | null): TaskEditDiscoveryV1 {

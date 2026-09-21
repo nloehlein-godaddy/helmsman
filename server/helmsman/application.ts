@@ -233,7 +233,7 @@ const sourceTodos = taskSourceRuntime.todoApi ?? {
 function presentationEnv() { return { ...configStore.effectiveEnv(), JIRA_ENABLED: taskSourceRuntime.jiraEnabled() ? 'true' : 'false' }; }
 function applicationRepos(cfg = configStore.current()) { return [...new Set([...repositoryScope(cfg, []), ...taskSourceRuntime.repos()])]; }
 const activityRead = createActivityReadService({ sources: taskSourceRuntime.service, repos: applicationRepos });
-const taskEdit = createTaskEditService({ ...taskSourceRuntime, repos: applicationRepos });
+const taskEdit = createTaskEditService({ ...taskSourceRuntime, repos: applicationRepos, getRun: id => db.getRun(id) });
 const taskViews = createTaskViewsReadService({ sources: taskSourceRuntime.service, repos: applicationRepos, relatedRun(ref, repo) {
   const claim = taskSourceRuntime.store.latestClaim(ref);
   const run = claim ? db.getRun(claim.runId) : null;

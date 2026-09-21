@@ -13,7 +13,7 @@ flowchart TD
     Scope[Header galleon or explicit panel override<br/>Exact source instance and revision] --> Panel[Opt-in task page and panel<br/>Host manages lifetime, scope and cancellation]
     Panel --> Reads[Public task / editor / task-view reads<br/>Bounded, validated DTOs; no credentials]
     Reads --> Provider[Jira or local source provider<br/>Declared optional views; explicit quality]
-    Provider --> Display[Render independent group and metric quality<br/>Actual links, dates and canonical related voyages]
+    Provider --> Display[Render independent group and metric quality<br/>Actual links, dates and scope-checked related voyages]
     Panel --> Intent[Persist original intent UUID and input<br/>Source command or run command]
     Intent --> Core[Core checks authority, scope and revisions<br/>Provider prepares; host owns mutation and receipt]
     Core --> Accepted[Verified terminal receipt<br/>Consume result and save draft, then acknowledge]
@@ -27,7 +27,7 @@ flowchart TD
     Check -->|Missing authority or ambiguous evidence| Preserve[Preserve legacy journal entry<br/>No reissue; no Core Recovery resolution]
 ```
 
-Triage applies provider filters before pagination and preserves independent cursors under a fixed observation window. Bugs labels approximate counts, unknown metrics and capped resolution samples separately. A source or presentation disablement denies new work while retained execution and effect obligations stay pinned. A historical automatic-start receipt never establishes the current process's enabled state. Package code is trusted; DTO and import validation do not provide a security sandbox.
+Triage applies provider filters before pagination and preserves independent cursors under a fixed observation window. Its related voyages are enriched from canonical task claims and checked against actual runs in the selected galleon. Editor associations instead come from the provider; core verifies run existence and galleon scope without asserting claim ownership. Bugs labels approximate counts, unknown metrics and capped resolution samples separately. A source or presentation disablement denies new work while retained execution and effect obligations stay pinned. A historical automatic-start receipt never establishes the current process's enabled state. Package code is trusted; DTO and import validation do not provide a security sandbox.
 
 ## Intake and execution preparation
 

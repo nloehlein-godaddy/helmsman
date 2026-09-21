@@ -128,6 +128,52 @@ describe('authored Todo editor', () => {
     f.load.mockResolvedValue({ status: 'available', value: { ...envelope(), target: { ref: task.ref, revision: 'record-2' }, commands: { create: null, update: { commandId: 'edit', available: false, reason: 'Owned by a running worker.' }, delete: null } } });
     await instance.refresh?.(); expect(button(f.container, 'Save Todo').disabled).toBe(true); expect(field(f.container, 'Title').disabled).toBe(true); expect(f.container.textContent).toContain('Owned by a running worker.');
   });
+  it.each([false, true])('explicitly reconciles the same source instance revision while preserving dirty text (new=%s)', async create => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context);
+    if (create) { await ready(f); button(f.container, 'New Todo').click(); await vi.waitFor(() => expect(field(f.container, 'Title').value).toBe('')); }
+    else await open(f);
+    edit(f.container, 'Description', 'Keep my unsent description');
+    const selection = { ...source.selection, instanceRevision: 3 };
+    f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo, sources: [{ ...source, selection }] } });
+    const next = { ...envelope(create), selection, sourceRevision: 4, target: create ? null : { ref: task.ref, revision: 'record-3' }, value: { ...fields, title: 'Current server title' } };
+    f.load.mockImplementation(async input => input.selection.instanceRevision === 3 ? { status: 'available', value: next } : { status: 'unavailable', reason: 'selection-changed' });
+    f.create.mockImplementation(async input => input.selection.instanceRevision === 3 ? { status: 'available', value: next } : { status: 'unavailable', reason: 'selection-changed' });
+    await instance.refresh?.(); const reads = create ? f.create : f.load; expect(reads.mock.calls.at(-1)?.[0].selection.instanceRevision).toBe(2);
+    expect(button(f.container, create ? 'Create Todo' : 'Save Todo').disabled).toBe(true);
+    button(f.container, 'Reconcile with current revision').click(); await vi.waitFor(() => expect(button(f.container, create ? 'Create Todo' : 'Save Todo').disabled).toBe(false));
+    expect(reads.mock.calls.at(-1)?.[0].selection).toEqual(selection); expect(field(f.container, 'Description').value).toBe('Keep my unsent description'); expect(field(f.container, 'Title').value).toBe('Current server title');
+    button(f.container, create ? 'Create Todo' : 'Save Todo').click(); await vi.waitFor(() => expect(f.submit).toHaveBeenCalledOnce());
+    expect(f.submit.mock.calls[0]?.[0]).toMatchObject({ selection, sourceRevision: 4, target: create ? null : { ref: task.ref, expectedRevision: 'record-3' }, input: { description: 'Keep my unsent description' } });
+  });
+  it('waits for background refresh before allowing explicit reconciliation to own the editor read', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await open(f);
+    f.load.mockResolvedValue({ status: 'available', value: { ...envelope(), target: { ref: task.ref, revision: 'record-2' } } }); await instance.refresh?.();
+    let finish!: () => void; f.list.mockImplementationOnce(input => new Promise(resolve => { finish = () => resolve({ status: 'available', value: { selection: input.selection, items: [task], nextCursor: null, total: 1 } }); }));
+    const refreshing = instance.refresh?.(); await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    const before = f.load.mock.calls.length; const reconcile = button(f.container, 'Reconcile with current revision'); expect(reconcile.disabled).toBe(true); reconcile.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve(); expect(f.load).toHaveBeenCalledTimes(before);
+    finish(); await refreshing; expect(button(f.container, 'Reconcile with current revision').disabled).toBe(false); button(f.container, 'Reconcile with current revision').click();
+    await vi.waitFor(() => expect(button(f.container, 'Save Todo').disabled).toBe(false)); expect(button(f.container, 'Refresh Todos').disabled).toBe(false);
+  });
+  it.each(['submitted', 'journal'] as const)('refuses source revision reconciliation while an immutable %s request remains', async pendingKind => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await open(f); edit(f.container, 'Description', 'Original intent');
+    if (pendingKind === 'submitted') {
+      f.submit.mockImplementation(async input => { f.journal.push({ command: { ...input, requestId: '22222222-2222-4222-8222-222222222222' }, receipt: null }); return { status: 'unavailable', reason: 'connection-failed' }; });
+      button(f.container, 'Save Todo').click(); await vi.waitFor(() => expect(f.submit).toHaveBeenCalledOnce()); await vi.waitFor(() => expect(button(f.container, 'Retry delivery').disabled).toBe(false));
+    } else f.journal.push({ command: { version: 1, requestId: '22222222-2222-4222-8222-222222222222', selection: { ...source.selection, instanceRevision: 1 }, sourceRevision: 3, editor: { id: 'helmsman/local-task-editor', version: 1 }, action: 'update', commandId: 'edit', target: { ref: task.ref, expectedRevision: 'record-0' }, destinationRepo: repo, input: { ...fields } }, receipt: null });
+    const original = JSON.stringify(f.journal); f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo, sources: [{ ...source, selection: { ...source.selection, instanceRevision: 3 } }] } });
+    f.load.mockResolvedValue({ status: 'unavailable', reason: 'selection-changed' }); await instance.refresh?.(); const calls = f.load.mock.calls.length;
+    const reconcile = button(f.container, 'Reconcile with current revision'); expect(reconcile.disabled).toBe(true); reconcile.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve();
+    expect(f.load).toHaveBeenCalledTimes(calls); expect(JSON.stringify(f.journal)).toBe(original); expect(field(f.container, 'Description').value).toBe('Original intent'); expect(f.acknowledge).not.toHaveBeenCalled();
+  });
+  it.each(['replacement instance', 'different source', 'different repository', 'different editor'] as const)('does not reconcile a draft into a %s', async mismatch => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await open(f); edit(f.container, 'Description', 'Keep origin');
+    const replacement = { ...source, selection: { ...source.selection, instanceRevision: 3,
+      ...(mismatch === 'replacement instance' ? { instanceId: 'adopted-instance' } : mismatch === 'different source' ? { sourceId: '99999999-9999-4999-8999-999999999999' } : mismatch === 'different repository' ? { repo: otherRepo } : {}) },
+      ...(mismatch === 'different editor' ? { editors: [{ id: 'example/different-editor', version: 1 as const, commands: { create: 'add', update: 'edit', delete: 'remove' } }] } : {}) };
+    f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo, sources: [replacement] } }); f.load.mockResolvedValue({ status: 'unavailable', reason: 'selection-changed' });
+    await instance.refresh?.(); const calls = f.load.mock.calls.length; button(f.container, 'Reconcile with current revision').click(); await vi.waitFor(() => expect(f.container.textContent).toContain('original source instance is unavailable'));
+    expect(f.load).toHaveBeenCalledTimes(calls); expect(field(f.container, 'Description').value).toBe('Keep origin'); expect(button(f.container, 'Save Todo').disabled).toBe(true); expect(f.submit).not.toHaveBeenCalled();
+  });
   it('preserves unknown saved state without issuing editor reads or overwriting it', async () => {
     const f = fixture(); await panel.mount(f.container, { ...f.context, state: { ...f.state, savedState: { version: 99, value: { draft: 'Future fields' } } } });
     expect(f.container.textContent).toContain('unsupported format'); expect(f.discover).not.toHaveBeenCalled(); expect(f.saveState).not.toHaveBeenCalled();

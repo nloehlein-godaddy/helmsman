@@ -6,6 +6,7 @@ import { styles } from './styles.js';
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; return element; }
 const sourceKey = (selection: TaskReadSelectionV1) => JSON.stringify([selection.repo, selection.sourceId, selection.instanceId, selection.instanceRevision]);
+const sameOrigin = (left: TaskReadSelectionV1, right: TaskReadSelectionV1) => left.repo === right.repo && left.sourceId === right.sourceId && left.instanceId === right.instanceId;
 const sameRef = (left: WorkRefV1 | undefined, right: WorkRefV1 | undefined) => !!left && !!right && left.sourceId === right.sourceId && left.externalId === right.externalId;
 const labels: Record<Values['state'], string> = { todo: 'To do', in_progress: 'In progress', in_review: 'In review', done: 'Done', blocked: 'Blocked' };
 const LOCAL_TASK_EDITOR_V1 = { id: 'helmsman/local-task-editor', version: 1 as const };
@@ -140,7 +141,7 @@ class TodosPanel implements PluginPanelInstance {
         if (next) { this.saved.selectedSource = next.selection; this.change(); }
       }
       const draft = this.draft(); const selected = this.selected();
-      if (draft && selected && !draft.target && draft.destinationPolicy === 'inherit' && this.state.activity.repo === selected.selection.repo && !sameSelection(draft.selection, selected.selection)) {
+      if (draft && selected && !draft.target && draft.destinationPolicy === 'inherit' && this.state.activity.repo === selected.selection.repo && draft.selection.repo !== selected.selection.repo) {
         const envelope = await this.context.services.taskEdit!.create({ selection: selected.selection, editor: LOCAL_TASK_EDITOR_V1 }, this.state.activity.signal);
         if (!this.active(generation) || this.draft()?.key !== draft.key) return;
         if (envelope?.status === 'available') {
@@ -197,7 +198,7 @@ class TodosPanel implements PluginPanelInstance {
     finally { if (this.active(generation)) { this.busy = false; this.draw(); } }
   }
   private taskPending(draft: Draft) {
-    return !!draft.submitted || this.pending.some(entry => sameSelection(entry.command.selection, draft.selection) && sameRef(entry.command.target?.ref, draft.target?.ref))
+    return !!draft.submitted || this.pending.some(entry => sameOrigin(entry.command.selection, draft.selection) && (draft.target ? sameRef(entry.command.target?.ref, draft.target.ref) : entry.command.target === null))
       || this.runPending.some(entry => entry.command.action === 'launch' && entry.command.launch.mode === 'source' && entry.command.repo === draft.selection.repo
         && entry.command.launch.sourceInstanceId === draft.selection.instanceId && sameRef(entry.command.launch.workRef, draft.target?.ref));
   }
@@ -263,23 +264,33 @@ class TodosPanel implements PluginPanelInstance {
     finally { if (this.active(generation) && editGeneration === this.editGeneration) { this.busy = false; this.draw(); } }
   }
   private async readEnvelope(draft: Draft, reconcile: boolean) {
+    if (reconcile && (this.busy || this.loading || !this.active() || this.unsupported || !this.pendingReady || !this.runPendingReady || this.taskPending(draft) || !this.inScope(draft.selection.repo))) return;
     const generation = this.generation; const editGeneration = ++this.editGeneration;
+    if (reconcile) { this.busy = true; this.draw(); }
     try {
-      const query = { selection: draft.selection, editor: LOCAL_TASK_EDITOR_V1 };
+      const current = reconcile ? this.sources.find(source => source.availability === 'available' && sameOrigin(source.selection, draft.selection)
+        && source.editors?.some(editor => editor.id === LOCAL_TASK_EDITOR_V1.id && editor.version === LOCAL_TASK_EDITOR_V1.version)) : null;
+      if (reconcile && !current) throw new Error('The original source instance is unavailable. Its draft and request identities are kept; a replacement instance cannot reconcile it.');
+      const query = { selection: current?.selection ?? draft.selection, editor: LOCAL_TASK_EDITOR_V1 };
       const response = draft.target ? await this.context.services.taskEdit!.load({ ...query, ref: draft.target.ref }, this.state.activity.signal) : await this.context.services.taskEdit!.create(query, this.state.activity.signal);
       if (!this.active(generation) || editGeneration !== this.editGeneration || this.draft()?.key !== draft.key) return;
       if (response?.status !== 'available' || !response.value) { this.envelope = null; throw new Error('This draft’s source or Todo is unavailable. The draft is kept.'); }
-      const envelope = response.value; this.envelope = envelope;
+      const envelope = response.value;
+      if (!sameSelection(envelope.selection, query.selection) || envelope.editor?.id !== LOCAL_TASK_EDITOR_V1.id || envelope.editor?.version !== LOCAL_TASK_EDITOR_V1.version
+        || (draft.target ? !sameRef(envelope.target?.ref, draft.target.ref) : envelope.target !== null)) throw new Error('The source returned a different editor or Todo identity. The original draft is kept.');
+      if (reconcile && this.taskPending(draft)) throw new Error('Resolve the original saved request before reconciling this draft.');
+      this.envelope = envelope;
       if (reconcile) {
         const fields = values(envelope.value); if (!fields) throw new Error('Unsupported Todo document.');
         const merged = { ...draft.values };
         for (const key of Object.keys(fields) as (keyof Values)[]) if (draft.values[key] === draft.baseline[key]) Object.assign(merged, { [key]: fields[key] });
-        draft.values = merged;
+        if (sameSelection(this.saved.selectedSource, draft.selection)) this.saved.selectedSource = envelope.selection;
+        draft.selection = envelope.selection; draft.values = merged;
         draft.sourceRevision = envelope.sourceRevision; draft.target = envelope.target; draft.baseline = fields; this.change();
         this.error = '';
       }
     } catch (error) { if (this.active(generation)) this.error = error instanceof Error ? error.message : 'Todo editor is unavailable.'; }
-    finally { if (this.active(generation)) this.draw(); }
+    finally { if (this.active(generation) && editGeneration === this.editGeneration) { if (reconcile) this.busy = false; this.draw(); } }
   }
   private currentEnvelope(draft: Draft): TaskEditEnvelopeV1 | null {
     const envelope = this.envelope;
@@ -425,7 +436,7 @@ class TodosPanel implements PluginPanelInstance {
   private drawEditor() {
     const draft = this.draft(); const envelope = draft && this.currentEnvelope(draft);
     const signature = JSON.stringify([draft?.key, draft?.target, draft?.selection, draft?.sourceRevision, !!draft?.submitted,
-      envelope?.sourceRevision, envelope?.commands, envelope?.destinationRepos, envelope?.relatedRun, this.busy, this.active(), this.state.activity.repo, this.unsupported, this.confirmedDelete, this.discardDraftKey, this.pendingReady,
+      envelope?.sourceRevision, envelope?.commands, envelope?.destinationRepos, envelope?.relatedRun, this.busy, this.active(), this.state.activity.repo, this.unsupported, this.confirmedDelete, this.discardDraftKey, this.pendingReady, !envelope && this.loading,
       draft && this.taskPending(draft), this.saved.drafts.map(value => value.key)]);
     if (signature === this.editorSignature) return; this.editorSignature = signature;
     const focused = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement ? document.activeElement : null;
@@ -440,7 +451,7 @@ class TodosPanel implements PluginPanelInstance {
     if (!this.inScope(draft.selection.repo)) {
       this.editor.append(node('p', `This draft belongs to ${draft.selection.repo}. Select its scope to save it.`), this.button(`Use ${draft.selection.repo} for this panel`, () => { void this.scope(draft.selection.repo); }, !this.context.setScope || !this.active()));
     }
-    if (!envelope) this.editor.append(node('p', 'The source or task revision changed, or the editor is unavailable. Your draft is kept.'), this.button('Reconcile with current revision', () => { void this.readEnvelope(draft, true); }, this.busy || !!draft.submitted || !this.inScope(draft.selection.repo) || !this.active()));
+    if (!envelope) this.editor.append(node('p', 'The source or task revision changed, or the editor is unavailable. Your draft is kept.'), this.button('Reconcile with current revision', () => { void this.readEnvelope(draft, true); }, this.busy || this.loading || !this.pendingReady || !this.runPendingReady || this.taskPending(draft) || !this.inScope(draft.selection.repo) || !this.active()));
     const locked = this.unsupported || !this.active() || draft.values.state === 'in_progress' || !!envelope && !(envelope.commands[draft.target ? 'update' : 'create']?.available ?? false);
     for (const [key, label, maximum] of [['title', 'Title', 240], ['description', 'Description', 20000], ['acceptanceCriteria', 'Acceptance criteria', 20000]] as const) {
       const wrapper = node('label', label); const field = key === 'title' ? node('input') : node('textarea'); field.value = draft.values[key]; field.maxLength = maximum;
