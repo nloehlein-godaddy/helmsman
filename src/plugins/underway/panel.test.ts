@@ -73,6 +73,12 @@ describe('standalone Underway panel', () => {
     await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Launch')?.disabled).toBe(false));
     expect(f.container.textContent).toContain(task.title); expect(resolve).toHaveBeenCalledOnce(); f.lifetime.abort();
   });
+  it('aborts detached context reads when a refresh replaces visible task rows', async () => {
+    const f = fixture(); const signals: AbortSignal[] = []; const resolve = vi.fn((_input: unknown, next?: AbortSignal) => { if (next) signals.push(next); return new Promise<never>(() => {}); });
+    f.context = { ...f.context, services: { ...f.context.services, taskContext: { version: 1, resolve } } };
+    const instance = await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Launch')?.disabled).toBe(false)); await vi.waitFor(() => expect(signals).toHaveLength(1));
+    await instance.refresh?.(); expect(signals[0]?.aborted).toBe(true); f.lifetime.abort();
+  });
   it('does not launch from all-repository scope', async () => {
     const f = fixture(); f.context = { ...f.context, state: { ...f.state, repo: null } };
     await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain(task.title));

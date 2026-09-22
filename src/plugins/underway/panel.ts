@@ -37,6 +37,7 @@ class UnderwayPanel implements PluginPanelInstance {
   private commands = new Map<string, LaunchState>();
   private disposed = false;
   private controller: AbortController | null = null;
+  private contextController: AbortController | null = null;
   private generation = 0;
   private pending: Promise<void> | null = null;
   constructor(container: HTMLElement, context: PluginPanelContext) {
@@ -51,13 +52,14 @@ class UnderwayPanel implements PluginPanelInstance {
   }
   private abort = () => this.dispose();
   private suspend = () => { this.cancel(); };
-  private cancel() { ++this.generation; this.controller?.abort(); this.controller = null; this.pending = null; this.evidenceReady = false; for (const command of this.commands.values()) command.busy = false; }
+  private cancel() { ++this.generation; this.controller?.abort(); this.controller = null; this.contextController?.abort(); this.contextController = null; this.pending = null; this.evidenceReady = false; for (const command of this.commands.values()) command.busy = false; }
   private current(generation: number): boolean { return !this.disposed && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
   refresh(): Promise<void> {
     if (this.disposed || !this.state.activity.active || this.state.activity.signal.aborted || !this.state.visible) return Promise.resolve();
     if (this.pending) return this.pending;
+    this.contextController?.abort(); this.contextController = null;
     this.evidenceReady = false; this.sections = [];
-    const generation = ++this.generation; const controller = new AbortController(); this.controller = controller;
+    const generation = ++this.generation; const controller = new AbortController(); const contextController = new AbortController(); this.controller = controller; this.contextController = contextController;
     const promise = Promise.resolve().then(async () => {
       await this.restoreCommands(generation);
       if (!this.current(generation)) return;
@@ -80,7 +82,7 @@ class UnderwayPanel implements PluginPanelInstance {
       await Promise.all(Array.from({ length: Math.min(4, this.sections.length) }, async () => {
         while (index < this.sections.length && this.current(generation)) {
           const section = this.sections[index++]!;
-          if (section.source.availability === 'available' && section.source.readViews?.includes('underway')) await this.readPage(section, generation, controller.signal);
+          if (section.source.availability === 'available' && section.source.readViews?.includes('underway')) await this.readPage(section, generation, controller.signal, contextController.signal);
         }
       }));
     }).catch(() => { if (this.current(generation) && !controller.signal.aborted) this.messages = ['Tasks could not be read. Refresh to retry.']; }).finally(() => {
@@ -88,7 +90,7 @@ class UnderwayPanel implements PluginPanelInstance {
     });
     this.pending = promise; this.draw(); return promise;
   }
-  private async readPage(section: Section, generation: number, signal: AbortSignal): Promise<void> {
+  private async readPage(section: Section, generation: number, signal: AbortSignal, contextSignal: AbortSignal): Promise<void> {
     try {
       const result = await this.context.services.tasks!.underway!({ ...section.source, cursor: section.cursor, limit: 25 }, signal);
       if (!this.current(generation)) return;
@@ -96,7 +98,7 @@ class UnderwayPanel implements PluginPanelInstance {
       const seen = new Set(section.tasks.map(task => JSON.stringify(task.ref)));
       if (result.value.items.some(task => seen.has(JSON.stringify(task.ref)))) { section.error = 'Task pagination changed. Refresh this panel.'; section.cursor = null; return; }
       section.tasks = [...section.tasks, ...result.value.items]; section.cursor = result.value.nextCursor; section.pages++; section.error = '';
-      this.draw(); void this.readContext(section, result.value.items, generation, signal);
+      this.draw(); void this.readContext(section, result.value.items, generation, AbortSignal.any([signal, contextSignal]));
     } catch { if (this.current(generation) && !signal.aborted) section.error = 'Tasks could not be read. Refresh to retry.'; }
     finally { if (this.current(generation)) { section.loading = false; this.draw(); } }
   }
@@ -131,7 +133,9 @@ class UnderwayPanel implements PluginPanelInstance {
     if (this.disposed || !section.cursor || section.loading || section.pages >= 10 || this.pending || !this.state.activity.active) return;
     const controller = new AbortController(); this.controller = controller; section.loading = true;
     const generation = this.generation;
-    this.pending = this.readPage(section, generation, controller.signal).finally(() => {
+    const contextSignal = this.contextController?.signal;
+    if (!contextSignal) return;
+    this.pending = this.readPage(section, generation, controller.signal, contextSignal).finally(() => {
       if (generation === this.generation) { this.pending = null; this.controller = null; this.draw(); }
     }); this.draw();
   }
