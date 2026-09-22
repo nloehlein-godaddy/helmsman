@@ -10,7 +10,7 @@ Import provider contracts from `@helmsman/plugin-sdk`. Node receipt and process-
 
 `discover` distinguishes three results. `found` requires verified ownership and returns matching running or exited evidence. `absent` requires authoritative native inventory showing that the owned target does not exist. Missing, conflicting, malformed, or unavailable evidence is `unknown`; it must not be treated as absence. `isAlive` and `stop` throw when ownership cannot be verified. Providers never select or fall back to another provider.
 
-Providers with `stageExecution: "isolated"` also implement `prepareStage` and `stopStages`. The gateway token is ephemeral input and must not enter settings, retained configuration, snapshots, logs, or returned state. `cleanup(success)` and `stopStages(runId)` must remain scoped to the exact run.
+Providers with `stageExecution: "isolated"` also implement `prepareStage` and `stopStages`. The gateway token is ephemeral input and must not enter settings, retained configuration, snapshots, logs, or returned state. Model requests use the run-scoped gateway and GoCaaS; host credentials are never stage inputs. `cleanup(success)` and `stopStages(runId)` must remain scoped to the exact run.
 
 The shipped [`host-local`](../src/plugins/host-local/README.md) package demonstrates detached, cmux, and WezTerm providers. The Docker package demonstrates immutable run configuration and isolated stage execution. Install the released SDK, TypeScript and `@types/node` as development dependencies. Build an authored package against that SDK, then package and install it with the workflow in [Plugin packages](plugin-packages.md).
 

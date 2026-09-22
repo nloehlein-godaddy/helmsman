@@ -277,7 +277,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Retained stages → core completion gates</h3><p>Isolated child stages use the original host, mapped paths and a scoped gateway. Core verifies exit evidence, reports and publication gates. Gateway tokens never enter immutable snapshots.</p></article>
 <article class="flow-step"><h3>Restart or changed defaults → original provider</h3><p>Recovery loads the original artifact and captured settings. Shutdown releases owned leases; bounded startup retry waits for crash leases without overlapping attachment. Disablement blocks new admission while existing obligations retain their provider. Unavailable retained artifacts require recovery, not substitution.</p></article>
 </div>
-<p class="limit-note">Use <code>select-execution-host</code> and restart after selection. Local detached/cmux/WezTerm and Docker packages use the same contract as authored replacements. Backend receipt helpers live only in <code>@helmsman/plugin-sdk/node</code>. See <a href="execution-host-authoring.md">execution host authoring</a>.</p>
+<p class="limit-note">Use <code>select-execution-host</code> and restart after selection. Local detached/cmux/WezTerm and Docker packages use the same contract as authored replacements. Managed model traffic uses the run-scoped gateway and GoCaaS; host credentials never enter stages. See <a href="model-routing.md">model routing</a> and <a href="execution-host-authoring.md">execution host authoring</a>.</p>
 </section>
 <section aria-labelledby="native-terminal-heading">
 <h2 class="section-heading" id="native-terminal-heading">Native terminal and browser providers</h2>

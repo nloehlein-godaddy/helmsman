@@ -504,6 +504,8 @@ values remain readable for legacy recovery. The adapter seeds the initial select
 once; command text is never copied automatically because it may contain credentials.
 Configure a nonsecret `commandTemplate` explicitly; Config cannot edit retired keys.
 
+Managed model traffic for local and Docker stages uses the run-scoped Helmsman gateway and GoCaaS. Host credentials are never passed to stages, and unsupported custom transports are blocked at admission. See [model routing](docs/model-routing.md) for GoCaaS settings and authentication.
+
 The retained workflow renders authored prompts from a bounded public task projection.
 Core chooses effective model/effort, owns admission, guarded execution and recovery,
 and validates every provider command and event. A provider-reported result failure makes
