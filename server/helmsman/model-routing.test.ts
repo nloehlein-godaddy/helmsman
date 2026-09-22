@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { buildRoutedAgentCommand } from './model-routing';
-import { codexCommand } from './model-routing-cli';
+import { claudeCommand, codexCommand } from './model-routing-cli';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
 
 const token = 'a'.repeat(64);
@@ -74,5 +74,11 @@ describe('model routing', () => {
   it('rejects incoming Codex routing overrides', () => {
     expect(() => codexCommand({ cmd: 'codex', args: ['exec', '-c', 'model_provider="other"', 'prompt'] }, gateway.url)).toThrow('cannot be overridden');
     expect(() => codexCommand({ cmd: 'codex', args: ['exec', '--oss', 'prompt'] }, gateway.url)).toThrow('cannot be overridden');
+    expect(() => codexCommand({ cmd: 'codex', args: ['exec', '--ignore-user-config', 'prompt'] }, gateway.url)).toThrow('cannot be overridden');
+  });
+
+  it('uses its generated Claude settings ahead of user settings', () => {
+    expect(claudeCommand({ cmd: 'claude', args: ['-p', 'prompt'] }, '/private/settings.json').args).toEqual(['-p', 'prompt', '--settings', '/private/settings.json', '--setting-sources', 'project,local']);
+    expect(() => claudeCommand({ cmd: 'claude', args: ['--settings', 'user.json'] }, '/private/settings.json')).toThrow('cannot be overridden');
   });
 });

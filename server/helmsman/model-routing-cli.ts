@@ -66,7 +66,7 @@ export function codexCommand(command: Input['command'], url: string): Input['com
   for (let index = 1; index < command.args.length; index += 1) {
     const argument = command.args[index] ?? '';
     const setting = argument === '-c' ? command.args[index + 1] ?? '' : argument.startsWith('--config=') ? argument.slice('--config='.length) : '';
-    if (argument === '--oss' || argument.startsWith('--oss=') || argument === '--profile' || argument.startsWith('--profile=') || argument === '--config' || argument === '--config-file'
+    if (argument === '--oss' || argument.startsWith('--oss=') || argument === '--profile' || argument.startsWith('--profile=') || argument === '--ignore-user-config' || argument === '--config' || argument === '--config-file'
       || /^(?:model_provider|model_providers\.)\b/.test(setting.trim())) throw new Error('Codex routing options cannot be overridden');
   }
   const baseUrl = endpoint(url, 'openai/v1');
@@ -81,11 +81,22 @@ export function codexCommand(command: Input['command'], url: string): Input['com
   return { cmd: command.cmd, args: [...command.args.slice(0, -1), ...settings.flatMap(setting => ['-c', setting]), command.args.at(-1)!] };
 }
 
+export function claudeCommand(command: Input['command'], settingsPath: string): Input['command'] {
+  if (basename(command.cmd) !== 'claude') return command;
+  for (const argument of command.args) {
+    if (argument === '--settings' || argument.startsWith('--settings=') || argument === '--setting-sources' || argument.startsWith('--setting-sources=')) {
+      throw new Error('Claude routing settings cannot be overridden');
+    }
+  }
+  return { cmd: command.cmd, args: [...command.args, '--settings', settingsPath, '--setting-sources', 'project,local'] };
+}
+
 export async function runModelRoutingCli(raw = process.argv[2]): Promise<number> {
   const routed = input(JSON.parse(raw ?? 'null'));
   const token = routed.modelGateway.token;
   const environment = cleanedEnvironment();
   let cleanup: () => Promise<void> = async () => undefined;
+  let command = routed.command;
   if (routed.transport === 'openai-responses') cleanup = await codexEnvironment(environment, routed.modelGateway.url, token, routed.skillsPath);
   else {
     environment.ANTHROPIC_BASE_URL = endpoint(routed.modelGateway.url, 'anthropic');
@@ -96,14 +107,16 @@ export async function runModelRoutingCli(raw = process.argv[2]): Promise<number>
     const home = await mkdtemp(join(tmpdir(), 'helmsman-claude-home-'));
     environment.CLAUDE_CONFIG_DIR = home;
     await linkSkills(home, routed.skillsPath);
-    await writeFile(join(home, 'settings.json'), JSON.stringify({ env: {
+    const settingsPath = join(home, 'settings.json');
+    await writeFile(settingsPath, JSON.stringify({ env: {
       ANTHROPIC_BASE_URL: environment.ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY: token, ANTHROPIC_AUTH_TOKEN: token,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_USE_BEDROCK: '0', CLAUDE_CODE_USE_VERTEX: '0', CLAUDE_CODE_USE_FOUNDRY: '0',
     } }), { mode: 0o600 });
+    command = claudeCommand(command, settingsPath);
     cleanup = async () => { await rm(home, { recursive: true, force: true }); };
   }
   try {
-    const command = routed.transport === 'openai-responses' ? codexCommand(routed.command, routed.modelGateway.url) : routed.command;
+    command = routed.transport === 'openai-responses' ? codexCommand(command, routed.modelGateway.url) : command;
     return await new Promise<number>((resolve, reject) => {
       const child = spawn(command.cmd, command.args, { env: environment, stdio: 'inherit' });
       const forward = (signal: NodeJS.Signals) => { try { child.kill(signal); } catch {} };
