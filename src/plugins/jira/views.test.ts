@@ -86,6 +86,19 @@ describe('Jira Bugs provider view', () => {
     expect(result.rows[0]).toMatchObject({ ref: { sourceId, externalId: '1' }, severity: 'Critical', dueAt: '2026-09-19', url: 'https://jira.example.com/browse/TASK-1' });
     expect(result.resolutionP75).toMatchObject({ days: 10, sampleSize: 1, population: { value: 25000, quality: 'approximate' }, capped: true, quality: 'partial' });
   });
+  it('projects optional descriptions and leaves oversized aggregate descriptions out of a valid report', async () => {
+    const f = fixture(); const issues = Array.from({ length: 100 }, (_, index) => issue(index + 1, { description: 'x'.repeat(20_000) }));
+    f.get.mockResolvedValue({ status: 200, body: { issues, isLast: true } });
+    const result = parseTaskBugsReportV1(await jiraProvider.readBugs!({ ...bugs, rowLimit: 100 }, f.context), { ...bugs, rowLimit: 100 }, sourceId);
+    expect(result.rows.some(row => row.description !== undefined)).toBe(true); expect(result.rows.some(row => row.description === undefined)).toBe(true);
+    expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThanOrEqual(256 * 1024);
+    expect(f.get.mock.calls.some(([input]) => input.query.fields.includes('description'))).toBe(true);
+  });
+  it('omits malformed optional descriptions without discarding valid bug rows', async () => {
+    const f = fixture(); f.get.mockResolvedValue({ status: 200, body: { issues: [issue(1, { description: 'bad\u0001description' })], isLast: true } });
+    const result = parseTaskBugsReportV1(await jiraProvider.readBugs!(bugs, f.context), bugs, sourceId);
+    expect(result.rows).toHaveLength(1); expect(result.rows[0]?.description).toBeUndefined(); expect(result.rowsQuality).toBe('complete');
+  });
   it('preserves successful metrics when an independent count or detail read fails and never creates zeroes', async () => {
     const f = fixture(); f.query.mockResolvedValueOnce({ status: 200, body: {} });
     f.get.mockRejectedValue(new Error('Provider unavailable'));

@@ -1,7 +1,7 @@
 import type { PluginJson, SourceCallContextV1, SourceReadHttpV1, TaskSnapshotV1, TaskTriageQueryV1, TaskTriagePageV1,
   TaskBugsQueryV1, TaskBugsReportV1, TaskBugCountV1, TaskBugRowV1 } from '@helmsman/plugin-sdk';
 import { jiraArray, jiraGet, probeJiraSubject } from './http.js';
-import { jiraRecord, jiraText } from './normalize.js';
+import { jiraRecord, jiraRichText, jiraText } from './normalize.js';
 
 export interface JiraViewSettings {
   baseUrl: string; assignee: string; backlogStatus: string | null; todoStatus: string | null;
@@ -14,6 +14,9 @@ interface JiraViewsDependencies {
 }
 const quote = (value: string) => JSON.stringify(value);
 const missingCount = (): TaskBugCountV1 => ({ value: null, quality: 'unavailable' });
+const bugDescriptionLimit = 32 * 1024;
+const bugRowsResponseBudget = 240 * 1024;
+const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 function timestamp(value: unknown): string {
   if (!jiraText(value, 128) || !Number.isFinite(Date.parse(value))) throw new Error('Jira timestamp is unavailable');
   return new Date(value).toISOString();
@@ -103,9 +106,9 @@ export function createJiraViews(deps: JiraViewsDependencies) {
       return { value: count, quality: 'approximate' };
     }), context.signal);
     const countAt = (index: number) => { const result = counts[index]; return result?.status === 'fulfilled' ? result.value : missingCount(); };
-    async function search(jql: string, limit: number) {
+    async function search(jql: string, limit: number, includeDescription = false) {
       const response = await jiraGet(http, context.signal, '/rest/api/3/search/jql', { jql,
-        fields: `summary,project,issuetype,priority,duedate,created,resolutiondate,status,updated,${settings.bugSeverityField}`, maxResults: String(limit) });
+        fields: `summary,project,issuetype,priority,duedate,created,resolutiondate,status,updated,${includeDescription ? 'description,' : ''}${settings.bugSeverityField}`, maxResults: String(limit) });
       if (response.status !== 200) throw new Error('Jira Bugs search unavailable');
       const page = searchResult(response.body, limit); const seen = new Set<string>();
       const issues = page.issues.map(raw => {
@@ -126,17 +129,29 @@ export function createJiraViews(deps: JiraViewsDependencies) {
     }
     const details = await parallel<unknown>([
       async () => {
-        const result = await search(`${open} ORDER BY priority DESC, duedate ASC, id ASC`, input.rowLimit);
+        const result = await search(`${open} ORDER BY priority DESC, duedate ASC, id ASC`, input.rowLimit, true);
         const rows: TaskBugRowV1[] = result.issues.map(issue => {
           if (jiraRecord(jiraRecord(issue.fields.status)?.statusCategory)?.key === 'done') throw new Error('Closed issue in open Bugs view');
           const dueAt = issue.fields.duedate ?? null; const priority = jiraRecord(issue.fields.priority)?.name ?? null;
           const severityValue = issue.fields[settings.bugSeverityField]; const severity = typeof severityValue === 'string' ? severityValue : jiraRecord(severityValue)?.value ?? null;
           if (dueAt !== null && (!jiraText(dueAt, 10) || !/^\d{4}-\d{2}-\d{2}$/.test(dueAt) || !Number.isFinite(Date.parse(dueAt)) || new Date(dueAt).toISOString().slice(0, 10) !== dueAt)
             || priority !== null && !jiraText(priority, 128) || severity !== null && !jiraText(severity, 240)) throw new Error('Jira Bugs fields unavailable');
+          let description: string | undefined;
+          try {
+            const value = jiraRichText(issue.fields.description);
+            if (value.trim() && new TextEncoder().encode(value).byteLength <= bugDescriptionLimit && !/[\x00\x01-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) description = value;
+          } catch {}
           return { ref: issue.ref, displayKey: issue.displayKey, title: issue.title, url: issue.url, createdAt: issue.createdAt,
-            priority: priority as string | null, severity: severity as string | null, dueAt: dueAt as string | null };
+            priority: priority as string | null, severity: severity as string | null, dueAt: dueAt as string | null, ...(description === undefined ? {} : { description }) };
         });
-        return { rows, rowsQuality: result.token === null ? 'complete' : 'partial' };
+        const withoutDescriptions: TaskBugRowV1[] = rows.map(({ description: _description, ...row }) => row);
+        const projected = withoutDescriptions.map((row, index) => {
+          const description = rows[index]?.description;
+          if (description === undefined || bytes([...withoutDescriptions.slice(0, index), { ...row, description }, ...withoutDescriptions.slice(index + 1)]) > bugRowsResponseBudget) return row;
+          withoutDescriptions[index] = { ...row, description };
+          return withoutDescriptions[index]!;
+        });
+        return { rows: projected, rowsQuality: result.token === null ? 'complete' : 'partial' };
       },
       async () => {
         const result = await search(`${open} ORDER BY created ASC, id ASC`, 1); const issue = result.issues[0];

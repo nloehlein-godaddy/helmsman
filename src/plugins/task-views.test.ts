@@ -47,4 +47,11 @@ describe('public task view contracts', () => {
     const row = { ref: item.ref, displayKey: 'TASK-1', title: 'Bug', url: null, priority: null, severity: null, dueAt: '2026-02-30', createdAt: asOf };
     expect(() => parseTaskBugsReportV1({ ...report, rows: [row], rowsQuality: 'complete' }, { repo, asOf, rowLimit: 10 }, sourceId)).toThrow();
   });
+  it('accepts optional bounded plain-text bug descriptions without changing older reports', () => {
+    const row = { ref: item.ref, displayKey: 'TASK-1', title: 'Bug', url: null, priority: null, severity: null, dueAt: null, createdAt: asOf, description: 'First line\nSecond line' };
+    expect(parseTaskBugsReportV1({ ...report, rows: [row], rowsQuality: 'complete' }, { repo, asOf, rowLimit: 10 }, sourceId).rows[0]?.description).toBe(row.description);
+    for (const description of [null, ' ', 'x'.repeat(32 * 1024 + 1), 'Bad\u0000text']) {
+      expect(() => parseTaskBugsReportV1({ ...report, rows: [{ ...row, description }], rowsQuality: 'complete' }, { repo, asOf, rowLimit: 10 }, sourceId)).toThrow();
+    }
+  });
 });

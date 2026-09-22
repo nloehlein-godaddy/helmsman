@@ -20,6 +20,7 @@ export interface TaskBugCountV1 { readonly value: number | null; readonly qualit
 export interface TaskBugRowV1 {
   readonly ref: WorkRefV1; readonly displayKey: string; readonly title: string; readonly url: string | null;
   readonly priority: string | null; readonly severity: string | null; readonly dueAt: string | null; readonly createdAt: string;
+  readonly description?: string;
 }
 export interface TaskBugsReportV1 {
   readonly version: 1; readonly repo: string; readonly asOf: string;
@@ -82,6 +83,10 @@ function group(value: unknown): TaskTriageGroupV1 {
   if (!['unassigned-backlog', 'unassigned-todo', 'mine-open'].includes(value as string)) invalid(); return value as TaskTriageGroupV1;
 }
 function cursor(value: unknown): string | null { return value === null ? null : text(value, TASK_VIEW_LIMITS.cursorLength); }
+function description(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim() || new TextEncoder().encode(value).byteLength > 32 * 1024 || /[\x00\x01-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) invalid();
+  return value;
+}
 function bounded<T>(value: T): T {
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > TASK_VIEW_LIMITS.responseBytes) invalid(); return value;
 }
@@ -122,8 +127,10 @@ export function parseTaskBugsReportV1(input: unknown, query: TaskBugsQueryV1, so
   const rows = array(value.rows, query.rowLimit).map(raw => {
     const item = record(raw); const createdAt = timestamp(item.createdAt); const dueAt = item.dueAt === null ? null : text(item.dueAt, 10);
     if (createdAt > query.asOf || dueAt !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(dueAt) || !Number.isFinite(Date.parse(dueAt)) || new Date(dueAt).toISOString().slice(0, 10) !== dueAt)) invalid();
-    return Object.freeze({ ref: reference(item.ref, sourceId), displayKey: text(item.displayKey, 512), title: text(item.title, 2048), url: url(item.url),
-      priority: item.priority === null ? null : text(item.priority, 128), severity: item.severity === null ? null : text(item.severity, 240), dueAt, createdAt });
+    const row = { ref: reference(item.ref, sourceId), displayKey: text(item.displayKey, 512), title: text(item.title, 2048), url: url(item.url),
+      priority: item.priority === null ? null : text(item.priority, 128), severity: item.severity === null ? null : text(item.severity, 240), dueAt, createdAt,
+      ...(item.description === undefined ? {} : { description: description(item.description) }) };
+    return Object.freeze(row);
   });
   if (new Set(rows.map(item => item.ref.externalId)).size !== rows.length || rowsQuality === 'unavailable' && rows.length > 0) invalid();
   let oldest: TaskBugsReportV1['oldest'] = null;

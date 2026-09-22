@@ -8,4 +8,6 @@ Panels inherit the header repository; explicit panel overrides remain scoped by 
 
 Unknown metrics remain unavailable, exact zero remains zero, and approximate counts display an approximation marker. Rows show actual due dates and provider severity. Recognized standalone `S0`–`S5` values, including a separator and explanatory text, render as compact accessible badges while custom values remain verbatim. Resolution P75 separates sample size from population and labels partial/capped coverage. Observation time describes current source status and recent windows, not historical reconstruction.
 
+Rows may include an optional provider-projected plain-text description. Show description is keyboard-operable, preserves newlines without interpreting text as HTML, and remembers up to 150 expanded task disclosures by galleon, source instance, and task. Missing or omitted descriptions explicitly report that none is available.
+
 See [installation](../../../docs/plugin-packages.md), [task views](../../../docs/task-source-authoring.md#independent-triage-and-bugs-views), and the [isolated production gate](../../../tests/distribution/task-views-host.pw.ts). The gate covers copied-SDK builds with source access denied, canonical route reload, scope, unavailable providers, restart and visual snapshots.

@@ -5,7 +5,7 @@ const sourceId = '11111111-1111-4111-8111-111111111111'; const repo = 'owner/pro
 const source: TaskReadSourceV1 = { version: 1, sourceId, instanceId: 'source-one', instanceRevision: 2, repo, label: 'Tasks', availability: 'available', readViews: ['bugs'] };
 const unknown = { value: null, quality: 'unavailable' as const }; const known = { value: 25000, quality: 'approximate' as const };
 const report: TaskBugsReportV1 = { version: 1, repo, asOf: '2026-09-20T00:00:00.000Z', open: known, createdLast7d: unknown, completedLast7d: { value: 0, quality: 'exact' }, pastSla: unknown,
-  rows: [{ ref: { sourceId, externalId: '1' }, displayKey: 'TASK-1', title: 'Actual bug', url: 'https://bugs.example/1', priority: 'P1', severity: null, dueAt: '2026-09-18', createdAt: '2026-09-10T00:00:00.000Z' }], rowsQuality: 'partial',
+  rows: [{ ref: { sourceId, externalId: '1' }, displayKey: 'TASK-1', title: 'Actual bug', url: 'https://bugs.example/1', priority: 'P1', severity: null, dueAt: '2026-09-18', createdAt: '2026-09-10T00:00:00.000Z', description: 'First line\n<img src=x onerror=alert(1)>' }], rowsQuality: 'partial',
   oldest: null, oldestQuality: 'partial', resolutionP75: { days: 4.5, sampleSize: 100, population: known, quality: 'partial', capped: true } };
 function fixture() {
   const container = document.createElement('div'); document.body.append(container); const lifetime = new AbortController(); const activity = new AbortController();
@@ -41,6 +41,14 @@ describe('standalone Bugs presentation', () => {
     expect(badge?.textContent).toBe('S1'); expect(badge?.getAttribute('aria-label')).toBe('Severity S1 – Production outage'); expect(badge?.getAttribute('title')).toBe('S1 – Production outage');
     const badges = f.container.querySelectorAll<HTMLElement>('.severity-badge');
     expect(badges).toHaveLength(2); expect(badges[1]?.getAttribute('aria-label')).toBe('Severity S2 - Major'); expect(f.container.textContent).toContain('Critical S3'); f.lifetime.abort();
+  });
+  it('persists task-scoped description disclosure, renders it as literal text, and keeps its focus on refresh', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')).toBeTruthy());
+    const toggle = f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')!; toggle.click();
+    expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Hide description for TASK-1"]')?.getAttribute('aria-expanded')).toBe('true'); expect(document.activeElement?.getAttribute('aria-label')).toBe('Hide description for TASK-1');
+    expect(f.container.textContent).toContain('<img src=x onerror=alert(1)>'); expect(f.container.querySelector('img,script')).toBeNull();
+    expect(f.context.saveState).toHaveBeenLastCalledWith(expect.objectContaining({ value: expect.objectContaining({ descriptionExpanded: [expect.stringContaining(sourceId)] }) }));
+    await instance.refresh?.(); await vi.waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Hide description for TASK-1')); f.lifetime.abort();
   });
   it('retains unavailable selection and never silently replaces it with another source', async () => {
     const f = fixture(); f.context = { ...f.context, state: { ...f.state, savedState: { version: 1, value: { repo, sourceId, instanceId: 'missing' } } } };

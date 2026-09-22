@@ -16,16 +16,29 @@ function selection(value: unknown): Selection | null {
   return typeof source.repo === 'string' && typeof source.sourceId === 'string' && typeof source.instanceId === 'string'
     ? { repo: source.repo, sourceId: source.sourceId, instanceId: source.instanceId } : null;
 }
+function savedSelection(value: unknown): Selection | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const direct = selection(value); if (direct) return direct;
+  const source = (value as Record<string, unknown>).source;
+  return source === null ? null : selection(source);
+}
+function validSavedSettings(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return selection(value) !== null || (value as Record<string, unknown>).source === null || selection((value as Record<string, unknown>).source) !== null;
+}
 class BugsPanel implements PluginPanelInstance {
   private readonly container: HTMLElement; private readonly context: PluginPanelContext;
   private state: PluginPanelState; private disposed = false; private generation = 0;
   private controller: AbortController | null = null; private pending: Promise<void> | null = null;
   private views: View[] = []; private sources: TaskReadSourceV1[] = []; private messages: string[] = [];
   private selected: Selection | null; private invalidSelection = false; private dirty = false; private saveSequence = 0; private saveError = '';
+  private descriptionExpanded = new Set<string>();
+  private focusKey: string | undefined;
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.container = container; this.context = context;
-    this.state = context.state; this.selected = context.state.savedState?.version === 1 ? selection(context.state.savedState.value) : null;
-    this.invalidSelection = context.state.savedState !== null && !this.selected;
+    this.state = context.state; this.selected = context.state.savedState?.version === 1 ? savedSelection(context.state.savedState.value) : null;
+    this.descriptionExpanded = new Set(this.descriptionKeys(context.state.savedState?.version === 1 ? context.state.savedState.value : null));
+    this.invalidSelection = context.state.savedState !== null && !validSavedSettings(context.state.savedState.version === 1 ? context.state.savedState.value : null);
     context.onDispose(() => this.dispose()); context.signal.addEventListener('abort', this.dispose, { once: true });
     this.state.activity.signal.addEventListener('abort', this.cancel, { once: true });
     if (context.signal.aborted) this.dispose(); else { this.draw(); void this.refresh(); }
@@ -68,8 +81,37 @@ class BugsPanel implements PluginPanelInstance {
     const source = this.sources.find(source => key(source) === value); if (value && !source) return;
     this.selected = source ? { repo: source.repo, sourceId: source.sourceId, instanceId: source.instanceId } : null; this.invalidSelection = false; this.dirty = true;
     const selection = this.selected; const sequence = ++this.saveSequence; this.cancel(); void this.refresh();
-    try { await this.context.saveState(selection ? { version: 1, value: selection } : null); if (!this.disposed && sequence === this.saveSequence) { this.dirty = false; this.saveError = ''; } }
+    try { await this.context.saveState(this.savedSettings(selection)); if (!this.disposed && sequence === this.saveSequence) { this.dirty = false; this.saveError = ''; } }
     catch { if (!this.disposed && sequence === this.saveSequence) { this.saveError = 'The source selection could not be saved.'; this.draw(); } }
+  }
+  private descriptionKeys(value: unknown): string[] {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const expanded = (value as Record<string, unknown>).descriptionExpanded;
+    return Array.isArray(expanded) ? expanded.filter((item): item is string => typeof item === 'string' && item.length <= 2048).slice(0, 150) : [];
+  }
+  private savedSettings(selection = this.selected) { return { version: 1 as const, value: { source: selection, descriptionExpanded: [...this.descriptionExpanded] } }; }
+  private descriptionKey(view: View, bug: TaskBugsReportV1['rows'][number]): string {
+    return JSON.stringify([view.source.repo, view.source.sourceId, view.source.instanceId, bug.ref.sourceId, bug.ref.externalId]);
+  }
+  private toggleDescription(view: View, bug: TaskBugsReportV1['rows'][number]): void {
+    const id = this.descriptionKey(view, bug);
+    if (this.descriptionExpanded.has(id)) this.descriptionExpanded.delete(id);
+    else { if (this.descriptionExpanded.size >= 150) this.descriptionExpanded.delete(this.descriptionExpanded.values().next().value!); this.descriptionExpanded.add(id); }
+    const sequence = ++this.saveSequence; this.dirty = true; this.draw();
+    void this.context.saveState(this.savedSettings()).then(() => {
+      if (!this.disposed && sequence === this.saveSequence) { this.dirty = false; this.saveError = ''; }
+    }).catch(() => {
+      if (!this.disposed && sequence === this.saveSequence) { this.saveError = 'Description expansion could not be saved.'; this.draw(); }
+    });
+  }
+  private description(view: View, bug: TaskBugsReportV1['rows'][number]): HTMLElement {
+    const key = this.descriptionKey(view, bug); const expanded = this.descriptionExpanded.has(key); const contentId = `bugs-description-${encodeURIComponent(JSON.stringify([this.state.instanceId, key]))}`;
+    const container = node('div'); container.className = 'bugs-description'; const toggle = node('button', expanded ? 'Hide description' : 'Show description'); toggle.type = 'button';
+    toggle.setAttribute('aria-label', `${toggle.textContent} for ${bug.displayKey}`); toggle.setAttribute('aria-expanded', String(expanded)); toggle.setAttribute('aria-controls', contentId); toggle.dataset.bugsFocus = `description:${key}`;
+    toggle.addEventListener('click', () => { toggle.focus({ preventScroll: true }); this.toggleDescription(view, bug); }); container.append(toggle);
+    if (expanded) { const content = node('div'); content.id = contentId; content.className = 'bugs-description-content';
+      content.append(node('p', bug.description?.trim() ? bug.description : 'No description available.')); container.append(content); }
+    return container;
   }
   private link(label: string, url: string | null): HTMLElement {
     if (!url) return node('span', label); const link = node('a', label); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; return link;
@@ -101,14 +143,15 @@ class BugsPanel implements PluginPanelInstance {
     for (const title of ['Key', 'Title', 'Priority', 'Severity', 'Due date']) { const cell = node('th', title); cell.scope = 'col'; labels.append(cell); } head.append(labels); table.append(head);
     const body = node('tbody');
     for (const bug of report.rows) { const row = node('tr'); const id = node('td'); id.append(this.link(bug.displayKey, bug.url)); row.append(id);
-      row.append(node('td', bug.title), node('td', bug.priority ?? 'Unknown'));
+      const title = node('td'); title.append(node('div', bug.title), this.description(view, bug)); row.append(title, node('td', bug.priority ?? 'Unknown'));
       const severityCell = node('td'); severityCell.append(this.severity(bug.severity)); row.append(severityCell, node('td', bug.dueAt ?? 'Not set')); body.append(row); }
     if (!report.rows.length) { const row = node('tr'); const empty = node('td', report.rowsQuality === 'complete' ? 'No open bugs.' : 'Open bug rows are unavailable or incomplete.'); empty.colSpan = 5; row.append(empty); body.append(row); }
     table.append(body); scroll.append(table); section.append(scroll); return section;
   }
   private draw(): void {
     if (this.disposed) return;
-    const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.bugsFocus : null;
+    const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.bugsFocus : undefined;
+    if (focused) this.focusKey = focused;
     const root = node('div'); root.className = 'plugin-bugs'; root.append(node('style', styles));
     const toolbar = node('div'); toolbar.className = 'bugs-toolbar'; toolbar.append(node('h2', 'Bugs'));
     const sources = node('select'); sources.setAttribute('aria-label', 'Bug source'); sources.dataset.bugsFocus = 'source'; const all = node('option', 'All bug sources'); all.value = ''; sources.append(all);
@@ -120,12 +163,12 @@ class BugsPanel implements PluginPanelInstance {
     for (const message of [...this.messages, ...(this.saveError ? [this.saveError] : [])]) { const note = node('p', message); note.setAttribute('role', 'status'); root.append(note); }
     for (const view of this.views) root.append(this.report(view));
     if (!this.views.length && !this.messages.length) root.append(node('p', this.pending ? 'Loading bug sources…' : 'No source provides bug metrics in this scope.'));
-    this.container.replaceChildren(root); if (focused) Array.from(root.querySelectorAll<HTMLElement>('[data-bugs-focus]')).find(element => element.dataset.bugsFocus === focused)?.focus({ preventScroll: true });
+    this.container.replaceChildren(root); if (this.focusKey) Array.from(root.querySelectorAll<HTMLElement>('[data-bugs-focus]')).find(element => element.dataset.bugsFocus === this.focusKey)?.focus({ preventScroll: true });
   }
   update(state: PluginPanelState): void {
     if (this.disposed) return; const previous = this.state; this.state = state;
     const changed = !this.dirty && JSON.stringify(previous.savedState) !== JSON.stringify(state.savedState);
-    if (changed) { this.selected = state.savedState?.version === 1 ? selection(state.savedState.value) : null; this.invalidSelection = state.savedState !== null && !this.selected; }
+    if (changed) { this.selected = state.savedState?.version === 1 ? savedSelection(state.savedState.value) : null; this.descriptionExpanded = new Set(this.descriptionKeys(state.savedState?.version === 1 ? state.savedState.value : null)); this.invalidSelection = state.savedState !== null && !validSavedSettings(state.savedState?.version === 1 ? state.savedState.value : null); }
     if (previous.activity.signal !== state.activity.signal) { previous.activity.signal.removeEventListener('abort', this.cancel); state.activity.signal.addEventListener('abort', this.cancel, { once: true }); }
     if (changed || previous.repo !== state.repo || previous.activity.epoch !== state.activity.epoch) { this.cancel(); this.views = []; this.sources = []; this.messages = []; }
     if (!this.active()) this.cancel(); this.draw();
