@@ -109,4 +109,18 @@ describe('host run reads and polling', () => {
     expect(listener.mock.calls[1]?.[0]).toEqual({ status: 'unavailable', reason: 'invalid-response' });
     expect(f.response.mock.calls[1]?.[0].searchParams.get('cursor')).toBe('next'); stop();
   });
+  it.each([404, 503])('recovers when the first log page is HTTP %s without losing the cursor or replaying events', async status => {
+    vi.useFakeTimers(); const f = fixture();
+    const page = { version: 1, repo, runId: 'run-1', nextCursor: 'first-page', hasMore: false, earlierTruncated: false, workerStatus: 'running',
+      events: [{ sequence: 1, at: run.startedAt, kind: 'log', text: 'first visible event', truncated: false }] };
+    f.response.mockResolvedValueOnce(Response.json({}, { status }))
+      .mockResolvedValueOnce(Response.json(page))
+      .mockResolvedValueOnce(Response.json({ ...page, events: [], nextCursor: 'second-page' }));
+    const listener = vi.fn(); const stop = f.service.watchLog({ ...detail, cursor: null, limit: 10 }, listener);
+    await vi.advanceTimersByTimeAsync(200); stop();
+    expect(listener.mock.calls.map(([result]) => result.status)).toEqual(['unavailable', 'available', 'available']);
+    expect(f.response.mock.calls.map(([url]) => url.searchParams.get('cursor'))).toEqual([null, null, 'first-page']);
+    expect(listener.mock.calls.flatMap(([result]) => result.status === 'available' ? result.value.events : [])).toEqual(page.events);
+    expect(f.fetcher.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+  });
 });

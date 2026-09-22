@@ -183,7 +183,7 @@ class TriagePanel implements PluginPanelInstance {
   private async loadDescription(section: Section, task: TaskTriageItemV1): Promise<void> {
     const id = this.descriptionStateKey(section, task); if (this.descriptions.get(id)?.status === 'loading') return;
     const generation = this.generation; const controller = new AbortController(); this.descriptionControllers.add(controller);
-    this.descriptions.set(id, { status: 'loading' }); this.draw();
+    const loading: Description = { status: 'loading' }; this.descriptions.set(id, loading); this.draw();
     try {
       const result = await this.context.services.tasks!.load({ ...section.source, ref: task.ref }, AbortSignal.any([controller.signal, this.context.signal, this.state.activity.signal]));
       if (!this.descriptionCurrent(section, task, generation)) return;
@@ -199,7 +199,9 @@ class TriagePanel implements PluginPanelInstance {
     } catch {
       if (this.descriptionCurrent(section, task, generation) && !controller.signal.aborted) this.descriptions.set(id, { status: 'unavailable', message: 'Description unavailable. Refresh to retry.' });
     } finally {
-      this.descriptionControllers.delete(controller); if (this.descriptionCurrent(section, task, generation)) this.draw();
+      this.descriptionControllers.delete(controller);
+      if (this.descriptions.get(id) === loading) this.descriptions.delete(id);
+      if (this.current(generation)) { this.draw(); this.reloadExpandedDescriptions(generation); }
     }
   }
   private toggleDescription(section: Section, task: TaskTriageItemV1): void {

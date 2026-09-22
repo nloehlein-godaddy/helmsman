@@ -67,6 +67,25 @@ describe('standalone Triage presentation', () => {
     const ids = [...f.container.querySelectorAll<HTMLElement>('.triage-description-content')].map(content => content.id);
     expect(new Set(ids)).toHaveLength(ids.length); f.lifetime.abort();
   });
+  it('reloads an expanded description after its pending response arrived while another page was visible', async () => {
+    const f = fixture(); const original = f.triage.getMockImplementation()!;
+    f.triage.mockImplementation(async (...args) => {
+      const result = await original(...args); if (result.status !== 'available') return result;
+      return { ...result, value: { ...result.value, page: { ...result.value.page,
+        items: args[0].group === 'unassigned-backlog' && !args[0].cursor ? [task] : [], nextCursor: args[0].cursor ? null : 'next' } } };
+    });
+    let finish!: (result: Awaited<ReturnType<TaskReadServiceV1['load']>>) => void;
+    f.load.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await panel.mount(f.container, f.context);
+    await vi.waitFor(() => expect(f.buttons('Next')[0]?.disabled).toBe(false));
+    f.buttons('Show description')[0]!.click(); f.buttons('Next')[0]!.click();
+    await vi.waitFor(() => expect(f.buttons('Previous')[0]?.disabled).toBe(false));
+    finish({ status: 'available', value: { selection: source, ref: task.ref, task: loadedTask } });
+    await Promise.resolve(); await Promise.resolve();
+    f.buttons('Previous')[0]!.click();
+    await vi.waitFor(() => expect(f.container.textContent).toContain('First line'));
+    expect(f.load).toHaveBeenCalledTimes(2); f.lifetime.abort();
+  });
   it('aborts an in-flight description request when activity suspends', async () => {
     const f = fixture(); let requestSignal: AbortSignal | undefined;
     f.load.mockImplementation(async (_query, signal) => { requestSignal = signal; return await new Promise(() => {}); });
