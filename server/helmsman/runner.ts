@@ -622,6 +622,10 @@ async function attachOwnedHost(spec: LaunchSpec, ref: HostRef | null, deps: Runn
   }
 }
 
+function reachedCostCap(cost: number | null | undefined, maxCostUsd: number | null | undefined): boolean {
+  return maxCostUsd != null && cost != null && cost >= maxCostUsd;
+}
+
 async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt, spec: LaunchSpec,
   ref: HostRef, deps: RunnerDeps, check: () => void, events: ReturnType<typeof durableEvents>) {
   let tailError: unknown;
@@ -647,11 +651,12 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
         tail.stop();
         const offset = readLogLines(spec.logPath, deps.db.getRun(row.id)?.logOffset ?? row.logOffset ?? 0, events.consume, true);
         deps.db.updateRun(row.id, { logOffset: offset });
+        capped ||= reachedCostCap(events.cost(), deps.maxCostUsd);
         const failed = events.failed();
         session.terminal({ status: recordedStatus ?? (stopped ? 'stopped' : exit.exitCode === 0 && !failed ? 'succeeded' : 'failed'), exitCode: exit.exitCode, evidence: exit });
         return { exitCode: exit.exitCode, stopped, capped, failed };
       }
-      capped ||= deps.maxCostUsd != null && events.cost() != null && events.cost()! >= deps.maxCostUsd;
+      capped ||= reachedCostCap(events.cost(), deps.maxCostUsd);
       if (!requestedStop && (stopped || capped)) {
         requestedStop = true;
         await deps.host.stop(ref);
@@ -755,7 +760,8 @@ async function startDurableRun(task: AgentTask, deps: RunnerDeps): Promise<strin
       await attachOwnedHost(spec, ref, deps, heartbeat.check, true);
       session.attachment('attached');
       const outcome = await monitorDurableAttempt(row, session, spec, ref, deps, heartbeat.check, events);
-      if ((outcome.exitCode !== 0 || outcome.failed) && !outcome.stopped && !outcome.capped && attempt < Math.max(1, deps.maxAttempts ?? 1)) continue;
+      if ((outcome.exitCode !== 0 || outcome.failed) && !outcome.stopped && !outcome.capped
+        && !reachedCostCap(deps.db.getRun(runId)?.costUsd, deps.maxCostUsd) && attempt < Math.max(1, deps.maxAttempts ?? 1)) continue;
       await finalizeDurableAttempt(row, task, session, deps, events, outcome, heartbeat.check);
       return runId;
     } catch (error) {
