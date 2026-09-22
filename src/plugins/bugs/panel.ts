@@ -150,8 +150,10 @@ class BugsPanel implements PluginPanelInstance {
   }
   private draw(): void {
     if (this.disposed) return;
-    const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.bugsFocus : undefined;
+    const active = document.activeElement;
+    const focused = active instanceof HTMLElement && this.container.contains(active) ? active.dataset.bugsFocus : undefined;
     if (focused) this.focusKey = focused;
+    else if (active instanceof HTMLElement && active !== document.body && active !== document.documentElement) this.focusKey = undefined;
     const root = node('div'); root.className = 'plugin-bugs'; root.append(node('style', styles));
     const toolbar = node('div'); toolbar.className = 'bugs-toolbar'; toolbar.append(node('h2', 'Bugs'));
     const sources = node('select'); sources.setAttribute('aria-label', 'Bug source'); sources.dataset.bugsFocus = 'source'; const all = node('option', 'All bug sources'); all.value = ''; sources.append(all);

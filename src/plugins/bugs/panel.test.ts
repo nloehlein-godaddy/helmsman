@@ -50,6 +50,12 @@ describe('standalone Bugs presentation', () => {
     expect(f.context.saveState).toHaveBeenLastCalledWith(expect.objectContaining({ value: expect.objectContaining({ descriptionExpanded: [expect.stringContaining(sourceId)] }) }));
     await instance.refresh?.(); await vi.waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Hide description for TASK-1')); f.lifetime.abort();
   });
+  it('does not restore stale panel focus after the operator moves focus outside the panel', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')).toBeTruthy());
+    f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')!.click();
+    const header = document.createElement('button'); header.textContent = 'Header control'; document.body.append(header); header.focus();
+    await instance.refresh?.(); await vi.waitFor(() => expect(document.activeElement).toBe(header)); f.lifetime.abort();
+  });
   it('retains unavailable selection and never silently replaces it with another source', async () => {
     const f = fixture(); f.context = { ...f.context, state: { ...f.state, savedState: { version: 1, value: { repo, sourceId, instanceId: 'missing' } } } };
     await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Your selection is kept')); expect(f.bugs).not.toHaveBeenCalled(); f.lifetime.abort();
