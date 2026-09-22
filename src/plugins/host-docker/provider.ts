@@ -96,6 +96,7 @@ async function writeSpec(spec: ExecutionHostLaunchSpecV1): Promise<void> {
     logPath: spec.logPath,
     exitPath: spec.exitPath,
     receiptPath: spec.receiptPath,
+    coordinator: spec.coordinator,
   }), { mode: 0o600 });
 }
 
@@ -252,6 +253,7 @@ async function launchContainer(run: DockerCommandRunner, spec: ExecutionHostLaun
     logPath: '/runtime/worker.log',
     exitPath: '/runtime/worker.exit',
     receiptPath: '/runtime/worker.receipt',
+    coordinator: spec.coordinator,
   };
   await writeFile(spec.specPath, JSON.stringify(spec), { mode: 0o600 });
   await copyFile(spec.wrapperPath, join(runtime, 'run-wrapper.mjs'));
@@ -459,7 +461,7 @@ export function createDockerExecutionHost(options: DockerExecutionHostOptions): 
   if (!safeImage(options.image)) throw new Error('Docker image setting is invalid');
   const run = options.run ?? defaultRun;
   return {
-    metadata: { version: 1, label: 'Docker', workspace: 'clone', stageExecution: 'isolated' },
+    metadata: { version: 1, label: 'Docker', workspace: 'clone', stageExecution: 'isolated', coordinatorProtocol: 1 },
     async prepareRun() {
       const result = await run(['docker', 'image', 'inspect', '--format', '{{.Id}}', options.image]);
       if (result.code !== 0) throw new Error('Docker image inspection failed');

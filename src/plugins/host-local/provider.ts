@@ -34,6 +34,7 @@ const metadata = (label: string): ExecutionHostProviderV1['metadata'] => ({
   label,
   workspace: 'worktree',
   stageExecution: 'local',
+  coordinatorProtocol: 1,
 });
 
 type DetachedState = { readonly kind: 'detached'; readonly pid: number; readonly processStart: string };

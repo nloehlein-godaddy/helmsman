@@ -2,7 +2,7 @@ import type { PluginJson } from './backend';
 import { sourceFields, sourceJson, sourceObject, sourceText } from './source-contract-validation';
 import { parseTaskRepo } from './tasks';
 
-export interface ExecutionHostMetadataV1 { readonly version: 1; readonly label: string; readonly workspace: 'worktree' | 'clone'; readonly stageExecution: 'local' | 'isolated'; }
+export interface ExecutionHostMetadataV1 { readonly version: 1; readonly label: string; readonly workspace: 'worktree' | 'clone'; readonly stageExecution: 'local' | 'isolated'; readonly coordinatorProtocol?: 1; }
 export interface ExecutionHostPrepareRunInputV1 { readonly version: 1; readonly runId: string; readonly repo: string; readonly mode: 'coding' | 'review' | 'branch'; }
 export interface ExecutionHostIdentityV1 { readonly runId: string; readonly launchId: string; readonly attempt: number; readonly receiptPath: string; }
 export interface ExecutionHostCommandV1 { readonly cmd: string; readonly args: readonly string[]; }
@@ -57,9 +57,11 @@ function positive(value: unknown): number { if (typeof value !== 'number' || !Nu
 function nullablePath(value: unknown): string | null { return value === null ? null : path(value); }
 export function parseExecutionHostConfigurationV1(value: unknown): PluginJson { return sourceJson(value, 64 * 1024) as PluginJson; }
 export function parseExecutionHostMetadataV1(input: unknown): ExecutionHostMetadataV1 {
-  const value = sourceObject(input); sourceFields(value, ['version', 'label', 'workspace', 'stageExecution']); version(value);
+  const value = sourceObject(input); sourceFields(value, ['version', 'label', 'workspace', 'stageExecution'], ['coordinatorProtocol']); version(value);
   if (value.workspace !== 'worktree' && value.workspace !== 'clone' || value.stageExecution !== 'local' && value.stageExecution !== 'isolated') invalid();
-  return Object.freeze({ version: 1, label: sourceText(value.label, 128), workspace: value.workspace, stageExecution: value.stageExecution });
+  if (value.coordinatorProtocol !== undefined && value.coordinatorProtocol !== 1) invalid();
+  return Object.freeze({ version: 1, label: sourceText(value.label, 128), workspace: value.workspace, stageExecution: value.stageExecution,
+    ...(value.coordinatorProtocol === undefined ? {} : { coordinatorProtocol: 1 as const }) });
 }
 export function parseExecutionHostPrepareRunInputV1(input: unknown): ExecutionHostPrepareRunInputV1 {
   const value = sourceObject(input); sourceFields(value, ['version', 'runId', 'repo', 'mode']); version(value);

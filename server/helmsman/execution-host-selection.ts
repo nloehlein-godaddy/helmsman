@@ -1,3 +1,4 @@
+import type { ExecutionHostMetadataV1 } from '../../src/plugins/execution-host';
 import { isContributionId } from '../../src/plugins/manifest';
 import { parseExecutionHostRetainedProviderV1, type ExecutionHostProviderRegistry, type ExecutionHostRetainedProviderV1 } from './execution-host-providers';
 import { readExecutionHostProviderSelection } from './plugins/data';
@@ -14,4 +15,8 @@ export function resolveExecutionHostSelection(options: { root: string; registry:
 export function assertExecutionHostSelectionCurrent(options: { root: string; registry: ExecutionHostProviderRegistry }, resolved: ResolvedExecutionHostSelection): void {
   if (readExecutionHostProviderSelection(options.root).revision !== resolved.revision) throw new Error('Execution host selection changed before admission');
   options.registry.assertCurrent(parseExecutionHostRetainedProviderV1(resolved.record));
+}
+
+export function assertExecutionHostCoordinatorSupport(metadata: ExecutionHostMetadataV1, coordinator: boolean): void {
+  if (coordinator && metadata.coordinatorProtocol !== 1) throw new Error('Selected execution host does not support coordinator settlement protocol 1; update the host package before starting staged work');
 }

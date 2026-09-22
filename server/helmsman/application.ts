@@ -91,7 +91,7 @@ import { createUsageQueryService } from './usage-service';
 import { builtinPricing } from './plugins/builtin-pricing';
 import { builtinAgents } from './plugins/builtin-agents';
 import { builtinExecutionHosts } from './plugins/builtin-hosts';
-import { resolveExecutionHostSelection, assertExecutionHostSelectionCurrent } from './execution-host-selection';
+import { resolveExecutionHostSelection, assertExecutionHostSelectionCurrent, assertExecutionHostCoordinatorSupport } from './execution-host-selection';
 import { parseExecutionHostRetainedProviderV1 } from './execution-host-providers';
 import { loadExecutionHost, executionHostAdapter, verifyHostExecution, retainedLegacyHostKind } from './execution-host-execution';
 import { initializeExecutionHostProviderSelection, executionHostProviderSelectionInitialized, readExecutionHostProviderSelection, initializeExecutionHostSettings } from './plugins/data';
@@ -1148,6 +1148,8 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const selectedExecutionHost = priorTask?.executionHost
     ? { revision: readExecutionHostProviderSelection(pluginDirectory()).revision, record: parseExecutionHostRetainedProviderV1(priorTask.executionHost) }
     : selectExecutionHost();
+  assertExecutionHostCoordinatorSupport(selectedExecutionHost.record.metadata, selectedWorkflow.record.metadata.execution === 'staged'
+    || workflowMode === 'review' && selectedExecutionHost.record.metadata.stageExecution === 'isolated');
   if (selectedExecutionHost.record.metadata.stageExecution === 'isolated' && !gatewayAllowsIsolation) throw new Error('Restart Helmsman after selecting an isolated execution host so its scoped gateway is reachable.');
   if (priorTask && priorRun) verifyHostExecution(priorTask, executionSnapshot(priorRun));
   const hostArtifacts = priorTask?.hostRuntime?.artifacts ?? providerArtifacts(selectedExecutionHost.record.binding);

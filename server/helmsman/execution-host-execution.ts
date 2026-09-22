@@ -4,6 +4,7 @@ import { isContributionId } from '../../src/plugins/manifest';
 import type { AgentTask } from './agents/adapter';
 import { mergeExecutionArtifacts } from './agent-execution';
 import { parseExecutionHostRetainedProviderV1 } from './execution-host-providers';
+import { assertExecutionHostCoordinatorSupport } from './execution-host-selection';
 import { loadRetainedExecutionHostProvider } from './execution-host-retained-loader';
 import type { ExecutionSnapshotInput, ProviderBinding } from './execution-store';
 import { persistedJson, persistenceHash } from './persistence';
@@ -74,7 +75,7 @@ export function executionHostAdapter(input: {
   };
   return {
     kind: 'plugin',
-    async launch(spec) { const launch = specFor(spec); return owned(await input.provider.launch(launch), launchIdentity(spec)); },
+    async launch(spec) { const launch = specFor(spec); assertExecutionHostCoordinatorSupport(input.provider.metadata, launch.coordinator); return owned(await input.provider.launch(launch), launchIdentity(spec)); },
     async discover(spec, ref) {
       const launch = specFor(spec);
       const reference = ref ? unwrap(ref) : undefined;

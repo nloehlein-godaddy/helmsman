@@ -4,6 +4,8 @@ import { openSync, readFileSync, writeFileSync, linkSync, unlinkSync, renameSync
 
 const specPath = process.argv[2];
 const spec = JSON.parse(readFileSync(specPath, 'utf8'));
+const coordinator = spec.coordinator === true || [spec.cmd, ...(spec.args ?? [])].some(value =>
+  typeof value === 'string' && /(?:^|[\\/])(?:pre-pr-cli|docker-review-cli)\.[jt]s$/.test(value));
 if (process.argv[3] === '--supervise') {
   supervise();
 } else {
@@ -18,7 +20,7 @@ function supervise() {
   const terminate = signal => {
     if (stopping) return;
     stopping = true;
-    if (!spec.coordinator) timer = setTimeout(() => settle(1), 5000);
+    if (!coordinator) timer = setTimeout(() => settle(1), 5000);
     process.kill(-process.pid, signal);
   };
   const settle = (code, settled = true) => {
@@ -34,11 +36,11 @@ function supervise() {
   process.on('disconnect', () => terminate('SIGTERM'));
   const fd = openSync(spec.logPath, 'a');
   let acknowledged = false;
-  const worker = spawn(spec.cmd, spec.args ?? [], { cwd: spec.cwd, stdio: spec.coordinator ? ['ignore', fd, fd, 'ipc'] : ['ignore', fd, fd] });
+  const worker = spawn(spec.cmd, spec.args ?? [], { cwd: spec.cwd, stdio: coordinator ? ['ignore', fd, fd, 'ipc'] : ['ignore', fd, fd] });
   worker.on('message', message => {
     if (message?.kind === 'helmsman-coordinator-settled' && message.version === 1) acknowledged = true;
   });
-  worker.once('exit', code => settle(code ?? 1, !spec.coordinator || acknowledged && code !== null));
+  worker.once('exit', code => settle(code ?? 1, !coordinator || acknowledged && code !== null));
   worker.once('error', error => {
     try { writeFileSync(spec.logPath, `run-wrapper: cannot start ${spec.cmd}: ${error.message}\n`, { flag: 'a' }); } catch {}
     if (!worker.pid) settle(127);
@@ -85,7 +87,7 @@ function runWrapper() {
   }
 
   let exitCode = 1;
-  let settled = !spec.coordinator;
+  let settled = !coordinator;
   const child = spawn(process.execPath, [process.argv[1], specPath, '--supervise'], {
     detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
   });

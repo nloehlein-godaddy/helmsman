@@ -115,5 +115,6 @@ describe('Docker execution host', () => {
     });
     expect(ref.identity).toEqual({ runId: 'run-1', launchId: 'launch-1', attempt: 1, receiptPath: join(root, 'launch.receipt') });
     expect(Object.keys(ref.identity)).toEqual(['runId', 'launchId', 'attempt', 'receiptPath']);
+    expect(JSON.parse(await readFile(join(root, 'launch-1.docker-runtime/spec.json'), 'utf8')).coordinator).toBe(false);
   });
 });
