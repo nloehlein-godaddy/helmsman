@@ -9,6 +9,7 @@ export * from './terminal-route';
 import type { PluginPageServices } from './services';
 import type { PresentationLocatorV1, PullRequestRouteV1 } from './presentation';
 export * from './presentation';
+export * from './loading-wheel';
 import type { CompositionServiceV1, PageCompositionDefinitionV1, PanelOpaqueStateV1, PluginPanelDefinition, PluginServiceRequirementV1 } from './composition';
 export * from './composition';
 export type { PluginPageServices } from './services';

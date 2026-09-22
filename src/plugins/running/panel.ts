@@ -1,3 +1,4 @@
+import { createLoadingWheelV1 } from '@helmsman/plugin-sdk';
 import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, RunCommandPendingV1,
   RunCommandReceiptV1, RunReadResultV1, RunReadPageV1, RunReadSummaryV1 } from '@helmsman/plugin-sdk';
 
@@ -201,7 +202,8 @@ class RunListPanel implements PluginPanelInstance {
       });
       actions.append(copy); row.append(actions); if (command) this.commandFeedback(row, command); list.append(row);
     }
-    if (!this.rows.length && !this.error) list.append(node('li', this.loading ? 'Loading runs…' : presentation.kind === 'running' ? this.state.pirateMode ? 'No deckhand tasks underway.' : 'No agent tasks running.' : this.state.pirateMode ? 'No past voyages.' : 'No past runs.'));
+    if (this.loading) { const loading = node('li'); loading.append(createLoadingWheelV1('Loading runs…')); list.append(loading); }
+    if (!this.rows.length && !this.loading && !this.error) list.append(node('li', presentation.kind === 'running' ? this.state.pirateMode ? 'No deckhand tasks underway.' : 'No agent tasks running.' : this.state.pirateMode ? 'No past voyages.' : 'No past runs.'));
     root.append(list);
     const pending = [...this.commands].filter(([id]) => !visible.has(id));
     if (pending.length) { const saved = node('section'); saved.append(node('h3', `Saved requests (${pending.length})`)); for (const [, command] of pending) { const row = node('div', `${command.runId} · ${command.repo} · Attempt ${command.attempt}`); row.dataset.runKey = key({ repo: command.repo, id: command.runId, attempt: command.attempt }); this.commandFeedback(row, command); saved.append(row); } root.append(saved); }

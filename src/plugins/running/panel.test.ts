@@ -34,6 +34,15 @@ function fixture(action: 'stop' | 'retry') {
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 describe.each([['running', running, 'stop', 'Stop', 100], ['recent', recent, 'retry', 'Retry', 10]] as const)('%s standalone panel', (_name, module, action, label, limit) => {
+  it('uses the public accessible loading wheel while awaiting a run read', async () => {
+    const f = fixture(action); f.watchList.mockImplementation(() => f.cleanup);
+    await module.mount(f.container, f.context);
+    const loading = f.container.querySelector('.helmsman-loading-wheel-v1');
+    expect(loading?.getAttribute('role')).toBe('status');
+    expect(loading?.textContent).toContain('Loading runs…');
+    expect(loading?.querySelector('style')?.textContent).toContain('prefers-reduced-motion');
+    f.lifetime.abort();
+  });
   it('watches one bounded current-galleon page and stops work when hidden or disposed', async () => {
     const f = fixture(action); const instance = await module.mount(f.container, f.context);
     await vi.waitFor(() => expect(f.button(label).disabled).toBe(false));

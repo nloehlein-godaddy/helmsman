@@ -1,6 +1,6 @@
 # Recent panel
 
-This independently compiled panel uses only the public `@helmsman/plugin-sdk` types and the version 1 run-read/run-command services. It does not import the application store, renderer, API helpers, or another plugin.
+This independently compiled panel uses only the public `@helmsman/plugin-sdk` types, loading-wheel helper, and version 1 run-read/run-command services. It does not import the application store, renderer, API helpers, or another plugin. The loading wheel is code-native, includes its scoped styles, announces its status, and honors reduced-motion preferences.
 
 Copy this directory outside the checkout, install the published SDK and TypeScript in that author workspace, and run `npm run build`. The output contains the panel module and package descriptor. The `helmsman.recent` identifier is reserved for the bundled implementation; third-party replacements must use their own plugin identifier while retaining the `helmsman/helm-panel@1` contract.
 

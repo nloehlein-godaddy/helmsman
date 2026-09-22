@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from 'vite';
+import { fileURLToPath } from 'node:url';
 import { buildMeta } from './build-meta';
 
 export default defineConfig(({ mode }) => {
@@ -6,6 +7,12 @@ export default defineConfig(({ mode }) => {
   const port: string = env.HELMSMAN_PORT ?? '8787';
   const meta = buildMeta();
   return {
+    resolve: {
+      alias: {
+        '@helmsman/plugin-sdk/node': fileURLToPath(new URL('./src/plugins/execution-host-node.ts', import.meta.url)),
+        '@helmsman/plugin-sdk': fileURLToPath(new URL('./src/plugins/sdk.ts', import.meta.url)),
+      },
+    },
     define: {
       __APP_VERSION__: JSON.stringify(meta.version),
       __BUILD_DATE__: JSON.stringify(meta.date),
