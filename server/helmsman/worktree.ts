@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readdir } from 'node:fs/promises';
+import { readdir, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, join, sep } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { isGithubRepo } from '../pr-lists';
 
 const run = promisify(execFile);
@@ -60,6 +60,22 @@ export async function removeWorktreeAt(repoDir: string, worktreePath: string): P
   await run('git', ['-C', repoDir, 'worktree', 'remove', '--force', worktreePath]);
 }
 
+export async function removeCleanWorktreeAt(repoDir: string, worktreePath: string): Promise<void> {
+  const [canonicalRepo, canonicalWorktree] = await Promise.all([realpath(repoDir), realpath(worktreePath)]);
+  if (dirname(canonicalWorktree) !== join(canonicalRepo, '.worktrees')) throw new Error('Worktree is outside the managed workspace directory');
+  const [repoCommon, worktreeCommon, registered, status] = await Promise.all([
+    run('git', ['-C', canonicalRepo, 'rev-parse', '--path-format=absolute', '--git-common-dir']),
+    run('git', ['-C', canonicalWorktree, 'rev-parse', '--path-format=absolute', '--git-common-dir']),
+    run('git', ['-C', canonicalRepo, 'worktree', 'list', '--porcelain', '-z']),
+    run('git', ['-C', canonicalWorktree, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '-z']),
+  ]);
+  if (await realpath(repoCommon.stdout.trim()) !== await realpath(worktreeCommon.stdout.trim())) throw new Error('Worktree belongs to a different galleon');
+  const paths = registered.stdout.split('\0').flatMap(record => record.startsWith('worktree ') ? [record.slice('worktree '.length).split('\n')[0] ?? ''] : []);
+  if (!paths.some(path => resolve(path) === canonicalWorktree)) throw new Error('Worktree is no longer registered');
+  if (status.stdout.length > 0) throw new Error('Worktree contains changes');
+  await run('git', ['-C', canonicalRepo, 'worktree', 'remove', '--', canonicalWorktree]);
+}
+
 export async function removeWorktree(agentsRoot: string, repo: string, worktreePath: string): Promise<void> {
   const repoDir: string = join(agentsRoot, repoBasename(repo));
   await removeWorktreeAt(repoDir, worktreePath).catch(() => undefined);
@@ -68,12 +84,12 @@ export async function removeWorktree(agentsRoot: string, repo: string, worktreeP
 export async function listAgentWorktrees(repoDir: string): Promise<string[]> {
   try {
     const result: { stdout: string; stderr: string } = await run('git', ['-C', repoDir, 'worktree', 'list', '--porcelain']);
-    const marker: string = `${sep}.worktrees${sep}`;
+    const workspace: string = join(await realpath(repoDir), '.worktrees');
     const paths: string[] = [];
     for (const line of result.stdout.split('\n')) {
       if (!line.startsWith('worktree ')) continue;
       const path: string = line.slice('worktree '.length).trim();
-      if (path.includes(marker)) paths.push(path);
+      if (dirname(resolve(path)) === workspace) paths.push(path);
     }
     return paths;
   } catch (err: unknown) {
@@ -99,6 +115,7 @@ export interface WorktreeSweepDeps {
   listAgentWorktrees: (repoDir: string) => Promise<string[]>;
   remove: (repoDir: string, path: string) => Promise<void>;
   isActiveRunId: (runId: string) => boolean;
+  isEligibleWorktree: (repoDir: string, path: string, runId: string) => Promise<boolean>;
   repoDirs: string[];
 }
 
@@ -110,6 +127,7 @@ export async function sweepOrphanedWorktrees(deps: WorktreeSweepDeps): Promise<s
       for (const path of paths) {
         const runId: string = basename(path);
         if (deps.isActiveRunId(runId)) continue;
+        if (!await deps.isEligibleWorktree(repoDir, path, runId)) continue;
         try {
           await deps.remove(repoDir, path);
           removed.push(path);

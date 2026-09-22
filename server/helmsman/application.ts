@@ -63,7 +63,7 @@ import { createTaskViewsReadService } from './task-views-read-service';
 import { createServerPageCatalog } from './plugins/page-catalog';
 import { handlePluginRequest } from './plugins/http';
 import { applicationRoot, retainedRuntimePath } from './runtime-paths';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -144,7 +144,7 @@ import { isPrePrAdapter, prePrAdapter } from './agents/pre-pr';
 import { dockerReviewAdapter } from './agents/docker-review';
 import { restoreRunAdapter } from './agents/restore';
 import { readReviewArtifact } from './review-artifacts';
-import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeWorktree, removeWorktreeAt, repoBasename, sweepOrphanedWorktrees } from './worktree';
+import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, removeWorktree, repoBasename, sweepOrphanedWorktrees } from './worktree';
 import { findPrNumberByBranch, fetchPrStatus } from '../github';
 import { openTodoStore } from './todos';
 import { reconcileTodoRuns } from './todo-source';
@@ -1079,11 +1079,22 @@ try {
   if (repoDirs.length > 0) {
     const removed: string[] = await sweepOrphanedWorktrees({
       listAgentWorktrees,
-      remove: removeWorktreeAt,
+      remove: removeCleanWorktreeAt,
       isActiveRunId: (id: string) => {
         if (pm.hasRun(id) || reattachIds.includes(id) || !executions.cleanupEligibility(id).allowed) return true;
         const row = db.getRun(id);
         return Boolean(row && isPrePrAdapter(row.adapter) && row.status !== 'succeeded');
+      },
+      isEligibleWorktree: async (repoDir: string, path: string, runId: string): Promise<boolean> => {
+        const row = db.getRun(runId);
+        if (!row?.worktreePath || !['succeeded', 'failed', 'stopped'].includes(row.status) || !executions.cleanupEligibility(runId).allowed
+          || isPrePrAdapter(row.adapter) && row.status !== 'succeeded') return false;
+        try {
+          const [workspace, recordedWorkspace, galleon, recordedGalleon] = await Promise.all([
+            realpath(path), realpath(row.worktreePath), realpath(repoDir), realpath(join(AGENTS_ROOT, repoBasename(row.repo))),
+          ]);
+          return workspace === recordedWorkspace && galleon === recordedGalleon;
+        } catch { return false; }
       },
       repoDirs,
     });

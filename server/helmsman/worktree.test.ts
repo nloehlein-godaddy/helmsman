@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createReviewWorktree, createWorktreeFromBranch, sweepOrphanedWorktrees, discoverRepoDirs, type Worktree } from './worktree';
+import { createReviewWorktree, createWorktreeFromBranch, sweepOrphanedWorktrees, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, type Worktree } from './worktree';
 
 const execFileAsync = promisify(execFile);
 
@@ -149,6 +149,7 @@ describe('sweepOrphanedWorktrees', () => {
       listAgentWorktrees: async () => ['/agents/r/.worktrees/run-A', '/agents/r/.worktrees/run-B'],
       remove,
       isActiveRunId: (runId: string) => runId === 'run-A',
+      isEligibleWorktree: async (_repoDir: string, _path: string, runId: string) => runId === 'run-B',
     });
 
     expect(remove).toHaveBeenCalledOnce();
@@ -166,12 +167,88 @@ describe('sweepOrphanedWorktrees', () => {
       listAgentWorktrees: async () => ['/agents/r/.worktrees/run-A', '/agents/r/.worktrees/run-B'],
       remove,
       isActiveRunId: () => false,
+      isEligibleWorktree: async () => true,
     });
 
     expect(remove).toHaveBeenCalledTimes(2);
     expect(remove).toHaveBeenCalledWith('/agents/r', '/agents/r/.worktrees/run-A');
     expect(remove).toHaveBeenCalledWith('/agents/r', '/agents/r/.worktrees/run-B');
     expect(removed).toEqual(['/agents/r/.worktrees/run-B']);
+  });
+});
+
+describe('startup worktree sweep', () => {
+  it('removes only a clean retained workspace and preserves dirty or unrelated registered checkouts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'startup-worktree-sweep-'));
+    try {
+      const repo = join(root, 'repo');
+      await mkdir(repo);
+      const git = (...args: string[]) => execFileAsync('git', ['-C', repo, ...args]);
+      await git('init', '-q', '-b', 'main');
+      await git('config', 'user.email', 'test@example.com');
+      await git('config', 'user.name', 'Test');
+      await writeFile(join(repo, 'tracked.txt'), 'base');
+      await git('add', '.');
+      await git('commit', '-qm', 'base');
+      const owned = join(repo, '.worktrees', 'run-owned');
+      const dirty = join(repo, '.worktrees', 'developer-work');
+      const foreign = join(root, 'developer', '.worktrees', 'personal-feature');
+      await git('worktree', 'add', '-b', 'agent/run-owned', owned);
+      await git('worktree', 'add', '-b', 'developer-work', dirty);
+      await git('worktree', 'add', '-b', 'personal-feature', foreign);
+      await writeFile(join(dirty, 'tracked.txt'), 'unsaved tracked work');
+      await writeFile(join(dirty, 'untracked.txt'), 'untracked work');
+      await writeFile(join(foreign, 'tracked.txt'), 'foreign tracked work');
+      await writeFile(join(foreign, 'untracked.txt'), 'foreign untracked work');
+      const [canonicalOwned, canonicalDirty, canonicalForeign] = await Promise.all([realpath(owned), realpath(dirty), realpath(foreign)]);
+      const listed = await listAgentWorktrees(repo);
+      expect(listed).toEqual(expect.arrayContaining([canonicalOwned, canonicalDirty]));
+      expect(listed).not.toContain(canonicalForeign);
+
+      let removalError: unknown;
+      const removed = await sweepOrphanedWorktrees({
+        repoDirs: [repo], listAgentWorktrees, remove: async (repoDir, path) => {
+          try { await removeCleanWorktreeAt(repoDir, path); } catch (error) { removalError = error; throw error; }
+        }, isActiveRunId: () => false,
+        isEligibleWorktree: async (_repoDir, path, runId) => runId === 'run-owned' && path === canonicalOwned,
+      });
+
+      expect(removalError).toBeUndefined();
+      expect(removed).toEqual([canonicalOwned]);
+      expect(existsSync(owned)).toBe(false);
+      expect(await readFile(join(dirty, 'tracked.txt'), 'utf8')).toBe('unsaved tracked work');
+      expect(await readFile(join(dirty, 'untracked.txt'), 'utf8')).toBe('untracked work');
+      expect(await readFile(join(foreign, 'tracked.txt'), 'utf8')).toBe('foreign tracked work');
+      expect(await readFile(join(foreign, 'untracked.txt'), 'utf8')).toBe('foreign untracked work');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not remove a dirty retained workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dirty-startup-worktree-sweep-'));
+    try {
+      const repo = join(root, 'repo');
+      await mkdir(repo);
+      const git = (...args: string[]) => execFileAsync('git', ['-C', repo, ...args]);
+      await git('init', '-q', '-b', 'main');
+      await git('config', 'user.email', 'test@example.com');
+      await git('config', 'user.name', 'Test');
+      await git('commit', '-q', '--allow-empty', '-m', 'base');
+      const owned = join(repo, '.worktrees', 'run-owned');
+      await git('worktree', 'add', '-b', 'agent/run-owned', owned);
+      await writeFile(join(owned, 'untracked.txt'), 'unsaved work');
+
+      const removed = await sweepOrphanedWorktrees({
+        repoDirs: [repo], listAgentWorktrees, remove: removeCleanWorktreeAt, isActiveRunId: () => false,
+        isEligibleWorktree: async () => true,
+      });
+
+      expect(removed).toEqual([]);
+      expect(await readFile(join(owned, 'untracked.txt'), 'utf8')).toBe('unsaved work');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
