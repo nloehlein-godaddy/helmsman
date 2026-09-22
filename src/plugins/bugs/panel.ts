@@ -6,6 +6,11 @@ interface View { source: TaskReadSourceV1; report: TaskBugsReportV1 | null; erro
 interface Selection { repo: string; sourceId: string; instanceId: string; }
 const key = (source: Selection) => JSON.stringify([source.repo, source.sourceId, source.instanceId]);
 const count = (value: TaskBugCountV1): string => value.value === null ? 'Unavailable' : `${value.quality === 'approximate' ? '≈ ' : ''}${value.value.toLocaleString('en-US')}`;
+const severity = (value: string | null): { code: string; label: string } | null => {
+  if (value === null) return null;
+  const match = /^\s*(?:Severity\s+)?(S[0-5])(?:\s*[-:–—]\s*\S[\s\S]*)?\s*$/.exec(value);
+  return match ? { code: match[1]!, label: value } : null;
+};
 function selection(value: unknown): Selection | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null; const source = value as Record<string, unknown>;
   return typeof source.repo === 'string' && typeof source.sourceId === 'string' && typeof source.instanceId === 'string'
@@ -69,6 +74,13 @@ class BugsPanel implements PluginPanelInstance {
   private link(label: string, url: string | null): HTMLElement {
     if (!url) return node('span', label); const link = node('a', label); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; return link;
   }
+  private severity(value: string | null): HTMLElement {
+    const parsed = severity(value);
+    if (!parsed) return node('span', value ?? 'Unknown');
+    const badge = node('span', parsed.code); badge.className = `severity-badge severity-${parsed.code.toLowerCase()}`;
+    badge.setAttribute('aria-label', /^severity\b/i.test(parsed.label.trim()) ? parsed.label.trim() : `Severity ${parsed.label}`); badge.title = parsed.label;
+    return badge;
+  }
   private report(view: View): HTMLElement {
     const section = node('section'); section.append(node('h3', `${view.source.label} · ${view.source.repo}`));
     if (view.error) { section.append(node('p', view.error)); return section; }
@@ -89,7 +101,8 @@ class BugsPanel implements PluginPanelInstance {
     for (const title of ['Key', 'Title', 'Priority', 'Severity', 'Due date']) { const cell = node('th', title); cell.scope = 'col'; labels.append(cell); } head.append(labels); table.append(head);
     const body = node('tbody');
     for (const bug of report.rows) { const row = node('tr'); const id = node('td'); id.append(this.link(bug.displayKey, bug.url)); row.append(id);
-      for (const value of [bug.title, bug.priority ?? 'Unknown', bug.severity ?? 'Unknown', bug.dueAt ?? 'Not set']) row.append(node('td', value)); body.append(row); }
+      row.append(node('td', bug.title), node('td', bug.priority ?? 'Unknown'));
+      const severityCell = node('td'); severityCell.append(this.severity(bug.severity)); row.append(severityCell, node('td', bug.dueAt ?? 'Not set')); body.append(row); }
     if (!report.rows.length) { const row = node('tr'); const empty = node('td', report.rowsQuality === 'complete' ? 'No open bugs.' : 'Open bug rows are unavailable or incomplete.'); empty.colSpan = 5; row.append(empty); body.append(row); }
     table.append(body); scroll.append(table); section.append(scroll); return section;
   }

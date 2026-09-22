@@ -10,6 +10,8 @@ Three independent groups retain priority, updated-date, page-size, source and co
 
 Launches require a concrete repository and ready task. Original durable requests remain available after source changes or response loss. Related-run links use host-provided canonical task references; display keys never establish run identity.
 
+Descriptions load only after a task-specific disclosure is opened. They render as bounded plain text with preserved newlines, retain disclosure state per galleon/source/task, and report source or revision changes without reusing stale content.
+
 See [installation](../../../docs/plugin-packages.md), [task views](../../../docs/task-source-authoring.md#independent-triage-and-bugs-views), and the [isolated production gate](../../../tests/distribution/task-views-host.pw.ts). The gate covers copied-SDK builds with source access denied, canonical route reload, scope, unavailable providers, restart and visual snapshots.
 
 Legacy browser priority, date, page-size and collapsed-group preferences initialize an absent layout through the host migration port; raw preferences and existing layouts stay intact. An explicit group expansion overrides migrated group defaults for that source. Legacy `pane=backlog`, `pane=todo` and `pane=mine` links reveal and focus their group once per route change; refresh does not undo a subsequent user collapse.

@@ -3,6 +3,7 @@ import { styles } from './styles.js';
 
 interface Selection { sourceId: string; instanceId: string; repo: string; }
 interface Section { source: TaskReadSourceV1; group: TaskTriageGroupV1; tasks: readonly TaskTriageItemV1[]; cursor: string | null; pages: number; error: string; loading: boolean; snapshots: TaskTriageReadSnapshotV1[]; }
+interface Description { readonly status: 'loading' | 'loaded' | 'unavailable'; readonly text?: string; readonly truncated?: boolean; readonly message?: string; }
 const groups: readonly TaskTriageGroupV1[] = ['unassigned-backlog', 'unassigned-todo', 'mine-open'];
 const titles: Record<TaskTriageGroupV1, string> = { 'unassigned-backlog': 'Unassigned · Backlog', 'unassigned-todo': 'Unassigned · To Do', 'mine-open': 'Mine · Open' };
 const dayOptions = [0, 30, 7, 1]; const pageSizes = [5, 10, 25, 50, 100];
@@ -30,7 +31,8 @@ class TriagePanel implements PluginPanelInstance {
   private chosen: Selection | null;
   private priorities = [0, 1, 2, 3, 4]; private days = 0; private pageSize = 10;
   private until = new Date().toISOString(); private collapsed = new Set<string>();
-  private legacyCollapsedGroups = new Set<TaskTriageGroupV1>(); private expanded = new Set<string>();
+  private legacyCollapsedGroups = new Set<TaskTriageGroupV1>(); private expanded = new Set<string>(); private descriptionExpanded = new Set<string>();
+  private descriptions = new Map<string, Description>(); private readonly descriptionControllers = new Set<AbortController>();
   private revealedRoute: string | null = null;
   private invalidSelection = false;
   private selectionDirty = false;
@@ -57,12 +59,13 @@ class TriagePanel implements PluginPanelInstance {
   }
   private abort = () => this.dispose();
   private suspend = () => { this.cancel(); };
-  private cancel() { ++this.generation; this.controller?.abort(); this.controller = null; this.pending = null; this.evidenceReady = false; for (const command of this.commands.values()) command.busy = false; }
+  private cancelDescriptions() { for (const controller of this.descriptionControllers) controller.abort(); this.descriptionControllers.clear(); for (const [id, description] of this.descriptions) if (description.status === 'loading') this.descriptions.delete(id); }
+  private cancel() { ++this.generation; this.controller?.abort(); this.controller = null; this.cancelDescriptions(); this.pending = null; this.evidenceReady = false; for (const command of this.commands.values()) command.busy = false; }
   private current(generation: number): boolean { return !this.disposed && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
   refresh(): Promise<void> {
     if (this.disposed || !this.state.activity.active || this.state.activity.signal.aborted || !this.state.visible) return Promise.resolve();
     if (this.pending) return this.pending;
-    this.evidenceReady = false; this.sections = []; this.until = new Date().toISOString();
+    this.evidenceReady = false; this.cancelDescriptions(); this.descriptions.clear(); this.sections = []; this.until = new Date().toISOString();
     const generation = ++this.generation; const controller = new AbortController(); this.controller = controller;
     const promise = Promise.resolve().then(async () => {
       await this.restoreCommands(generation);
@@ -89,6 +92,7 @@ class TriagePanel implements PluginPanelInstance {
           if (section.source.availability === 'available') await this.readPage(section, generation, controller.signal);
         }
       }));
+      if (this.current(generation)) this.reloadExpandedDescriptions(generation);
     }).catch(() => { if (this.current(generation) && !controller.signal.aborted) this.messages = ['Tasks could not be read. Refresh to retry.']; }).finally(() => {
       if (generation === this.generation && !this.disposed) { this.controller = null; this.pending = null; this.draw(); }
     });
@@ -102,6 +106,7 @@ class TriagePanel implements PluginPanelInstance {
       const seen = new Set(section.snapshots.flatMap(snapshot => snapshot.page.items.map(task => JSON.stringify(task.ref))));
       if (result.value.page.items.some(task => seen.has(JSON.stringify(task.ref)))) { section.error = 'Task pagination changed. Refresh this panel.'; section.cursor = null; return; }
       section.snapshots.push(result.value); section.pages = section.snapshots.length; section.tasks = result.value.page.items; section.cursor = result.value.page.nextCursor; section.error = result.value.page.quality === 'unavailable' ? 'This group is unavailable.' : '';
+      this.reloadExpandedDescriptions(generation);
     } catch { if (this.current(generation) && !signal.aborted) section.error = 'Tasks could not be read. Refresh to retry.'; }
     finally { if (this.current(generation)) { section.loading = false; this.draw(); } }
   }
@@ -126,6 +131,9 @@ class TriagePanel implements PluginPanelInstance {
     catch { if (!this.disposed && save === this.selectionSave) { this.saveError = 'The source selection could not be saved. It remains selected in this panel.'; this.draw(); } }
   }
   private sectionKey(section: Section): string { return JSON.stringify([key(section.source), section.group]); }
+  private descriptionKey(section: Section, task: TaskTriageItemV1): string { return JSON.stringify([section.source.repo, section.source.sourceId, section.source.instanceId, task.ref.sourceId, task.ref.externalId]); }
+  private descriptionStateKey(section: Section, task: TaskTriageItemV1): string { return JSON.stringify([this.descriptionKey(section, task), section.source.instanceRevision, task.revision]); }
+  private descriptionFocusKey(section: Section, task: TaskTriageItemV1): string { return JSON.stringify([this.sectionKey(section), task.ref.externalId]); }
   private isCollapsed(section: Section): boolean {
     const id = this.sectionKey(section);
     return this.collapsed.has(id) || this.legacyCollapsedGroups.has(section.group) && !this.expanded.has(id);
@@ -139,7 +147,7 @@ class TriagePanel implements PluginPanelInstance {
   }
   private showPage(section: Section, page: number): void {
     const snapshot = section.snapshots[page - 1]; if (!snapshot || this.pending) return;
-    section.pages = page; section.tasks = snapshot.page.items; section.cursor = snapshot.page.nextCursor; section.error = snapshot.page.quality === 'unavailable' ? 'This group is unavailable.' : ''; this.draw();
+    section.pages = page; section.tasks = snapshot.page.items; section.cursor = snapshot.page.nextCursor; section.error = snapshot.page.quality === 'unavailable' ? 'This group is unavailable.' : ''; this.draw(); this.reloadExpandedDescriptions(this.generation);
   }
   private restoreSettings(saved: PluginPanelState['savedState']): void {
     const value = saved?.version === 1 && saved.value && typeof saved.value === 'object' && !Array.isArray(saved.value) ? saved.value as Record<string, unknown> : null;
@@ -147,10 +155,10 @@ class TriagePanel implements PluginPanelInstance {
     this.priorities = Array.isArray(value?.priorities) ? [0, 1, 2, 3, 4].filter(number => (value.priorities as unknown[]).includes(number)) : [0, 1, 2, 3, 4];
     this.days = dayOptions.find(number => number === value?.days) ?? 0; this.pageSize = pageSizes.find(number => number === value?.pageSize) ?? 10;
     const keys = (input: unknown) => Array.isArray(input) ? input.filter((id): id is string => typeof id === 'string' && id.length < 2048).slice(0, 150) : [];
-    this.collapsed = new Set(keys(value?.collapsed)); this.expanded = new Set(keys(value?.expanded));
+    this.collapsed = new Set(keys(value?.collapsed)); this.expanded = new Set(keys(value?.expanded)); this.descriptionExpanded = new Set(keys(value?.descriptionExpanded));
     this.legacyCollapsedGroups = new Set(groups.filter(group => Array.isArray(value?.legacyCollapsedGroups) && value.legacyCollapsedGroups.includes(group)));
   }
-  private savedSettings(chosen = this.chosen) { return { version: 1, value: { source: chosen, priorities: this.priorities, days: this.days, pageSize: this.pageSize, collapsed: [...this.collapsed], expanded: [...this.expanded], legacyCollapsedGroups: [...this.legacyCollapsedGroups] } }; }
+  private savedSettings(chosen = this.chosen) { return { version: 1, value: { source: chosen, priorities: this.priorities, days: this.days, pageSize: this.pageSize, collapsed: [...this.collapsed], expanded: [...this.expanded], descriptionExpanded: [...this.descriptionExpanded], legacyCollapsedGroups: [...this.legacyCollapsedGroups] } }; }
   private async persistSettings(): Promise<void> {
     if (this.invalidSelection) return;
     const save = ++this.selectionSave; this.selectionDirty = true;
@@ -158,6 +166,62 @@ class TriagePanel implements PluginPanelInstance {
     catch { if (!this.disposed && save === this.selectionSave) { this.saveError = 'These panel settings could not be saved.'; this.draw(); } }
   }
   private filterChanged(): void { this.cancel(); void this.persistSettings(); void this.refresh(); }
+  private reloadExpandedDescriptions(generation: number): void {
+    for (const section of this.sections) for (const task of section.tasks) {
+      if (!this.isCollapsed(section) && this.descriptionExpanded.has(this.descriptionKey(section, task)) && !this.descriptions.has(this.descriptionStateKey(section, task)) && this.descriptionCurrent(section, task, generation)) void this.loadDescription(section, task);
+    }
+  }
+  private descriptionCurrent(section: Section, task: TaskTriageItemV1, generation: number): boolean {
+    return this.current(generation) && this.sections.includes(section) && section.tasks.some(item => item.ref.sourceId === task.ref.sourceId && item.ref.externalId === task.ref.externalId && item.revision === task.revision);
+  }
+  private descriptionText(value: string): { text: string; truncated: boolean } {
+    const limit = 32 * 1024; const encoder = new TextEncoder(); if (encoder.encode(value).byteLength <= limit) return { text: value, truncated: false };
+    let text = ''; let bytes = 0;
+    for (const character of value) { const size = encoder.encode(character).byteLength; if (bytes + size > limit) break; text += character; bytes += size; }
+    return { text, truncated: true };
+  }
+  private async loadDescription(section: Section, task: TaskTriageItemV1): Promise<void> {
+    const id = this.descriptionStateKey(section, task); if (this.descriptions.get(id)?.status === 'loading') return;
+    const generation = this.generation; const controller = new AbortController(); this.descriptionControllers.add(controller);
+    this.descriptions.set(id, { status: 'loading' }); this.draw();
+    try {
+      const result = await this.context.services.tasks!.load({ ...section.source, ref: task.ref }, AbortSignal.any([controller.signal, this.context.signal, this.state.activity.signal]));
+      if (!this.descriptionCurrent(section, task, generation)) return;
+      if (result.status === 'unavailable') { this.descriptions.set(id, { status: 'unavailable', message: `Description unavailable (${result.reason}).` }); return; }
+      const loaded = result.value;
+      if (loaded.selection.sourceId !== section.source.sourceId || loaded.selection.instanceId !== section.source.instanceId || loaded.selection.instanceRevision !== section.source.instanceRevision
+        || loaded.selection.repo !== section.source.repo || loaded.ref.sourceId !== task.ref.sourceId || loaded.ref.externalId !== task.ref.externalId || loaded.task?.ref.sourceId !== task.ref.sourceId || loaded.task?.ref.externalId !== task.ref.externalId || loaded.task?.revision !== task.revision) {
+        this.descriptions.set(id, { status: 'unavailable', message: 'Description changed. Refresh to retry.' }); return;
+      }
+      if (!loaded.task || !loaded.task.requirements.description.trim()) { this.descriptions.set(id, { status: 'loaded', text: '' }); return; }
+      const description = this.descriptionText(loaded.task.requirements.description);
+      this.descriptions.set(id, { status: 'loaded', ...description });
+    } catch {
+      if (this.descriptionCurrent(section, task, generation) && !controller.signal.aborted) this.descriptions.set(id, { status: 'unavailable', message: 'Description unavailable. Refresh to retry.' });
+    } finally {
+      this.descriptionControllers.delete(controller); if (this.descriptionCurrent(section, task, generation)) this.draw();
+    }
+  }
+  private toggleDescription(section: Section, task: TaskTriageItemV1): void {
+    const id = this.descriptionKey(section, task);
+    if (this.descriptionExpanded.has(id)) { this.descriptionExpanded.delete(id); this.draw(); void this.persistSettings(); return; }
+    if (this.descriptionExpanded.size >= 150) this.descriptionExpanded.delete(this.descriptionExpanded.values().next().value!);
+    this.descriptionExpanded.add(id); this.draw(); void this.persistSettings(); void this.loadDescription(section, task);
+  }
+  private description(section: Section, task: TaskTriageItemV1): HTMLElement {
+    const id = this.descriptionKey(section, task); const expanded = this.descriptionExpanded.has(id); const state = this.descriptions.get(this.descriptionStateKey(section, task));
+    const view = element('div'); view.className = 'triage-description';
+    const toggle = element('button', expanded ? 'Hide description' : 'Show description'); toggle.type = 'button'; toggle.setAttribute('aria-label', `${toggle.textContent} for ${task.displayKey}`); toggle.setAttribute('aria-expanded', String(expanded)); toggle.dataset.triageFocus = `description:${this.descriptionFocusKey(section, task)}`;
+    toggle.addEventListener('click', () => { toggle.focus({ preventScroll: true }); this.toggleDescription(section, task); }); view.append(toggle);
+    if (!expanded) return view;
+    const content = element('div'); content.id = `triage-description-${encodeURIComponent(JSON.stringify([this.state.instanceId, section.source.repo, section.source.sourceId, section.source.instanceId, section.group, task.ref.sourceId, task.ref.externalId]))}`; content.className = 'triage-description-content'; toggle.setAttribute('aria-controls', content.id);
+    if (!state) { content.append(element('p', 'Loading description…')); content.setAttribute('role', 'status'); }
+    else if (state.status === 'loading') { content.append(element('p', 'Loading description…')); content.setAttribute('role', 'status'); }
+    else if (state.status === 'unavailable') { content.append(element('p', state.message ?? 'Description unavailable.')); content.setAttribute('role', 'status'); }
+    else if (!state.text) content.append(element('p', 'No description available.'));
+    else { const text = element('p', state.text); text.className = 'triage-description-text'; content.append(text); if (state.truncated) content.append(element('p', 'Description truncated for display.')); }
+    view.append(content); return view;
+  }
   private filters(page: HTMLElement): void {
     const filters = element('fieldset'); filters.disabled = this.invalidSelection; filters.append(element('legend', 'Filter all triage columns'));
     for (let priority = 0; priority < 5; priority++) { const label = element('label', `P${priority}`); const input = element('input'); input.type = 'checkbox'; input.checked = this.priorities.includes(priority); input.setAttribute('aria-label', `Priority P${priority}`); input.dataset.triageFocus = `priority-${priority}`;
@@ -271,7 +335,7 @@ class TriagePanel implements PluginPanelInstance {
       if (section.error) { const error = element('p', section.error); error.setAttribute('role', 'status'); view.append(error); }
       const collapse = element('button', this.isCollapsed(section) ? 'Expand group' : 'Collapse group'); collapse.type = 'button'; collapse.setAttribute('aria-label', `${collapse.textContent} ${titles[section.group]}`);
       collapse.dataset.triageFocus = `collapse:${this.sectionKey(section)}`;
-      collapse.addEventListener('click', () => { const id = this.sectionKey(section); if (this.isCollapsed(section)) this.expand(section); else { this.expanded.delete(id); this.collapsed.add(id); } this.draw(); void this.persistSettings(); }); view.append(collapse);
+      collapse.addEventListener('click', () => { const id = this.sectionKey(section); const expanding = this.isCollapsed(section); if (expanding) this.expand(section); else { this.expanded.delete(id); this.collapsed.add(id); } this.draw(); if (expanding) this.reloadExpandedDescriptions(this.generation); void this.persistSettings(); }); view.append(collapse);
       if (this.isCollapsed(section)) { sections.append(view); continue; }
       const snapshot = section.snapshots[section.pages - 1];
       if (snapshot?.page.quality === 'partial') view.append(element('p', 'Partial coverage. Continue to inspect more matching tasks.'));
@@ -282,6 +346,7 @@ class TriagePanel implements PluginPanelInstance {
         if (task.url) { const link = element('a', `${task.displayKey}: ${task.title}`); link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; row.append(link); }
         else row.append(element('span', `${task.displayKey}: ${task.title}`));
         row.append(element('small', `P${task.priority} · ${task.state} · Updated ${task.updatedAt}`)); list.append(row);
+        row.append(this.description(section, task));
         const related = snapshot?.relatedRuns.find(run => run.ref.sourceId === task.ref.sourceId && run.ref.externalId === task.ref.externalId);
         if (related) { const href = `/runs?${new URLSearchParams({ repo: related.repo, run: related.runId })}`; const link = element('a', this.state.pirateMode ? 'Open related voyage' : 'Open related run'); link.href = href; row.append(link); }
         if (this.state.repo !== null && task.state !== 'ready') row.append(element('small', 'Not ready for a new run.'));
@@ -315,7 +380,7 @@ class TriagePanel implements PluginPanelInstance {
     const selectionChanged = !this.selectionDirty && JSON.stringify(previous.savedState) !== JSON.stringify(state.savedState);
     if (selectionChanged) this.restoreSettings(state.savedState);
     if (previous.activity.signal !== state.activity.signal) { previous.activity.signal.removeEventListener('abort', this.suspend); state.activity.signal.addEventListener('abort', this.suspend, { once: true }); }
-    if (selectionChanged || previous.activity.epoch !== state.activity.epoch || previous.repo !== state.repo) { this.cancel(); this.sections = []; this.sources = []; this.messages = []; this.commands.clear(); this.commandError = ''; }
+    if (selectionChanged || previous.activity.epoch !== state.activity.epoch || previous.repo !== state.repo) { this.cancel(); this.sections = []; this.sources = []; this.messages = []; this.descriptions.clear(); this.commands.clear(); this.commandError = ''; }
     if (!state.activity.active || !state.visible) this.cancel();
     this.draw();
     if (state.activity.active && state.visible && (selectionChanged || previous.activity.epoch !== state.activity.epoch || !previous.activity.active || !previous.visible)) void this.refresh();

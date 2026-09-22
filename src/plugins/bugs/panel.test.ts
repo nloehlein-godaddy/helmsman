@@ -30,6 +30,18 @@ describe('standalone Bugs presentation', () => {
     await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Open bug rows are unavailable or incomplete'));
     expect(f.container.textContent).not.toContain('No open bugs.'); expect(f.container.textContent).toContain('Source disabled'); expect(f.bugs).toHaveBeenCalledOnce(); f.lifetime.abort();
   });
+  it('renders only unambiguous S0-S5 values as accessible severity badges', async () => {
+    const f = fixture(); f.bugs.mockResolvedValue({ status: 'available', value: { selection: source, report: { ...report, rows: [
+      { ...report.rows[0]!, severity: 'S1 – Production outage' },
+      { ...report.rows[0]!, ref: { sourceId, externalId: '2' }, severity: 'Severity S2 - Major' },
+      { ...report.rows[0]!, ref: { sourceId, externalId: '3' }, severity: 'Critical S3' },
+    ] } } });
+    await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelector('.severity-badge')).not.toBeNull());
+    const badge = f.container.querySelector<HTMLElement>('.severity-badge');
+    expect(badge?.textContent).toBe('S1'); expect(badge?.getAttribute('aria-label')).toBe('Severity S1 – Production outage'); expect(badge?.getAttribute('title')).toBe('S1 – Production outage');
+    const badges = f.container.querySelectorAll<HTMLElement>('.severity-badge');
+    expect(badges).toHaveLength(2); expect(badges[1]?.getAttribute('aria-label')).toBe('Severity S2 - Major'); expect(f.container.textContent).toContain('Critical S3'); f.lifetime.abort();
+  });
   it('retains unavailable selection and never silently replaces it with another source', async () => {
     const f = fixture(); f.context = { ...f.context, state: { ...f.state, savedState: { version: 1, value: { repo, sourceId, instanceId: 'missing' } } } };
     await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Your selection is kept')); expect(f.bugs).not.toHaveBeenCalled(); f.lifetime.abort();

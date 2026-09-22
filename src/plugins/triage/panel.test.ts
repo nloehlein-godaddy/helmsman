@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { PluginPanelContext, PluginPanelState, TaskReadServiceV1, TaskReadSourceV1, TaskTriageItemV1, TaskViewsReadServiceV1, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, RunCommandServiceV1 } from '@helmsman/plugin-sdk';
+import type { PluginPanelContext, PluginPanelState, TaskReadServiceV1, TaskReadSourceV1, TaskTriageItemV1, TaskViewsReadServiceV1, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, RunCommandServiceV1, TaskReadTaskV1 } from '@helmsman/plugin-sdk';
 import panel from './panel';
 const sourceId = '11111111-1111-4111-8111-111111111111'; const repo = 'owner/project';
 const source: TaskReadSourceV1 = { version: 1, sourceId, instanceId: 'source-one', instanceRevision: 2, repo, label: 'Tasks', availability: 'available', readViews: ['triage'] };
 const task: TaskTriageItemV1 = { ref: { sourceId, externalId: '10001' }, revision: 'r1', displayKey: 'TASK-2', title: 'Canonical task', state: 'ready', priority: 1, url: null, updatedAt: '2026-09-20T00:00:00.000Z' };
+const loadedTask: TaskReadTaskV1 = { version: 1, ...task, repo, requirements: { description: 'First line\n<img src=x onerror=alert(1)>', acceptanceCriteria: [], links: [] } };
 const input: RunCommandInputV1 = { version: 1, action: 'launch', repo, launch: { mode: 'source', workRef: task.ref, sourceInstanceId: source.instanceId, sourceInstanceRevision: source.instanceRevision } };
 const receipt: RunCommandReceiptV1 = { version: 1, repo, requestId: sourceId, action: 'launch', status: 'accepted', runId: 'run-one', attempt: 1, message: null };
 function fixture() {
@@ -20,9 +21,10 @@ function fixture() {
   });
   const reconcile = vi.fn<RunCommandServiceV1['receipt']>(async () => { entries = entries.map(entry => ({ ...entry, receipt })); return { status: 'available', value: receipt }; });
   const acknowledge = vi.fn<RunCommandServiceV1['acknowledge']>(async query => { entries = entries.filter(entry => entry.command.requestId !== query.requestId); });
-  const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, services: { version: 1, tasks: { version: 1, discover, list: vi.fn(), load: vi.fn() }, taskViews: { version: 1, triage, bugs: vi.fn() }, runCommands: { version: 1, submit, retry, pending, receipt: reconcile, acknowledge } }, saveState: vi.fn(async () => {}), navigate: vi.fn(), onDispose: vi.fn() };
+  const load = vi.fn<TaskReadServiceV1['load']>(async query => ({ status: 'available', value: { selection: source, ref: query.ref, task: loadedTask } }));
+  const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, services: { version: 1, tasks: { version: 1, discover, list: vi.fn(), load }, taskViews: { version: 1, triage, bugs: vi.fn() }, runCommands: { version: 1, submit, retry, pending, receipt: reconcile, acknowledge } }, saveState: vi.fn(async () => {}), navigate: vi.fn(), onDispose: vi.fn() };
   const buttons = (name: string) => [...container.querySelectorAll('button')].filter(button => button.textContent === name);
-  return { container, lifetime, activity, state, context, discover, triage, pending, submit, retry, reconcile, acknowledge, buttons, set entries(value: readonly RunCommandPendingV1[]) { entries = value; } };
+  return { container, lifetime, activity, state, context, discover, triage, load, pending, submit, retry, reconcile, acknowledge, buttons, set entries(value: readonly RunCommandPendingV1[]) { entries = value; } };
 }
 afterEach(() => document.body.replaceChildren());
 describe('standalone Triage presentation', () => {
@@ -46,6 +48,37 @@ describe('standalone Triage presentation', () => {
     await vi.waitFor(() => expect(f.triage.mock.calls.at(-1)?.[0].updatedSince).not.toBeNull());
     const query = f.triage.mock.calls.at(-1)![0]; expect(Date.parse(query.until) - Date.parse(query.updatedSince!)).toBe(7 * 86_400_000);
     expect(f.context.saveState).toHaveBeenCalledWith(expect.objectContaining({ value: expect.objectContaining({ priorities: [0, 2, 3, 4], days: 7 }) })); f.lifetime.abort();
+  });
+  it('loads a bounded literal description only after its disclosure opens and retains its scoped state', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Show description')).toHaveLength(3));
+    expect(f.load).not.toHaveBeenCalled(); f.buttons('Show description')[0]!.click();
+    await vi.waitFor(() => expect(f.container.textContent).toContain('First line'));
+    expect(f.load).toHaveBeenCalledTimes(1); expect(f.load).toHaveBeenCalledWith({ ...source, ref: task.ref }, expect.any(AbortSignal));
+    const toggle = f.container.querySelector<HTMLButtonElement>('[aria-label="Hide description for TASK-2"]')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('true'); expect(document.activeElement).toBe(toggle);
+    expect(f.container.textContent).toContain('<img src=x onerror=alert(1)>'); expect(f.container.querySelector('img,script')).toBeNull();
+    expect(f.context.saveState).toHaveBeenLastCalledWith(expect.objectContaining({ value: expect.objectContaining({ descriptionExpanded: [expect.stringContaining(sourceId)] }) }));
+    await instance.refresh?.(); expect(f.load).toHaveBeenCalledTimes(2); expect(f.container.textContent).toContain('First line'); f.lifetime.abort();
+  });
+  it('uses unique description content IDs for repeated task rows', async () => {
+    const f = fixture(); await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Show description')).toHaveLength(3));
+    for (const button of f.buttons('Show description')) button.click();
+    await vi.waitFor(() => expect(f.container.querySelectorAll('.triage-description-content')).toHaveLength(3));
+    const ids = [...f.container.querySelectorAll<HTMLElement>('.triage-description-content')].map(content => content.id);
+    expect(new Set(ids)).toHaveLength(ids.length); f.lifetime.abort();
+  });
+  it('aborts an in-flight description request when activity suspends', async () => {
+    const f = fixture(); let requestSignal: AbortSignal | undefined;
+    f.load.mockImplementation(async (_query, signal) => { requestSignal = signal; return await new Promise(() => {}); });
+    await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Show description')).toHaveLength(3)); f.buttons('Show description')[0]!.click();
+    await vi.waitFor(() => expect(requestSignal).toBeDefined()); f.activity.abort();
+    await vi.waitFor(() => expect(requestSignal?.aborted).toBe(true)); f.lifetime.abort();
+  });
+  it('does not render a description when the exact task revision changed during its load', async () => {
+    const f = fixture(); f.load.mockResolvedValue({ status: 'available', value: { selection: source, ref: task.ref, task: { ...loadedTask, revision: 'r2', requirements: { ...loadedTask.requirements, description: 'Stale description' } } } });
+    await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Show description')).toHaveLength(3)); f.buttons('Show description')[0]!.click();
+    await vi.waitFor(() => expect(f.container.textContent).toContain('Description changed. Refresh to retry.'));
+    expect(f.container.textContent).not.toContain('Stale description'); f.lifetime.abort();
   });
   it('keeps a stable query window through next/previous pages', async () => {
     const f = fixture(); const original = f.triage.getMockImplementation()!;

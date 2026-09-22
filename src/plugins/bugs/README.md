@@ -6,6 +6,6 @@ This package supplies the built-in `/bugs` alias and canonical `/plugins/helmsma
 
 Panels inherit the header repository; explicit panel overrides remain scoped by the host. Hidden or suspended panels cancel reads. Source disablement preserves saved selections and reports unavailability.
 
-Unknown metrics remain unavailable, exact zero remains zero, and approximate counts display an approximation marker. Rows show actual due dates and provider severity. Resolution P75 separates sample size from population and labels partial/capped coverage. Observation time describes current source status and recent windows, not historical reconstruction.
+Unknown metrics remain unavailable, exact zero remains zero, and approximate counts display an approximation marker. Rows show actual due dates and provider severity. Recognized standalone `S0`–`S5` values, including a separator and explanatory text, render as compact accessible badges while custom values remain verbatim. Resolution P75 separates sample size from population and labels partial/capped coverage. Observation time describes current source status and recent windows, not historical reconstruction.
 
 See [installation](../../../docs/plugin-packages.md), [task views](../../../docs/task-source-authoring.md#independent-triage-and-bugs-views), and the [isolated production gate](../../../tests/distribution/task-views-host.pw.ts). The gate covers copied-SDK builds with source access denied, canonical route reload, scope, unavailable providers, restart and visual snapshots.
