@@ -2,6 +2,8 @@
 
 **Several OG improvements fit the plugin architecture cleanly.** The best candidates are Jira description disclosure, compact severity badges and a Firefox browser-provider plugin. Same-galleon parallelism, direct Jira assignment and server-side feedback require explicit architecture or contract work. Do not merge the legacy application wholesale.
 
+This historical evaluation is followed by the [remaining-feature design and delivery status](helmsman-og-feature-design.md). The Triage transport assumption below was corrected during design: summaries omit descriptions; disclosure must call the existing scoped task-load service.
+
 This is an evaluation, not a feature import. It followed integration of the seven second-review fixes. Two independent agents examined the UI/domain and runtime/integration changes; the main reviewer checked their conclusions against current contracts and corrected the distinction between configured and authenticated GitHub identity.
 
 Source: [`nathanloehlein/helmsman-og`](https://github.com/nathanloehlein/helmsman-og) at `4ca712aa69c6e6fff3ac8cd50027b2abdc905212`, confirmed against remote HEAD on 2026-09-22 UTC. The local checkout is named `helmsman-pre-rewrite`. Common ancestor: `e471d86630d78f2285611e81256ff912e5f57d0e`; **23 newer OG commits** were considered. Target: plugin Helmsman at `9ef550d` plus cleanup correction `1b27686`; that correction does not change these feature boundaries.
