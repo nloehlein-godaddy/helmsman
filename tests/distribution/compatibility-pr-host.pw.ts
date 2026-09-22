@@ -37,7 +37,7 @@ globalThis.fetch = async (input, init) => {
     return Response.json(state.reviews);
   }
   if (url.pathname.includes('/compare/')) return Response.json({url:url.origin+url.pathname,base_commit:{sha:'${base}'},merge_base_commit:{sha:'${base}'},total_commits:1,files:[{filename:'source.ts',status:'modified',additions:1,deletions:0,patch:'+public plugin'}]});
-  if (url.pathname === '/search/issues') return Response.json({total_count:0,incomplete_results:false,items:[]});
+  if (url.pathname === '/search/issues') return Response.json({total_count:1,incomplete_results:false,items:[{number:42,title:'Independent PR package',repository_url:'https://api.github.com/repos/org/b',state:'open',created_at:'2026-09-20T12:00:00.000Z',comments:7,pull_request:{merged_at:null}}]});
   if (url.pathname.endsWith('/pulls')) return Response.json([]);
   return new Response(null,{status:404});
 };`);
@@ -57,6 +57,10 @@ globalThis.fetch = async (input, init) => {
     await page.goto(`${origin}/pr?repo=org/a&prRepo=org/b&pr=42&mode=rerun`);
     const pr = page.locator('.plugin-pr-compatibility');
     await expect(pr.locator('.pr-panel-title')).toHaveText('Independent PR package');
+    const authored = pr.locator('.pr-authored');
+    await expect(authored).toContainText('unknown approvals');
+    await expect(authored).toContainText('unknown changes requested');
+    await expect(authored).toContainText('7 discussion comments');
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await pr.locator('.pr-review-body').fill('Original review body retained across uncertainty');
     await pr.locator('.pr-rerun-feedback').fill('Independent branch feedback');

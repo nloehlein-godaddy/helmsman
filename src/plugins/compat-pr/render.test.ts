@@ -20,10 +20,12 @@ it('escapes provider and draft text and refuses active-content URLs', () => {
 it('retains an explicitly saved custom model instead of silently displaying automatic selection', () => {
   const node = mount(renderDetail(detail, { ...draft, model: 'provider-custom-model' }, null, false)); expect(node.querySelector<HTMLSelectElement>('.pr-model')?.value).toBe('provider-custom-model');
 });
-it('keeps unavailable counts distinct from observed zero and labels partial list coverage', () => {
+it('keeps approvals, requested changes, and discussion comments distinct from unavailable review counts', () => {
   const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'review-requested', quality: 'partial', truncated: true, browseUrl: null,
-    items: [{ repo: 'org/b', number: 42, title: 'Review', url: null, status: 'open', createdAt: detail.observedAt, mergedAt: null, draft: null, ticketId: null, reviewDecision: null, comments: 0, reviews: { approved: null, changesRequested: 0, commented: null, requested: null } }] };
-  const node = mount(renderList('review-requested', page, '', false)); expect(node.textContent).toContain('0 comments'); expect(node.textContent).toContain('unknown approvals'); expect(node.textContent).toContain('0 changes requested'); expect(node.textContent).toContain('partial · More results available');
+    items: [{ repo: 'org/b', number: 42, title: 'Review', url: null, status: 'open', createdAt: detail.observedAt, mergedAt: null, draft: null, ticketId: null, reviewDecision: null, comments: 7, reviews: { approved: 2, changesRequested: 1, commented: null, requested: null } }] };
+  const node = mount(renderList('review-requested', page, '', false));
+  expect(node.querySelectorAll('.pr-list-stat')).toHaveLength(4);
+  expect(node.textContent).toContain('2 approvals'); expect(node.textContent).toContain('1 changes requested'); expect(node.textContent).toContain('7 discussion comments'); expect(node.textContent).toContain('unknown pending reviews'); expect(node.textContent).toContain('partial · More results available');
 });
 it.each([true, false])('keeps recent run identity and user text literal in pirate mode %s', pirate => {
   const run: RunReadSummaryV1 = { version: 1, id: 'review-agent', repo: 'org/agent-review', displayKey: 'Review PR tokens voyage', status: 'failed', attempt: 1, startedAt: detail.observedAt, endedAt: null, prNumber: 42, costUsd: null, review: null, sourceSettlement: null };
