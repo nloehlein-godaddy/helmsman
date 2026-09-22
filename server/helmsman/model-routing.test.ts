@@ -1,0 +1,71 @@
+import { readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { describe, expect, it } from 'vitest';
+import { buildRoutedAgentCommand } from './model-routing';
+import { codexCommand } from './model-routing-cli';
+import type { AgentAdapter, AgentTask } from './agents/adapter';
+
+const token = 'a'.repeat(64);
+const gateway = { url: 'http://127.0.0.1:8790/', token };
+const task = { ticketId: 'TASK-1', title: 'Task', repo: 'owner/repo', jiraBaseUrl: '', modelGateway: gateway } as AgentTask & { modelGateway: typeof gateway };
+const capture = `const fs=require('node:fs'); fs.writeFileSync(process.env.ROUTING_OUTPUT, JSON.stringify({argv:process.argv.slice(2), env:{OPENAI_API_KEY:process.env.OPENAI_API_KEY,OPENAI_BASE_URL:process.env.OPENAI_BASE_URL,ANTHROPIC_API_KEY:process.env.ANTHROPIC_API_KEY,ANTHROPIC_AUTH_TOKEN:process.env.ANTHROPIC_AUTH_TOKEN,ANTHROPIC_BASE_URL:process.env.ANTHROPIC_BASE_URL,CLAUDE_CODE_OAUTH_TOKEN:process.env.CLAUDE_CODE_OAUTH_TOKEN,GOCAAS_API_KEY:process.env.GOCAAS_API_KEY,GOCAAS_API_KEY_HELPER:process.env.GOCAAS_API_KEY_HELPER,CODEX_HOME:process.env.CODEX_HOME,capability:process.env.HELMSMAN_MODEL_CAPABILITY,disable:process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,config:process.env.CODEX_HOME?fs.readFileSync(process.env.CODEX_HOME+'/config.toml','utf8'):null}}));`;
+
+function adapter(id: string, transport: NonNullable<AgentAdapter['metadata']>['docker']): AgentAdapter {
+  return { id, metadata: { version: 1, label: id, defaults: { model: null, effort: null }, review: { low: { model: null, effort: null }, medium: { model: null, effort: null }, high: { model: null, effort: null } }, reviewSkills: [], reviewDelegation: 'none', supportsPrePr: true, docker: transport, costReporting: 'delta' },
+    buildCommand: () => ({ cmd: process.execPath, args: ['-e', capture] }), parseLine: () => null };
+}
+
+function run(value: AgentAdapter) {
+  const root = mkdtempSync(join(tmpdir(), 'model-routing-test-'));
+  const output = join(root, 'output.json');
+  try {
+    const command = buildRoutedAgentCommand(value, task);
+    expect(JSON.stringify(command.args)).not.toContain(token);
+    const result = spawnSync(command.cmd, command.args, { encoding: 'utf8', env: { ...process.env, ROUTING_OUTPUT: output,
+      OPENAI_API_KEY: 'direct-openai', ANTHROPIC_API_KEY: 'direct-anthropic', CLAUDE_CODE_OAUTH_TOKEN: 'oauth',
+      GOCAAS_API_KEY: 'upstream-key', GOCAAS_API_KEY_HELPER: 'helper-key' } });
+    expect(result.status, result.stderr).toBe(0);
+    return JSON.parse(readFileSync(output, 'utf8')) as { argv: string[]; env: Record<string, string | undefined> };
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}
+
+describe('model routing', () => {
+  it('routes Codex through the scoped OpenAI endpoint without exposing a direct credential', () => {
+    const result = run(adapter('codex', 'openai-responses'));
+    expect(result.env.OPENAI_API_KEY).toBeUndefined();
+    expect(result.env.GOCAAS_API_KEY).toBeUndefined();
+    expect(result.env.GOCAAS_API_KEY_HELPER).toBeUndefined();
+    expect(result.env.OPENAI_BASE_URL).toBe('http://127.0.0.1:8790/openai/v1');
+    expect(result.env.capability).toBe(token);
+    expect(result.env.config).toContain('model_provider = "helmsman"');
+    expect(result.env.config).toContain('base_url = "http://127.0.0.1:8790/openai/v1"');
+  });
+
+  it('routes Claude through the scoped Anthropic endpoint and removes OAuth', () => {
+    const result = run(adapter('claude-code', 'anthropic-messages'));
+    expect(result.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:8790/anthropic');
+    expect(result.env.ANTHROPIC_API_KEY).toBe(token);
+    expect(result.env.ANTHROPIC_AUTH_TOKEN).toBe(token);
+    expect(result.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(result.env.disable).toBe('1');
+  });
+
+  it('rejects custom providers without a declared transport', () => {
+    expect(() => buildRoutedAgentCommand(adapter('custom/provider', null), task)).toThrow('does not declare');
+  });
+
+  it('does not wrap retained coordinator commands', () => {
+    const coordinator: AgentAdapter = { ...adapter('codex', 'openai-responses'),
+      buildCommand: () => ({ cmd: process.execPath, args: ['/runtime/pre-pr-cli.ts', '{}'] }) };
+    expect(buildRoutedAgentCommand(coordinator, task)).toEqual({ cmd: process.execPath, args: ['/runtime/pre-pr-cli.ts', '{}'] });
+  });
+
+  it('places Codex routing configuration in exec option position before the prompt', () => {
+    const command = codexCommand({ cmd: 'codex', args: ['exec', '--json', 'prompt'] }, gateway.url);
+    expect(command.args).toEqual(expect.arrayContaining(['exec', '-c', 'model_provider="helmsman"']));
+    expect(command.args.indexOf('model_provider="helmsman"')).toBeLessThan(command.args.indexOf('prompt'));
+  });
+});

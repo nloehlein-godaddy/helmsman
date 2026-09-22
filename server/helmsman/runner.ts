@@ -11,6 +11,7 @@ import { reviewVerdictLine } from './review-verdict';
 import { parseInlineReviewComments, type InlineReviewInput } from './inline-review';
 import { agentAttribution } from './agent-attribution';
 import { createClarificationChannel, parseClarificationChannel } from './clarification-protocol-store';
+import { buildRoutedAgentCommand } from './model-routing';
 
 export interface RunnerDeps {
   durable?: DurableRunnerCoordinator;
@@ -428,7 +429,7 @@ export async function startRun(task: AgentTask, deps: RunnerDeps): Promise<strin
         onEvent({ kind: 'log', text: `retry ${attempt}/${maxAttempts}` });
       }
 
-      const { cmd, args } = deps.adapter.buildCommand(task);
+      const { cmd, args } = buildRoutedAgentCommand(deps.adapter, task);
       let outcome: number | 'stopped' | 'capped' = 1;
       let ref: HostRef | null = null;
       if (cmd === '') {
@@ -576,7 +577,7 @@ function durableHeartbeat(session: DurableRunnerAttempt) {
 }
 
 function durableSpec(row: RunRow, task: AgentTask, session: DurableRunnerAttempt, deps: RunnerDeps): LaunchSpec {
-  const command = deps.adapter.buildCommand(task);
+  const command = buildRoutedAgentCommand(deps.adapter, task);
   return { runId: row.id, ...command, cwd: row.worktreePath ?? '', ...session.paths, launchId: session.launchId, attempt: session.attempt };
 }
 

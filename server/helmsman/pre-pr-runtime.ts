@@ -22,6 +22,7 @@ import { agentProviderAdapter } from './agents/provider';
 import { persistenceHash } from './persistence';
 import { loadExecutionWorkflow } from './workflow-execution';
 import type { WorkflowProviderV1 } from '../../src/plugins/workflow';
+import { buildRoutedAgentCommand } from './model-routing';
 
 const exec = promisify(execFile);
 const legacyAdapters: Record<string, AgentAdapter> = { codex: codexAdapter, 'claude-code': claudeCodeAdapter };
@@ -122,7 +123,7 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
   try {
     isolated = usesIsolatedExecution(task) ? await prepareExecutionHostStage(adapter, task, cwd) : undefined;
     prepared = true;
-    const command = isolated?.command ?? adapter.buildCommand(task);
+    const command = isolated?.command ?? buildRoutedAgentCommand(adapter, task);
     await new Promise<void>((done, reject) => {
     const grouped = process.platform !== 'win32';
     const child = spawn(command.cmd, command.args, { cwd, env: process.env, detached: grouped, stdio: ['ignore', 'pipe', 'pipe'] });
