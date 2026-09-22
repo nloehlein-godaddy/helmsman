@@ -57,6 +57,7 @@ export async function fixture(options: { distribution?: string } = {}) {
     HELMSMAN_DB: join(cwd, 'state.sqlite'), AGENTS_ROOT: cwd, RUNS_DIR: join(cwd, 'runs'),
     JIRA_ENABLED: 'false', SLACK_ENABLED: 'false', SLACK_WATCH_ENABLED: 'false', GITHUB_REVIEW_WATCH_ENABLED: 'false',
     HELMSMAN_TEST_SOURCE: resolve(sourceRoot), HELMSMAN_TEST_COMMAND_LOG: commandLog,
+    GOCAAS_API_KEY: 'fixture-gocaas-key',
     NODE_OPTIONS: `--import=${pathToFileURL(join(root, 'deny-source.mjs')).href}`,
   };
   const cli = (...args: string[]) => run(process.execPath, [join(app, 'server/helmsman/plugins/cli.js'), ...args], cwd, env);
@@ -167,7 +168,7 @@ export default page;
   async function installPreflightFailureAgent() {
     const id = 'example.preflight-failure'; const source = join(root, 'preflight-agent'); await mkdir(source);
     await writeFile(join(source, 'backend.js'), `export default {activate(context){const models={model:null,effort:null};context.registerAgent('worker',{
-metadata:{version:1,label:'Preflight fixture',defaults:models,review:{low:models,medium:models,high:models},reviewSkills:['helmsman-isolated-fixture-missing-skill'],reviewDelegation:'native-subagents',supportsPrePr:true,docker:null,costReporting:'delta'},
+metadata:{version:1,label:'Preflight fixture',defaults:models,review:{low:models,medium:models,high:models},reviewSkills:['helmsman-isolated-fixture-missing-skill'],reviewDelegation:'native-subagents',supportsPrePr:true,docker:'openai-responses',costReporting:'delta'},
 buildCommand(){return {cmd:'codex',args:[]};},parseLine(){return null;}});}};`);
     await writeFile(join(source, 'plugin-package.json'), JSON.stringify({ packageVersion: 1,
       manifest: { manifestVersion: 1, id, version: '0.1.0', sdkVersion: 1, pages: [] }, node: { minMajor: 22, maxMajorExclusive: 30 }, entries: {},

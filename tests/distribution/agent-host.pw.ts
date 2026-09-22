@@ -15,6 +15,11 @@ test('independent agents launch through installed core and retain exact provider
   try {
     await expect(host.script('prove-agent-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/agent-provider.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
     for (const name of ['agent-codex', 'agent-claude', 'agent-command']) await host.installAuthorPackage(`plugin-sources/${name}`, `example.${name}`, { buildScript: true });
+    await host.cli('select-agent', 'example.agent-command/command'); await host.cli('select-agent-reviewers', 'example.agent-command/command');
+    let origin = await host.start();
+    const unsupported = await request.post(`${origin}/api/agents/launch`, { data: { mode: 'freeform', repo: 'org/a', task: 'Unsupported command transport must be rejected.' } });
+    expect(unsupported.ok()).toBe(false);
+    await host.stop();
     const author = join(host.root, 'independent-agent'); const output = join(author, 'dist');
     await mkdir(output, { recursive: true });
     await cp(join(host.app, 'sdk'), join(author, 'node_modules/@helmsman/plugin-sdk'), { recursive: true });
@@ -24,7 +29,7 @@ const plugin: AgentBackendModuleV1 = { activate(context) {
  if (Object.keys(context).sort().join(',') !== 'onDispose,pluginId,registerAgent,settings,signal') throw new Error('Unexpected host services');
  const models = { model: null, effort: null };
  context.registerAgent('worker', {
-  metadata: { version: 1, label: 'Independent worker', defaults: models, review: { low: models, medium: models, high: models }, reviewSkills: [], reviewDelegation: 'native-subagents', supportsPrePr: true, docker: null, costReporting: 'delta' },
+  metadata: { version: 1, label: 'Independent worker', defaults: models, review: { low: models, medium: models, high: models }, reviewSkills: [], reviewDelegation: 'native-subagents', supportsPrePr: true, docker: 'openai-responses', costReporting: 'delta' },
   buildCommand(input) { return { cmd: String(context.settings.executable), args: [String(context.settings.workerScript), JSON.stringify(input)] }; },
   parseLine(line) { try { const value: unknown = JSON.parse(line); if (!value || typeof value !== 'object' || !('kind' in value)) return null; return value as AgentEventV1; } catch { return null; } }
  });
@@ -60,7 +65,7 @@ console.log(JSON.stringify({ selection, artifacts: [{ pluginId: pkg.package.mani
     await writeFile(join(host.root, 'commands/gh'), `#!${process.execPath}\nif(process.argv[2]==='repo'&&process.argv[3]==='view') console.log(JSON.stringify({nameWithOwner:'org/a',defaultBranchRef:{name:'main'}})); else process.exit(1);`, { mode: 0o755 });
     const launchLog = join(host.root, 'independent-launches.jsonl');
     await writeFile(workerScript, `import {appendFileSync} from 'node:fs'; const input=JSON.parse(process.argv[2]); appendFileSync(${JSON.stringify(launchLog)},JSON.stringify(input)+'\\n'); console.log(JSON.stringify({kind:'result',outcome:'failure',text:'Independent agent deliberately failed'}));`);
-    let origin = await host.start();
+    origin = await host.start();
     await page.goto(`${origin}/config?repo=org/a`); await expect(page.locator('#boot')).toHaveCount(0); await expect(page.locator('#config-AGENT_MAX_ATTEMPTS')).toBeVisible();
     await expect(page.locator('#config-AGENT_ADAPTER')).toHaveCount(0); await expect(page.locator('#config-AGENT_CMD')).toHaveCount(0);
     for (const [label, width] of [['desktop', 1440], ['mobile', 390]] as const) { await page.setViewportSize({ width, height: 1000 }); await page.locator('.config-warning').filter({ hasText: 'Configure agent providers' }).scrollIntoViewIfNeeded(); await page.screenshot({ path: `/tmp/helmsman-agent-config-${label}.png`, fullPage: true }); expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false); }
@@ -70,6 +75,8 @@ console.log(JSON.stringify({ selection, artifacts: [{ pluginId: pkg.package.mani
 const db = new Database(process.env.HELMSMAN_DB, {readonly:true}); try { console.log(JSON.stringify({ run: db.prepare('SELECT * FROM runs WHERE id=?').get(${JSON.stringify(runId)}), snapshots: db.prepare('SELECT json FROM execution_snapshots WHERE runId=?').all(${JSON.stringify(runId)}).map(row=>JSON.parse(row.json)), admissions: db.prepare('SELECT json FROM execution_admissions').all().map(row=>JSON.parse(row.json)) })); } finally {db.close();}`).then(value => JSON.parse(value));
     await expect.poll(async () => (await inspect()).run?.status, { timeout: 25_000 }).toBe('failed');
     const admitted = await inspect(); expect(admitted.snapshots).toHaveLength(1);
+    expect(admitted.snapshots[0].task.modelGateway).toEqual({ url: expect.stringContaining('127.0.0.1') });
+    expect(JSON.stringify(admitted.snapshots[0])).not.toContain('fixture-gocaas-key');
     expect(admitted.snapshots[0].settings.agents.writer.binding.providerId).toBe(providerId);
     expect(admitted.snapshots[0].bindings).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'agent', contributionId: providerId, artifactHash: captured.selection.writer.binding.artifactHash })]));
     expect(admitted.admissions[0].request.agents).toEqual(captured.selection);

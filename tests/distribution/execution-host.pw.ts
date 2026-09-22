@@ -34,7 +34,7 @@ test('installed execution hosts own launch, discovery and stop across provider d
     const marker = join(host.root, 'worker-started.json'); const worker = join(host.root, 'waiting-worker.mjs');
     await writeFile(worker, `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,input:JSON.parse(process.argv[2])})); console.log(JSON.stringify({kind:'phase',text:'Installed execution host worker running'})); setInterval(()=>{},1000);`);
     await writeFile(join(agent, 'backend.js'), `export default {activate(context){const models={model:null,effort:null};context.registerAgent('worker',{
-metadata:{version:1,label:'Waiting fixture agent',defaults:models,review:{low:models,medium:models,high:models},reviewSkills:[],reviewDelegation:'native-subagents',supportsPrePr:true,docker:null,costReporting:'delta'},
+metadata:{version:1,label:'Waiting fixture agent',defaults:models,review:{low:models,medium:models,high:models},reviewSkills:[],reviewDelegation:'native-subagents',supportsPrePr:true,docker:'openai-responses',costReporting:'delta'},
 buildCommand(input){return {cmd:${JSON.stringify(process.execPath)},args:[${JSON.stringify(worker)},JSON.stringify(input)]};},parseLine(line){try{return JSON.parse(line);}catch{return null;}}});}};`);
     await writeFile(join(agent, 'plugin-package.json'), JSON.stringify({ packageVersion: 1,
       manifest: { manifestVersion: 1, id: 'example.waiting-agent', version: '0.1.0', sdkVersion: 1, pages: [] }, entries: {}, node: { minMajor: 22, maxMajorExclusive: 30 },

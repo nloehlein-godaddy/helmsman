@@ -26,7 +26,7 @@ const plugin: AgentBackendModuleV1 = { activate(context) {
  if (Object.keys(context).sort().join(',') !== 'onDispose,pluginId,registerAgent,settings,signal') throw new Error('Unexpected host services');
  const models = { model: null, effort: null };
  for(const localId of ['worker','reviewer']) context.registerAgent(localId, {
-  metadata: { version: 1, label: 'Independent worker', defaults: models, review: { low: models, medium: models, high: models }, reviewSkills: [], reviewDelegation: 'native-subagents', supportsPrePr: true, docker: null, costReporting: 'delta' },
+  metadata: { version: 1, label: 'Independent worker', defaults: models, review: { low: models, medium: models, high: models }, reviewSkills: [], reviewDelegation: 'native-subagents', supportsPrePr: true, docker: 'openai-responses', costReporting: 'delta' },
   buildCommand(input) { return { cmd: String(context.settings.executable), args: [String(context.settings.workerScript), JSON.stringify({...input,testProvider:localId})] }; },
   parseLine(line) { try { const value: unknown = JSON.parse(line); if (!value || typeof value !== 'object' || !('kind' in value)) return null; return value as AgentEventV1; } catch { return null; } }
  });
