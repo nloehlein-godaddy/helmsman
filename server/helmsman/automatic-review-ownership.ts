@@ -1,4 +1,5 @@
 import { parseProfileIdentityV1 } from '../../src/plugins/profile';
+import { clarificationAbortable } from '../../src/plugins/clarification-transport';
 import { parsePullRequestInspectDetailV1 } from '../../src/plugins/pull-request-inspect';
 import { sourceFields, sourceObject, sourceText } from '../../src/plugins/source-contract-validation';
 import { persistedJson, persistenceHash } from './persistence';
@@ -75,7 +76,7 @@ export async function observeAutomaticReviewOwnership(input: {
   }
   try {
     const query = { version: 1 as const, repo: proposal.repo, number: proposal.number };
-    const rawDetail = await pullRequest.provider.detail(query, pullRequest.context);
+    const rawDetail = await clarificationAbortable(pullRequest.provider.detail(query, pullRequest.context), pullRequest.context.signal);
     assertCurrent();
     const detail = parsePullRequestInspectDetailV1(rawDetail, query);
     if (detail.target.headSha !== proposal.headSha || detail.status !== 'open' || detail.draft) {
@@ -83,7 +84,7 @@ export async function observeAutomaticReviewOwnership(input: {
       return policy('unknown', null, login(detail.authorLogin), reason, reason);
     }
     if (typeof pullRequest.provider.profile !== 'function') return unknown();
-    const rawProfile = await pullRequest.provider.profile(pullRequest.context);
+    const rawProfile = await clarificationAbortable(pullRequest.provider.profile(pullRequest.context), pullRequest.context.signal);
     assertCurrent();
     const actorLogin = login(parseProfileIdentityV1(rawProfile).login);
     const authorLogin = login(detail.authorLogin);

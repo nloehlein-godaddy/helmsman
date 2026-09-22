@@ -87,6 +87,16 @@ describe('automatic Slack review ownership', () => {
     expect(() => result.assertCurrent()).toThrow('Credential changed');
   });
 
+  it.each(['detail', 'profile'] as const)('bounds a %s provider that ignores cancellation', async method => {
+    const f = fixture();
+    const blocked = vi.fn(() => new Promise<never>(() => {}));
+    f.provider[method] = blocked;
+    const pending = f.observe();
+    await vi.waitFor(() => expect(blocked).toHaveBeenCalledOnce());
+    f.controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it('blocks changed retained source evidence before reading another provider', async () => {
     const f = fixture(); f.source.source = { ...f.source.source, revision: 'replacement' };
     expect(await f.observe()).toMatchObject({ policy: { decision: 'unknown' }, blockedReason: expect.stringContaining('source or proposal') });
