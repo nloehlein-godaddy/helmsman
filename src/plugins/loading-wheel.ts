@@ -24,7 +24,7 @@ export function createLoadingWheelV1(message: string, options?: LoadingWheelOpti
   const hub = document.createElementNS(graphic.namespaceURI, 'circle');
   hub.classList.add('helmsman-loading-wheel-v1__hub');
   hub.setAttribute('cx', '16'); hub.setAttribute('cy', '16'); hub.setAttribute('r', '3');
-  graphic.append(ring);
+  graphic.append(ring, hub);
   for (const [x1, y1, x2, y2] of [[16, 2, 16, 11], [30, 16, 21, 16], [16, 30, 16, 21], [2, 16, 11, 16]] as const) {
     const spoke = document.createElementNS(graphic.namespaceURI, 'line');
     spoke.classList.add('helmsman-loading-wheel-v1__spoke');

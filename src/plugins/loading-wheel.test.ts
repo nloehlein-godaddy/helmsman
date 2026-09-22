@@ -11,6 +11,7 @@ describe('public loading wheel', () => {
     expect(wheel.getAttribute('aria-live')).toBe('polite');
     expect(wheel.getAttribute('aria-busy')).toBe('true');
     expect(wheel.textContent).toContain('Loading runs…');
+    expect(wheel.querySelectorAll('svg[aria-hidden="true"] circle')).toHaveLength(2);
     expect(wheel.querySelector('svg[aria-hidden="true"] line')).not.toBeNull();
     expect(wheel.querySelector('img')).toBeNull();
     expect(loadingWheelStylesV1).toContain('@media (prefers-reduced-motion:reduce)');
