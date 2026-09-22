@@ -13,4 +13,4 @@ Focused verification passed on 2026-09-21:
 
 The replacement regression uses two real SQLite persistence connections and a disposable archive-publication watcher. The disposal regressions prove that a second caller remains pending until the first callback finishes. Full aggregate, production build and installed-application gates are owned by the integration worktree.
 
-_Helmsman · gpt-6-astra - high_
+_Helmsman · not reported - not reported_
