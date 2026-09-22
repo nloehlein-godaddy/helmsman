@@ -321,8 +321,10 @@ export async function createPluginCoordinator(options: {
         register(archive.package, archive.hash);
         const row = state(archive.package.manifest.id)!;
         if (row.artifactHash === archive.hash && row.revision > 0 && readPluginState(root).plugins.some(plugin => plugin.id === row.pluginId)) return;
-        if (intended && (row.artifactHash !== intended.artifactHash || row.desiredEnabled !== intended.desiredEnabled || row.revision !== intended.revision)
-          || intended === null && row.artifactHash !== archive.hash) throw new PersistenceConflictError('Plugin lifecycle changed; retry the installation.');
+        const conflict = intended
+          ? row.artifactHash !== intended.artifactHash || row.desiredEnabled !== intended.desiredEnabled || row.revision !== intended.revision
+          : intended === null && row.artifactHash !== archive.hash;
+        if (conflict) throw new PersistenceConflictError('Plugin lifecycle changed; retry the installation.');
         if (row.desiredEnabled) throw new PersistenceConflictError('Disable the plugin before installing another version, then restart Helmsman.');
         lifecycle.apply({ id: randomUUID(), pluginId: row.pluginId, artifactHash: archive.hash, expectedRevision: row.revision, desiredEnabled: false, drainDependents: [] });
       });
