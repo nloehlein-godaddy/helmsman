@@ -15,6 +15,7 @@ const array = (value: unknown, maximum: number): readonly unknown[] | null => Ar
 const unavailable = (reason: string) => ({ status: 'unknown' as const, reason, evidence: { code: 'github-unconfirmed' } });
 const unknownChecks = (quality: PullRequestInspectQualityV1): PullRequestInspectDetailV1['checks'] => ({ quality, passed: null, failed: null, pending: null });
 const unknownReviews = (quality: PullRequestInspectQualityV1): PullRequestInspectDetailV1['reviews'] => ({ quality, approved: null, changesRequested: null, commented: null, requested: null, viewerReview: null, viewerReviewedAt: null, viewerReviewedCommitId: null });
+const listReviewConcurrency = 4;
 
 function inspectionFailure(reason: 'head-changed'): Error & { reason: 'head-changed' } {
   return Object.assign(new Error(reason), { reason });
@@ -133,34 +134,58 @@ async function checks(target: PullRequestInspectTargetV1, context: PullRequestPr
   } catch { return unknownChecks('unavailable'); }
 }
 
+type Review = { id: number; login: string; state: PullRequestInspectReviewV1; at: string; commit: string };
+
+function submittedReviews(items: readonly unknown[]): Review[] {
+  const submitted: Review[] = []; const ids = new Set<number>();
+  for (const item of items) {
+    const review = object(item); const id = review?.id;
+    if (!review || !positive(id) || ids.has(id)) throw new Error('Invalid GitHub review'); ids.add(id);
+    if (review.state === 'PENDING') continue;
+    const login = object(review.user)?.login; const at = review.submitted_at; const commit = review.commit_id;
+    if (!['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(String(review.state)) || !text(login, 128) || !text(at, 64) || !Number.isFinite(Date.parse(at)) || !sha(commit)) throw new Error('Invalid GitHub review');
+    submitted.push({ id, login: login.toLowerCase(), state: review.state as PullRequestInspectReviewV1, at, commit });
+  }
+  return submitted.sort((left, right) => Date.parse(left.at) - Date.parse(right.at) || left.id - right.id);
+}
+
+function effectiveReviews(submitted: readonly Review[]): readonly Review[] {
+  const effective = new Map<string, Review>();
+  for (const review of submitted) {
+    const prior = effective.get(review.login);
+    if (!prior || review.state !== 'COMMENTED' || prior.state === 'COMMENTED') effective.set(review.login, review);
+  }
+  return [...effective.values()];
+}
+
+function requestedReviewCount(raw: Record<string, unknown> | null): number | null {
+  const users = raw?.requested_reviewers; const teams = raw?.requested_teams;
+  if (!Array.isArray(users) || !Array.isArray(teams)) return null;
+  const reviewers = new Set<string>(); const requestedTeams = new Set<string>();
+  for (const user of users) {
+    const login = object(user)?.login;
+    if (!text(login, 128)) return null;
+    reviewers.add(login.toLowerCase());
+  }
+  for (const team of teams) {
+    const slug = object(team)?.slug;
+    if (!text(slug, 128)) return null;
+    requestedTeams.add(slug.toLowerCase());
+  }
+  return reviewers.size + requestedTeams.size;
+}
+
 async function reviews(target: PullRequestInspectTargetV1, raw: Record<string, unknown>, context: PullRequestProviderContextV1): Promise<PullRequestInspectDetailV1['reviews']> {
   try {
     const result = await collection(context, `/repos/${target.repo}/pulls/${target.number}/reviews`, {});
     if (result.quality !== 'complete') return unknownReviews(result.quality);
-    const users = raw.requested_reviewers; const teams = raw.requested_teams;
-    if (!Array.isArray(users) || !Array.isArray(teams)) throw new Error('Invalid requested reviewers');
-    const requested = new Set(users.map(value => object(value)?.login).filter(value => text(value, 128)).map(value => value.toLowerCase())).size
-      + new Set(teams.map(value => object(value)?.slug).filter(value => text(value, 128)).map(value => value.toLowerCase())).size;
-    if (users.some(value => !text(object(value)?.login, 128)) || teams.some(value => !text(object(value)?.slug, 128))) throw new Error('Invalid requested reviewer');
-    type Review = { id: number; login: string; state: PullRequestInspectReviewV1; at: string; commit: string };
-    const submitted: Review[] = []; const ids = new Set<number>();
-    for (const item of result.items) {
-      const review = object(item); const id = review?.id;
-      if (!review || !positive(id) || ids.has(id)) throw new Error('Invalid GitHub review'); ids.add(id);
-      if (review.state === 'PENDING') continue;
-      const login = object(review.user)?.login; const at = review.submitted_at; const commit = review.commit_id;
-      if (!['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(String(review.state)) || !text(login, 128) || !text(at, 64) || !Number.isFinite(Date.parse(at)) || !sha(commit)) throw new Error('Invalid GitHub review');
-      submitted.push({ id, login: login.toLowerCase(), state: review.state as PullRequestInspectReviewV1, at, commit });
-    }
-    submitted.sort((left, right) => Date.parse(left.at) - Date.parse(right.at) || left.id - right.id);
-    const effective = new Map<string, Review>(); let latest: Review | undefined; const author = configuredAuthor(context).trim().toLowerCase();
+    const requested = requestedReviewCount(raw); if (requested === null) throw new Error('Invalid requested reviewers');
+    const submitted = submittedReviews(result.items); const values = effectiveReviews(submitted); let latest: Review | undefined; const author = configuredAuthor(context).trim().toLowerCase();
     for (const review of submitted) {
-      const prior = effective.get(review.login); if (!prior || review.state !== 'COMMENTED' || prior.state === 'COMMENTED') effective.set(review.login, review);
       if (review.login === author) latest = review;
     }
-    const values = [...effective.values()];
     return { quality: 'complete', approved: values.filter(value => value.state === 'APPROVED').length, changesRequested: values.filter(value => value.state === 'CHANGES_REQUESTED').length,
-      commented: values.filter(value => value.state === 'COMMENTED').length, requested, viewerReview: effective.get(author)?.state ?? null,
+      commented: values.filter(value => value.state === 'COMMENTED').length, requested, viewerReview: values.find(value => value.login === author)?.state ?? null,
       viewerReviewedAt: latest?.at ?? null, viewerReviewedCommitId: latest?.commit ?? null };
   } catch { return unknownReviews('unavailable'); }
 }
@@ -172,6 +197,33 @@ function readItem(value: unknown, fallbackRepo: string, reviewDecision: 'REVIEW_
   return parsePullRequestReadItemV1({ repo, number: raw?.number, title: raw?.title, url: `https://github.com/${repo}/pull/${String(raw?.number)}`,
     status: state, createdAt: raw?.created_at, mergedAt: mergedAt ?? null, draft: typeof raw?.draft === 'boolean' ? raw.draft : null,
     ticketId: null, reviewDecision, comments: integer(raw?.comments) ? raw.comments : null, reviews: null });
+}
+
+type ListCandidate = { item: ReturnType<typeof readItem>; requested: number | null };
+
+async function listReviews(item: ReturnType<typeof readItem>, requested: number | null, context: PullRequestProviderContextV1): Promise<ReturnType<typeof readItem>['reviews']> {
+  try {
+    const result = await collection(context, `/repos/${item.repo}/pulls/${item.number}/reviews`, {});
+    if (result.quality !== 'complete') return null;
+    const values = effectiveReviews(submittedReviews(result.items));
+    return { approved: values.filter(value => value.state === 'APPROVED').length, changesRequested: values.filter(value => value.state === 'CHANGES_REQUESTED').length,
+      commented: values.filter(value => value.state === 'COMMENTED').length, requested };
+  } catch {
+    context.signal.throwIfAborted();
+    return null;
+  }
+}
+
+async function withListReviews(candidates: readonly ListCandidate[], context: PullRequestProviderContextV1): Promise<ReturnType<typeof readItem>[]> {
+  const enriched = candidates.map(candidate => candidate.item); const open = candidates.flatMap((candidate, index) => candidate.item.status === 'open' ? [index] : []); let next = 0;
+  await Promise.all(Array.from({ length: Math.min(listReviewConcurrency, open.length) }, async () => {
+    while (true) {
+      context.signal.throwIfAborted();
+      const index = open[next++]; if (index === undefined) return;
+      const candidate = candidates[index]!; enriched[index] = { ...candidate.item, reviews: await listReviews(candidate.item, candidate.requested, context) };
+    }
+  }));
+  return enriched;
 }
 
 async function prepared(repo: string, number: number, expectedHeadSha: string | null, context: PullRequestProviderContextV1) {
@@ -215,7 +267,7 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
         sources = [{ repo: '', result: searchResult, reviewRequested: true }, ...localResults];
       }
     } catch { return Object.freeze({ items: Object.freeze([]), quality: 'degraded' as const, truncated: false, browseUrl: null }); }
-    const items = []; let partial = false; let degraded = false;
+    const items: ListCandidate[] = []; let partial = false; let degraded = false;
     for (const source of sources) {
       partial ||= source.result.quality !== 'complete';
       for (const candidate of source.result.items) {
@@ -229,13 +281,15 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
             })) continue;
           }
           const parsed = readItem(candidate, source.repo, source.reviewRequested ? 'REVIEW_REQUIRED' : null);
-          if (repos.includes(parsed.repo) && (query.repo === null || parsed.repo === query.repo) && (query.kind === 'authored-recent' || parsed.status === 'open')) items.push(parsed);
+          if (repos.includes(parsed.repo) && (query.repo === null || parsed.repo === query.repo) && (query.kind === 'authored-recent' || parsed.status === 'open')) items.push({ item: parsed, requested: requestedReviewCount(object(candidate)) });
         } catch { degraded = true; }
       }
     }
-    const unique = [...new Map(items.map(value => [`${value.repo.toLowerCase()}#${value.number}`, value])).values()].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
-    const truncated = partial || unique.length > 300;
-    return Object.freeze({ items: Object.freeze(unique.slice(0, 300)), quality: degraded ? 'degraded' as const : truncated ? 'partial' as const : 'complete' as const, truncated, browseUrl: query.kind === 'repo-open' && query.repo ? `https://github.com/${query.repo}/pulls` : null });
+    const unique = [...new Map(items.map(value => [`${value.item.repo.toLowerCase()}#${value.item.number}`, value])).values()].sort((left, right) => Date.parse(right.item.createdAt) - Date.parse(left.item.createdAt));
+    const truncated = partial || unique.length > query.limit || unique.length > 300;
+    const visible = unique.slice(0, Math.min(300, query.limit));
+    const listed = query.kind === 'authored-recent' ? await withListReviews(visible, context) : visible.map(candidate => candidate.item);
+    return Object.freeze({ items: Object.freeze(listed), quality: degraded ? 'degraded' as const : truncated ? 'partial' as const : 'complete' as const, truncated, browseUrl: query.kind === 'repo-open' && query.repo ? `https://github.com/${query.repo}/pulls` : null });
   },
   async detail(input, context) {
     const query = parsePullRequestInspectDetailQueryV1(input); const first = await metadata(query, context);

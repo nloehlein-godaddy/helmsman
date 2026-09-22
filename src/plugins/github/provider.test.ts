@@ -3,7 +3,7 @@ import { inspectQuery as query, inspectTarget as target } from '../pull-request-
 import { githubPullRequestProvider } from './provider';
 import { formatPullRequestReviewBody } from '@helmsman/plugin-sdk';
 
-const review = (id: number, state: string, submittedAt = '2025-01-02T03:04:05.000Z') => ({ id, state, user: { login: 'reviewer' }, submitted_at: submittedAt, commit_id: target.headSha });
+const review = (id: number, state: string, submittedAt = '2025-01-02T03:04:05.000Z', login = 'reviewer') => ({ id, state, user: { login }, submitted_at: submittedAt, commit_id: target.headSha });
 const metadata = (overrides: Record<string, unknown> = {}) => ({ number: target.number, base: { sha: target.baseSha, repo: { full_name: target.repo } }, head: { sha: target.headSha, ref: 'work' }, state: 'open', draft: false, merged: false,
   user: { login: 'author' }, html_url: `https://github.com/${target.repo}/pull/${target.number}`, title: 'Pull request', updated_at: '2025-01-02T03:04:05.000Z', comments: 3,
   requested_reviewers: [{ login: 'reviewer' }], requested_teams: [], ...overrides });
@@ -11,6 +11,8 @@ const check = (id = 1) => ({ id, head_sha: target.headSha, status: 'completed', 
 const file = (name = 'a.ts') => ({ filename: name, status: 'modified', additions: 1, deletions: 1, patch: '+change' });
 const comparison = (overrides: Record<string, unknown> = {}) => ({ url: `https://api.github.com/repos/${target.repo}/compare/${target.baseSha}...${target.headSha}`,
   base_commit: { sha: target.baseSha }, merge_base_commit: { sha: target.baseSha }, total_commits: 1, files: [file()], ...overrides });
+const listed = (number: number, overrides: Record<string, unknown> = {}) => ({ repository_url: `https://api.github.com/repos/${target.repo}`, number, title: `Pull request ${number}`,
+  state: 'open', created_at: '2025-01-02T03:04:05.000Z', draft: false, comments: 3, requested_reviewers: [], requested_teams: [], ...overrides });
 
 function context(request: (input: { method: 'GET' | 'POST'; path: string; query: Readonly<Record<string, string>>; body: unknown | null }) => Promise<{ status: number; body: unknown; link?: string }>) {
   return { signal: new AbortController().signal, configuredAuthor: 'reviewer', http: { request: vi.fn(request) } };
@@ -110,6 +112,57 @@ describe('GitHub pull request provider', () => {
     const result = await githubPullRequestProvider.list({ query: { version: 1, repo: null, kind: 'authored-recent', limit: 100 }, repos: [target.repo] }, context(call));
     expect(result).toMatchObject({ quality: 'complete', items: [] });
     expect(call).toHaveBeenCalledOnce();
+  });
+
+  it('projects effective counts only for final visible authored open pull requests', async () => {
+    const first = listed(42, { requested_reviewers: [{ login: 'alice' }, { login: 'ALICE' }], requested_teams: [{ slug: 'alice' }] }); const skipped = listed(43);
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return { status: 200, body: { total_count: 2, incomplete_results: false, items: [first, skipped] } };
+      if (input.path === `/repos/${target.repo}/pulls/42/reviews`) return { status: 200, body: [
+        review(1, 'APPROVED', '2025-01-01T00:00:00.000Z', 'alice'), review(2, 'COMMENTED', '2025-01-02T00:00:00.000Z', 'alice'),
+        review(3, 'CHANGES_REQUESTED', '2025-01-03T00:00:00.000Z', 'bob'), review(4, 'COMMENTED', '2025-01-04T00:00:00.000Z', 'carol'),
+        review(5, 'DISMISSED', '2025-01-05T00:00:00.000Z', 'dan'), review(6, 'APPROVED', '2025-01-06T00:00:00.000Z', 'dan'),
+      ] };
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: null, kind: 'authored-recent', limit: 1 }, repos: [target.repo] }, ctx);
+    expect(result).toMatchObject({ items: [{ number: 42, comments: 3, reviews: { approved: 2, changesRequested: 1, commented: 1, requested: 2 } }], quality: 'partial', truncated: true });
+    expect(ctx.http.request.mock.calls.filter(([request]) => request.path.endsWith('/reviews')).map(([request]) => request.path)).toEqual([`/repos/${target.repo}/pulls/42/reviews`]);
+  });
+
+  it('reports zeros only for a complete empty authored open review history', async () => {
+    const open = listed(42); const closed = listed(43, { state: 'closed' });
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return { status: 200, body: { total_count: 2, incomplete_results: false, items: [open, closed] } };
+      if (input.path === `/repos/${target.repo}/pulls/42/reviews`) return { status: 200, body: [] };
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: null, kind: 'authored-recent', limit: 2 }, repos: [target.repo] }, ctx);
+    expect(result.items).toMatchObject([{ number: 42, reviews: { approved: 0, changesRequested: 0, commented: 0, requested: 0 } }, { number: 43, reviews: null }]);
+    expect(ctx.http.request.mock.calls.filter(([request]) => request.path.endsWith('/reviews')).map(([request]) => request.path)).toEqual([`/repos/${target.repo}/pulls/42/reviews`]);
+  });
+
+  it('keeps authored pull requests when review histories are unavailable, malformed, or unsafe', async () => {
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return { status: 200, body: { total_count: 3, incomplete_results: false, items: [listed(42), listed(43), listed(44)] } };
+      if (input.path.endsWith('/42/reviews')) return { status: 503, body: null };
+      if (input.path.endsWith('/43/reviews')) return { status: 200, body: [review(1, 'APPROVED'), review(1, 'CHANGES_REQUESTED')] };
+      if (input.path.endsWith('/44/reviews')) return { status: 200, body: [review(2, 'APPROVED')], link: '<https://other.test/reviews?page=2>; rel="next"' };
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: null, kind: 'authored-recent', limit: 3 }, repos: [target.repo] }, ctx);
+    expect(result).toMatchObject({ quality: 'complete', items: [{ number: 42, comments: 3, reviews: null }, { number: 43, comments: 3, reviews: null }, { number: 44, comments: 3, reviews: null }] });
+  });
+
+  it('stops before scheduling queued authored review histories after cancellation', async () => {
+    const controller = new AbortController(); let reviewCalls = 0;
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return { status: 200, body: { total_count: 5, incomplete_results: false, items: [42, 43, 44, 45, 46].map(number => listed(number)) } };
+      if (input.path.endsWith('/reviews')) { reviewCalls++; if (reviewCalls === 4) controller.abort(); return { status: 200, body: [] }; }
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    await expect(githubPullRequestProvider.list({ query: { version: 1, repo: null, kind: 'authored-recent', limit: 5 }, repos: [target.repo] }, { ...ctx, signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(reviewCalls).toBe(4);
   });
 
   it.each(['search', 'local'] as const)('handles concurrent review reads when %s fails first', async first => {
