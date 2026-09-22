@@ -493,3 +493,7 @@ Final verification: 4,922 unit tests across 370 files; TypeScript/app/distributi
 ## Second adversarial review — 2026-09-21
 
 A fresh six-agent review of `e3ccca4` found seven additional issues: two P1, four P2 and one P3. Most prior corrected paths passed targeted checks; startup workspace ownership and historical host compatibility remain material blockers. The [second review report](adversarial-review-2026-09-21-round-2.md) contains the findings, independent evidence, prior-fix disposition and limits. This is review-only work; these new findings remain open.
+
+## Second-review fixes and OG evaluation — 2026-09-21
+
+The seven second-review findings are implemented, including independent cross-review corrections for cleanup registered during disposal. Work used isolated workspace, execution and lifecycle branches. The [second fix ledger](adversarial-fixes-2026-09-21-round-2.md) records commits, tests and operational limits. The [OG feature evaluation](helmsman-og-feature-evaluation-2026-09-21.md) compares all 23 commits since the shared baseline; it proposes clean plugin ports and identifies policy/contract changes. No OG feature was imported as part of the fixes.

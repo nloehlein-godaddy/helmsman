@@ -1,0 +1,8 @@
+
+Running 1 test using 1 worker
+
+(node:35468) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/distribution/execution-host.pw.ts:11:1 › installed execution hosts own launch, discovery and stop across provider disablement and application restart (13.3s)
+
+  1 passed (13.6s)

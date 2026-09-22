@@ -1,5 +1,7 @@
 # Adversarial review — second pass, 2026-09-21
 
+Subsequent implementation and verification are recorded in the [second fix ledger](adversarial-fixes-2026-09-21-round-2.md). This report retains the audited snapshot and original findings.
+
 **Seven confirmed findings: two P1, four P2, one P3. No P0.** The application builds and its baseline tests pass, but startup can delete unrelated developer work, and an accepted historical execution-host package can produce false staged-completion evidence. Address those two findings before treating the current snapshot as ready for unrestricted use.
 
 Reviewed `e3ccca4d6b31db70974f4c8e70784e491768d9c8` on `fix/adversarial-review-2026-09-21`: the fixes since the [first review](adversarial-review-2026-09-21.md) at `ec3dd6b544cba1f796c353134dc4af0437cf40a8`, A–G history since `e471d86630d78f2285611e81256ff912e5f57d0e`, and inherited current code. The rewrite range comprises **85 commits, 1,401 changed files, 103,230 insertions and 18,645 deletions**. Reviewers investigated risk-selected histories and current implementations; this is not a claim that every changed line or possible interleaving was exhaustively checked.

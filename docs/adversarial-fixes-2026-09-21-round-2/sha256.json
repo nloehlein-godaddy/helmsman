@@ -1,0 +1,15 @@
+{
+  "README.md": "da85c6d4166010d13329793f0dc592f1a8eab74224dbdb60cea6e2946fe90a0c",
+  "evidence/duplicate-panel-controls.png": "8fa8bfacd937ae8f2d608f714e1eb82677fb4f78e1a39c3b6499552f885661c2",
+  "evidence/final-build.log": "e5540beacc1798318dac0c884b68912499de4d9ec6b5d0c7c820cbbbe2b70394",
+  "evidence/final-distribution.log": "48cac706acb9e431885632f87adf4c9197887c1200f989a010ebcf149cebd4ad",
+  "evidence/final-installed.log": "7e4a071e82205820beec723c28c7483b3c8289226f7dd7d0ccd47951de602789",
+  "evidence/final-lifecycle.log": "0b8effb0fb2a8148f9d72f105b7adfb83832426cabaf5c9f1ddc1e7058d43b61",
+  "evidence/installed-cleanup-fixed.mts.txt": "33d1d4ca740c8c668c14d18ce73050c24c8b7fcc2e4ecd17be8d6bb15edefea5",
+  "evidence/installed-cleanup.log": "ea8f091cf8cf3fdca23a915b1c33abc640ea8402b50cd645a21899df6aa58123",
+  "evidence/installed-host.log": "e0b7418ede6f446c7bce1685953f41b5f6e14403245d53099cd04f7b5e7f62ce",
+  "evidence/installed.log": "c9e7bde618d745adde9331f9d05310828bdcb304a19c73c9cb30c013e3240ca6",
+  "evidence/same-key-run-tabs-desktop.png": "8aeaaaaf3834ed4a4b5014420aa0477f089cd0e91d557e536172fbe3b60e1713",
+  "evidence/same-key-run-tabs-mobile.png": "486b18a07e4d1739066e88ce717eb8c1d7329a25a9534dbfdb6e49a6c04f6694",
+  "evidence/unit.log": "8b4a62cce513049b1b79c5143b15c561de65fa74be7b5f741d342c6079b1b2c4"
+}

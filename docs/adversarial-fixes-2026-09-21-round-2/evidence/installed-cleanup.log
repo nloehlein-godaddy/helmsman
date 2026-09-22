@@ -1,0 +1,10 @@
+{
+  "fixed": true,
+  "controlShutdownMs": 1239,
+  "overlappingShutdownMs": 1232,
+  "cleanupDelayMs": 1200,
+  "normalShutdownCleanupFinished": true,
+  "disableThenShutdownCleanupFinished": true,
+  "externalCommandLog": "",
+  "serverOutput": "execution host: helmsman.host-local/detached\nHelmsman on :56962\nexecution host: helmsman.host-local/detached\nHelmsman on :56967\n"
+}
