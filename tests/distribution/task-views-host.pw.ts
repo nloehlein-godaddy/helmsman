@@ -12,6 +12,7 @@ test('source-denied independent task views preserve scope, partial groups and me
     await host.installAuthorPackage('plugin-sources/jira', 'example.independent-jira');
     await host.installAuthorPackage('plugin-sources/triage', 'example.triage-view');
     await host.installAuthorPackage('plugin-sources/bugs', 'example.bugs-view');
+    await host.installAuthorPackage('plugin-sources/underway', 'example.underway-view');
     const author = join(host.app, 'plugin-sources/taskviews-proof'); await mkdir(author);
     await writeFile(join(author, 'package.json'), '{"type":"module"}');
     await writeFile(join(author, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, types: [], noEmitOnError: true }, include: ['backend.ts', 'page.ts'] }));
@@ -19,25 +20,30 @@ test('source-denied independent task views preserve scope, partial groups and me
       manifest: { manifestVersion: 2, id: 'example.taskviews', version: '0.1.0', sdkVersion: 1,
         pages: [{ id: 'page', title: 'Independent task views', slots: ['helmsman/costs-page'], panes: [], requires: [{ id: 'helmsman/task-read', version: 1 }, { id: 'helmsman/task-views-read', version: 1 }] }], panels: [] },
       node: { minMajor: 22, maxMajorExclusive: 30 }, entries: { page: 'page.js' }, panelEntries: {}, backend: { entry: 'backend.js',
-        provides: [{ id: 'helmsman/task-source', version: 1, localId: 'tasks' }], taskSources: { tasks: { identityFormats: ['example.task/v1'], effectIds: [], commandIds: [], access: [], readViews: ['triage', 'bugs'] } }, settings: {}, storageVersion: 1 } }));
+        provides: [{ id: 'helmsman/task-source', version: 1, localId: 'tasks' }], taskSources: { tasks: { identityFormats: ['example.task/v1'], effectIds: [], commandIds: [], access: [], readViews: ['triage', 'bugs', 'underway'] } }, settings: {}, storageVersion: 1 } }));
     await writeFile(join(author, 'backend.ts'), `import type { PluginBackendModule, TaskSourceProviderV1 } from '@helmsman/plugin-sdk';
 const source: TaskSourceProviderV1 = {
   async identify() { return { version: 1, level: 'operator-seeded', authority: null, verifiedAt: new Date().toISOString(), proof: {} }; },
   async list() { return { items: [], nextCursor: null }; }, async lookup() { return null; },
   async load(ref, context) {
-    const repo = context.repo; if (!repo || ref.externalId !== repo.replace('/', '-')) return null;
-    return { version: 1, ref, revision: '1', displayKey: 'TASK-1', title: 'Scoped ' + repo, repo, url: null, state: 'ready', priority: 1,
+    const repo = context.repo; if (!repo || ![repo.replace('/', '-'), repo.replace('/', '-') + '-unclaimed'].includes(ref.externalId)) return null;
+    return { version: 1, ref, revision: '1', displayKey: (repo === 'org/a' ? 'TASK-1' : 'OTHER-1') + (ref.externalId.endsWith('-unclaimed') ? '-unclaimed' : ''), title: 'Scoped ' + repo, repo, url: null, state: 'ready', priority: 1,
       requirements: { description: 'Description for ' + repo + ' <img src=x onerror=alert(1)>', acceptanceCriteria: [], links: [] }, providerData: null };
+  },
+  async listUnderway(input, context) {
+    const refs = [input.repo.replace('/', '-'), input.repo.replace('/', '-') + '-unclaimed'];
+    const items = await Promise.all(refs.map(externalId => source.load({ sourceId: context.instance.sourceId, externalId }, context)));
+    return { items: items.filter((item): item is NonNullable<typeof item> => item !== null), nextCursor: null };
   },
   async planClaim() { throw new Error('No effects'); }, async planCompletion() { throw new Error('No effects'); }, async planAbort() { throw new Error('No effects'); }, async validateAdoption() { throw new Error('No adoption'); }, effects: {},
   async listTriage(input, context) {
     const unavailable = input.group === 'unassigned-backlog'; const included = input.priorities.includes(1); const suffix = input.cursor ? '-second' : '';
-    return { version: 1, repo: input.repo, group: input.group, items: unavailable || !included ? [] : [{ ref: { sourceId: context.instance.sourceId, externalId: input.repo.replace('/', '-') + suffix }, revision: '1', displayKey: 'TASK-1' + suffix, title: 'Scoped ' + input.repo + suffix, url: null, state: 'ready', priority: 1, updatedAt: input.until }], nextCursor: !unavailable && included && !input.cursor ? 'next-page' : null, quality: unavailable ? 'unavailable' : 'partial' };
+    return { version: 1, repo: input.repo, group: input.group, items: unavailable || !included ? [] : [{ ref: { sourceId: context.instance.sourceId, externalId: input.repo.replace('/', '-') + suffix }, revision: '1', displayKey: (input.repo === 'org/a' ? 'TASK-1' : 'OTHER-1') + suffix, title: 'Scoped ' + input.repo + suffix, url: null, state: 'ready', priority: 1, updatedAt: input.until }], nextCursor: !unavailable && included && !input.cursor ? 'next-page' : null, quality: unavailable ? 'unavailable' : 'partial' };
   },
   async readBugs(input, context) {
     const known = { value: 25000, quality: 'approximate' as const }; const unknown = { value: null, quality: 'unavailable' as const };
     return { version: 1, repo: input.repo, asOf: input.asOf, open: known, createdLast7d: unknown, completedLast7d: known, pastSla: unknown,
-      rows: [{ ref: { sourceId: context.instance.sourceId, externalId: 'bug-1' }, displayKey: 'BUG-1', title: 'Independent bug ' + input.repo, url: null, priority: 'P1', severity: 'S2 - Major', dueAt: '2026-09-19', createdAt: input.asOf }], rowsQuality: 'partial', oldest: null, oldestQuality: 'unavailable', resolutionP75: { days: 4.5, sampleSize: 100, population: known, quality: 'partial', capped: true } };
+      rows: [{ ref: { sourceId: context.instance.sourceId, externalId: 'bug-1' }, displayKey: 'BUG-1', title: 'Independent bug ' + input.repo, description: 'Bug description for ' + input.repo + ' <img src=x onerror=alert(1)>', url: null, priority: 'P1', severity: 'S2 - Major', dueAt: '2026-09-19', createdAt: input.asOf }], rowsQuality: 'partial', oldest: null, oldestQuality: 'unavailable', resolutionP75: { days: 4.5, sampleSize: 100, population: known, quality: 'partial', capped: true } };
   }
 }; const backend: PluginBackendModule = { activate(context) { context.registerTaskSource('tasks', source); } }; export default backend;
 `);
@@ -67,7 +73,7 @@ const page: PluginPageModule = { mount(container, context) {
         identityEvidence:{version:1,level:'operator-seeded',authority:null,verifiedAt:new Date().toISOString(),proof:{}},
         binding:{providerId:'example.taskviews/tasks',pluginId:'example.taskviews',artifactHash:${JSON.stringify(artifact.hash)},contractVersion:1,connectionId:null,credentialHandle:null},settings:{},allowedRepos:['org/a','org/b'] });
       persistence.transaction(()=>writeTaskSource(store,{...value.source,conversionReady:true}));
-      const db=openDb(persistence.sql); db.insertRun({id:'related-a',repo:'org/a',ticketId:'Same display key is insufficient',adapter:'codex',status:'succeeded',attempt:1,prNumber:null,startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),costUsd:null,worktreePath:null});
+      const db=openDb(persistence.sql); db.insertRun({id:'related-a',repo:'org/a',ticketId:'Same display key is insufficient',adapter:'codex',status:'succeeded',attempt:1,prNumber:42,startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),costUsd:null,worktreePath:null});
       for(const externalId of ['org-a','org-b']) store.reserveWork({ref:{sourceId:value.instance.sourceId,externalId},admissionId:'related-'+externalId,runId:'related-a',instanceId:value.instance.id,expectedSourceRevision:value.source.revision,expectedInstanceRevision:1});
       console.log(JSON.stringify(value.instance)); } finally { persistence.close(); }`));
     let origin = await host.start(); await page.goto(`${origin}/outcomes?repo=org/a`);
@@ -100,7 +106,36 @@ const page: PluginPageModule = { mount(container, context) {
     const bugs = page.locator('.plugin-bugs').last(); await expect(bugs).toContainText('Independent bug org/b');
     await expect(bugs).toContainText('≈ 25,000'); await expect(bugs).toContainText('Unavailable'); await expect(bugs).toContainText('100 sampled');
     await expect(bugs.getByLabel('Severity S2 - Major', { exact: true })).toHaveText('S2');
+    const bugDescription = bugs.getByRole('button', { name: /description/i });
+    await bugDescription.focus(); await page.keyboard.press('Enter');
+    await expect(bugDescription).toHaveAttribute('aria-expanded', 'true');
+    await expect(bugs).toContainText('Bug description for org/b <img src=x onerror=alert(1)>');
+    await expect(bugs.locator('img')).toHaveCount(0);
+    await page.reload();
+    await expect(bugs).toContainText('Bug description for org/b <img src=x onerror=alert(1)>');
     await expect(bugs).toHaveScreenshot('bugs-authored-metrics.png', { mask: [bugs.getByText(/^Observed /)] });
+    await page.goto(`${origin}/plugins/example.bugs-view/page?repo=org/a`);
+    await expect(bugs).not.toContainText('Bug description for org/b');
+    await expect(bugs.getByRole('button', { name: /description/i })).toHaveAttribute('aria-expanded', 'false');
+    await page.goto(`${origin}/helm?repo=org/a`);
+    await page.getByText('Manage panels', { exact: true }).click();
+    await page.getByLabel('Panel to add', { exact: true }).selectOption('example.underway-view/panel');
+    await page.getByRole('button', { name: 'Add panel', exact: true }).click();
+    const underway = page.locator('.plugin-underway').last();
+    await expect(underway).toContainText('TASK-1: Scoped org/a');
+    await expect(underway.getByRole('link', { name: /^Open (run|voyage)$/ })).toHaveCount(1);
+    await expect(underway.getByRole('link', { name: 'Open pull request', exact: true })).toHaveCount(1);
+    await underway.getByRole('link', { name: /^Open (run|voyage)$/ }).click();
+    await expect(page).toHaveURL(/run=related-a/);
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await underway.getByRole('link', { name: 'Open pull request', exact: true }).click();
+    await expect(page).toHaveURL(/pr=42/);
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await page.locator('.repo-select').selectOption('org/b');
+    await page.goto(`${origin}/helm?repo=org/b`);
+    await expect(underway).toContainText('OTHER-1: Scoped org/b');
+    await expect(underway.getByRole('link', { name: /^Open (run|voyage)$/ })).toHaveCount(0);
+    await expect(underway.getByRole('link', { name: 'Open pull request', exact: true })).toHaveCount(0);
     await page.goto(`${origin}/outcomes?repo=org/b`); await expect(output).toContainText('Scoped org/b'); await expect(output).not.toContainText('Scoped org/a');
     const disabled = await request.post(`${origin}/api/task-sources/${selected.id}/enablement`, { data: { instanceRevision: 1, desiredEnabled: false } }); expect(disabled.ok()).toBe(true);
     await page.getByRole('button', { name: 'Refresh views', exact: true }).click(); await expect(output).toContainText('disabled');

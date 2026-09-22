@@ -217,3 +217,28 @@ test('catalog failure keeps optional pages unavailable without substituting Cost
   await expect(page.getByText('Some plugin pages could not be loaded. Check the plugin catalog and restart.', { exact: true })).toBeVisible();
   expect(requests).not.toContain('/api/reports/outcomes/v1');
 });
+
+
+test('Config keeps the operator disclosure through unavailable settings and preserves footer controls', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/config?repo=org/a');
+  const note = page.locator('.page-intro .operator-note');
+  await expect(note).toBeVisible();
+  await expect(page.locator('.operator-note')).toHaveCount(1);
+  await expect(page.locator('.app-footer [data-recovery-link]')).toHaveAttribute('href', '/recovery?repo=org%2Fa');
+  await expect(page.locator('.app-footer [data-pirate-mode]')).toBeVisible();
+  await expect(page).toHaveScreenshot('config-operator-desktop.png', { fullPage: true, mask: [page.locator('.footer-meta')] });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page).toHaveScreenshot('config-operator-mobile.png', { fullPage: true, mask: [page.locator('.footer-meta')] });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.route('**/api/config', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+  await page.reload();
+  await expect(page.locator('.config-load-error')).toBeVisible();
+  await expect(note).toBeVisible();
+  await expect(page.locator('.operator-note')).toHaveCount(1);
+  await expect(page.locator('.app-footer [data-pirate-mode]')).toBeVisible();
+  await expect(page).toHaveScreenshot('config-operator-unavailable.png', { fullPage: true, mask: [page.locator('.footer-meta')] });
+  await page.goto('/outcomes?repo=org/a');
+  await expect(page.getByRole('heading', { name: 'Costs & Outcomes' })).toBeVisible();
+  await expect(page.locator('.operator-note')).toHaveCount(0);
+});

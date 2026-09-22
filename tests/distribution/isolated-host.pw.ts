@@ -389,8 +389,8 @@ test('independently compiled Running and Recent panels keep scoped run commands 
   host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER,org/c=RETRY'; host.env.AGENT_MAX_CONCURRENCY = '8'; host.env.AGENT_MAX_ATTEMPTS = '1'; host.env.RUN_HOST = 'detached';
   try {
     await expect(host.script('prove-run-panel-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/sdk.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
-    await host.installAuthorPackage('plugin-sources/running', 'example.running');
-    const recentPackage = await host.installAuthorPackage('plugin-sources/recent', 'example.recent');
+    await host.installAuthorPackage('plugin-sources/running', 'example.running', { buildScript: true });
+    const recentPackage = await host.installAuthorPackage('plugin-sources/recent', 'example.recent', { buildScript: true });
     await host.cli('select-agent', 'helmsman.agent-claude/claude-code');
     await host.cli('select-agent-reviewers', 'helmsman.agent-claude/claude-code');
     const checkout = join(host.cwd, 'c'); const bare = join(host.root, 'retry-remote.git'); const git = gitBin();

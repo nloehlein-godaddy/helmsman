@@ -39,6 +39,11 @@ describe('application views', () => {
     expect(el.querySelector('a[href="/source-settings?repo=org%2Fa"]')?.textContent).toBe('Source settings');
     expect(el.querySelector('[data-task-source-settings]')).toBeNull();
     expect(el.querySelector('.ui-customization-panel')).not.toBeNull();
+    expect(el.querySelectorAll('.operator-note')).toHaveLength(1);
+    expect(el.querySelector('.page-intro .operator-note')).not.toBeNull();
+    expect(el.querySelector('.app-footer .operator-note')).toBeNull();
+    expect(el.querySelector('.app-footer [data-recovery-link]')?.getAttribute('href')).toBe('/recovery?repo=org%2Fa');
+    expect(el.querySelector('.app-footer [data-pirate-mode]')).not.toBeNull();
   });
 
   it('renders theme selection in its own Config customization panel', () => {

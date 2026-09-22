@@ -1,6 +1,6 @@
 # Durable OG command design
 
-**Scope:** Triage `Assign to me`, configurable in-app feedback, and Underway task/run/PR actions. This is a design only; no production source was changed. The decisions in the [consolidated design](../helmsman-og-feature-design.md) refine the illustrative shapes below: core owns binding authority, feedback uses a tracker-neutral destination, and assign-self never takes over another actor's assignment.
+**Scope:** Triage `Assign to me`, configurable in-app feedback, and Underway task/run/PR actions. Assignment and feedback remain design-only. The read-only Underway context in section 3 is implemented in Batch 2. The decisions in the [consolidated design](../helmsman-og-feature-design.md) refine the illustrative shapes below: core owns binding authority, feedback uses a tracker-neutral destination, and assign-self never takes over another actor's assignment.
 
 ## Ground rules from the current implementation
 
@@ -178,6 +178,8 @@ resolve({
   version: 1,
   selection: TaskReadSelectionV1,
   ref: WorkRefV1,
+  taskRevision: string,
+  claim: 'active' | 'settled',
 }): Promise<Result<{
   version: 1;
   task: { selection: TaskReadSelectionV1; ref: WorkRefV1; url: string | null };
@@ -194,7 +196,7 @@ Resolution validates current source selection and galleon scope, then reads cano
 - PR identity comes only from a run that has a recorded `prNumber`, matched to the same run and repo. If publication eventually records a head SHA, include it for later write eligibility; a PR title containing a ticket key is never evidence.
 - If a provider cannot prove one edge, return that edge as `null`, while still returning verified neighboring context. Do not fan out into PR search to fill the gap.
 
-The service is read-only and requires no new journal. It should be implemented over `TaskSourceStore.claim/claimForRun` plus the run row/inspection authority, not by exposing private snapshots or task JSON. Every result is bounded and contains no connection, credential, source settings, worktree, or log data.
+Underway requests active claims; callers must explicitly request settled history. The service is read-only and requires no new journal. It should be implemented over `TaskSourceStore.claim/claimForRun` plus the run row/inspection authority, not by exposing private snapshots or task JSON. Every result is bounded and contains no connection, credential, source settings, worktree, or log data.
 
 ### Underway UI actions
 

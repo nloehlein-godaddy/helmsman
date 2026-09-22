@@ -65,7 +65,7 @@ afterEach(() => {
 describe('persistent app shell', () => {
   it('keeps the same header, tabs, counts, footer, and notification controls across the primary views', async () => {
     const { root, switchTo } = await setup();
-    const selectors = ['.helm-head', '.nameplate', '.repo-select', '.helm-readout', '.page-tabs', '.app-footer', '.operator-note', '[data-slack-toggle]', '.slack-popover', '#page-content'];
+    const selectors = ['.helm-head', '.nameplate', '.repo-select', '.helm-readout', '.page-tabs', '.app-footer', '[data-slack-toggle]', '.slack-popover', '#page-content'];
     const elements = selectors.map(selector => root.querySelector(selector));
     expect(root.querySelector('[data-fleet-count="queued"]')?.textContent).toBe('—');
     expect(root.querySelector('[data-fleet-count="review"]')?.textContent).toBe('—');
@@ -82,6 +82,7 @@ describe('persistent app shell', () => {
       expect(root.querySelector('.app-footer')?.textContent).toBe(footer);
       expect(root.querySelector('#page-content .app-footer')).toBeNull();
       expect(root.querySelector('#page-content .helm-head')).toBeNull();
+      expect(root.querySelectorAll('.operator-note')).toHaveLength(page === 'config' ? 1 : 0);
     }
   });
 

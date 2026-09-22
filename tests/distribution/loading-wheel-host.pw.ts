@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test';
 import { join } from 'node:path';
 import { fixture, sourceRoot } from './isolated-fixture';
 
-test('source-denied copied run panels retain accessible loading and unavailable states', async ({ page }) => {
+test('source-denied copied run panels retain accessible loading and unavailable states', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
-  const host = await fixture(); const errors: string[] = []; const held: Promise<void>[] = [];
+  const host = await fixture(); host.env.REPO_PROJECT_MAP = 'org/a=TASK'; const errors: string[] = []; const held: Promise<void>[] = [];
   let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
   page.on('pageerror', error => errors.push(error.message));
   try {
@@ -27,14 +27,15 @@ test('source-denied copied run panels retain accessible loading and unavailable 
     await expect.poll(() => held.length).toBeGreaterThanOrEqual(2);
     const running = page.locator('.plugin-running').last(); const recent = page.locator('.plugin-recent').last();
     for (const panel of [running, recent]) {
-      const loading = panel.getByRole('status', { name: 'Loading runs…', exact: true });
+      const loading = panel.getByRole('status').filter({ hasText: 'Loading runs…' });
       await expect(loading).toBeVisible(); await expect(loading.locator('svg')).toHaveCSS('animation-name', 'none');
       expect(await loading.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     }
+    await recent.screenshot({ path: testInfo.outputPath('loading-wheel-mobile.png') });
     release(); await Promise.all(held);
     for (const panel of [running, recent]) {
       await expect(panel.getByRole('alert')).toContainText('Run data is unavailable: service-unavailable. Refresh to retry.');
-      await expect(panel.getByRole('status', { name: 'Loading runs…', exact: true })).toHaveCount(0);
+      await expect(panel.getByRole('status').filter({ hasText: 'Loading runs…' })).toHaveCount(0);
     }
     expect(errors).toEqual([]); expect(host.output()).not.toContain('Source checkout is unavailable');
   } finally { release?.(); await host.close(); }

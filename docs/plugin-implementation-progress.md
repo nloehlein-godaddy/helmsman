@@ -3,6 +3,21 @@
 All phases A–G in [the architecture plan](plugin-architecture-plan.md) are complete, with the shipped v1 scope and limitations documented below. Implementation, independent review, corrections and acceptance are complete through `553dff4`. Earlier entries preserve the evidence and status at each checkpoint.
 
 
+## OG feature extensions — batch 2
+
+Bugs descriptions, the public loading-wheel helper, Config disclosure placement and read-only canonical Underway navigation are implemented. Implementation, review corrections and acceptance are complete. Three isolated implementation worktrees and independent cross-reviews cover provider/contract projection, presentation and host authority. No remote-write capability or execution-concurrency policy changed.
+
+- Bugs providers may omit descriptions. Public parsing bounds UTF-8 text and response size; Jira omits malformed/oversized descriptions and budgets the aggregate payload while preserving counts and coverage. Disclosure renders literal text with bounded, scoped saved expansion and keyboard focus.
+- Running and Recent bundle the SDK wheel module in copied author packages. The wheel retains textual status and supports reduced motion. Errors remain independent of refresh indicators.
+- Config owns the operator disclosure in its shared introduction, including loading/unavailable paths. Footer Recovery scope and Pirate controls remain available.
+- Optional task context validates source/task revisions, exact canonical claims and captured source identity. Same-galleon run records supply attempt and PR number; display strings never infer relationships. Underway cancels stale reads and uses selected presentation/navigation with header scope preserved.
+
+Review corrections include missing composition-host wiring and server cancellation, cross-galleon/unsafe-URL parser rejection, captured source-instance checks, Bugs focus stealing, missing SVG hub, copied-author runtime bundling, optional-context read latency/cancellation and header-preserving navigation. The SDK ships compatible optional additions as 1.1.0; the closed v1 manifest requirement union is preserved. The frozen SDK v1 baseline remains unchanged.
+
+The settled unit run exercised 5,042 tests across 381 files: 5,041 passed, and the sole failure was the obsolete global-disclosure assertion. The corrected shell/render checks passed all 28 tests. The final focused context/host/manifest suite passed all 115 tests, including slow reads, cancellation, header-scope fallback and keyboard focus. TypeScript, Vite and distribution build passed with the frozen SDK compatibility gate. All nine distribution checks passed, including copied SDK author compilation and documentation link closure. Eighteen affected browser tests passed; Config desktop/mobile and unavailable-state snapshots, the shorter-footer snapshots, Bugs disclosure and mobile loading wheel were reviewed. Both new installed scenarios passed after correcting fixture scope and duplicate source aliases. The copied task-view scenario covers literal descriptions, persisted/scoped disclosure and canonical Underway run/PR navigation; the copied wheel scenario verifies bundled assets, reduced motion and retained failure announcements. Offline HTML flowcharts fit desktop and mobile. After the last lifecycle/scope corrections, TypeScript and the production/distribution build passed again, plus three launch-panel browser scenarios and three affected installed scenarios (Running/Recent, New Run/Underway and task views). Remaining batches: durable assign-self; configured feedback; compatible opt-in same-galleon parallelism. Underway Slack mutation remains separate future scope.
+
+_Helmsman · not reported - not reported_
+
 ## OG feature extensions — batch 1
 
 The [remaining-feature design](helmsman-og-feature-design.md) covers all remaining OG ports and their dependencies. Three independent worktrees implemented Triage description disclosure, Bugs severity badges, the Firefox browser package and authenticated own-PR protection for incoming automatic Slack reviews. This extends completed rewrite phases A–G.
@@ -20,7 +35,7 @@ Validation: 5,018 unit/integration tests across 378 files passed, TypeScript/pro
 
 Real disposable smoke used Firefox 156.0 and geckodriver 0.37.1: two actual provider instances shared one session, discovered its context, used virtual focus, awaited async evaluation, filled an input and produced exactly one click event. Disposing one instance left the other and the externally owned session usable. All owned browser/bridge processes were stopped; no real Slack/Jira/GitHub messages or user workloads ran. This validates Firefox primitives and shared-session interoperability, not a signed-in production Slack send. Smoke artifacts were temporary and were removed.
 
-Remaining batches are planned, not implemented: Bugs descriptions/loading/Config placement and canonical Underway actions; durable assign-self; configured feedback submission; compatible opt-in same-galleon parallelism. Current execution remains galleon-exclusive by default. Read the design for authority, migration and recovery requirements before those implementations.
+At this Batch 1 checkpoint, remaining batches included Bugs descriptions/loading/Config placement and canonical Underway actions (now delivered in Batch 2 above); durable assign-self; configured feedback submission; compatible opt-in same-galleon parallelism. Current execution remains galleon-exclusive by default. Read the design for authority, migration and recovery requirements before those implementations.
 
 _Helmsman · not reported - not reported_
 

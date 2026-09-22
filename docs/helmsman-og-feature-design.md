@@ -1,6 +1,6 @@
 # Remaining feature design and delivery
 
-Status: first batch implemented and reviewed. The [delivery ledger](plugin-implementation-progress.md#og-feature-extensions--batch-1) records verification and remaining scope. This document distinguishes planned behavior from shipped behavior. Baseline: `edd5a8a`; OG reference: `4ca712a`. See the [feature evaluation](helmsman-og-feature-evaluation-2026-09-21.md) for commit provenance.
+Status: Batches 1 and 2 implemented, reviewed and verified. The [delivery ledger](plugin-implementation-progress.md#og-feature-extensions--batch-1) records verification and remaining scope, including [Batch 2](plugin-implementation-progress.md#og-feature-extensions--batch-2). This document distinguishes planned behavior from shipped behavior. Baseline: `edd5a8a`; OG reference: `4ca712a`. See the [feature evaluation](helmsman-og-feature-evaluation-2026-09-21.md) for commit provenance.
 
 ## Decisions
 
@@ -18,7 +18,7 @@ Triage summaries do not carry descriptions. On disclosure, call the existing sco
 
 Bugs recognizes only unambiguous S0–S5 severity identifiers (standalone or followed by a separator and explanatory text). Display a compact badge with the original value available to assistive technology and on hover. Unknown/custom text stays verbatim; null remains Unknown. Do not infer severity from priority or color alone.
 
-Later presentation batch:
+Batch 2 presentation:
 
 | Feature | Boundary and behavior | Acceptance |
 |---|---|---|

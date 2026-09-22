@@ -549,7 +549,6 @@ select { text-transform: none; }
   color: var(--text-faint);
 }
 .footer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
-.app-footer .operator-note { grid-column: 1 / -1; padding: 0; border: 0; background: none; }
 .app-footer .footer-attr { color: var(--text-dim); }
 .app-footer .footer-dot { color: var(--line-strong, var(--line)); }
 .pirate-mode-toggle { display: inline-flex; align-items: center; justify-content: center; align-self: end; width: 44px; height: 44px; padding: 4px; border: 1px solid transparent; border-radius: var(--radius); color: var(--text); background: transparent; opacity: 1; cursor: pointer; }
@@ -807,6 +806,7 @@ select { text-transform: none; }
 .page-intro { padding: 16px 14px; }
 .page-intro h1 { margin: 0 0 8px; font: 700 18px var(--mono); }
 .page-intro p { margin: 0; max-width: 72ch; line-height: 1.6; color: var(--text-dim); }
+.page-intro .operator-note { margin-top: 12px; }
 .newrun-task-field { grid-column: 1 / -1; }
 
 .task-source-settings { display: grid; gap: 1rem; }

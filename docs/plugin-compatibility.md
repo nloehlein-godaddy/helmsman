@@ -1,6 +1,6 @@
 # SDK compatibility and deprecation
 
-The public SDK is stable at **1.0.0**, distributed in `sdk/` with Helmsman. It is not published to npm. Install that directory into an independent author project. The SDK package version is maintained in `sdk/version.json` independently of the application version.
+The public SDK is stable at **1.1.0**, distributed in `sdk/` with Helmsman. It is not published to npm. Install that directory into an independent author project. The SDK package version is maintained in `sdk/version.json` independently of the application version.
 
 | Version | Meaning and current support |
 |---|---|
@@ -8,7 +8,7 @@ The public SDK is stable at **1.0.0**, distributed in `sdk/` with Helmsman. It i
 | `packageVersion` | Archive descriptor format: 1. |
 | `manifestVersion` | Presentation metadata: 1 for pages; 2 adds panels/compositions. Both remain supported. |
 | `sdkVersion` | Exact host protocol major: 1. It is an integer, not an npm semver range. |
-| SDK package version | Public TypeScript declarations and bundleable helpers: 1.0.0. Patch releases fix compatible behavior; minor releases add compatible optional APIs. |
+| SDK package version | Public TypeScript declarations and bundleable helpers: 1.1.0. Patch releases fix compatible behavior; minor releases add compatible optional APIs. |
 | Capability/service/contract version | Independent protocol version, currently 1. Keep shared `helmsman/...` IDs when replacing implementations. |
 | `storageVersion` | Namespaced backend storage schema: 1. It never authorizes changing a retained execution binding. |
 | `node` range | Inclusive `minMajor`, exclusive `maxMajorExclusive`; checked at installation, enablement, startup and retained external recovery before module evaluation. |
@@ -16,6 +16,8 @@ The public SDK is stable at **1.0.0**, distributed in `sdk/` with Helmsman. It i
 Unsupported SDK, manifest, capability and storage versions are rejected before activation. An explicitly unavailable selection remains unavailable; it cannot silently select a different implementation. Declare required public services in presentation metadata and check optional services before using them. The browser SDK and `/node` entry are distinct; browser assets must not import Node helpers.
 
 New optional methods/fields may be added within a contract version. Existing required fields, signatures, identifier semantics and failure/recovery behavior remain compatible. A breaking protocol change requires a new capability/service version and explicit host support. A breaking SDK lifecycle or helper change requires a new SDK major and compatible host protocol. Neither an application upgrade nor a new plugin package version implicitly changes these contracts.
+
+Version 1.1 adds optional Bugs descriptions, feature-detected `services.taskContext`, and the bundleable loading wheel. Task context is optional only: do not add it to the v1 manifest's closed `requires` identifiers. Existing packages and protocol major 1 remain supported; the frozen 1.0 baseline remains the compatibility reference.
 
 ## Enforcement
 

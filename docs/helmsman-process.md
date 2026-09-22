@@ -6,12 +6,20 @@ The flow now includes Moon Units-inspired intake, frozen execution settings, iso
 
 ## OG feature extensions
 
-The [remaining-feature design](helmsman-og-feature-design.md) extends completed phases A–G. The first batch adds scoped Triage description reads, accessible severity badges, an independently selected Firefox browser provider and authenticated ownership checks for incoming Slack reviews. Assignment, feedback, broader contextual actions and opt-in same-galleon parallelism remain planned; the current one-run-per-galleon default is unchanged.
+The [remaining-feature design](helmsman-og-feature-design.md) extends completed phases A–G. The first batch adds scoped Triage description reads, accessible severity badges, an independently selected Firefox browser provider and authenticated ownership checks for incoming Slack reviews. Batch 2 adds Bugs descriptions, public loading wheels, the Config operator note and canonical Underway run/PR navigation. Assignment, feedback, Underway Slack commands and opt-in same-galleon parallelism remain planned; the current one-run-per-galleon default is unchanged.
 
 ```mermaid
 flowchart TD
     Row[Triage disclosure] --> Load[Scoped task load<br/>Exact source, task and revision]
     Load --> Text[Bounded plain text<br/>Scoped expansion and focus]
+    Bugs[Bugs disclosure] --> Report[Optional bounded description in scoped report]
+    Report --> Text
+    Underway[Underway task row] --> Context[Current source and task revision]
+    Context --> Claim[Exact canonical work claim]
+    Claim --> Run[Same-galleon run and expected attempt]
+    Run --> Navigate[Selected run presentation]
+    Run --> PR[Recorded PR number only]
+    PR --> Inspect[Selected PR presentation revalidates target]
     Slack[Queued automatic Slack review] --> Capture[Captured PR provider and connection]
     Capture --> Owner{Authenticated actor vs exact-head author}
     Owner -->|Own| Block[Persist policy and block]
