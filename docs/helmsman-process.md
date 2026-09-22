@@ -4,6 +4,8 @@ Open [helmsman-process.html](helmsman-process.html) for the standalone diagrams.
 
 The flow now includes Moon Units-inspired intake, frozen execution settings, isolated agent stages, Agent Questions, durable evidence and recovery, and Costs & Outcomes. Those services surround the existing exact-revision PR review gate; they do not replace it.
 
+Local development uses UI port `43872` → server/API port `43871`. The production server serves both the built UI and API on `43871`, including safe start. `HELMSMAN_UI_PORT` and `HELMSMAN_PORT` override these defaults; Vite stops if its selected port is occupied.
+
 ## OG feature extensions
 
 The [remaining-feature design](helmsman-og-feature-design.md) extends completed phases A–G. The first batch adds scoped Triage description reads, accessible severity badges, an independently selected Firefox browser provider and authenticated ownership checks for incoming Slack reviews. Batch 2 adds Bugs descriptions, public loading wheels, the Config operator note and canonical Underway run/PR navigation. Assignment, feedback, Underway Slack commands and opt-in same-galleon parallelism remain planned; the current one-run-per-galleon default is unchanged.

@@ -62,7 +62,7 @@ The old `/api/dashboard`, `/api/triage`, `/api/bugs` and private PR routes retur
 
 ```bash
 npm install
-npm run dev          # Helmsman (:8787) + Vite dev server (proxies /api)
+npm run dev          # Helmsman (:43871) + Vite UI (:43872, proxies /api)
 npm run helmsman     # Helmsman server only
 npm run build        # production build to dist/
 npm test             # vitest
@@ -195,8 +195,8 @@ a bounded per-ticket agent session is the whole architecture.
    Jira is optional for PR reviews and free-form voyages. Leave its credentials blank
    if you do not use it; Jira panels will identify their data as degraded.
 6. Leave both review watchers disabled for the initial check. Run `npm run dev` and open
-   the printed Vite URL (normally `http://localhost:5173`). The API listens on
-   `127.0.0.1:8787` by default. Open **Config**, select a repository, and verify the
+   the printed Vite URL (normally `http://localhost:43872`). The API listens on
+   `127.0.0.1:43871` by default. Open **Config**, select a repository, and verify the
    **Local branches & worktrees** card resolves the expected checkout. Check Helm/PR
    for live data and source-error banners. Resolve credential, checkout, and agent CLI
    errors before enabling automatic work. Saving a Config row applies only that row.
@@ -204,7 +204,11 @@ a bounded per-ticket agent session is the whole architecture.
    [Automatic PR reviews](#automatic-pr-reviews) to enable either optional watcher.
 
 For a production build on the same machine, run `npm run build` followed by
-`npm run helmsman`, then open `http://127.0.0.1:8787` (or your `HELMSMAN_PORT`).
+`npm run helmsman`, then open `http://127.0.0.1:43871` (or your `HELMSMAN_PORT`).
+The built UI is served by that same server. Vite development and `npm run preview` use
+port `43872` (`HELMSMAN_UI_PORT` overrides it); explicit Vite `--port` also works.
+When upgrading, remove or update old `HELMSMAN_PORT=8787` overrides in your `.env`
+to use the new default.
 The server serves `dist/` and the API together; `npm run preview` alone is not the
 Helmsman backend. To apply server source or `.env` changes during development,
 stop and restart `npm run dev`; the server process is not a file watcher.
@@ -689,7 +693,8 @@ Recovery. See [Communication authoring](docs/communication-authoring.md).
 | `RUNS_DIR` | `<AGENTS_ROOT>/.helmsman-runs` | Directory for detached-run specifications, logs, and exit records. Created on startup; use a writable absolute path. | Restart |
 | `RUN_HOST` | Detached process | One-time execution-host selection seed: `detached`, `cmux`, `wezterm` or `docker`. Unknown names fail; unavailable hosts never fall back. After migration use `plugins select-execution-host`. | Bootstrap only; then plugin selection and restart |
 | `HELMSMAN_DB` | `<server working directory>/.helmsman.sqlite` | SQLite file for runs, config overrides, watcher state, and notifications. Use a writable path and retain it across restarts. A saved Jira token is stored here, so treat this file as sensitive. | Restart |
-| `HELMSMAN_PORT` | `8787` | Local API/static-server port, bound to `127.0.0.1`; the Vite API proxy uses the same value. | Restart server and Vite |
+| `HELMSMAN_PORT` | `43871` | Local API/static-server port, bound to `127.0.0.1`; the Vite API proxy uses the same value. | Restart server and Vite |
+| `HELMSMAN_UI_PORT` | `43872` | Vite development and preview UI port; an occupied port stops startup instead of selecting another port. | Restart Vite |
 
 ### Browser preferences
 

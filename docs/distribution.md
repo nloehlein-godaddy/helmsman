@@ -10,6 +10,8 @@ Launch the compiled entry point from your preferred working directory:
 node /absolute/path/to/release/server/helmsman/main.js
 ```
 
+The server and built UI listen on `http://127.0.0.1:43871` by default in normal and safe-start modes. `HELMSMAN_PORT` overrides that port. Source-checkout Vite development and preview use `43872` (`HELMSMAN_UI_PORT`), with no automatic port fallback. Update old `.env` port overrides when upgrading.
+
 The server resolves application assets and execution helpers relative to its installation. The optional `.env`, default `.helmsman.sqlite`, and default work directories remain relative to the operator's working directory. `HELMSMAN_DB`, `AGENTS_ROOT`, `RUNS_DIR`, and `HELMSMAN_PLUGINS_DIR` override their respective locations. Keep runtime data outside the generated release directory so upgrades are straightforward.
 
 The compiled plugin CLI uses the same authoring and installation protocol described in [page packages](plugin-packages.md):

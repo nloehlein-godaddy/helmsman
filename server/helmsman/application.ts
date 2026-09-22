@@ -167,11 +167,12 @@ import { fetchReviewHead, selectReviewModel } from './review-policy';
 import { createOutboundMeter } from './outbound-meter';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
 import type { RunRow } from './db';
+import { DEFAULT_SERVER_PORT } from './ports';
 
 let pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1');
 const outboundMeter = createOutboundMeter();
 
-const PORT: number = Number(process.env.HELMSMAN_PORT ?? '8787');
+const PORT: number = Number(process.env.HELMSMAN_PORT ?? DEFAULT_SERVER_PORT);
 const DIST: string = join(applicationRoot(), 'dist');
 const dbPath = process.env.HELMSMAN_DB ?? join(process.cwd(), '.helmsman.sqlite');
 const persistence = openPersistence(dbPath);
