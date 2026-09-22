@@ -1,6 +1,3 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { runtimeNodeArguments, isHostCoordinatorCommand } from './runtime-paths';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
 
@@ -26,23 +23,15 @@ function transport(adapter: AgentAdapter): Transport | null {
   return null;
 }
 
-function credentialFile(token: string): string {
-  const directory = mkdtempSync(join(tmpdir(), 'helmsman-model-routing-'));
-  const path = join(directory, 'capability');
-  writeFileSync(path, token, { mode: 0o600, flag: 'wx' });
-  return path;
-}
-
 export function buildRoutedAgentCommand(adapter: AgentAdapter, task: AgentTask): { cmd: string; args: string[] } {
   const command = adapter.buildCommand(task);
   const modelGateway = gateway(task);
   if (!modelGateway || isHostCoordinatorCommand(command)) return command;
   const route = transport(adapter);
   if (!route) throw new Error(`Agent provider ${adapter.id} does not declare a supported model transport for scoped routing`);
-  const credentialPath = credentialFile(modelGateway.token);
   return {
     cmd: process.execPath,
     args: [...runtimeNodeArguments('./model-routing-cli.ts', import.meta.url), JSON.stringify({ version: 1, command, transport: route,
-      modelGateway: { url: modelGateway.url, credentialPath } })],
+      modelGateway, skillsPath: task.skillsPath ?? null })],
   };
 }

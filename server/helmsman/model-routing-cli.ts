@@ -1,12 +1,12 @@
-import { rmSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 type Transport = 'openai-responses' | 'anthropic-messages';
 interface Input { readonly version: 1; readonly command: { readonly cmd: string; readonly args: readonly string[] }; readonly transport: Transport;
-  readonly modelGateway: { readonly url: string; readonly credentialPath: string }; }
+  readonly modelGateway: { readonly url: string; readonly token: string }; readonly skillsPath: string | null; }
 
 function input(value: unknown): Input {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Model routing input is invalid');
@@ -17,22 +17,13 @@ function input(value: unknown): Input {
   const valueCommand = command as Record<string, unknown>;
   const valueGateway = gateway as Record<string, unknown>;
   if (typeof valueCommand.cmd !== 'string' || !valueCommand.cmd || !Array.isArray(valueCommand.args) || valueCommand.args.some(value => typeof value !== 'string')
-    || (item.transport !== 'openai-responses' && item.transport !== 'anthropic-messages') || typeof valueGateway.url !== 'string' || typeof valueGateway.credentialPath !== 'string') throw new Error('Model routing input is invalid');
+    || (item.transport !== 'openai-responses' && item.transport !== 'anthropic-messages') || typeof valueGateway.url !== 'string' || typeof valueGateway.token !== 'string'
+    || item.skillsPath !== null && typeof item.skillsPath !== 'string') throw new Error('Model routing input is invalid');
   const url = new URL(valueGateway.url);
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Model gateway is invalid');
+  if (!/^[a-f\d]{64}$/i.test(valueGateway.token)) throw new Error('Model gateway capability is invalid');
   return { version: 1, command: { cmd: valueCommand.cmd, args: [...valueCommand.args] as string[] }, transport: item.transport,
-    modelGateway: { url: url.href, credentialPath: valueGateway.credentialPath } };
-}
-
-function capability(path: string): string {
-  const root = resolve(tmpdir());
-  const directory = resolve(dirname(path));
-  if (basename(path) !== 'capability' || !directory.startsWith(`${root}/helmsman-model-routing-`)) throw new Error('Model gateway capability path is invalid');
-  let value = '';
-  try { value = readFileSync(path, 'utf8').trim(); }
-  finally { rmSync(path, { force: true }); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
-  if (!/^[a-f\d]{64}$/i.test(value)) throw new Error('Model gateway capability is invalid');
-  return value;
+    modelGateway: { url: url.href, token: valueGateway.token }, skillsPath: item.skillsPath as string | null };
 }
 
 function endpoint(url: string, path: string): string { return new URL(path, url).href.replace(/\/$/, ''); }
@@ -45,22 +36,39 @@ function cleanedEnvironment(): NodeJS.ProcessEnv {
     'ANTHROPIC_VERTEX_PROJECT_ID', 'ANTHROPIC_FOUNDRY_BASE_URL', 'ANTHROPIC_FOUNDRY_RESOURCE', 'ANTHROPIC_FOUNDRY_API_VERSION',
     'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
     'AWS_PROFILE', 'AWS_REGION', 'AWS_DEFAULT_REGION', 'VERTEXAI_PROJECT', 'VERTEXAI_LOCATION', 'AZURE_OPENAI_API_KEY',
-    'AZURE_OPENAI_ENDPOINT', 'CODEX_HOME']) delete environment[key];
+    'AZURE_OPENAI_ENDPOINT', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR']) delete environment[key];
   return environment;
 }
 
-async function codexEnvironment(environment: NodeJS.ProcessEnv, url: string, token: string): Promise<() => Promise<void>> {
+async function linkSkills(home: string, skillsPath: string | null): Promise<void> {
+  if (!skillsPath) return;
+  const source = resolve(skillsPath, 'skills');
+  const metadata = await lstat(source).catch(() => null);
+  if (!metadata?.isDirectory()) return;
+  await symlink(source, join(home, 'skills'), 'dir');
+}
+
+async function codexEnvironment(environment: NodeJS.ProcessEnv, url: string, token: string, skillsPath: string | null): Promise<() => Promise<void>> {
   const home = await mkdtemp(join(tmpdir(), 'helmsman-codex-home-'));
   const baseUrl = endpoint(url, 'openai/v1');
   await writeFile(join(home, 'config.toml'), `model_provider = "helmsman"\n[model_providers.helmsman]\nname = "Helmsman"\nbase_url = ${JSON.stringify(baseUrl)}\nenv_key = "HELMSMAN_MODEL_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\n`, { mode: 0o600 });
   environment.CODEX_HOME = home;
   environment.HELMSMAN_MODEL_CAPABILITY = token;
   environment.OPENAI_BASE_URL = baseUrl;
+  environment.OPENAI_API_KEY = token;
+  await linkSkills(home, skillsPath);
   return async () => { await rm(home, { recursive: true, force: true }); };
 }
 
 export function codexCommand(command: Input['command'], url: string): Input['command'] {
   if (basename(command.cmd) !== 'codex' || command.args[0] !== 'exec') return command;
+  if (command.args.length < 2) throw new Error('Codex routing requires an exec prompt');
+  for (let index = 1; index < command.args.length; index += 1) {
+    const argument = command.args[index] ?? '';
+    const setting = argument === '-c' ? command.args[index + 1] ?? '' : argument.startsWith('--config=') ? argument.slice('--config='.length) : '';
+    if (argument === '--oss' || argument.startsWith('--oss=') || argument === '--profile' || argument.startsWith('--profile=') || argument === '--config' || argument === '--config-file'
+      || /^(?:model_provider|model_providers\.)\b/.test(setting.trim())) throw new Error('Codex routing options cannot be overridden');
+  }
   const baseUrl = endpoint(url, 'openai/v1');
   const settings = [
     'model_provider="helmsman"',
@@ -70,20 +78,29 @@ export function codexCommand(command: Input['command'], url: string): Input['com
     'model_providers.helmsman.wire_api="responses"',
     'model_providers.helmsman.requires_openai_auth=false',
   ];
-  return { cmd: command.cmd, args: ['exec', ...settings.flatMap(setting => ['-c', setting]), ...command.args.slice(1)] };
+  return { cmd: command.cmd, args: [...command.args.slice(0, -1), ...settings.flatMap(setting => ['-c', setting]), command.args.at(-1)!] };
 }
 
 export async function runModelRoutingCli(raw = process.argv[2]): Promise<number> {
   const routed = input(JSON.parse(raw ?? 'null'));
-  const token = capability(routed.modelGateway.credentialPath);
+  const token = routed.modelGateway.token;
   const environment = cleanedEnvironment();
   let cleanup: () => Promise<void> = async () => undefined;
-  if (routed.transport === 'openai-responses') cleanup = await codexEnvironment(environment, routed.modelGateway.url, token);
+  if (routed.transport === 'openai-responses') cleanup = await codexEnvironment(environment, routed.modelGateway.url, token, routed.skillsPath);
   else {
     environment.ANTHROPIC_BASE_URL = endpoint(routed.modelGateway.url, 'anthropic');
     environment.ANTHROPIC_API_KEY = token;
     environment.ANTHROPIC_AUTH_TOKEN = token;
     environment.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
+    environment.CLAUDE_CODE_USE_FOUNDRY = '0';
+    const home = await mkdtemp(join(tmpdir(), 'helmsman-claude-home-'));
+    environment.CLAUDE_CONFIG_DIR = home;
+    await linkSkills(home, routed.skillsPath);
+    await writeFile(join(home, 'settings.json'), JSON.stringify({ env: {
+      ANTHROPIC_BASE_URL: environment.ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY: token, ANTHROPIC_AUTH_TOKEN: token,
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_USE_BEDROCK: '0', CLAUDE_CODE_USE_VERTEX: '0', CLAUDE_CODE_USE_FOUNDRY: '0',
+    } }), { mode: 0o600 });
+    cleanup = async () => { await rm(home, { recursive: true, force: true }); };
   }
   try {
     const command = routed.transport === 'openai-responses' ? codexCommand(routed.command, routed.modelGateway.url) : routed.command;
@@ -98,6 +115,6 @@ export async function runModelRoutingCli(raw = process.argv[2]): Promise<number>
   } finally { await cleanup(); }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   runModelRoutingCli().then(code => { process.exitCode = code; }).catch(error => { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
 }
