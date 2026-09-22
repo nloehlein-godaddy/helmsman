@@ -1,11 +1,44 @@
 import { expect, test } from '@playwright/test';
 import { createServer } from 'node:http';
 import { createHmac } from 'node:crypto';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { fixture, seedBacklogLayout } from './isolated-fixture';
+import { fixture, run, seedBacklogLayout } from './isolated-fixture';
 
 const distribution = process.env.HELMSMAN_ADVERSARIAL_TEST_DISTRIBUTION;
+
+test('installed startup preserves unrelated dirty and clean registered worktrees', async ({}, testInfo) => {
+  const git = (process.env.PATH ?? '').split(delimiter).map(directory => join(directory, 'git')).find(path => existsSync(path));
+  if (!git) throw new Error('Git is required for the startup ownership regression');
+  const host = await fixture({ distribution });
+  try {
+    host.env.REPO_PROJECT_MAP = 'fixture/project=TASK';
+    const repo = join(host.cwd, 'project');
+    await mkdir(repo, { recursive: true });
+    for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'fixture@example.com'], ['config', 'user.name', 'Isolated fixture']]) await run(git, args, repo, host.env);
+    await writeFile(join(repo, 'tracked.txt'), 'base\n');
+    await run(git, ['add', '.'], repo, host.env);
+    await run(git, ['commit', '-m', 'fixture'], repo, host.env);
+    const trees = [join(host.root, 'developer', '.worktrees', 'personal-feature'), join(repo, '.worktrees', 'unknown-dirty'), join(repo, '.worktrees', 'unknown-clean')];
+    for (const [index, tree] of trees.entries()) {
+      await run(git, ['worktree', 'add', '-b', `fixture-${index}`, tree], repo, host.env);
+      if (index < 2) {
+        await writeFile(join(tree, 'tracked.txt'), 'unsaved tracked content\n');
+        await writeFile(join(tree, 'untracked.txt'), 'unique untracked content\n');
+      }
+    }
+    await writeFile(join(host.root, 'commands', 'git'), `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');const a=process.argv.slice(2);if(a[0]!=='-C'||a[1]!==${JSON.stringify(repo)}||a[2]!=='worktree'||!['list','remove'].includes(a[3]))process.exit(1);const r=spawnSync(${JSON.stringify(git)},a,{stdio:'inherit'});process.exit(r.status??1);`, { mode: 0o755 });
+    await host.start();
+    for (const [index, tree] of trees.entries()) {
+      expect(await readFile(join(tree, 'tracked.txt'), 'utf8')).toBe(index < 2 ? 'unsaved tracked content\n' : 'base\n');
+      if (index < 2) expect(await readFile(join(tree, 'untracked.txt'), 'utf8')).toBe('unique untracked content\n');
+    }
+    expect(host.output()).not.toMatch(/swept \d+ orphaned worktree/);
+    await testInfo.attach('startup-workspace-ownership', { contentType: 'application/json', body: JSON.stringify({ preserved: ['foreign-dirty', 'managed-unknown-dirty', 'managed-unknown-clean'] }) });
+  } finally { await host.close(); }
+});
 
 test('installed server rejects browser cross-origin mutations while preserving JSON actions and signed webhook intake', async ({ page, request }, testInfo) => {
   const host = await fixture({ distribution });

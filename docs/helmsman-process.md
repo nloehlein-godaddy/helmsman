@@ -603,3 +603,18 @@ flowchart LR
 - No path auto-merges a PR. Merging remains a human action on GitHub.
 
 Implementation references: `server/helmsman/prepare-run.ts`, `workflow-snapshots.ts`, `campaign-dispatcher.ts`, `webhooks.ts`, `docker-stage.ts`, `scoped-gateway.ts`, `clarification-runtime.ts`, `pre-pr-runtime.ts`, `artifacts.ts`, `run-telemetry.ts`, and `outcome-service.ts`. See [adoption evidence](moonunit-adoption.md).
+
+## Startup workspace cleanup
+
+```mermaid
+flowchart TD
+    Registered[Registered managed workspace] --> Owned{Exact retained workspace and galleon?}
+    Owned -->|No| Preserve[Preserve checkout]
+    Owned -->|Yes| Settled{Terminal run and settled obligations?}
+    Settled -->|No| Preserve
+    Settled -->|Yes| Clean{Same Git common directory and clean workspace?}
+    Clean -->|No| Preserve
+    Clean -->|Yes| Remove[Git worktree remove without force]
+```
+
+Unknown or dirty developer work is preserved, including ignored files. Reaching a run’s cost cap after final output also blocks new retry attempts; delayed reporting can exceed the cap within the completing attempt.

@@ -45,6 +45,8 @@ Identical external backend artifacts share one immutable ESM module identity per
 
 Activation stages registrations and storage writes until success. Failure or timeout discards staged writes, aborts the context, and disposes owned resources. A package containing both pages and a backend publishes its pages/assets only after backend activation succeeds; its selected bindings and installation record survive failure. Runtime/provider failures produce diagnostics without substituting a provider. Safe start skips optional backend composition entirely. Disable denies new work while retained execution and operation pins protect existing obligations; see [Recovery](recovery.md). Follow the CLI restart instruction when changing backend configuration or activation. Safe start intentionally performs no draining or effect reconciliation.
 
+Disposal invalidates providers immediately, then awaits the activation’s cleanup promise. Concurrent disablement, shutdown and retained-provider disposal join that same in-progress cleanup; returning from a second disposal call does not skip unfinished callbacks. Async cleanup remains bounded by the documented timeout.
+
 These are trusted modules with host privileges. The APIs and import checks provide an authoring boundary, not a sandbox.
 
 ## Communication providers

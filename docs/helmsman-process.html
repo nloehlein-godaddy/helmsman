@@ -207,6 +207,12 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <p class="limit-note">A crash between Git and receipt storage does not authorize replay. Later independent commands require reconciliation; disabling presentation retains evidence and host protections. See <a href="local-git-authoring.md">Local Git authoring</a>.</p>
 </section>
+<section aria-labelledby="startup-cleanup-heading">
+<h2 class="section-heading" id="startup-cleanup-heading">Startup workspace cleanup</h2>
+<div class="flow-step flow-common"><h3>Registered workspace → retained ownership → settled run</h3><p>Require the exact stored workspace and galleon and terminal execution cleanup eligibility. Unknown or active work remains in place.</p></div>
+<div class="flow-step flow-common"><h3>Matching Git directory → clean workspace → remove without force</h3><p>Preserve unrelated checkouts and tracked, untracked or ignored changes. A .worktrees directory name alone never proves ownership.</p></div>
+<p class="limit-note">Final output cost is checked before retries. Delayed reporting can exceed the cap within an attempt, but a known reached cap prevents another attempt.</p>
+</section>
 <section aria-labelledby="scheduling-heading">
 <h2 class="section-heading" id="scheduling-heading">Replaceable automatic scheduling</h2>
 <div class="host-options">

@@ -36,3 +36,7 @@ npm run plugins -- select helmsman/local-git-page example.local-git/page
 Missing or disabled selected contributions preserve saved layouts and remain unavailable. The old `/api/repo/local` endpoint is retired in normal application mode. Core retains checkout validation and Git execution; this service does not expose arbitrary commands or filesystem paths chosen outside the validated checkout.
 
 See [package operations](plugin-packages.md), [panel authoring](panel-authoring.md), and the [implementation ledger](plugin-implementation-progress.md) for validation and delivery status. Acceptance performs Git mutations only in isolated temporary fixtures.
+
+## Automatic startup cleanup
+
+Startup cleanup requires an exact retained workspace and galleon binding, a terminal eligible run, and a currently registered direct child of that galleon’s managed `.worktrees` directory. It checks the Git common directory and tracked, untracked and ignored changes before removal, and never forces deletion. Unknown paths, unrelated developer checkouts and dirty workspaces remain in place. A directory name alone does not establish ownership.

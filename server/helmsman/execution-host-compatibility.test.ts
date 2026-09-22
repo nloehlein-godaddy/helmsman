@@ -98,11 +98,11 @@ it.skipIf(process.platform === 'win32')('installs the historical author host, re
     await expect(host.launch({ ...launch, args: [join(root, 'pre-pr-cli.js')] })).rejects.toThrow('protocol 1');
     expect(launchSpy).not.toHaveBeenCalled();
     expect(existsSync(launch.specPath)).toBe(false);
-    const ref = await host.launch(launch);
+    const ref = await host.launch({ ...launch, args: [...launch.args] });
     stop = () => host.stop(ref);
     await vi.waitFor(() => expect(existsSync(launch.exitPath)).toBe(true), { timeout: 5000 });
     expect(JSON.parse(await readFile(launch.specPath, 'utf8')).coordinator).toBeUndefined();
-    expect(await host.discover?.(launch, ref)).toMatchObject({ status: 'found', ref, evidence: { state: 'exited', exitCode: 0 } });
+    expect(await host.discover?.({ ...launch, args: [...launch.args] }, ref)).toMatchObject({ status: 'found', ref, evidence: { state: 'exited', exitCode: 0 } });
     expect(persistenceHash(selected.record)).toBe(originalIdentity);
     const crashRoot = join(root, 'historical-crash');
     await mkdir(crashRoot);
@@ -138,10 +138,10 @@ it.skipIf(process.platform === 'win32').each(['local', 'docker'] as const)('sett
     await writeFile(entry, "process.send({ kind: 'helmsman-coordinator-settled', version: 1 }, () => process.exit(0));setTimeout(() => process.exit(1), 2000);");
     const launch = { ...spec(root), args: [entry], coordinator: true };
     const host = adapter(provider);
-    const ref = await host.launch(launch);
+    const ref = await host.launch({ ...launch, args: [...launch.args] });
     stop = () => host.stop(ref);
     await vi.waitFor(() => expect(existsSync(launch.exitPath)).toBe(true), { timeout: 5000 });
-    expect(await host.discover?.(launch, ref)).toMatchObject({ status: 'found', evidence: { state: 'exited', exitCode: 0 } });
+    expect(await host.discover?.({ ...launch, args: [...launch.args] }, ref)).toMatchObject({ status: 'found', evidence: { state: 'exited', exitCode: 0 } });
     expect(run).not.toHaveBeenCalled();
   } finally {
     await stop?.().catch(() => {});

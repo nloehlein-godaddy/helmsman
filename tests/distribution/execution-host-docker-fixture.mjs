@@ -133,7 +133,8 @@ export async function runDockerHostFixture(input) {
     assert.equal(state.networks['helmsman-stage-docker-fixture-owned-network'], undefined);
 
     const worker = join(root, 'worker.mjs');
-    await writeFile(worker, 'setInterval(()=>{},1000);');
+    const ready = join(root, 'coordinator.ready');
+    await writeFile(worker, `import {writeFileSync} from 'node:fs';const timer=setInterval(()=>{},1000);process.once('SIGTERM',()=>{clearInterval(timer);process.send({kind:'helmsman-coordinator-settled',version:1},()=>process.exit(0));});writeFileSync(${JSON.stringify(ready)},'ready');setTimeout(()=>process.exit(2),10000).unref();`);
     const spec = {
       version: 1, runId: 'coordinator-fixture', launchId: 'coordinator-launch', attempt: 1,
       receiptPath: join(root, 'coordinator.receipt'), cmd: process.execPath, args: [worker], cwd: root,
@@ -143,6 +144,8 @@ export async function runDockerHostFixture(input) {
     coordinator = await provider.launch(spec);
     assert.deepEqual(Object.keys(coordinator.identity), ['runId', 'launchId', 'attempt', 'receiptPath']);
     await waitFor(spec.receiptPath);
+    await waitFor(ready);
+    assert.equal(JSON.parse(await readFile(spec.specPath, 'utf8')).coordinator, true);
     const discovery = await provider.discover(spec, coordinator);
     assert.equal(discovery.status, 'found');
     assert.equal(discovery.evidence.state, 'running');
