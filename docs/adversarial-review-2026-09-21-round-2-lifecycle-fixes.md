@@ -4,7 +4,7 @@ This change resolves RR04 and RR05 from the [second adversarial review](adversar
 
 RR04 now separates immediate invalidation from completed disposal. Each activated backend memoizes its cleanup promise, so a runtime shutdown joins a cleanup already started by disablement. The runtime itself memoizes its disposal promise. Retained agent, execution-host, native-terminal and workflow loaders, plus backend materialization leases, use the same joinable-disposal rule. Callers still see providers invalidated immediately; they now wait for the bounded asynchronous cleanup already in progress.
 
-RR05 rechecks the authoritative lifecycle record while the coordinated installation transaction holds the persistence lock. A replacement of a different artifact now rejects when the record is enabled at commit time. Identical-hash installation retains its existing fast path and selection state.
+RR05 records the intended artifact, desired state and revision before archive publication, then checks them against the authoritative lifecycle record while the coordinated installation transaction holds the persistence lock. A replacement of a different artifact now rejects when any concurrent lifecycle transition wins before commit. Identical-hash installation retains its existing fast path and selection state.
 
 Focused verification passed on 2026-09-21:
 

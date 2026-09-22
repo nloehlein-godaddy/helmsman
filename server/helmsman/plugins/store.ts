@@ -73,12 +73,13 @@ export async function installPlugin(root: string, bytes: Uint8Array, coordinator
   await validatePluginImports(parsed);
   const current = readPluginState(root).plugins;
   const previous = current.find(plugin => plugin.id === parsed.package.manifest.id);
+  const intended = coordinator?.state(parsed.package.manifest.id) ?? null;
   if (previous?.enabled && previous.hash !== parsed.hash) throw new Error('Disable the plugin before installing another version, then restart Helmsman.');
   if (!previous && current.length >= 32) throw new Error('At most 32 external plugins may be installed.');
   const archive = await installPluginArtifact(root, bytes);
   const id = archive.package.manifest.id;
   if (coordinator) {
-    await coordinator.install(archive);
+    await coordinator.install(archive, intended);
     const selected = readPluginState(root).plugins.find(plugin => plugin.id === id);
     if (!selected) throw new Error('Plugin catalog projection is incomplete');
     return selected;
@@ -197,7 +198,7 @@ export interface PluginCoordinator {
   readonly errors: readonly string[];
   readonly lifecycle: PluginLifecycle;
   reconcile(): Promise<void>;
-  install(archive: PluginArchive): Promise<void>;
+  install(archive: PluginArchive, intended?: Pick<PluginLifecycleRecord, 'artifactHash' | 'desiredEnabled' | 'revision'> | null): Promise<void>;
   change(id: string, enabled: boolean, options?: { drainDependents?: readonly string[] }): Promise<void>;
   uninstall(id: string): Promise<void>;
   state(id: string): PluginLifecycleRecord | null;
@@ -311,7 +312,7 @@ export async function createPluginCoordinator(options: {
         await reconciliation;
       } while (!disposed && pendingPersistenceIntents(persistence).some(intent => intent.owner.startsWith('plugin:')));
     },
-    async install(archive) {
+    async install(archive, intended) {
       persistence.transaction(() => {
         const installed = lifecycle.list();
         if (!installed.some(row => row.pluginId === archive.package.manifest.id)
@@ -320,6 +321,8 @@ export async function createPluginCoordinator(options: {
         register(archive.package, archive.hash);
         const row = state(archive.package.manifest.id)!;
         if (row.artifactHash === archive.hash && row.revision > 0 && readPluginState(root).plugins.some(plugin => plugin.id === row.pluginId)) return;
+        if (intended && (row.artifactHash !== intended.artifactHash || row.desiredEnabled !== intended.desiredEnabled || row.revision !== intended.revision)
+          || intended === null && row.artifactHash !== archive.hash) throw new PersistenceConflictError('Plugin lifecycle changed; retry the installation.');
         if (row.desiredEnabled) throw new PersistenceConflictError('Disable the plugin before installing another version, then restart Helmsman.');
         lifecycle.apply({ id: randomUUID(), pluginId: row.pluginId, artifactHash: archive.hash, expectedRevision: row.revision, desiredEnabled: false, drainDependents: [] });
       });

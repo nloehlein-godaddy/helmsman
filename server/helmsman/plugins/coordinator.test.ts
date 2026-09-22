@@ -120,7 +120,7 @@ describe('coordinated plugin package lifecycle', () => {
         });
       });
       const replacement = installPlugin(plugins, archive('2.0.0', id, 4 * 1024 * 1024), coordinator);
-      const rejected = expect(replacement).rejects.toThrow('Disable the plugin before installing another version');
+      const rejected = expect(replacement).rejects.toThrow('Plugin lifecycle changed; retry the installation');
       await await enabled;
       await rejected;
       expect(other.state(id)).toMatchObject({ artifactHash: installed.hash, desiredEnabled: true, revision: 2 });
