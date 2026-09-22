@@ -1,6 +1,8 @@
 import type Database from 'better-sqlite3';
 import { storeConnection } from '../store-connection';
 import type { ArtifactPin } from '../execution-store';
+import { parseAutomaticReviewPolicy, type AutomaticReviewPolicy } from '../automatic-review-ownership';
+import { immediateTransaction, persistenceHash, stableJson } from '../persistence';
 
 export interface ReviewNotificationProposal {
   eventId: string | null;
@@ -35,6 +37,7 @@ export interface SlackNotification {
   error: string | null;
   trigger?: unknown | null;
   proposal?: ReviewNotificationProposal | null;
+  policy?: AutomaticReviewPolicy | null;
 }
 
 export interface SlackHealth {
@@ -77,6 +80,10 @@ export interface SlackStore {
   dispatchClaims(sourceKey: string): Array<{ notificationId: string; token: string; claimedAt: string }>;
   ownsDispatch(id: string, token: string): boolean;
   releaseDispatch(id: string, token: string): boolean;
+  transitionDispatch(input: {
+    notification: SlackNotification; token: string; status: SlackNotification['status']; now: string;
+    error?: string | null; policy?: AutomaticReviewPolicy; assertCurrent(): void; releasePins?(): void;
+  }): boolean;
   close(): void;
 }
 
@@ -107,12 +114,16 @@ export function openSlackStore(path: string | Database.Database): SlackStore {
     if (!columns.has('triggerJson')) database.exec('ALTER TABLE slack_notifications ADD COLUMN triggerJson TEXT');
   } });
 
-  type NotificationRow = Omit<SlackNotification, 'proposal' | 'trigger'> & { sourceKey: string; proposalJson: string | null; triggerJson: string | null };
+  const policyDdl = 'CREATE TABLE slack_review_policies (notificationId TEXT PRIMARY KEY, json TEXT NOT NULL)';
+  connection.migrate({ owner: 'core.slack-review-policy', ddl: policyDdl });
+
+  type NotificationRow = Omit<SlackNotification, 'proposal' | 'trigger' | 'policy'> & { sourceKey: string; proposalJson: string | null; triggerJson: string | null };
   const decode = (row: NotificationRow): SlackNotification => {
     try {
       const { proposalJson, triggerJson, ...notification } = row;
+      const policy = sql.prepare('SELECT json FROM slack_review_policies WHERE notificationId=?').get(row.id) as { json: string } | undefined;
       return { ...notification, proposal: proposalJson ? JSON.parse(proposalJson) as ReviewNotificationProposal : null,
-        trigger: triggerJson ? JSON.parse(triggerJson) as unknown : null };
+        trigger: triggerJson ? JSON.parse(triggerJson) as unknown : null, policy: policy ? parseAutomaticReviewPolicy(JSON.parse(policy.json)) : null };
     } catch { throw new Error('Stored review trigger is invalid'); }
   };
   const insert = (sourceKey: string, notification: SlackNotification, proposal: ReviewNotificationProposal | null, trigger: unknown | null): boolean => sql.prepare(`INSERT OR IGNORE INTO slack_notifications (sourceKey, ${NOTIFICATION_COLUMNS})
@@ -198,6 +209,25 @@ export function openSlackStore(path: string | Database.Database): SlackStore {
     },
     releaseDispatch(id, token) {
       return sql.prepare('DELETE FROM slack_dispatch_claims WHERE notificationId = ? AND token = ?').run(id, token).changes > 0;
+    },
+    transitionDispatch(input) {
+      return immediateTransaction(sql, () => {
+        const row = sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications WHERE id=?`).get(input.notification.id) as NotificationRow | undefined;
+        const identity = (notification: SlackNotification) => persistenceHash({ runId: notification.runId, repo: notification.repo,
+          prNumber: notification.prNumber, proposal: notification.proposal ?? null, trigger: notification.trigger ?? null });
+        if (!row || row.status !== 'queued' || identity(decode(row)) !== identity(input.notification)
+          || !sql.prepare('SELECT 1 FROM slack_dispatch_claims WHERE notificationId=? AND token=?').get(row.id, input.token)) return false;
+        input.assertCurrent();
+        if (input.policy) {
+          const policy = parseAutomaticReviewPolicy(input.policy);
+          if (policy.headSha !== input.notification.proposal?.headSha) throw new Error('Review policy belongs to a different PR head');
+          sql.prepare('INSERT INTO slack_review_policies VALUES (?,?) ON CONFLICT(notificationId) DO UPDATE SET json=excluded.json').run(row.id, stableJson(policy));
+        }
+        sql.prepare('UPDATE slack_notifications SET status=?,updatedAt=?,readAt=NULL,error=? WHERE id=?')
+          .run(input.status, input.now, input.error ?? null, row.id);
+        input.releasePins?.();
+        return true;
+      });
     },
     close() { connection.close(); },
   };

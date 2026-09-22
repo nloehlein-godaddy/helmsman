@@ -2,11 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openSlackStore, type SlackStore } from './store';
+import { openSlackStore, type ReviewNotificationProposal, type SlackStore } from './store';
+import type { TriggerProvenanceV1 } from '../trigger-provenance';
 import { createSlackWatcher, type SlackWatcherOptions } from './watcher';
 import { slackReviewTriggerProvider } from '../../../src/plugins/trigger-slack-review/provider';
 import type { CommunicationReviewTriggerProviderV1 } from '../../../src/plugins/trigger';
 import type { CommunicationReviewSourceCapture, SelectedTriggerCapture } from '../trigger-runtime';
+import type { AutomaticReviewObservation } from '../automatic-review-ownership';
 
 const activation = '2026-09-17T12:00:00.000Z';
 const activationTs = Date.parse(activation) / 1000;
@@ -20,6 +22,14 @@ afterEach(() => {
 
 function message(offset: number, prUrls = ['https://github.com/org/repo/pull/42']) {
   return { channelId: 'C123', ts: (activationTs + offset).toFixed(6), permalink: 'https://example.slack.com/archives/C123/p123', author: 'Someone', prUrls };
+}
+
+function ownership(proposal: ReviewNotificationProposal, trigger: TriggerProvenanceV1, decision: 'own' | 'other' | 'unknown' = 'other'): AutomaticReviewObservation {
+  const reason = decision === 'own' ? 'Automatic Slack review skipped: PR is authored by the authenticated GitHub account'
+    : decision === 'unknown' ? 'Authenticated ownership unavailable' : null;
+  return { policy: { version: 1, kind: 'authenticated-pr-owner', decision, actorLogin: decision === 'unknown' ? null : decision === 'own' ? 'author' : 'viewer',
+    authorLogin: decision === 'unknown' ? null : 'author', headSha: proposal.headSha, providerBindingHash: 'd'.repeat(64),
+    sourceRevision: trigger.source.revision, observedAt: activation, reason }, blockedReason: decision === 'own' ? reason : null, assertCurrent() {} };
 }
 
 function setup(overrides: Partial<SlackWatcherOptions> = {}) {
@@ -38,7 +48,7 @@ function setup(overrides: Partial<SlackWatcherOptions> = {}) {
     async messages(input) { const value = await scan(input); return { items: value.messages, complete: value.complete }; },
     async detail({ repo, number }) { return { repo, number, headSha: 'a'.repeat(40), title: 'Update', url: `https://github.com/${repo}/pull/${number}`, status: 'open', draft: false }; } };
   const options: SlackWatcherOptions = {
-    captureTrigger: () => capture, captureSource: () => source, defaultWorkflowRef: () => 'review@1', verifyProposal: vi.fn(), retainPins: vi.fn(),
+    captureTrigger: () => capture, captureSource: () => source, defaultWorkflowRef: () => 'review@1', observeOwnership: vi.fn(async (proposal, trigger) => ownership(proposal, trigger)), retainPins: vi.fn(),
     store, clientId: 'T123', channelId: 'C123', channelName: 'airo-editing',
     allowedRepos: () => ['org/repo'], canLaunch: () => true,
     getRun: () => null, isRunActive: id => active.has(id), launch, now: () => activation,
@@ -68,7 +78,7 @@ describe('Slack watcher', () => {
       async detail() { return { repo: 'org/repo', number: 42, headSha: 'a'.repeat(40), title: 'Update', url: 'https://github.com/org/repo/pull/42', status: 'open', draft: false }; } };
     const retainPins = vi.fn();
     const watcher = createSlackWatcher({ ...f.options, captureTrigger: () => capture, captureSource: () => source,
-      defaultWorkflowRef: () => 'review@1', verifyProposal: vi.fn(), retainPins, releaseTriggerPins: vi.fn() });
+      defaultWorkflowRef: () => 'review@1', observeOwnership: vi.fn(async (proposal, trigger) => ownership(proposal, trigger)), retainPins, releaseTriggerPins: vi.fn() });
     await watcher.poll();
     expect(f.launch).toHaveBeenCalledWith(expect.objectContaining({ headSha: 'a'.repeat(40), workflowRef: 'review@1', trigger: expect.objectContaining({ instanceId: 'slack-review' }) }));
     expect(f.store.listNotifications()[0]).toMatchObject({ channelName: 'airo-editing', proposal: { targetId: expect.any(String), headSha: 'a'.repeat(40) },
@@ -90,7 +100,7 @@ describe('Slack watcher', () => {
       source: { sourceKey: JSON.stringify(['T123', 'C123']), revision: 'source-1', bindings: [] }, artifacts: [], assertCurrent() {},
       async messages() { if (stale) { stale = false; current = false; return { items: [message(900)], complete: true }; } return { items: [], complete: true }; }, async detail() { return null; } };
     const watcher = createSlackWatcher({ ...f.options, captureTrigger: () => capture, captureSource: () => source,
-      defaultWorkflowRef: () => 'review@1', verifyProposal: vi.fn(), retainPins: vi.fn() });
+      defaultWorkflowRef: () => 'review@1', observeOwnership: vi.fn(async (proposal, trigger) => ownership(proposal, trigger)), retainPins: vi.fn() });
     await watcher.poll();
     expect(watcher.health()).toMatchObject({ status: 'unavailable', error: 'selection changed' });
     current = true;
@@ -112,13 +122,14 @@ describe('Slack watcher', () => {
     enabled = true;
     f.scan.mockResolvedValue({ messages: [], complete: true });
     await f.watcher.poll();
-    expect(f.launch).toHaveBeenCalledExactlyOnceWith({ repo: 'org/repo', prNumber: 42, mode: 'review', runId: 'slack-original' });
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(f.store.getNotification('legacy-row')?.error).toContain('retained trigger evidence');
     expect(f.store.getNotification('legacy-row')).toMatchObject({ trigger: null, proposal: null, runId: 'slack-original' });
     enabled = false;
     f.options.getRun = () => ({ status: 'failed' });
     await f.watcher.poll();
     expect(f.store.getNotification('legacy-row')?.status).toBe('failed');
-    expect(f.launch).toHaveBeenCalledTimes(1);
+    expect(f.launch).not.toHaveBeenCalled();
   });
 
   it('uses activation as the baseline and captures posts arriving during the first scan', async () => {
@@ -282,4 +293,82 @@ describe('Slack watcher', () => {
     expect(store.listNotifications()).toHaveLength(1);
     expect(store.listNotifications()[0]?.status).toBe('launched');
   });
+  it('persists an own-PR block through restart and releases only its terminal trigger pins', async () => {
+    const releaseTriggerPins = vi.fn();
+    const observeOwnership = vi.fn(async (proposal, trigger) => ownership(proposal, trigger, 'own'));
+    const f = setup({ releaseTriggerPins, observeOwnership });
+    await f.watcher.poll();
+    const row = f.store.listNotifications()[0]!;
+    expect(row).toMatchObject({ status: 'blocked', policy: { decision: 'own', actorLogin: 'author', headSha: 'a'.repeat(40) } });
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(releaseTriggerPins).toHaveBeenCalledExactlyOnceWith({ store: 'review', rowId: row.id });
+    const restarted = setup({ store: f.store, observeOwnership });
+    await restarted.watcher.poll();
+    expect(restarted.launch).not.toHaveBeenCalled();
+    expect(observeOwnership).toHaveBeenCalledOnce();
+  });
+
+  it('retains unknown ownership and pins through a database reopen, then permits a fresh known-other observation', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'helmsman-ownership-'));
+    directories.push(directory); const path = join(directory, 'state.db');
+    const releaseTriggerPins = vi.fn();
+    const f = setup({ store: openSlackStore(path), releaseTriggerPins,
+      observeOwnership: async (proposal, trigger) => ownership(proposal, trigger, 'unknown') });
+    await f.watcher.poll();
+    const row = f.store.listNotifications()[0]!;
+    expect(row).toMatchObject({ status: 'queued', policy: { decision: 'unknown' } });
+    expect(f.launch).not.toHaveBeenCalled(); expect(releaseTriggerPins).not.toHaveBeenCalled();
+    stores.splice(stores.indexOf(f.store), 1); f.store.close();
+    const restarted = setup({ store: openSlackStore(path) });
+    await restarted.watcher.poll();
+    expect(restarted.launch).toHaveBeenCalledOnce();
+    expect(restarted.store.getNotification(row.id)).toMatchObject({ status: 'launched', policy: { decision: 'other' } });
+  });
+
+  it.each(['no-run', 'admitted', 'active'] as const)('recovers a pre-dispatch claim with %s evidence after restart', async kind => {
+    const f = setup({ canLaunch: () => false }); await f.watcher.poll();
+    const row = f.store.listNotifications()[0]!;
+    expect(f.store.claimDispatch(row.id, 'orphaned-token', activation)).toBe(true);
+    const observeOwnership = vi.fn(async (proposal, trigger) => ownership(proposal, trigger));
+    const restarted = setup({ store: f.store, observeOwnership,
+      getRun: () => kind === 'admitted' ? { status: 'running' } : null,
+      ...(kind === 'active' ? { isRunActive: () => true } : {}) });
+    await restarted.watcher.poll();
+    expect(restarted.launch).toHaveBeenCalledTimes(kind === 'no-run' ? 1 : 0);
+    expect(observeOwnership).toHaveBeenCalledTimes(kind === 'no-run' ? 1 : 0);
+    expect(restarted.store.getNotification(row.id)?.status).toBe('launched');
+    expect(restarted.store.ownsDispatch(row.id, 'orphaned-token')).toBe(false);
+  });
+
+  it.each(['capture', 'scope', 'source'] as const)('does not save a late own decision after %s authority changes', async kind => {
+    const f = setup({ canLaunch: () => false }); await f.watcher.poll();
+    const row = f.store.listNotifications()[0]!;
+    let finish!: () => void; let current = true;
+    const capture = f.options.captureTrigger(new AbortController().signal)!;
+    f.options.captureTrigger = () => ({ ...capture, assertCurrent() { if (!current && kind === 'capture') throw new Error('Trigger changed'); } });
+    f.options.allowedRepos = () => !current && kind === 'scope' ? [] : ['org/repo'];
+    f.options.observeOwnership = async (proposal, trigger) => {
+      await new Promise<void>(resolve => { finish = resolve; });
+      return { ...ownership(proposal, trigger, 'own'), assertCurrent() { if (!current && kind === 'source') throw new Error('Credential changed'); } };
+    };
+    f.scan.mockRejectedValue(new Error('No new scan available'));
+    const pending = f.watcher.poll(); await vi.waitFor(() => expect(finish).toBeDefined()); current = false; finish();
+    await pending;
+    expect(f.store.getNotification(row.id)).toMatchObject({ status: 'queued', policy: null });
+    expect(f.launch).not.toHaveBeenCalled();
+  });
+
+  it('cannot apply an observation to a queue row whose original run identity changed during the read', async () => {
+    const f = setup({ canLaunch: () => false }); await f.watcher.poll();
+    const row = f.store.listNotifications()[0]!;
+    f.options.observeOwnership = async (proposal, trigger) => {
+      f.store.setNotificationRunId(row.id, 'replacement-run');
+      return ownership(proposal, trigger, 'own');
+    };
+    f.scan.mockRejectedValue(new Error('No new scan available'));
+    await f.watcher.poll();
+    expect(f.store.getNotification(row.id)).toMatchObject({ status: 'queued', runId: 'replacement-run', policy: null });
+    expect(f.launch).not.toHaveBeenCalled();
+  });
+
 });

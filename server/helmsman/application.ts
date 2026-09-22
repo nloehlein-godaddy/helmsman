@@ -158,6 +158,7 @@ import { createSlackWatcher, type SlackWatcher } from './slack/watcher';
 import { createSlackBrowserReviewSender } from './slack/browser-review';
 import { slackSettings, SLACK_INTERVAL_MS } from './slack/config';
 import { openSlackReviewRequester, slackReviewSettings } from './slack/review-request';
+import { observeAutomaticReviewOwnership } from './automatic-review-ownership';
 import type { SlackState } from '../../src/data/slack';
 import { createGithubReviewWatcher } from './github-review-watcher';
 import { createCreatedPrReviews } from './created-pr-reviews';
@@ -695,8 +696,7 @@ function captureTriggerPullRequest(signal: AbortSignal) {
     assertCurrent() { signal.throwIfAborted(); read.assertCurrent(); if (pullRequestRegistration(binding, 'admission') !== registration
       || persistenceHash(repos) !== persistenceHash([...applicationRepos()].map(repo => repo.toLowerCase()).sort())) throw new Error('Pull request source changed'); } };
 }
-function captureReviewSource(role: 'slack-review' | 'github-review', signal: AbortSignal) {
-  const pullRequest = captureTriggerPullRequest(signal);
+function captureReviewSource(role: 'slack-review' | 'github-review', signal: AbortSignal, pullRequest = captureTriggerPullRequest(signal)) {
   const communication = role === 'slack-review' ? communicationRuntime.captureScan() : undefined;
   return captureTriggerReviewSource({ role, signal, repos: applicationRepos, pullRequest,
     ...(communication ? { communication: { ...communication, messages: (input: { since: string | null }) => communicationRuntime.scan(input, signal) } } : {}) });
@@ -1361,7 +1361,17 @@ function configuredSlackWatcher(): SlackWatcher | null {
     getRun: triggerRun, isRunActive: (id) => pm.hasRun(id), launch,
     captureTrigger: () => captureTrigger<CommunicationReviewTriggerProviderV1>('slack-review'),
     captureSource: signal => { const source = captureReviewSource('slack-review', signal); if (source.kind !== 'communication') throw new Error('Invalid Slack trigger source'); return source; },
-    defaultWorkflowRef: defaultReviewWorkflow, verifyProposal: verifyReviewProposal,
+    defaultWorkflowRef: defaultReviewWorkflow,
+    observeOwnership: (proposal, trigger, signal) => {
+      const pullRequest = captureTriggerPullRequest(signal);
+      const source = captureReviewSource('slack-review', signal, pullRequest);
+      const capture = captureTrigger<CommunicationReviewTriggerProviderV1>('slack-review');
+      if (!capture) throw new Error('Slack review trigger is disabled');
+      return observeAutomaticReviewOwnership({ proposal, trigger, pullRequest, source, assertCurrent() {
+        capture.assertCurrent();
+        resolveWorkflowSelection({ root: pluginDirectory(), registry: backendPlugins.workflows, mode: 'review', providerId: proposal.workflowRef });
+      } });
+    },
     retainPins: executions.retainPins, releaseTriggerPins: executions.releaseTriggerPins,
     intervalMs: SLACK_INTERVAL_MS,
   }) : null;
