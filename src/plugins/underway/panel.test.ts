@@ -51,6 +51,22 @@ describe('standalone Underway panel', () => {
     const link = f.container.querySelector<HTMLAnchorElement>('a[href*="run=run-one"]')!; expect(link.href).toContain('repo=owner%2Fproject'); link.click(); expect(f.context.navigate).toHaveBeenCalledWith(link.getAttribute('href'));
     f.button('Dismiss saved launch')!.click(); await vi.waitFor(() => expect(f.button('Launch')?.disabled).toBe(false)); expect(f.acknowledge).toHaveBeenCalledWith({ repo, requestId: receipt.requestId }); f.lifetime.abort();
   });
+  it('opens only canonical returned run and PR locators while keeping the source task URL', async () => {
+    const f = fixture(); const resolve = vi.fn(async () => ({ status: 'available' as const, value: { version: 1 as const,
+      task: { selection: source, ref: task.ref, url: 'https://tasks.example/TASK-2' }, claim: { id: 'claim-one', revision: 1, state: 'claimed' as const },
+      run: { repo, runId: 'run-one', expectedAttempt: 2 }, pullRequest: { repo, number: 42, sourceRunId: 'run-one' } } }));
+    f.read.mockResolvedValue({ status: 'available', value: { selection: source, items: [{ ...task, url: 'https://tasks.example/TASK-2' }], nextCursor: null } });
+    f.context = { ...f.context, selectPresentation: vi.fn(), services: { ...f.context.services, taskContext: { version: 1, resolve } } };
+    await underway.mount(f.container, f.context); await vi.waitFor(() => expect([...f.container.querySelectorAll('a')].find(link => link.textContent === 'Open run')).toBeDefined());
+    const openRun = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open run')!; const openPr = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open pull request')!;
+    expect(f.container.querySelector<HTMLAnchorElement>('a')?.href).toBe('https://tasks.example/TASK-2');
+    expect(new URL(openRun.href).searchParams.get('run')).toBe('run-one'); expect(new URL(openPr.href).searchParams.get('pr')).toBe('42'); openRun.click(); openPr.click();
+    expect(f.context.selectPresentation).toHaveBeenNthCalledWith(1, { version: 1, kind: 'run', repo, runId: 'run-one' }); expect(f.context.selectPresentation).toHaveBeenNthCalledWith(2, { version: 1, kind: 'pull-request', repo, number: 42 });
+    expect(resolve).toHaveBeenCalledWith({ version: 1, selection: source, ref: task.ref, taskRevision: task.revision, claim: 'active' }, expect.any(AbortSignal)); f.lifetime.abort();
+  });
+  it('hides context actions when the optional service is absent or context becomes unavailable', async () => {
+    const f = fixture(); await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Launch')?.disabled).toBe(false)); expect([...f.container.querySelectorAll('a')].find(link => link.textContent === 'Open run')).toBeUndefined(); f.lifetime.abort();
+  });
   it('does not launch from all-repository scope', async () => {
     const f = fixture(); f.context = { ...f.context, state: { ...f.state, repo: null } };
     await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain(task.title));

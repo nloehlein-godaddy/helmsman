@@ -52,6 +52,7 @@ import { createPullRequestProviderHttp } from './pull-request-provider-http';
 import { bootstrapPullRequestProviderSelection, resolveSelectedPullRequestProvider } from './pull-request-providers';
 import { createActivityReadService } from './activity-read-service';
 import { createRunReadService } from './run-read-service';
+import { createTaskContextService } from './task-context-service';
 import { createRunInspectService } from './run-inspect-service';
 import { handleRunInspectExport } from './run-inspect-export';
 import { openRunCommandStore } from './run-command-store';
@@ -373,6 +374,7 @@ const runSettlement = (runId: string): { state: 'settled' | 'operator-required' 
   return claim ? { state: claim.state === 'settled' ? 'settled' : claim.settlement?.disposition === 'retained-for-operator' ? 'operator-required' : 'pending' } : null;
 };
 const runRead = createRunReadService({ db, repos: applicationRepos, settlement: runSettlement });
+const taskContext = createTaskContextService({ sources: taskSourceRuntime.service, store: taskSourceRuntime.store, db, repos: applicationRepos });
 const runInspect = createRunInspectService({ db, repos: applicationRepos, settlement: runSettlement });
 const publicClarifications = createApplicationClarifications({ persistence, clarifications, executions, controls: executionControls,
   repos: applicationRepos, catalog: () => pluginSnapshot.catalog });
@@ -1595,7 +1597,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(result?.status ?? 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result?.json ?? { error: 'Recovery action unavailable.' })); return;
     }
-    const inspectController = (url.pathname.startsWith('/api/pull-request-inspect/') || url.pathname === '/api/profile') ? new AbortController() : null;
+    const inspectController = (url.pathname.startsWith('/api/pull-request-inspect/') || url.pathname.startsWith('/api/task-context/') || url.pathname === '/api/profile') ? new AbortController() : null;
     const cancelInspect = () => inspectController?.abort();
     if (inspectController) {
       req.once('aborted', cancelInspect); res.once('close', cancelInspect);
@@ -1604,7 +1606,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const api = await handleApi(req.method ?? 'GET', url.pathname, url.searchParams, body, {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      runRead, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      runRead, taskContext, taskContextSignal: inspectController?.signal, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       integrationSettings, integrationSettingsCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       publicLocalGit, localGitCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,

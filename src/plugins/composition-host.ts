@@ -23,6 +23,7 @@ import { createHostTaskReadService } from './task-read-service';
 import { createHostTaskEditService } from './task-edit-service';
 import { createHostSourceCommandService } from './source-command-service';
 import { createHostTaskViewsReadService } from './task-views-read-service';
+import { createHostTaskContextService } from './task-context-service';
 import { createHostPullRequestReadService } from './pull-request-read-service';
 import { createHostPullRequestInspectService } from './pull-request-inspect-service';
 import { createHostActivityReadService } from './activity-read-service';
@@ -198,7 +199,7 @@ export class PluginCompositionHost {
     const contribution = this.options.registry.get(instance.contributionId);
     const compatible = contribution && this.options.definition.accepts.some(contract =>
       contract.id === contribution.contract.id && contract.version === contribution.contract.version)
-      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/terminal', 'helmsman/campaigns', 'helmsman/jira-settings', 'helmsman/github-settings', 'helmsman/profile', 'helmsman/local-git', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
+      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/task-context', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/terminal', 'helmsman/campaigns', 'helmsman/jira-settings', 'helmsman/github-settings', 'helmsman/profile', 'helmsman/local-git', 'helmsman/activity-read', 'helmsman/run-command'].includes(requirement.id) && requirement.version === 1);
     const module = compatible ? this.options.registry.getModule(instance.contributionId) : null;
     if (panel.module !== module || panel.contributionId !== instance.contributionId) {
       panel.host?.dispose(); panel.host = null;
@@ -233,6 +234,7 @@ export class PluginCompositionHost {
         sourceCommands: createHostSourceCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         sourceAdmin: createHostSourceAdminService(lifetime, { scope: activity, caller: instance.contributionId }),
         taskViews: createHostTaskViewsReadService(lifetime, { scope: activity }),
+        taskContext: createHostTaskContextService(lifetime, { scope: activity }),
         runs: createHostRunReadService(lifetime, { scope: activity }),
         runInspect: createHostRunInspectService(lifetime, { scope: activity }),
         downloads: createHostDownloadService(lifetime, activity),

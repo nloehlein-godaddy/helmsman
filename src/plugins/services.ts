@@ -25,6 +25,7 @@ import type { RunCommandServiceV1 } from './run-command';
 import type { TaskEditServiceV1 } from './task-edit';
 import type { SourceCommandServiceV1 } from './source-command';
 import type { TaskViewsReadServiceV1 } from './task-views';
+import type { TaskContextServiceV1 } from './task-context';
 
 export interface PluginPageServices {
   readonly version: 1;
@@ -34,6 +35,7 @@ export interface PluginPageServices {
   readonly sourceCommands?: SourceCommandServiceV1;
   readonly sourceAdmin?: SourceAdminServiceV1;
   readonly taskViews?: TaskViewsReadServiceV1;
+  readonly taskContext?: TaskContextServiceV1;
   readonly runs?: RunReadServiceV1;
   readonly runInspect?: RunInspectServiceV1;
   readonly downloads?: DownloadServiceV1;

@@ -23,6 +23,7 @@ import { createHostRunCommandService } from './run-command-service';
 import { createHostTaskEditService } from './task-edit-service';
 import { createHostSourceCommandService } from './source-command-service';
 import { createHostTaskViewsReadService } from './task-views-read-service';
+import { createHostTaskContextService } from './task-context-service';
 import type { PluginPageServices } from './services';
 import type { PricingEstimate, UsageQuery, UsageSnapshot } from './usage';
 import { createHostTaskReadService, type TaskReadScopeV1 } from './task-read-service';
@@ -107,7 +108,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
     version: 1,
     ...(scope ? { tasks: createHostTaskReadService(lifetime, { scope }), runs: createHostRunReadService(lifetime, { scope }), runInspect: createHostRunInspectService(lifetime, { scope }), downloads: createHostDownloadService(lifetime, scope),
       todoLegacyRecovery: createHostTodoLegacyRecoveryService(lifetime, { scope }),
-      taskEdit: createHostTaskEditService(lifetime, { scope }), taskViews: createHostTaskViewsReadService(lifetime, { scope }),
+      taskEdit: createHostTaskEditService(lifetime, { scope }), taskViews: createHostTaskViewsReadService(lifetime, { scope }), taskContext: createHostTaskContextService(lifetime, { scope }),
       pullRequests: createHostPullRequestReadService(lifetime, { scope }),
       pullRequestInspect: createHostPullRequestInspectService(lifetime, { scope }),
       activity: createHostActivityReadService(lifetime, { scope }),

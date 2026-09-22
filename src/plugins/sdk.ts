@@ -19,6 +19,7 @@ export type { PluginBackendModule, PluginBackendContext, PluginBackendDefinition
 export * from './tasks';
 export * from './task-read';
 export * from './task-views';
+export * from './task-context';
 export * from './task-edit';
 export * from './todo-legacy-recovery';
 export * from './source-settings';

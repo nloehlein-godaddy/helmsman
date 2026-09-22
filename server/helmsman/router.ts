@@ -46,9 +46,11 @@ import type { PullRequestReadServerService } from './pull-request-read-service';
 import { handleActivityReadApi } from './activity-read-routes';
 import type { ActivityReadService } from './activity-read-service';
 import { handleRunReadApi } from './run-read-routes';
+import { handleTaskContextApi } from './task-context-routes';
 import { handleRunInspectApi } from './run-inspect-routes';
 import type { RunInspectServerService } from './run-inspect-service';
 import type { RunReadServerService } from './run-read-service';
+import type { TaskContextServerService } from './task-context-service';
 import { handleTaskSourceApi } from './task-source-routes';
 import type { TaskSourceService } from './task-source-service';
 import { SourceTodoRejectedError, type TodoApi } from './task-source-todos';
@@ -96,6 +98,8 @@ export interface RouterDeps {
   publicClarifications?: ReturnType<typeof createApplicationClarifications>;
   clarificationCaller?: string;
   runRead?: RunReadServerService;
+  taskContext?: TaskContextServerService;
+  taskContextSignal?: AbortSignal;
   runInspect?: RunInspectServerService;
   communication?: CommunicationReadServerService;
   communicationCommands?: CommunicationCommandServerService;
@@ -186,6 +190,8 @@ export async function handleApi(
   if (runInspectResult) return runInspectResult;
   const runReadResult = handleRunReadApi({ method, path, query, service: deps.runRead });
   if (runReadResult) return runReadResult;
+  const taskContextResult = await handleTaskContextApi({ method, path, query, service: deps.taskContext, signal: deps.taskContextSignal });
+  if (taskContextResult) return taskContextResult;
   const sourceResult = await handleTaskSourceApi({ method, path, query, body: _body, service: deps.taskSources, schedule: deps.sourceSchedule, launch: deps.launch });
   if (sourceResult) return sourceResult;
   if ((path === '/api/usage/v1' || path === '/api/pricing/v1') && method === 'GET') {

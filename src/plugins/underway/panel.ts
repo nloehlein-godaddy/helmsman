@@ -1,12 +1,13 @@
-import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, TaskReadSourceV1, TaskReadTaskV1, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1 } from '@helmsman/plugin-sdk';
+import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, TaskContextSnapshotV1, TaskReadSourceV1, TaskReadTaskV1, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1 } from '@helmsman/plugin-sdk';
 
 interface Selection { sourceId: string; instanceId: string; repo: string; }
-interface Section { source: TaskReadSourceV1; tasks: readonly TaskReadTaskV1[]; cursor: string | null; pages: number; error: string; loading: boolean; }
+interface Section { source: TaskReadSourceV1; tasks: readonly TaskReadTaskV1[]; context: Map<string, TaskContextSnapshotV1>; cursor: string | null; pages: number; error: string; loading: boolean; }
 interface LaunchState { input: RunCommandInputV1; requestId: string | null; receipt: RunCommandReceiptV1 | null; busy: boolean; message: string; }
 function commandKey(input: RunCommandInputV1): string | null {
   return input.action === 'launch' && input.launch.mode === 'source' ? JSON.stringify([input.repo, input.launch.workRef.sourceId, input.launch.workRef.externalId]) : null;
 }
 const key = (source: Selection): string => JSON.stringify([source.repo, source.sourceId, source.instanceId]);
+const taskKey = (task: TaskReadTaskV1): string => JSON.stringify([task.ref.sourceId, task.ref.externalId, task.revision]);
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => {
   const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value;
 };
@@ -74,7 +75,7 @@ class UnderwayPanel implements PluginPanelInstance {
       if (this.invalidSelection) this.messages.push('The saved source selection uses unsupported data. Choose a source to replace it.');
       if (this.chosen && !selected.length) this.messages.push('The selected source is unavailable in this scope. Your selection is kept.');
       if (selected.length > 50) this.messages.push('Showing the first 50 source views. Select a source to inspect another view.');
-      this.sections = selected.slice(0, 50).map(source => ({ source, tasks: [], cursor: null, pages: 0, error: source.availability !== 'available' ? `Source ${source.availability}.` : !source.readViews?.includes('underway') ? 'This source does not provide the Underway view.' : '', loading: source.availability === 'available' && Boolean(source.readViews?.includes('underway')) }));
+      this.sections = selected.slice(0, 50).map(source => ({ source, tasks: [], context: new Map(), cursor: null, pages: 0, error: source.availability !== 'available' ? `Source ${source.availability}.` : !source.readViews?.includes('underway') ? 'This source does not provide the Underway view.' : '', loading: source.availability === 'available' && Boolean(source.readViews?.includes('underway')) }));
       this.draw(); let index = 0;
       await Promise.all(Array.from({ length: Math.min(4, this.sections.length) }, async () => {
         while (index < this.sections.length && this.current(generation)) {
@@ -95,8 +96,36 @@ class UnderwayPanel implements PluginPanelInstance {
       const seen = new Set(section.tasks.map(task => JSON.stringify(task.ref)));
       if (result.value.items.some(task => seen.has(JSON.stringify(task.ref)))) { section.error = 'Task pagination changed. Refresh this panel.'; section.cursor = null; return; }
       section.tasks = [...section.tasks, ...result.value.items]; section.cursor = result.value.nextCursor; section.pages++; section.error = '';
+      await this.readContext(section, result.value.items, generation, signal);
     } catch { if (this.current(generation) && !signal.aborted) section.error = 'Tasks could not be read. Refresh to retry.'; }
     finally { if (this.current(generation)) { section.loading = false; this.draw(); } }
+  }
+  private async readContext(section: Section, tasks: readonly TaskReadTaskV1[], generation: number, signal: AbortSignal): Promise<void> {
+    const service = this.context.services.taskContext;
+    if (service?.version !== 1 || typeof service.resolve !== 'function') return;
+    let index = 0;
+    await Promise.all(Array.from({ length: Math.min(4, tasks.length) }, async () => {
+      while (index < tasks.length && this.current(generation)) {
+        const task = tasks[index++]!;
+        try {
+          const result = await service.resolve({ version: 1, selection: section.source, ref: task.ref, taskRevision: task.revision, claim: 'active' }, signal);
+          if (this.current(generation) && result.status === 'available') section.context.set(taskKey(task), result.value);
+        } catch {}
+      }
+    }));
+  }
+  private presentationLink(label: string, locator: { readonly version: 1; readonly kind: 'run'; readonly repo: string; readonly runId: string } | { readonly version: 1; readonly kind: 'pull-request'; readonly repo: string; readonly number: number }, href: string): HTMLAnchorElement {
+    const link = element('a', label); link.href = href;
+    link.addEventListener('click', event => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      if (this.context.selectPresentation) this.context.selectPresentation(locator); else this.context.navigate(href);
+    });
+    return link;
+  }
+  private presentationHref(kind: 'run' | 'pull-request', repo: string, value: string): string {
+    const params = new URLSearchParams({ ...(this.state.repo ? { repo: this.state.repo } : {}), ...(kind === 'run' ? { runRepo: repo, run: value } : { prRepo: repo, pr: value }) });
+    return `/${kind === 'run' ? 'runs' : 'prs'}?${params}`;
   }
   private more(section: Section): void {
     if (this.disposed || !section.cursor || section.loading || section.pages >= 10 || this.pending || !this.state.activity.active) return;
@@ -217,7 +246,19 @@ class UnderwayPanel implements PluginPanelInstance {
         const row = element('li');
         if (task.url) { const link = element('a', `${task.displayKey}: ${task.title}`); link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; row.append(link); }
         else row.append(element('span', `${task.displayKey}: ${task.title}`));
-        row.append(element('small', task.priority === null ? 'Priority unknown' : `Priority ${task.priority}`)); list.append(row);
+        row.append(element('small', task.priority === null ? 'Priority unknown' : `Priority ${task.priority}`));
+        const context = section.context.get(taskKey(task));
+        if (context && this.state.visible && this.state.activity.active) {
+          if (context.run) {
+            const locator = { version: 1 as const, kind: 'run' as const, repo: context.run.repo, runId: context.run.runId };
+            row.append(this.presentationLink('Open run', locator, this.presentationHref('run', locator.repo, locator.runId)));
+          }
+          if (context.pullRequest) {
+            const locator = { version: 1 as const, kind: 'pull-request' as const, repo: context.pullRequest.repo, number: context.pullRequest.number };
+            row.append(this.presentationLink('Open pull request', locator, this.presentationHref('pull-request', locator.repo, String(locator.number))));
+          }
+        }
+        list.append(row);
         if (this.state.repo !== null && task.state !== 'ready') row.append(element('small', 'Not ready for a new run.'));
         if (this.state.repo !== null && task.state === 'ready') {
           const launch = element('button', 'Launch'); launch.type = 'button';
