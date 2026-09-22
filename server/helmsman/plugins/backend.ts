@@ -1,3 +1,4 @@
+import { createPluginCleanup } from './cleanup';
 import type { TriggerBackendContextV1, TriggerProviderV1 } from '../../../src/plugins/trigger';
 import { boundedTriggerProvider, createTriggerProviderRegistry } from '../trigger-providers';
 import type { WorkflowBackendContextV1, WorkflowProviderV1 } from '../../../src/plugins/workflow';
@@ -209,7 +210,7 @@ export async function activateBackendPlugins(options: {
     }
     let data: ReturnType<typeof openPluginData> | undefined;
     const abort = new AbortController();
-    const cleanups: (() => void | Promise<void>)[] = [];
+    const cleanups = createPluginCleanup({ timeoutMs, onError: late => { errors.push(`Plugin ${id} ${late ? 'late cleanup' : 'cleanup'} failed.`); } });
     const staged = new Map<string, PluginJson | undefined>();
     const pending = new Map<string, PricingProvider>();
     const pendingSources = new Map<string, TaskSourceProviderV1>();
@@ -228,9 +229,16 @@ export async function activateBackendPlugins(options: {
     let cleanupPromise: Promise<void> | undefined;
     const activationLive = () => { if (phase === 'disposed') throw new CapabilityResolutionError('inactive', 'Plugin activation was disposed.'); };
     const live = () => { if (phase === 'disposed' || draining.has(id) || !canServeOrdinary()) throw new CapabilityResolutionError('inactive', 'Plugin has been disposed or is draining.'); };
-    const cleanup = () => cleanupPromise ??= (async () => {
+    const cleanup = (): Promise<void> => {
+      if (cleanupPromise) return cleanupPromise;
+      cleanupPromise = Promise.resolve().then(async () => {
+        await cleanups.dispose();
+        data?.close();
+        await remove().catch(() => { errors.push(`Plugin ${id} runtime cleanup failed.`); });
+        if (options.coordinator && artifactHash && options.coordinator.state(id)?.artifactHash === artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'inactive', null);
+      });
       if (phase === 'active') activeIds.delete(id);
-      phase = 'disposed'; abort.abort();
+      phase = 'disposed';
       if (publishedSources) taskSources.removePlugin(id);
       if (publishedPullRequests) pullRequests.removePlugin(id);
       pullRequestSettings.delete(id);
@@ -244,13 +252,9 @@ export async function activateBackendPlugins(options: {
       scheduling.removePlugin(id); schedulingSettings.delete(id);
       pluginDrains.delete(id);
       for (const provider of pending.keys()) providers.delete(provider);
-      for (const dispose of cleanups.reverse()) {
-        try { await bounded(async () => { await dispose(); }, 'Plugin cleanup'); } catch { errors.push(`Plugin ${id} cleanup failed.`); }
-      }
-      data?.close();
-      await remove().catch(() => { errors.push(`Plugin ${id} runtime cleanup failed.`); });
-      if (options.coordinator && artifactHash && options.coordinator.state(id)?.artifactHash === artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'inactive', null);
-    })();
+      abort.abort();
+      return cleanupPromise;
+    };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       if (ids.has(id)) throw new Error('Duplicate backend plugin identity.');
@@ -267,11 +271,7 @@ export async function activateBackendPlugins(options: {
           set: async (key: string, value: PluginJson) => { live(); const copied = pluginJson(value); data!.read(key); if (phase === 'activating') staged.set(key, copied); else data!.commit(new Map([[key, copied]])); },
           delete: async (key: string) => { live(); data!.read(key); if (phase === 'activating') staged.set(key, undefined); else data!.commit(new Map([[key, undefined]])); },
         }),
-        onDispose: (fn: () => void | Promise<void>) => {
-          if (typeof fn !== 'function') throw new Error('Plugin cleanup must be a function.');
-          if (phase === 'disposed') { void Promise.resolve().then(fn).catch(() => { errors.push(`Plugin ${id} late cleanup failed.`); }); }
-          else cleanups.push(fn);
-        },
+        onDispose: cleanups.register,
         registerPricing: (localId: string, provider: PricingProvider) => {
           if (phase !== 'activating' || !pkg.backend?.provides.some(item => item.id === 'helmsman/pricing' && item.localId === localId) || !provider || typeof provider.estimate !== 'function') throw new Error('Undeclared or invalid pricing provider registration.');
           const providerId = `${id}/${localId}`;
@@ -488,11 +488,14 @@ export async function activateBackendPlugins(options: {
       }
     },
     dispose() {
-      return disposal ??= (async () => {
-        disposed = true; providers.clear(); activeIds.clear();
-        unsubscribe?.();
-        for (const cleanup of owners.reverse()) await cleanup();
-      })();
+      if (disposal) return disposal;
+      let complete!: () => void;
+      let fail!: (error: unknown) => void;
+      disposal = new Promise<void>((resolve, reject) => { complete = resolve; fail = reject; });
+      disposed = true; providers.clear(); activeIds.clear();
+      unsubscribe?.();
+      void (async () => { for (const cleanup of owners.reverse()) await cleanup(); })().then(complete, fail);
+      return disposal;
     },
   };
 }

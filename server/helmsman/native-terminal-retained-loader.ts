@@ -11,6 +11,7 @@ import { persistenceHash } from './persistence';
 import { readPluginArtifact, type PluginArchive } from './plugins/artifacts';
 import { validatePluginImports } from './plugins/imports';
 import { materializePluginBackend } from './plugins/materialize';
+import { createPluginCleanup } from './plugins/cleanup';
 import { assertPluginNodeCompatibility } from './plugins/compatibility';
 
 async function verifyClosure(input: { pluginsRoot: string; runtimeArtifactsRoot: string; artifacts: readonly ArtifactBinding[] }, record: NativeTerminalRetainedProviderV1) {
@@ -54,17 +55,13 @@ export async function loadRetainedNativeTerminalProvider(input: {
   const record = parseNativeTerminalRetainedProviderV1(input.record);
   input.signal?.throwIfAborted(); const closure = await verifyClosure(input, record); input.signal?.throwIfAborted();
   let remove: (() => Promise<void>) | undefined; let pkg: PluginPackage; let imported: unknown;
-  const cleanups: Array<() => void | Promise<void>> = []; const controller = new AbortController(); let disposed = false; let disposal: Promise<void> | undefined;
+  const cleanups = createPluginCleanup({ timeoutMs: 1000 }); const controller = new AbortController(); let disposal: Promise<void> | undefined;
   const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
   function dispose(): Promise<void> {
-    return disposal ??= (async () => {
-      disposed = true; controller.abort();
-      for (const cleanup of cleanups.reverse()) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try { await Promise.race([Promise.resolve().then(cleanup), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Native terminal cleanup timed out')), 1000); })]); } catch {} finally { clearTimeout(timer); }
-      }
-      await remove?.();
-    })();
+    if (disposal) return disposal;
+    disposal = Promise.resolve().then(async () => { await cleanups.dispose(); await remove?.(); });
+    controller.abort();
+    return disposal;
   }
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -98,11 +95,7 @@ export async function loadRetainedNativeTerminalProvider(input: {
         if (!activating || !pkg.backend!.provides.some(value => value.localId === localId) || providers.has(localId)) throw new Error('Undeclared or duplicate retained native terminal registration');
         providers.set(localId, boundedNativeTerminalProvider(provider));
       },
-      onDispose(cleanup) {
-        if (typeof cleanup !== 'function') throw new Error('Invalid native terminal cleanup');
-        if (disposed) { void Promise.resolve().then(cleanup).catch(() => {}); return; }
-        cleanups.push(cleanup);
-      },
+      onDispose: cleanups.register,
     });
     if (!imported || typeof imported !== 'object' || !('activate' in imported) || typeof imported.activate !== 'function') throw new Error('Retained native terminal module is invalid');
     const activate = imported.activate;

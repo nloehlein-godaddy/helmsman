@@ -228,6 +228,36 @@ describe('backend plugin activation and pricing', () => {
     expect(finished).toBe(true);
   });
 
+  it.each(['abort', 'cleanup'])('joins cleanup registered during %s before disposal completes', async timing => {
+    const root = await temporary();
+    let begin!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>(resolve => { begin = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let context!: PluginBackendContext;
+    let finished = false;
+    const runtime = await start(root, [builtin('helmsman.cleanup-registration', supplied => {
+      context = supplied;
+      const register = () => supplied.onDispose(async () => { begin(); await gate; finished = true; });
+      if (timing === 'abort') supplied.signal.addEventListener('abort', register, { once: true });
+      else supplied.onDispose(register);
+      supplied.registerPricing('price', { estimate: () => estimate() });
+    })]);
+    let disposed = false;
+    const disposal = runtime.dispose().then(() => { disposed = true; });
+    try {
+      expect(context.signal.aborted).toBe(true);
+      await expect(context.storage.set('after', 1)).rejects.toThrow('disposed');
+      await started;
+      await Promise.resolve();
+      expect(disposed).toBe(false);
+      release();
+      await disposal;
+      expect(finished).toBe(true);
+      expect(runtime.errors).toEqual([]);
+    } finally { release(); await disposal; }
+  });
+
   it('bounds hanging activation and asynchronous cleanup', async () => {
     const root = await temporary();
     let context!: PluginBackendContext;

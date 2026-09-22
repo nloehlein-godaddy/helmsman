@@ -117,6 +117,39 @@ it('joins overlapping retained disposal while asynchronous cleanup is in progres
     delete globals.helmsmanRetainedCleanupFinished;
   }
 });
+it.each(['abort', 'cleanup'])('joins retained cleanup registered during %s', async timing => {
+  const globals = globalThis as unknown as Record<string, unknown>;
+  let begin!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>(resolve => { begin = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  globals.helmsmanRetainedCleanupStarted = begin;
+  globals.helmsmanRetainedCleanupPending = gate;
+  globals.helmsmanRetainedCleanupFinished = false;
+  let retained: Awaited<ReturnType<typeof loadRetainedAgentProvider>> | undefined;
+  try {
+    const f = await fixture(`export default { activate(context) {
+      const register = () => context.onDispose(async () => { globalThis.helmsmanRetainedCleanupStarted(); await globalThis.helmsmanRetainedCleanupPending; globalThis.helmsmanRetainedCleanupFinished = true; });
+      ${timing === 'abort' ? "context.signal.addEventListener('abort', register, { once: true });" : 'context.onDispose(register);'}
+      context.registerAgent('agent', { metadata: ${JSON.stringify(metadata)}, buildCommand() { return { cmd: 'echo', args: [] }; }, parseLine() { return null; } });
+    } };`);
+    retained = await f.load();
+    let disposed = false;
+    const disposal = retained.dispose().then(() => { disposed = true; });
+    expect(() => retained?.provider.parseLine('after')).toThrow();
+    await started;
+    await Promise.resolve();
+    expect(disposed).toBe(false);
+    release();
+    await disposal;
+    expect(globals.helmsmanRetainedCleanupFinished).toBe(true);
+  } finally {
+    release(); await retained?.dispose();
+    delete globals.helmsmanRetainedCleanupStarted;
+    delete globals.helmsmanRetainedCleanupPending;
+    delete globals.helmsmanRetainedCleanupFinished;
+  }
+});
 it('rejects missing and modified retained artifacts and incomplete dependency closures', async () => {
   const f = await fixture();
   await expect(loadRetainedAgentProvider({ pluginsRoot: f.root, runtimeArtifactsRoot: f.root, record: f.record, artifacts: [{ ...f.artifacts[0]!, requires: ['example.missing'] }] })).rejects.toThrow('dependency is missing');
