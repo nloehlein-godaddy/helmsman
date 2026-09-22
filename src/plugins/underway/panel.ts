@@ -96,7 +96,7 @@ class UnderwayPanel implements PluginPanelInstance {
       const seen = new Set(section.tasks.map(task => JSON.stringify(task.ref)));
       if (result.value.items.some(task => seen.has(JSON.stringify(task.ref)))) { section.error = 'Task pagination changed. Refresh this panel.'; section.cursor = null; return; }
       section.tasks = [...section.tasks, ...result.value.items]; section.cursor = result.value.nextCursor; section.pages++; section.error = '';
-      await this.readContext(section, result.value.items, generation, signal);
+      this.draw(); void this.readContext(section, result.value.items, generation, signal);
     } catch { if (this.current(generation) && !signal.aborted) section.error = 'Tasks could not be read. Refresh to retry.'; }
     finally { if (this.current(generation)) { section.loading = false; this.draw(); } }
   }
@@ -109,7 +109,7 @@ class UnderwayPanel implements PluginPanelInstance {
         const task = tasks[index++]!;
         try {
           const result = await service.resolve({ version: 1, selection: section.source, ref: task.ref, taskRevision: task.revision, claim: 'active' }, signal);
-          if (this.current(generation) && result.status === 'available') section.context.set(taskKey(task), result.value);
+          if (this.current(generation) && result.status === 'available') { section.context.set(taskKey(task), result.value); this.draw(); }
         } catch {}
       }
     }));

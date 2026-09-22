@@ -67,6 +67,12 @@ describe('standalone Underway panel', () => {
   it('hides context actions when the optional service is absent or context becomes unavailable', async () => {
     const f = fixture(); await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Launch')?.disabled).toBe(false)); expect([...f.container.querySelectorAll('a')].find(link => link.textContent === 'Open run')).toBeUndefined(); f.lifetime.abort();
   });
+  it('renders task rows and launch controls while optional context reads are slow', async () => {
+    const f = fixture(); const resolve = vi.fn(() => new Promise<never>(() => {}));
+    f.context = { ...f.context, services: { ...f.context.services, taskContext: { version: 1, resolve } } };
+    await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Launch')?.disabled).toBe(false));
+    expect(f.container.textContent).toContain(task.title); expect(resolve).toHaveBeenCalledOnce(); f.lifetime.abort();
+  });
   it('does not launch from all-repository scope', async () => {
     const f = fixture(); f.context = { ...f.context, state: { ...f.state, repo: null } };
     await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain(task.title));
