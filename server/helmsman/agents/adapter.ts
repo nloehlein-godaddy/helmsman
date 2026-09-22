@@ -8,6 +8,7 @@ import type { ExecutionHostRetainedProviderV1 } from '../execution-host-provider
 import type { WorkflowRetainedProviderV1 } from '../workflow-providers';
 
 export interface AgentTask {
+  modelGateway?: { url: string; token: string };
   trigger?: TriggerProvenanceV1;
   pullRequestSource?: PullRequestSourceRecord;
   triggerReviewSource?: { binding: ProviderBinding; revision: string; artifacts: readonly ArtifactBinding[] };

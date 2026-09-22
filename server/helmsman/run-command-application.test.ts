@@ -1,3 +1,4 @@
+import { GoCaaSConfigurationError } from './gocaas';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openPersistence, persistenceHash } from './persistence';
 import { openDb, type RunRow } from './db';
@@ -43,6 +44,13 @@ function setup() {
     service: createApplicationRunCommands(options), disable: () => { catalog = { ...catalog, safeMode: true }; }, removeRepo: () => { repos = []; } };
 }
 describe('application run command authority', () => {
+  it('reports GoCaaS preflight failures as rejected commands without recovery obligations', async () => {
+    const f = setup();
+    f.launch.mockImplementation(() => { throw new GoCaaSConfigurationError('Configure GoCaaS before launching agents.'); });
+    const receipt = await f.service.submit(caller, command);
+    expect(receipt).toMatchObject({ status: 'rejected', message: 'Configure GoCaaS before launching agents.' });
+    expect(f.persistence.sql.prepare('SELECT COUNT(*) AS count FROM execution_admissions').get()).toEqual({ count: 0 });
+  });
   it('replays accepted commands after disablement, removed configuration and exhausted capacity', async () => {
     const f = setup(); const receipt = await f.service.submit(caller, command);
     expect(receipt.status).toBe('accepted'); expect(f.launch).toHaveBeenCalledOnce();

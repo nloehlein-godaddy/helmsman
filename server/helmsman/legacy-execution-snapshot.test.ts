@@ -7,9 +7,12 @@ import type { ExecutionSnapshot } from './execution-store';
 describe('legacy execution bindings', () => {
   it('excludes every supported task capability without changing the live launch task', () => {
     const task: AgentTask = { repo: 'org/repo', ticketId: 'TASK-1', title: 'test', jiraBaseUrl: '',
+      modelGateway: { url: 'http://127.0.0.1:8790', token: 'private-model-token' },
       clarification: { questionsPath: '/questions', answersPath: '/answers', gateToken: 'private-gate-token' },
       dockerExecution: { image: 'sha256:abc', gatewayUrl: 'http://gateway', capability: 'private-provider-token', runId: 'run' } };
     expect(JSON.stringify(nonsecretExecutionTask(task))).not.toContain('private-');
+    expect(task.modelGateway?.token).toBe('private-model-token');
+    expect(nonsecretExecutionTask(task)).toMatchObject({ modelGateway: { url: 'http://127.0.0.1:8790' } });
     expect(task.clarification?.gateToken).toBe('private-gate-token');
     expect(task.dockerExecution?.capability).toBe('private-provider-token');
   });

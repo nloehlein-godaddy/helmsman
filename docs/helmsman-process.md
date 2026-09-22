@@ -554,6 +554,9 @@ flowchart TD
     Host --> Docker[Retained isolated host package<br/>Pinned image; private workspace and runtime<br/>Run-scoped gateway; host keeps upstream credentials]
     Local --> Workflow{Selected workflow metadata}
     Docker --> Workflow
+    Local -. Model requests .-> Gateway[Run-scoped Helmsman gateway<br/>Host resolves GoCaaS credentials]
+    Docker -. Model requests .-> Gateway
+    Gateway --> GoCaaS[GoCaaS only<br/>No direct vendor fallback]
     Workflow -->|Coding: staged| Coding[Pure provider policy and guarded stages<br/>Exact-revision review loop below]
     Workflow -->|Review: direct| Review[Pin PR head and render retained review prompt<br/>Host verifies result and required answers before posting]
     Workflow -->|Branch: direct| Branch[Retained branch-feedback prompt<br/>Existing PR and source authorization unchanged]
@@ -634,8 +637,8 @@ flowchart LR
 ## Setup and current limits
 
 - Webhooks are disabled until a secret and explicit routes are configured; public ingress is a separate deployment choice. See [webhook setup](webhooks.md).
-- Docker requires a built runtime image and host provider credentials. Dependencies/cache must be supplied in the image because agent stages have no unrestricted network access. Docker branch-update reruns currently fail preflight; the operator must select trusted local execution for that mode. See [Docker execution](docker-run-host.md).
-- Offline Docker lifecycle and mocked provider gateway flows were verified during adoption. A real provider-backed Docker coding/review run still requires configured host API keys; the adoption validation did not make paid provider calls.
+- Docker requires a built runtime image and host GoCaaS credentials or the configured helper. Dependencies/cache must be supplied in the image because agent stages have no unrestricted network access. Docker branch-update reruns currently fail preflight; the operator must select trusted local execution for that mode. See [Docker execution](docker-run-host.md).
+- Offline Docker lifecycle and mocked provider gateway flows were verified during adoption. A real provider-backed Docker coding/review run still requires configured GoCaaS authentication; the adoption validation did not make paid provider calls.
 - No path auto-merges a PR. Merging remains a human action on GitHub.
 
 Implementation references: `server/helmsman/prepare-run.ts`, `workflow-snapshots.ts`, `campaign-dispatcher.ts`, `webhooks.ts`, `docker-stage.ts`, `scoped-gateway.ts`, `clarification-runtime.ts`, `pre-pr-runtime.ts`, `artifacts.ts`, `run-telemetry.ts`, and `outcome-service.ts`. See [adoption evidence](moonunit-adoption.md).

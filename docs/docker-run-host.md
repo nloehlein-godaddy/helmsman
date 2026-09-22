@@ -24,6 +24,6 @@ Dependency installation cannot use unrestricted internet access. Provision the r
 
 Docker PR branch-update reruns currently fail preflight with an actionable instruction to use the trusted local host. Coding and standalone PR review are supported; local execution remains the default. Missing images, provider credentials, or required skills produce preflight errors rather than fallback to an unisolated host. No remote control channel is introduced: detached supervisors and Docker identities use the existing durable recovery protocol.
 
-Validation: built the runtime image; exercised actual Docker launch, host-visible logs/exit code and liveness; exercised provider gateway behavior against fake upstreams without paid API calls. An actual provider-backed isolated coding/review run requires host API keys, which are not configured in this development session.
+Validation: built the runtime image; exercised actual Docker launch, host-visible logs/exit code and liveness; exercised provider gateway behavior against fake upstreams without paid API calls. An actual provider-backed isolated coding/review run requires configured GoCaaS authentication; validation did not make paid model calls.
 
 References: [Codex advanced configuration](https://developers.openai.com/codex/config-advanced/) and [configuration reference](https://developers.openai.com/codex/config-reference/), retrieved 18 September 2026.

@@ -123,6 +123,7 @@ import { openCampaignStore } from './campaigns';
 import { createCampaignDispatcher } from './campaign-dispatcher';
 import { openClarificationStore } from './clarifications';
 import { createScopedGateway } from './scoped-gateway';
+import { createGoCaaSUpstream, GoCaaSConfigurationError } from './gocaas';
 import { listenScopedGateway } from './gateway-listener';
 import { createDockerWorkspace, removeDockerWorkspace } from './docker-workspace';
 import { dockerHost, dockerRun } from './docker-host';
@@ -418,8 +419,8 @@ const publicationService = createPublicationService({ persistence, operations, e
   isStopped: runId => stopRequested(runId),
 });
 
-const gateway = createScopedGateway({ path: persistence.sql, openaiKey: () => process.env.OPENAI_API_KEY,
-  anthropicKey: () => process.env.ANTHROPIC_API_KEY, githubKey: () => configStore.current().github?.token,
+const goCaas = createGoCaaSUpstream(process.env);
+const gateway = createScopedGateway({ path: persistence.sql, modelUpstream: goCaas, githubKey: () => configStore.current().github?.token,
   active: runId => db.getRun(runId)?.status === 'running' && !stopRequested(runId),
   push: publicationService.push, publication: publicationService.publish,
   scope: runId => {
@@ -1053,6 +1054,11 @@ async function resumeVoyage(runId: string): Promise<void> {
     const resumed = await resumeFailedPrePrRun(row, { db, durable: runnerDurability(cfg), host: hosting.context.host,
       runsDir: RUNS_DIR, publication: publicationConnection(runId), now: () => new Date().toISOString(), isStopped: () => control.stopped,
       prepareTask: async task => {
+        goCaas.assertReady();
+        if (task.agentSelection && [task.agentSelection.writer, ...task.agentSelection.reviewers].some(record => !record.metadata.docker)) {
+          throw new ResumeError('Retained agent must declare a supported transport for GoCaaS routing.');
+        }
+        task.modelGateway = { url: `http://127.0.0.1:${gatewayPort}`, token: gateway.issue(runId, 86_400_000).token };
         task.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: row.attempt + 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
         const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^pre-pr:/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort });
         if (prepared.task.hostIsolation) {
@@ -1165,6 +1171,10 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   if (priorTask && priorRun) verifyAgentExecution(priorTask, executionSnapshot(priorRun));
   const agentArtifacts = priorTask?.agentRuntime?.artifacts ?? mergeExecutionArtifacts(...[selectedAgents.selection.writer, ...selectedAgents.selection.reviewers].map(record => providerArtifacts(record.binding)));
   const agentRuntime = { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: agentArtifacts };
+  for (const record of [selectedAgents.selection.writer, ...selectedAgents.selection.reviewers]) {
+    if (!record.metadata.docker) throw new GoCaaSConfigurationError('Selected agent must declare an OpenAI Responses or Anthropic Messages transport for GoCaaS routing.');
+  }
+  goCaas.assertReady();
   const selectedWriterId = selectedAgents.selection.writer.binding.providerId;
   let sourceSelection = taskSourceRuntime.selection(body, body.retryOf);
   if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
@@ -1260,12 +1270,12 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         const priorTask = previous?.taskJson ? JSON.parse(previous.taskJson) as Partial<AgentTask> | null : null;
         if (priorTask?.workflowSnapshotId) taskObj.workflowSnapshotId = priorTask.workflowSnapshotId;
       }
+      taskObj.modelGateway = { url: `http://127.0.0.1:${gatewayPort}`, token: gateway.issue(runId, 86_400_000).token };
       if (hosting.isolated) {
         if (taskObj.prBranch && !taskObj.review) throw new Error('Docker branch reruns require host publication support; use the trusted local run host for this mode.');
         for (const record of [selectedAgents.selection.writer, ...selectedAgents.selection.reviewers]) {
           const transport = record.metadata.docker;
           if (!transport) throw new Error('Selected agent does not support Docker execution');
-          if (transport === 'openai-responses' && !process.env.OPENAI_API_KEY || transport === 'anthropic-messages' && !process.env.ANTHROPIC_API_KEY) throw new Error('Configure the selected agent API key on the host before Docker execution.');
         }
         const capability = gateway.issue(runId, 86_400_000);
         taskObj.hostIsolation = { gatewayUrl, capability: capability.token, runId };
@@ -1678,8 +1688,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     res.writeHead(404);
     res.end('not found');
   })().catch((err: unknown) => {
-    if (err instanceof RequestBodyError && !res.headersSent) {
-      res.writeHead(err.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    if ((err instanceof RequestBodyError || err instanceof GoCaaSConfigurationError) && !res.headersSent) {
+      res.writeHead(err instanceof RequestBodyError ? err.status : 503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify({ error: err.message })); return;
     }
     process.stderr.write(`request error: ${String(err)}\n`);

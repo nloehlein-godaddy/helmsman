@@ -118,7 +118,9 @@ export function createScopedGateway(input: ScopedGatewayOptions) {
       } else { reply(res, 403, { error: 'Operation not permitted' }); return; }
       if (!key) { reply(res, 503, { error: 'Upstream credential is not configured' }); return; }
       const body = req.method === 'POST' ? await read(req) : undefined;
-      if (!input.active(cap.runId)) { reply(res, 401, { error: 'Run ended' }); return; }
+      if (!input.active(cap.runId) || !sql.prepare('SELECT hash FROM run_capabilities WHERE hash = ? AND expiresAt > ?').get(hash(String(token)), now())) {
+        reply(res, 401, { error: 'Inactive capability' }); return;
+      }
       const upstream = await fetcher(url, { method: req.method, redirect: 'error', headers, body: body ? new Uint8Array(body) : undefined, signal: abort.signal });
       res.writeHead(upstream.status, { 'content-type': upstream.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' });
       if (upstream.body) {

@@ -67,6 +67,39 @@ describe('scoped gateway', () => {
     expect((fetcher.mock.calls[0]?.[1] as RequestInit).headers).not.toHaveProperty('x-extra');
   });
 
+  it.each(['/openai/v1/responses', '/openai/v1/responses/compact', '/anthropic/v1/messages'])('routes %s through GoCaaS with S2S authentication', async path => {
+    const fetcher = vi.fn(async () => new Response('ok'));
+    const { gateway, base } = await open({ modelUpstream: { ...modelUpstream('fixture-jwt'), authMode: 'sso-jwt' }, active: () => true, fetcher });
+    const cap = gateway.issue('run', 60_000);
+    expect((await request(base, cap.token, path, { method: 'POST', body: '{}' })).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/caas-gocode-prod\.caas-prod\.prod\.onkatana\.net\/v1\//), expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: 'sso-jwt fixture-jwt' }), redirect: 'error',
+    }));
+  });
+
+  it('rechecks capability revocation while waiting for the GoCaaS credential', async () => {
+    const fetcher = vi.fn();
+    let release: (value: string) => void = () => undefined;
+    let started: () => void = () => undefined;
+    const waiting = new Promise<void>(resolve => { started = resolve; });
+    const { gateway, base } = await open({ modelUpstream: { ...modelUpstream(), credential: () => { started(); return new Promise<string>(resolve => { release = resolve; }); } }, active: () => true, fetcher });
+    const cap = gateway.issue('run', 60_000);
+    const response = request(base, cap.token, '/openai/v1/responses', { method: 'POST', body: '{}' });
+    await waiting;
+    gateway.revoke(cap.token);
+    release('fixture-key');
+    expect((await response).status).toBe(401);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('fails at GoCaaS without retrying a vendor endpoint', async () => {
+    const fetcher = vi.fn(async () => new Response('Unavailable', { status: 503 }));
+    const { gateway, base } = await open({ modelUpstream: modelUpstream(), active: () => true, fetcher });
+    const cap = gateway.issue('run', 60_000);
+    expect((await request(base, cap.token, '/openai/v1/responses', { method: 'POST', body: '{}' })).status).toBe(503);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it('denies invalid, revoked, expired, inactive, and credentialless capabilities without upstream access', async () => {
     let clock = 1_000;
     const fetcher = vi.fn();

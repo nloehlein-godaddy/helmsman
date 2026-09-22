@@ -15,11 +15,6 @@ test('independent agents launch through installed core and retain exact provider
   try {
     await expect(host.script('prove-agent-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/agent-provider.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
     for (const name of ['agent-codex', 'agent-claude', 'agent-command']) await host.installAuthorPackage(`plugin-sources/${name}`, `example.${name}`, { buildScript: true });
-    await host.cli('select-agent', 'example.agent-command/command'); await host.cli('select-agent-reviewers', 'example.agent-command/command');
-    let origin = await host.start();
-    const unsupported = await request.post(`${origin}/api/agents/launch`, { data: { mode: 'freeform', repo: 'org/a', task: 'Unsupported command transport must be rejected.' } });
-    expect(unsupported.ok()).toBe(false);
-    await host.stop();
     const author = join(host.root, 'independent-agent'); const output = join(author, 'dist');
     await mkdir(output, { recursive: true });
     await cp(join(host.app, 'sdk'), join(author, 'node_modules/@helmsman/plugin-sdk'), { recursive: true });
@@ -28,20 +23,26 @@ test('independent agents launch through installed core and retain exact provider
 const plugin: AgentBackendModuleV1 = { activate(context) {
  if (Object.keys(context).sort().join(',') !== 'onDispose,pluginId,registerAgent,settings,signal') throw new Error('Unexpected host services');
  const models = { model: null, effort: null };
- context.registerAgent('worker', {
-  metadata: { version: 1, label: 'Independent worker', defaults: models, review: { low: models, medium: models, high: models }, reviewSkills: [], reviewDelegation: 'native-subagents', supportsPrePr: true, docker: 'openai-responses', costReporting: 'delta' },
+ for (const localId of ['worker', 'unsupported']) context.registerAgent(localId, {
+  metadata: { version: 1, label: 'Independent worker', defaults: models, review: { low: models, medium: models, high: models }, reviewSkills: [], reviewDelegation: 'native-subagents', supportsPrePr: true, docker: localId === 'unsupported' ? null : 'openai-responses', costReporting: 'delta' },
   buildCommand(input) { return { cmd: String(context.settings.executable), args: [String(context.settings.workerScript), JSON.stringify(input)] }; },
   parseLine(line) { try { const value: unknown = JSON.parse(line); if (!value || typeof value !== 'object' || !('kind' in value)) return null; return value as AgentEventV1; } catch { return null; } }
  });
 } }; export default plugin;`);
     await run(process.execPath, [join(host.root, 'toolchain/typescript/bin/tsc'), '--strict', '--target', 'ES2023', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--outDir', output, '--noEmitOnError', join(author, 'backend.ts')], author, host.env);
     const descriptor = { packageVersion: 1, manifest: { manifestVersion: 1, id: pluginId, version: '0.1.0', sdkVersion: 1, pages: [] }, node: { minMajor: 22, maxMajorExclusive: 30 }, entries: {},
-      backend: { entry: 'backend.js', provides: [{ id: 'helmsman/agent', version: 1, localId: 'worker' }], agents: { worker: { access: ['process-description'] } }, storageVersion: 1,
+      backend: { entry: 'backend.js', provides: ['worker', 'unsupported'].map(localId => ({ id: 'helmsman/agent', version: 1, localId })), agents: { worker: { access: ['process-description'] }, unsupported: { access: ['process-description'] } }, storageVersion: 1,
         settings: { executable: { type: 'string', default: '', maxLength: 4096 }, workerScript: { type: 'string', default: '', maxLength: 4096 } } } };
     await writeFile(join(output, 'plugin-package.json'), JSON.stringify(descriptor));
     const archive = join(author, 'agent.hmp'); await host.cli('pack', output, archive); await host.cli('install', archive); await host.cli('enable', pluginId);
     const workerScript = join(host.root, 'agent-worker.mjs');
     await host.cli('configure', pluginId, JSON.stringify({ executable: process.execPath, workerScript }));
+    await host.cli('select-agent', `${pluginId}/unsupported`); await host.cli('select-agent-reviewers', `${pluginId}/unsupported`);
+    let origin = await host.start();
+    const unsupported = await request.post(`${origin}/api/agents/launch`, { data: { mode: 'freeform', repo: 'org/a', task: 'Unsupported transport must not launch.' } });
+    expect(unsupported.status(), host.output()).toBe(503);
+    expect(await unsupported.text(), host.output()).toContain('transport');
+    await host.stop();
     await host.cli('select-agent', providerId); await host.cli('select-agent-reviewers', providerId);
     const moduleUrl = (relative: string) => JSON.stringify(pathToFileURL(join(host.app, relative)).href);
     const runtimeSetup = `const { loadPluginSnapshot } = await import(${moduleUrl('server/helmsman/plugins/store.js')});

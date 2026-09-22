@@ -8,4 +8,6 @@ API-key mode is the default. Set `GOCAAS_API_KEY` or provide an executable helpe
 
 OpenAI Responses and Anthropic Messages use the GoCaaS `/v1` base. API-key mode sends Bearer for Responses and `x-api-key` for Anthropic. S2S mode sends `Authorization: sso-jwt` for both. Supported agent metadata transports remain `openai-responses`, `anthropic-messages`, and `null`; an unsupported or undeclared custom command transport is rejected at admission. There is no direct vendor fallback.
 
+Local launches use fresh Codex/Claude configuration directories with the pinned skills exposed inside them. Core enforces the model route over saved CLI routing settings. Authored commands must honor `OPENAI_BASE_URL` / `OPENAI_API_KEY` or `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY`; those keys contain a temporary gateway capability, not the GoCaaS credential. Restart Helmsman after changing GoCaaS environment settings.
+
 The local host remains a trusted process with its existing permissions. The gateway and Docker relay scope model requests to an active run; this does not make local plugins a network sandbox. Existing processes keep their retained runtime configuration; changing settings applies to new admissions and may require restart or retained-runtime recovery rules.

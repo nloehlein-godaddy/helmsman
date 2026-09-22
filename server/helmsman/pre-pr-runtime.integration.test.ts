@@ -157,7 +157,7 @@ if(id === 'git') {
   const service = createPublicationService({ persistence, operations, executions, runsDir: input.runsDir, currentConfig: () => config, getRun: db.getRun,
     verifyArtifacts: async () => {}, clarificationReady: () => true, isStopped: () => false,
     command: async (cmd, args, context) => (await exec(join(bin, cmd), [...args], { ...context, env: { ...environment, ...context.env }, timeout: 10_000 })).stdout.trim() });
-  const gateway = createScopedGateway({ path: persistence.sql, openaiKey: 'test-key', active: () => true,
+  const gateway = createScopedGateway({ path: persistence.sql, modelUpstream: { baseUrl: 'https://caas-gocode-prod.caas-prod.prod.onkatana.net/v1', credential: async () => 'test-key' }, active: () => true,
     scope: () => ({ repo: row.repo, branch: 'voyage/test', readOnly: false }), clarificationReady: () => true,
     publication: async (runId, scope, request, signal) => { await assertClarificationReady(currentTask, runId); return service.publish(runId, scope, request, signal); } });
   cleanups.push(() => { gateway.close(); persistence.close(); });

@@ -1,3 +1,4 @@
+import { GoCaaSConfigurationError } from './gocaas';
 import { isContributionId } from '../../src/plugins/manifest';
 import { builtinFrontendManifests } from '../../src/plugins/frontend-manifests';
 import type { PluginCatalog } from '../../src/plugins/runtime';
@@ -89,7 +90,7 @@ export function createApplicationRunCommands(options: {
       try {
         return { runId: options.launch({ ...prepared, runId: record.assignedRunId, commandBinding: runCommandAdmissionBinding(record) }), attempt: 1 };
       } catch (error) {
-        if (error instanceof RetryError || error instanceof TodoConflictError || error instanceof TodoValidationError || error instanceof PersistenceConflictError) {
+        if (error instanceof GoCaaSConfigurationError || error instanceof RetryError || error instanceof TodoConflictError || error instanceof TodoValidationError || error instanceof PersistenceConflictError) {
           throw new RunCommandRejection(error.message);
         }
         throw error;

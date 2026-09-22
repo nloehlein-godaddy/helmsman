@@ -46,6 +46,7 @@ export function restoreExecutionConfig(snapshot: ExecutionSnapshot, current: App
 
 export function nonsecretExecutionTask(task: AgentTask) {
   const safeTask = { ...task,
+    ...(task.modelGateway ? { modelGateway: { ...task.modelGateway, token: undefined } } : {}),
     ...(task.hostIsolation ? { hostIsolation: { ...task.hostIsolation, capability: undefined } } : {}),
     ...(task.dockerExecution ? { dockerExecution: { ...task.dockerExecution, capability: undefined } } : {}),
     ...(task.clarification ? { clarification: { ...task.clarification, gateToken: undefined } } : {}) };

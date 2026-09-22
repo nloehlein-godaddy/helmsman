@@ -1,3 +1,4 @@
+import { GoCaaSConfigurationError } from './gocaas';
 import { parseTaskRepo, parseWorkRefV1, TaskSourceValidationError, type TaskSnapshotV1 } from '../../src/plugins/tasks';
 import type { PluginJson } from '../../src/plugins/backend';
 import { PersistenceConflictError, PersistenceValidationError } from './persistence';
@@ -103,6 +104,7 @@ export async function handleTaskSourceApi(input: { method: string; path: string;
     }
     return { status: 405, json: { error: 'Task source method is unavailable.' } };
   } catch (error) {
+    if (error instanceof GoCaaSConfigurationError) return { status: 503, json: { error: error.message } };
     if (error instanceof TaskSourceViewUnavailableError) return { status: 501, json: { error: error.message } };
     if (error instanceof TaskSourceValidationError || error instanceof PersistenceValidationError) return { status: 400, json: { error: error.message } };
     if (error instanceof PersistenceConflictError) return { status: 409, json: { error: error.message } };
