@@ -12,6 +12,8 @@ describe('Slack configuration', () => {
 
   it('validates channel identity and optional surface before enabling', () => {
     expect(slackSettings(valid).error).toBeNull();
+    expect(slackSettings({ ...valid, SLACK_CHANNEL_ID: 'G0B1S3BF524' }).error).toBeNull();
+    expect(slackSettings({ ...valid, SLACK_CHANNEL_ID: 'D0B1S3BF524' }).error).toBeTruthy();
     expect(slackSettings({ SLACK_WATCH_ENABLED: 'true' }).error).toBeTruthy();
     expect(slackSettings({ ...valid, SLACK_CHANNEL_NAME: undefined }).error).toBeTruthy();
     expect(slackSettings({ ...valid, SLACK_CHANNEL_NAME: 'airo-editing in:another' }).error).toBeTruthy();

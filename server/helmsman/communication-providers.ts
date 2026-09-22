@@ -18,6 +18,7 @@ export type CommunicationProviderPurpose = 'admission' | 'obligation';
 export interface CommunicationProviderRegistration {
   readonly binding: CommunicationProviderBinding;
   readonly provider: CommunicationProviderV1;
+  readonly access?: 'browser-session' | 'provider-network';
   readonly settings?: Readonly<Record<string, PluginJson>>;
 }
 
@@ -36,10 +37,11 @@ export function validateCommunicationProvider(provider: CommunicationProviderV1)
 export function createCommunicationProviderRegistry(options: { eligible(binding: CommunicationProviderBinding, purpose: CommunicationProviderPurpose): boolean }) {
   const registrations = new Map<string, CommunicationProviderRegistration>();
   const key = (binding: CommunicationProviderBinding) => JSON.stringify([binding.providerId, binding.pluginId, binding.artifactHash, binding.contractVersion]);
-  function stage(binding: CommunicationProviderBinding, provider: CommunicationProviderV1, settings: Readonly<Record<string, PluginJson>> = {}): CommunicationProviderRegistration {
+  function stage(binding: CommunicationProviderBinding, provider: CommunicationProviderV1, settings: Readonly<Record<string, PluginJson>> = {}, access: 'browser-session' | 'provider-network' = 'browser-session'): CommunicationProviderRegistration {
     if (!validBinding(binding)) throw new Error('Invalid communication provider binding.');
     validateCommunicationProvider(provider);
-    return Object.freeze({ binding: Object.freeze({ ...binding }), provider, settings: sourceObject(sourceJson(settings)) as Readonly<Record<string, PluginJson>> });
+    if (!['browser-session', 'provider-network'].includes(access) || access === 'provider-network' && typeof provider.connectionIdentity !== 'function') throw new Error('Network communication providers require a connection identity.');
+    return Object.freeze({ binding: Object.freeze({ ...binding }), provider, access, settings: sourceObject(sourceJson(settings)) as Readonly<Record<string, PluginJson>> });
   }
   function publish(input: readonly CommunicationProviderRegistration[]): void {
     const seen = new Set<string>();
@@ -71,13 +73,13 @@ export function bootstrapCommunicationProviderSelection(root: string, defaultPro
 export function resolveSelectedCommunicationProvider(options: {
   root: string;
   registry: CommunicationProviderRegistry;
-  connection(): { readonly connectionId: string; readonly credentialHandle: string } | null;
+  connection(registration: CommunicationProviderRegistration): { readonly connectionId: string; readonly credentialHandle: string } | null;
 }): ProviderBinding | null {
   const providerId = readCommunicationProviderBinding(options.root);
   if (!providerId) return null;
   const registration = options.registry.list().find(item => item.binding.providerId === providerId);
   if (!registration) return null;
-  const connection = options.connection();
+  const connection = options.connection(registration);
   if (!connection || !safeConnection(connection.connectionId) || !safeConnection(connection.credentialHandle)) return null;
   return Object.freeze({ role: 'effect', capability: 'helmsman/communication', contractVersion: 1, contributionId: registration.binding.providerId,
     pluginId: registration.binding.pluginId, artifactHash: registration.binding.artifactHash, connectionId: connection.connectionId, credentialHandle: connection.credentialHandle });

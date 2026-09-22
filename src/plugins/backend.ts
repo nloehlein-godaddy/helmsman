@@ -32,7 +32,7 @@ export interface PullRequestDeclaration {
 }
 
 export interface CommunicationDeclaration {
-  readonly access: readonly ['browser-session'];
+  readonly access: readonly ['browser-session'] | readonly ['provider-network'];
 }
 
 export interface PluginBackendDefinition {

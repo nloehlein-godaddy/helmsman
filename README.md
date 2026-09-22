@@ -540,10 +540,10 @@ settings once. Explicit lists, settings and subsequent resets are preserved. See
 ### Native terminals and browser hosts
 
 Use `helmsman plugins select-native-terminal <plugin/id>` for terminal I/O and
-`helmsman plugins select-browser-host <plugin/id>` for communication browsing.
+`helmsman plugins select-browser-host <plugin/id>` for optional browser integrations.
 The shipped providers are `helmsman.terminal-cmux/cmux`,
 `helmsman.native-firefox/firefox`, and `helmsman.terminal-wezterm/wezterm`; cmux and Firefox support browser primitives.
-Selections are independent, so WezTerm terminals can coexist with cmux- or Firefox-backed Slack.
+Selections are independent. Slack uses the GoCaaS/OI Companion MCP provider by default and requires no Firefox or cmux browser session. Browser-backed Slack remains an explicit legacy selection.
 Configure `binary` and `socketPath` on cmux/WezTerm, or the exact credential-free loopback `bidiEndpoint` returned by an operator-created disposable Firefox WebDriver session. `TERM_BRIDGE`,
 `CMUX_SOCKET_PATH`, `WEZTERM_BIN` and `WEZTERM_UNIX_SOCKET` seed initial settings once.
 Existing terminal receipts never resend input after provider changes or disablement.
@@ -639,18 +639,34 @@ Changing `JIRA_STATUS_*` does not rewrite those dashboard queries.
 | `REPO_PROJECT_MAP` | Empty | Comma-separated `owner/name=PROJECT` pairs. Populates the repo selector, maps dashboard/auto-claim Jira scope, and permits automatic reviews for those repos. | Live |
 | `GITHUB_REVIEW_WATCH_ENABLED` | `false` | Seeds GitHub review trigger enablement once. Subsequently configure the selected `github-review` trigger. Existing pending requests can launch when enabled. | Initial conversion |
 
-### Slack browser reader
+### Slack GoCaaS/OI Companion
+
+The default `helmsman.slack-companion/slack` provider uses the Slack MCP service
+behind [Slack GoCaaS/OI Companion](https://godaddy-corp.atlassian.net/wiki/spaces/xform/pages/4509107536/Slack+GoCaaS+OI+Companion+Overview).
+It needs no browser bridge. Supply a user-delegated Slack OAuth token through the
+secure server environment as `SLACK_MCP_TOKEN`; this is separate from the GoCaaS
+model API key. Credentials never belong in Communication settings or plugin settings.
+Helmsman does not implement OI's OAuth sign-in flow or automatically discover an OAuth
+issuer. Missing or expired credentials leave Slack unavailable until replaced.
 
 | Value | Default | Where it applies / how to set it | Change |
 | --- | --- | --- | --- |
-| `SLACK_WATCH_ENABLED` | `false` | Seeds Slack review trigger enablement once. Subsequently configure the selected `slack-review` trigger. The communication source and signed-in browser must also be available. | Initial conversion |
-| `SLACK_CLIENT_ID` | Empty | First identifier after `/client/` in the open Slack URL. This is the browser client/workspace identifier, not an OAuth app client ID. | Live |
-| `SLACK_CHANNEL_ID` | Empty | Channel identifier beginning with `C`, from the Slack channel URL. Must match the channel being watched. | Live |
-| `SLACK_CHANNEL_NAME` | Empty | Channel name without `#`, using lowercase letters, digits, `_`, or `-`; used to scope Slack search. | Live |
-| `SLACK_BROWSER_SURFACE` | Empty | Optional cmux browser reference, e.g. `surface:24` or its UUID. Leave empty to discover the matching signed-in Slack tab. Useful when multiple tabs match. | Live |
+| `SLACK_MCP_URL` | `https://mcp-slack.goarena.gdcorp.tools/mcp` | Companion MCP endpoint; test uses `https://mcp-slack-test.goarena.gdcorp.tools/mcp`. | Restart |
+| `SLACK_MCP_TOKEN` | Empty | User-delegated Slack OAuth token supplied to the server. Never use `GOCAAS_API_KEY` here. | Restart |
+| `SLACK_WATCH_ENABLED` | `false` | Seeds Slack review trigger enablement once. Subsequently configure the selected `slack-review` trigger. The communication source and Companion credentials must also be available. | Initial conversion |
+| `SLACK_CLIENT_ID` | Empty | Slack workspace ID, typically beginning with `T`, from the first identifier after `/client/` in a Slack URL. This is not an OAuth app client ID. | Live |
+| `SLACK_CHANNEL_ID` | Empty | Channel identifier from the Slack channel URL; must match the channel being watched. | Live |
+| `SLACK_CHANNEL_NAME` | Empty | Channel name without `#`, using lowercase letters, digits, `_`, or `-`. | Live |
+| `SLACK_BROWSER_SURFACE` | Empty | Legacy browser provider only: optional native browser surface reference. Ignored by Companion. | Live |
 
-Slack text fields are blank by default and the watcher is off. See
-[Automatic PR reviews](#automatic-pr-reviews) for first-time browser setup and triggers.
+The watcher starts disabled. See [Automatic PR reviews](#automatic-pr-reviews) for
+channel setup and trigger activation. Explicit legacy browser selection remains
+available with `helmsman plugins select-communication helmsman.slack/slack`; its
+signed-in browser requirements still apply. A one-time upgrade switches the old shipped
+`helmsman.slack/slack` selection to Companion; custom selections stay unchanged, and
+explicitly reselecting the browser provider after migration persists. Changing providers
+does not move pending
+requests: retained operations resolve through their original provider and artifact.
 
 ### Requesting reviews in Slack
 
@@ -660,18 +676,18 @@ and connection before Send. The caller-scoped browser journal reserves the compl
 request before transport. Lost responses retain that identity for receipt lookup or
 exact Retry; missing journal entries send nothing.
 
-Configure the destination in **Communication settings**. Defaults are `airo-editing`
-and `airo-editing-squad`. Use a channel name or ID and the user group's handle. Saving
-uses the displayed settings revision and never sends.
-Requests use the signed-in Slack browser, sharing `SLACK_CLIENT_ID` and
-`SLACK_BROWSER_SURFACE` with the Slack reader. Browser reading and sending are
-serialized so they do not interfere. Existing message drafts are preserved.
-Sending works independently of whether automatic Slack watching is enabled.
+Configure the workspace and destination in **Communication settings**. Companion
+requires a Slack user group ID beginning with `S`; it cannot resolve group handles.
+Replace any retained `airo-editing-squad` handle with that group's ID before sending.
+The review channel must be a channel ID beginning with `C` or `G`; replace any
+retained channel name. Saving checks the displayed settings revision and never sends. Requests use the selected Companion connection; Slack
+watching and explicit review-request sends can be enabled independently.
+Helmsman does not invoke reaction or deletion tools.
 
 | Value | Default | Purpose |
 | --- | --- | --- |
-| `SLACK_REVIEW_CHANNEL` | `airo-editing` | Destination channel name or ID; live-editable. |
-| `SLACK_REVIEW_MENTION` | `airo-editing-squad` | User group handle; selected as an actual Slack mention. |
+| `SLACK_REVIEW_CHANNEL` | `airo-editing` (legacy) | Companion requires a channel ID (`C…` or `G…`); replace the legacy name before sending. Legacy browser provider accepts names or IDs. |
+| `SLACK_REVIEW_MENTION` | `airo-editing-squad` (legacy) | Companion requires a user group ID (`S…`); replace the legacy handle before sending. Legacy browser provider accepts handles. |
 
 The server verifies that the PR is open and authored by the configured GitHub user.
 Each request pins its displayed destination and provider artifact. Persisted receipts
@@ -791,23 +807,22 @@ Both sources persist their queues and notifications in the Helmsman SQLite datab
 
 Incoming automatic Slack reviews skip PRs authored by the account authenticated by the selected GitHub connection. Missing identity remains queued. This does not change the configured-author policy for manual outgoing review requests.
 
-Both watchers start disabled. For Slack, select a browser-capable native provider. With the default cmux provider, install/open cmux with its `cmux` command
-available to Helmsman, and open Slack in a **cmux browser tab**. Sign in and navigate
-to the one channel you want to watch. Its URL has this shape:
+Both watchers start disabled. For Slack, configure `SLACK_MCP_TOKEN` on the server
+and restart. The default Companion provider reads Slack through MCP without a browser.
+Copy the workspace and channel identifiers from a Slack channel URL:
 
 ```text
-https://app.slack.com/client/<client-id>/<channel-id>
+https://app.slack.com/client/<workspace-id>/<channel-id>
 ```
 
-Copy those two identifiers into `SLACK_CLIENT_ID` and `SLACK_CHANNEL_ID`, and set
-`SLACK_CHANNEL_NAME` to the channel name without `#`. Fill and save those fields
-before enabling the watcher. The cmux provider discovers only its own browser tabs. To use a dedicated Firefox automation session, follow the [Firefox provider setup](src/plugins/native-firefox/README.md) and select `helmsman.native-firefox/firefox`. Ordinary tabs outside the selected provider are not discoverable.
-Leave `SLACK_BROWSER_SURFACE` empty unless you need to pin a particular tab; use
-`cmux tree --json` to find that browser's `surface_ref` when needed.
+Set `SLACK_CLIENT_ID` to the workspace ID, `SLACK_CHANNEL_ID` to the channel ID, and
+`SLACK_CHANNEL_NAME` to its name without `#`. Save these fields before enabling the
+watcher. A review group ID is needed only for outgoing review requests.
 
 The initial `.env` values are deliberately empty/disabled:
 
 ```dotenv
+SLACK_MCP_TOKEN=
 SLACK_WATCH_ENABLED=false
 SLACK_CLIENT_ID=
 SLACK_CHANNEL_ID=
@@ -839,7 +854,15 @@ unavailable selections do not fall back. See [trigger authoring](docs/trigger-au
 and [webhook setup](docs/webhooks.md) for route settings and core credential rotation.
 Trigger extraction is reviewed and pushed through `12a62c9`.
 
-Keep one signed-in Slack browser tab open in the selected provider for the configured channel/client. The reader discovers that tab on each scan; set `SLACK_BROWSER_SURFACE` only when multiple matching tabs exist. The cmux provider briefly selects its Slack browser tab and restores the previous tab and focus unless the user changes them during the scan. Firefox uses background context selection without foregrounding its tab. It uses browser UI searches and rendered message anchors, without Slack MCP or extracted session tokens. Browser closure, sign-out, or incomplete search results appear in source health. Catch-up resumes from the last successful scan with an overlapping search window. Five minutes is a target while the machine, browser, and server are running; Slack search indexing may add delay. Reading Slack views can affect unread state.
+Companion scans use the configured channel through MCP. Missing permissions,
+expired credentials, or incomplete results appear in source health; incomplete scans
+do not advance the successful scan watermark. Five minutes is a target while the
+machine and server are running. Slack search indexing may add delay.
+
+Only the explicit legacy `helmsman.slack/slack` provider needs a signed-in tab in
+the selected browser host. Its cmux tab discovery or optional
+[Firefox setup](src/plugins/native-firefox/README.md) remains available for that
+provider and retained obligations. Browser scans can affect unread state.
 
 Review model selection defaults to these tiers for Codex:
 

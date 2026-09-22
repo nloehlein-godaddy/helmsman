@@ -42,13 +42,25 @@ export function checkSdkCompatibility(baseline, candidate) {
         const argumentsText = parameters.length ? `<${parameters.map(parameter => parameter.name.text).join(', ')}>` : '';
         const oldType = `${kind === 'Value' ? 'typeof ' : ''}import(${JSON.stringify(join(baseline, entry).replace(/\.d\.ts$/, '.js'))}).${exported.name}${argumentsText}`;
         const newType = `${kind === 'Value' ? 'typeof ' : ''}import(${JSON.stringify(join(candidate, entry).replace(/\.d\.ts$/, '.js'))}).${exported.name}${argumentsText}`;
-        assignments.push(`function check${assignments.length}${argumentsText}(previous: ${oldType}, current: ${newType}) { const oldCheck: ${oldType} = current; const newCheck: ${newType} = previous; }`);
+        // The host accepts one new communication manifest input. Project only that exact
+        // access union for old consumers; all previous-to-current assignments stay strict.
+        const legacyType = entry === 'index.d.ts' && kind === 'Type' && exported.name === 'PluginBackendDefinition'
+          ? `LegacyCommunicationManifest<${newType}>`
+          : entry === 'index.d.ts' && kind === 'Type' && exported.name === 'CommunicationProviderDeclaration'
+            ? `LegacyCommunicationDeclaration<${newType}>` : newType;
+        assignments.push(`function check${assignments.length}${argumentsText}(previous: ${oldType}, current: ${legacyType}) { const oldCheck: ${oldType} = current; const newCheck: ${newType} = previous; }`);
       }
     }
   }
   if (failures.length) throw new Error(`SDK compatibility check failed:\n${failures.join('\n')}`);
   const checkFile = join(candidate, '__compatibility_check.mts');
-  const source = assignments.join('\n');
+  const source = `
+type LegacyCommunicationAccess<T> = [T] extends [readonly ['browser-session'] | readonly ['provider-network']]
+  ? Extract<T, readonly ['browser-session']> : T;
+type LegacyCommunicationDeclaration<T> = { [K in keyof T]: K extends 'access' ? LegacyCommunicationAccess<T[K]> : T[K] };
+type LegacyCommunicationDeclarations<T> = T extends undefined ? T : { [K in keyof T]: LegacyCommunicationDeclaration<T[K]> };
+type LegacyCommunicationManifest<T> = { [K in keyof T]: K extends 'communications' ? LegacyCommunicationDeclarations<T[K]> : T[K] };
+${assignments.join('\n')}`;
   const host = ts.createCompilerHost(options);
   const getSourceFile = host.getSourceFile.bind(host);
   host.getSourceFile = (name, languageVersion, onError, shouldCreateNewSourceFile) => name === checkFile

@@ -13,9 +13,15 @@ export interface CommunicationReviewBrowserTransportV1 {
   readonly artifacts: readonly ArtifactBinding[];
   readonly surface: string | null;
 }
+export interface CommunicationReviewNetworkTransportV1 {
+  readonly kind: 'provider-network';
+  readonly connectionId: string;
+  readonly settingsHash: string;
+}
 export type CommunicationReviewTargetV1 = {
   readonly repo: string; readonly number: number; readonly destination: CommunicationDestinationV1;
   readonly browserTransport?: CommunicationReviewBrowserTransportV1;
+  readonly networkTransport?: CommunicationReviewNetworkTransportV1;
 };
 export type CommunicationReviewPayloadV1 = { readonly caller: string; readonly requestId: string };
 const object = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -66,6 +72,13 @@ function browserTransport(value: unknown): CommunicationReviewBrowserTransportV1
   return Object.freeze({ provider, artifacts: Object.freeze(artifacts), surface: input.surface === null ? null : parseNativeTerminalReferenceV1(input.surface) });
 }
 
+function networkTransport(value: unknown): CommunicationReviewNetworkTransportV1 {
+  const input = object(value);
+  if (!input || input.kind !== 'provider-network' || !text(input.connectionId, 4096)
+    || typeof input.settingsHash !== 'string' || !/^[a-f\d]{64}$/.test(input.settingsHash)) throw new Error('Invalid retained communication network transport.');
+  return Object.freeze({ kind: 'provider-network', connectionId: input.connectionId, settingsHash: input.settingsHash });
+}
+
 function mergeArtifacts(...closures: readonly (readonly ArtifactBinding[])[]): readonly ArtifactBinding[] {
   const result = new Map<string, ArtifactBinding>();
   for (const closure of closures) for (const item of closure) {
@@ -81,7 +94,8 @@ function target(value: unknown): CommunicationReviewTargetV1 {
   const input = object(value);
   if (!input || !text(input.repo, 256) || !positive(input.number)) throw new Error('Invalid recorded communication review target.');
   return Object.freeze({ repo: input.repo, number: input.number, destination: destination(input.destination),
-    ...(input.browserTransport === undefined ? {} : { browserTransport: browserTransport(input.browserTransport) }) });
+    ...(input.browserTransport === undefined ? {} : { browserTransport: browserTransport(input.browserTransport) }),
+    ...(input.networkTransport === undefined ? {} : { networkTransport: networkTransport(input.networkTransport) }) });
 }
 
 function payload(value: unknown): CommunicationReviewPayloadV1 {
@@ -124,12 +138,18 @@ export function createCommunicationProviderEffects(options: {
   artifacts(binding: ProviderBinding): readonly ArtifactBinding[];
   verifyArtifacts(artifacts: readonly ArtifactBinding[]): Promise<void>;
   admissionSession(binding: ProviderBinding, destination: CommunicationDestinationV1, signal: AbortSignal): {
-    readonly browserTransport: CommunicationReviewBrowserTransportV1;
+    readonly browserTransport?: CommunicationReviewBrowserTransportV1;
+    readonly networkTransport?: CommunicationReviewNetworkTransportV1;
     readonly surface: string | null; readonly watchedChannel: { readonly id: string; readonly name: string }; readonly browser: CommunicationBrowserSessionV1;
     assertCurrent(): void;
   };
   retainedSession(transport: CommunicationReviewBrowserTransportV1, destination: CommunicationDestinationV1, signal: AbortSignal): Promise<{
     readonly surface: string | null; readonly watchedChannel: { readonly id: string; readonly name: string }; readonly browser: CommunicationBrowserSessionV1;
+    dispose(): Promise<void>;
+  }>;
+  retainedNetworkSession?(transport: CommunicationReviewNetworkTransportV1, binding: ProviderBinding, destination: CommunicationDestinationV1, signal: AbortSignal): Promise<{
+    readonly surface: string | null; readonly watchedChannel: { readonly id: string; readonly name: string }; readonly browser: CommunicationBrowserSessionV1;
+    assertCurrent(): void;
     dispose(): Promise<void>;
   }>;
   authorize?(binding: ProviderBinding, operation: DurableOperation, context: OperationContext): Promise<{ readonly allowed: true } | { readonly allowed: false; readonly reason: string }>;
@@ -153,15 +173,19 @@ export function createCommunicationProviderEffects(options: {
     if (!configured || !sameDestination(expected, configured) || configured.providerId !== binding.contributionId || configured.artifactHash !== binding.artifactHash || configured.connectionId !== binding.connectionId) throw new Error('Selected communication destination changed.');
     const registration = admission(binding); const providerArtifacts = options.artifacts(binding);
     if (!Array.isArray(providerArtifacts) || !providerArtifacts.some(artifact => artifact.pluginId === binding.pluginId && artifact.artifactHash === binding.artifactHash)) throw new Error('Selected communication provider artifacts are unavailable.');
-    const session = options.admissionSession(binding, configured, signal); const transport = browserTransport(session.browserTransport);
-    const artifacts = mergeArtifacts(providerArtifacts, transport.artifacts);
+    const session = options.admissionSession(binding, configured, signal);
+    if (Boolean(session.browserTransport) === Boolean(session.networkTransport)) throw new Error('Communication transport is unavailable.');
+    const transport = session.browserTransport ? browserTransport(session.browserTransport) : null;
+    const network = session.networkTransport ? networkTransport(session.networkTransport) : null;
+    if (network && (network.connectionId !== binding.connectionId || registration.access !== 'provider-network')) throw new Error('Communication network connection changed.');
+    const artifacts = mergeArtifacts(providerArtifacts, transport?.artifacts ?? []);
     await options.verifyArtifacts(artifacts); signal.throwIfAborted(); session.assertCurrent(); options.assertAdmission?.();
     const prepared = await registration.provider.prepareReviewRequest({ repo: input.repo, number: input.number }, context(session, configured, signal, async () => { throw new Error('Communication preparation cannot send.'); }));
     if (!prepared || prepared.workspace !== configured.workspace || prepared.channel !== configured.channel || prepared.mention !== configured.mention || prepared.connectionId !== configured.connectionId) throw new Error('Communication provider changed the configured destination.');
     session.assertCurrent(); options.assertAdmission?.();
     if (!sameBinding(binding, options.selected()) || !sameDestination(configured, options.destination(binding))) throw new Error('Selected communication provider changed during preparation.');
     admission(binding);
-    return Object.freeze({ binding, artifacts, target: Object.freeze({ repo: input.repo, number: input.number, destination: configured, browserTransport: transport }) });
+    return Object.freeze({ binding, artifacts, target: Object.freeze({ repo: input.repo, number: input.number, destination: configured, ...(transport ? { browserTransport: transport } : {}), ...(network ? { networkTransport: network } : {}) }) });
   }
   const prepareReviewRequest: CommunicationProviderEffects['prepareReviewRequest'] = (input, signal) => {
     const work = () => prepareReviewRequestCore(input, signal);
@@ -175,10 +199,12 @@ export function createCommunicationProviderEffects(options: {
     try { registration = options.registry.resolve(registryBinding(binding), 'obligation'); } catch { return null; }
     let reviewTarget: CommunicationReviewTargetV1; let reviewPayload: CommunicationReviewPayloadV1;
     try { reviewTarget = target(operation.target); reviewPayload = payload(operation.payload); } catch { return null; }
-    if (!reviewTarget.browserTransport) return null;
+    if (Boolean(reviewTarget.browserTransport) === Boolean(reviewTarget.networkTransport)) return null;
+    if (reviewTarget.networkTransport && (registration.access !== 'provider-network' || reviewTarget.networkTransport.connectionId !== binding.connectionId || !options.retainedNetworkSession)) return null;
+    if (reviewTarget.browserTransport && registration.access === 'provider-network') return null;
     if (reviewTarget.destination.providerId !== binding.contributionId || reviewTarget.destination.artifactHash !== binding.artifactHash || reviewTarget.destination.connectionId !== binding.connectionId
       || !operation.artifacts.some(artifact => artifact.pluginId === binding.pluginId && artifact.artifactHash === binding.artifactHash)
-      || reviewTarget.browserTransport.artifacts.some(captured => !operation.artifacts.some(item => item.pluginId === captured.pluginId && item.artifactHash === captured.artifactHash))) return null;
+      || reviewTarget.browserTransport?.artifacts.some(captured => !operation.artifacts.some(item => item.pluginId === captured.pluginId && item.artifactHash === captured.artifactHash))) return null;
     await options.verifyArtifacts(operation.artifacts); signal.throwIfAborted();
     const execute = async (method: 'invokeReviewRequest' | 'reconcileReviewRequest', live: DurableOperation, operationContext: OperationContext) => {
       const readOnly = method === 'reconcileReviewRequest';
@@ -193,8 +219,14 @@ export function createCommunicationProviderEffects(options: {
       const invocation: CommunicationReviewRequestV1 = Object.freeze({ id: live.id, contentHash: live.contentHash, caller: reviewPayload.caller,
         requestId: reviewPayload.requestId, repo: reviewTarget.repo, number: reviewTarget.number, destination: reviewTarget.destination });
       const work = async () => {
-        const retained = await options.retainedSession(reviewTarget.browserTransport!, reviewTarget.destination, operationContext.signal);
-        try { return result(await registration.provider[method](invocation, context(retained, reviewTarget.destination, operationContext.signal, beforeSend)), reviewTarget.destination); }
+        const retained = reviewTarget.networkTransport
+          ? await options.retainedNetworkSession!(reviewTarget.networkTransport, binding, reviewTarget.destination, operationContext.signal)
+          : await options.retainedSession(reviewTarget.browserTransport!, reviewTarget.destination, operationContext.signal);
+        const assertCurrent = () => { if ('assertCurrent' in retained && typeof retained.assertCurrent === 'function') retained.assertCurrent(); };
+        try {
+          assertCurrent();
+          return result(await registration.provider[method](invocation, context(retained, reviewTarget.destination, operationContext.signal, async () => { await beforeSend(); assertCurrent(); })), reviewTarget.destination);
+        }
         finally { await retained.dispose(); }
       };
       return options.withSession ? options.withSession(work) : work();

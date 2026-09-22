@@ -1,0 +1,6 @@
+{
+  "name": "example-slack-companion-communication",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
+}

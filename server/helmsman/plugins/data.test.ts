@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { parsePluginPackage } from '../../../src/plugins/package';
-import { initializeCommunicationProviderDefault, initializePullRequestProviderDefault, openPluginData, pluginJson, readCommunicationProviderBinding, readPullRequestProviderBinding, selectCommunicationProvider, selectPullRequestProvider, writePluginSettings } from './data';
+import { migrateCommunicationProviderDefault, initializeCommunicationProviderDefault, initializePullRequestProviderDefault, openPluginData, pluginJson, readCommunicationProviderBinding, readPullRequestProviderBinding, selectCommunicationProvider, selectPullRequestProvider, writePluginSettings } from './data';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -74,4 +74,25 @@ it('retains an explicit pull request provider selection without silently replaci
   expect(readCommunicationProviderBinding(root)).toBe('example.alternative/chat');
   selectCommunicationProvider(root, null);
   expect(readCommunicationProviderBinding(root)).toBeUndefined();
+});
+
+
+it('migrates the old Slack default once without overwriting later or custom selections', async () => {
+  const root = await temporary();
+  const oldProvider = 'helmsman.slack/slack';
+  const companion = 'helmsman.slack-companion/slack';
+  initializeCommunicationProviderDefault(root, oldProvider);
+  migrateCommunicationProviderDefault(root, oldProvider, companion);
+  expect(readCommunicationProviderBinding(root)).toBe(companion);
+  selectCommunicationProvider(root, oldProvider);
+  migrateCommunicationProviderDefault(root, oldProvider, companion);
+  expect(readCommunicationProviderBinding(root)).toBe(oldProvider);
+  const custom = await temporary();
+  selectCommunicationProvider(custom, 'example.custom/chat');
+  migrateCommunicationProviderDefault(custom, oldProvider, companion);
+  expect(readCommunicationProviderBinding(custom)).toBe('example.custom/chat');
+  const fresh = await temporary();
+  migrateCommunicationProviderDefault(fresh, oldProvider, companion);
+  initializeCommunicationProviderDefault(fresh, companion);
+  expect(readCommunicationProviderBinding(fresh)).toBe(companion);
 });

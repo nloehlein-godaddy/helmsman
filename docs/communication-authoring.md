@@ -1,6 +1,6 @@
 # Communication authoring
 
-Helmsman exposes communication presentation and delivery through public version 1 contracts. The shipped `helmsman.communication` frontend is an independently buildable notification header and composition page. Its notifications, review-request, and settings panels use only `@helmsman/plugin-sdk`. The shipped `helmsman.slack` backend is an independently buildable `helmsman/communication@1` provider. Neither package imports application source.
+Helmsman exposes communication presentation and delivery through public version 1 contracts. The shipped `helmsman.communication` frontend is an independently buildable notification header and composition page. Its notifications, review-request, and settings panels use only `@helmsman/plugin-sdk`. The default `helmsman.slack-companion/slack` backend is an independently buildable `helmsman/communication@1` provider using the Slack MCP service behind GoCaaS/OI Companion. `helmsman.slack/slack` remains an opt-in legacy browser provider. These packages do not import application source.
 
 The `/communication` alias selects the `helmsman/communication-page` slot. The notification control selects `helmsman/notification-header`. The page accepts `helmsman/communication-panel@1` contributions and starts with separate notification, review-request, and settings instances. Layouts are authoritative: disabling or replacing a selected contribution leaves it unavailable without falling back, and existing empty, hidden, copied, or missing-panel layouts are preserved.
 
@@ -12,7 +12,37 @@ node /absolute/path/to/release/server/helmsman/plugins/cli.js select helmsman/no
 node /absolute/path/to/release/server/helmsman/plugins/cli.js select-communication example.slack/slack
 ```
 
-`select-communication default` clears the explicit backend binding. An explicitly selected disabled or unavailable provider does not fall back to another provider. Restart Helmsman and reload browser tabs after backend activation or selection changes.
+`select-communication default` clears the explicit backend binding and uses Companion. An explicitly selected disabled or unavailable provider does not fall back to another provider. Restart Helmsman and reload browser tabs after backend activation or selection changes.
+
+## Companion connection
+
+The production endpoint is `https://mcp-slack.goarena.gdcorp.tools/mcp`; the test
+endpoint is `https://mcp-slack-test.goarena.gdcorp.tools/mcp`. Override the endpoint
+with `SLACK_MCP_URL` and supply a user-delegated Slack OAuth token through
+`SLACK_MCP_TOKEN` in the secure server environment. Restart after credential or
+endpoint changes. This token is distinct from `GOCAAS_API_KEY`; model routing does
+not authenticate Slack. Credentials never enter UI values, plugin settings, or
+retained public destination evidence.
+
+The service expects the delegated token. Helmsman does not initiate OI's OAuth flow,
+use metadata discovery, extract browser sessions, or fall back to the browser when
+a credential fails. See the [Companion overview](https://godaddy-corp.atlassian.net/wiki/spaces/xform/pages/4509107536/Slack+GoCaaS+OI+Companion+Overview).
+
+Set `SLACK_CLIENT_ID` to the Slack workspace ID and configure watched channel ID and
+name for scans. For outgoing requests, set `SLACK_REVIEW_CHANNEL` to a channel ID beginning with `C`
+or `G` and set `SLACK_REVIEW_MENTION` to a Slack user group ID beginning with `S`. Companion cannot
+resolve group handles, so retained legacy defaults must be replaced before sending.
+The watcher can operate without a review group. `SLACK_BROWSER_SURFACE` is ignored
+by Companion and remains relevant only to the explicitly selected legacy provider.
+
+Reads can run automatically through the selected review trigger. Posting remains an
+explicit user action after durable command admission. Helmsman uses no reaction or
+delete tools. An absent or rejected credential makes the source unavailable.
+
+The one-time upgrade replaces a prior shipped `helmsman.slack/slack` selection with
+Companion while preserving custom selections. Operators can explicitly reselect the
+legacy provider after migration; later restarts preserve that choice. Pending browser
+operations retain their original binding and artifact.
 
 ## Public frontend services
 
@@ -39,11 +69,11 @@ Core admits a request only when the PR is open, unmerged, and owned by the confi
 
 The provider receipt reports workspace, channel, mention, connection, and an optional permalink. Core projects the retained repo, number, and destination into the public receipt; a provider cannot rebind them. A terminal result is saved by the panel before journal acknowledgment. Pending and recovery-required commands retain their original destination, provider binding, artifact, and request identity after settings changes, disablement, restart, or replacement.
 
-An uncertain Slack send cannot be proven by finding the same or another PR URL in channel history. The URL is not the retained request identity, and another author or request can post identical text. Reconciliation must return an exact retained provider receipt. The shipped Slack provider has no durable exact receipt after an uncertain browser send, so it reports unknown and prohibits automatic resend. Keep the request in Core Recovery until exact evidence or an operator resolution is available.
+An uncertain Slack send cannot be proven by finding the same or another PR URL in channel history. The URL is not the retained request identity, and another author or request can post identical text. Reconciliation must return an exact retained provider receipt. Neither shipped Slack provider can establish an exact receipt after an uncertain send without retained evidence, so it reports unknown and prohibits automatic resend. Keep the request in Core Recovery until exact evidence or an operator resolution is available.
 
 ## Backend provider contract
 
-A backend package declares `helmsman/communication@1`, a matching `communications` entry with `browser-session` access, and registers it during activation:
+A backend package declares `helmsman/communication@1`, a matching `communications` entry with `provider-network` access for direct network delivery (or `browser-session` for legacy browser automation), and registers it during activation:
 
 ```ts
 import type { CommunicationProviderV1, PluginBackendModule } from '@helmsman/plugin-sdk';
@@ -73,13 +103,15 @@ const backend: PluginBackendModule = {
 export default backend;
 ```
 
+A network provider can implement optional `connectionIdentity()` to bind current endpoint and credential identity without exposing credentials. Connection changes invalidate new admission against an old displayed destination. Existing providers without that method retain their existing connection behavior. Declaring network access does not grant browser primitives. Plugins are trusted code, not a network sandbox.
+
 Preparation is read-only and must return the supplied workspace, channel, mention, and connection. `invokeReviewRequest` must call `context.beforeSend()` immediately before the external mutation. That call rechecks the durable lease, selected binding, settings, connection, and destination. Reconciliation is read-only; its context rejects sends. Results are limited to `acknowledged` with an exact receipt, `definitely-not-applied` with evidence and retryability, or `unknown` with evidence.
 
 Incoming automatic Slack reviews also require an authenticated ownership observation from the selected PR provider: `profile.login` must differ from the exact-head PR author. Own PRs are blocked; unavailable identity remains queued. Core captures and rechecks the provider, connection, source and trigger, and persists bounded policy evidence before dispatch. This differs from the configured-author eligibility of an explicit outgoing review request above. Legacy queue entries without retained proposal/provenance cannot bypass the check.
 
 `scanReviewRequests` returns bounded channel messages and PR URLs to the separately selected `slack-review` trigger. Scanning cannot send. Core validates the configured channel, timestamps, Slack permalinks, completeness, and settings stability before accepting a scan.
 
-The selected native browser provider supplies bounded tree discovery, focus, evaluation, click, fill, and wait primitives through core guards. Core guards the retained Slack workspace and surface, validates arguments, applies timeouts and cancellation, and serializes access. The Slack package owns Slack DOM inspection, channel and user-group resolution, draft policy, exact message construction, send timing, receipt recognition, focus restoration, and scan policy. Use `select-browser-host` to replace browser primitives independently of communication policy. The watch form displays read-only status; configure the selected review trigger for enablement, interval and filtering. `SLACK_WATCH_ENABLED` seeds trigger enablement once. Communication source enablement still independently controls reads. See [trigger authoring](trigger-authoring.md); trigger extraction is reviewed and pushed through `12a62c9`.
+Only the legacy `helmsman.slack/slack` provider uses a native browser host. The selected native browser provider supplies bounded tree discovery, focus, evaluation, click, fill, and wait primitives through core guards. Core guards the retained Slack workspace and surface, validates arguments, applies timeouts and cancellation, and serializes access. The Slack package owns Slack DOM inspection, channel and user-group resolution, draft policy, exact message construction, send timing, receipt recognition, focus restoration, and scan policy. Use `select-browser-host` to replace browser primitives independently of communication policy. The watch form displays read-only status; configure the selected review trigger for enablement, interval and filtering. `SLACK_WATCH_ENABLED` seeds trigger enablement once. Communication source enablement still independently controls reads. See [trigger authoring](trigger-authoring.md); trigger extraction is reviewed and pushed through `12a62c9`.
 
 ## Disablement, recovery, and legacy operations
 
@@ -89,7 +121,7 @@ Core Recovery dispatches public communication operations through their retained 
 
 ## Independent build and acceptance
 
-The distribution ships `release/plugin-sources/communication` and `release/plugin-sources/slack`. Copy either directory outside the checkout, install the copied SDK and TypeScript, and run its build. Pack the resulting `dist` directory through the compiled CLI. Rename reserved `helmsman.*` frontend package IDs and their self-referencing initial-layout contribution IDs before installing an external copy. A backend copy also needs a nonreserved package/provider ID.
+The distribution ships `release/plugin-sources/communication`, `release/plugin-sources/slack-companion`, and the legacy `release/plugin-sources/slack`. Copy a directory outside the checkout, install the copied SDK and TypeScript, and run its build. Pack the resulting `dist` directory through the compiled CLI. Rename reserved `helmsman.*` frontend package IDs and their self-referencing initial-layout contribution IDs before installing an external copy. A backend copy also needs a nonreserved package/provider ID.
 
 The communication production gate denies access to application source, compiles and installs the frontend and backend packages against only the distributed SDK, selects both frontend slots and a communication provider, and runs the real server. It covers lost browser responses without duplicate delivery, retained receipts, settings conflicts, desktop/mobile rendering, provider disablement, restart, and selected-page unavailability. This proves standalone frontend and backend builds through the public contracts; it does not turn trusted plugin code into a sandbox.
 

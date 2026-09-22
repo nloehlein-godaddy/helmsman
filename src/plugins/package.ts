@@ -210,10 +210,10 @@ function parseBackend(value: unknown): PluginBackendDefinition {
     const declarations = record(input.communications, communicationIds, 'Communication providers');
     for (const localId of communicationIds) {
       const declaration = record(declarations[localId], ['access'], 'Communication declaration');
-      if (!Array.isArray(declaration.access) || declaration.access.length !== 1 || declaration.access[0] !== 'browser-session') {
-        throw new PluginPackageError('Communication providers require browser session access.');
+      if (!Array.isArray(declaration.access) || declaration.access.length !== 1 || !['browser-session', 'provider-network'].includes(declaration.access[0])) {
+        throw new PluginPackageError('Communication providers require browser session or provider network access.');
       }
-      communications[localId] = Object.freeze({ access: Object.freeze(['browser-session']) as unknown as readonly ['browser-session'] });
+      communications[localId] = Object.freeze({ access: Object.freeze([declaration.access[0]]) as unknown as CommunicationDeclaration['access'] });
     }
   }
   if (!input.settings || typeof input.settings !== 'object' || Array.isArray(input.settings) || Object.keys(input.settings).length > 64) throw new PluginPackageError('Invalid settings schema.');

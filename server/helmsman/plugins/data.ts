@@ -219,6 +219,19 @@ export function initializeCommunicationProviderDefault(root: string, provider: s
   finally { sql.close(); }
 }
 
+export function migrateCommunicationProviderDefault(root: string, previous: string, replacement: string): void {
+  if (!isContributionId(previous) || !isContributionId(replacement)) throw new Error('Invalid communication provider migration.');
+  const sql = database(root);
+  try {
+    sql.transaction(() => {
+      const first = sql.prepare('INSERT INTO backend_meta VALUES(?,?) ON CONFLICT(key) DO NOTHING')
+        .run(`communication-default:${previous}:${replacement}`, '1').changes;
+      if (first) sql.prepare('UPDATE capability_bindings SET provider=? WHERE capability=? AND provider=?')
+        .run(replacement, 'helmsman/communication', previous);
+    })();
+  } finally { sql.close(); }
+}
+
 export function readSchedulingProviderSelection(root: string): { providerId: string | null; revision: string } {
   const sql = database(root);
   try {

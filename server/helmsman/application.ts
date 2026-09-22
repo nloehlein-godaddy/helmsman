@@ -8,7 +8,7 @@ import { prepareTriggerReview } from './trigger-review-preparation';
 import { parseTriggerProvenanceV1, type TriggerProvenanceV1 } from './trigger-provenance';
 import { verifyTriggerExecution } from './trigger-execution';
 import { builtinTriggers } from './plugins/builtin-triggers';
-import { initializeTriggerSettings } from './plugins/data';
+import { initializeTriggerSettings, migrateCommunicationProviderDefault } from './plugins/data';
 import { resolveTriggerSelection, assertTriggerSelectionCurrent } from './trigger-selection';
 import type { TriggerSelectionRoleV1 } from '../../src/plugins/trigger';
 import { captureTriggerReviewSource } from './trigger-read-source';
@@ -273,7 +273,8 @@ const backendPlugins = await activateBackendPlugins({ root: pluginDirectory(), c
   snapshot: process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1' ? await loadPluginSnapshot(pluginDirectory(), false, pluginCoordinator) : pluginSnapshot,
   usage: usageQueries, builtins: builtinBackends, defaultPricingProvider: 'helmsman.standard-pricing/standard' });
 bootstrapPullRequestProviderSelection(pluginDirectory(), 'helmsman.github/github');
-bootstrapCommunicationProviderSelection(pluginDirectory(), 'helmsman.slack/slack');
+migrateCommunicationProviderDefault(pluginDirectory(), 'helmsman.slack/slack', 'helmsman.slack-companion/slack');
+bootstrapCommunicationProviderSelection(pluginDirectory(), 'helmsman.slack-companion/slack');
 for (const error of backendPlugins.errors) process.stderr.write(`${error}\n`);
 pluginSnapshot = retainActivatedPluginPages(await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator), backendPlugins.activePluginIds());
 const serverPages = createServerPageCatalog(appPages);

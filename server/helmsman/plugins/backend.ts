@@ -360,7 +360,7 @@ export async function activateBackendPlugins(options: {
       publishedPullRequests = pullRequestRegistrations.length > 0;
       const communicationRegistrations = [...pendingCommunications].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Communication provider registration requires an exact artifact.');
-        return communications.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider, data!.settings);
+        return communications.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider, data!.settings, pkg.backend!.communications![localId].access[0]);
       });
       communicationSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
       communications.publish(communicationRegistrations);

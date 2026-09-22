@@ -23,6 +23,8 @@ Version 1.1 adds optional Bugs descriptions, feature-detected `services.taskCont
 
 `sdk/baseline/v1/` records the stabilized public declarations. `scripts/sdk-compatibility.mjs` checks every baseline export in both SDK entries, compiling assignments in both directions between baseline and candidate types with strict TypeScript settings. It rejects missing exports and incompatible structural signatures; optional additive members and new exports remain allowed. Generic public types are compared with shared type parameters, not erased to `any`. Unsupported constrained baseline generics fail closed and require an explicit compatibility fixture.
 
+Communication manifests have one explicit input extension: `access` accepts `['provider-network']` alongside the existing `['browser-session']`. Network providers implement the optional `connectionIdentity()` method; browser providers remain unchanged. For candidate-to-baseline assignments only, the checker projects that exact access union back to `['browser-session']` at `CommunicationProviderDeclaration.access` and `PluginBackendDefinition.communications[*].access`. Baseline-to-candidate assignments remain strict and unprojected. All other fields, exports and access values retain the ordinary bidirectional checks. The frozen baseline is unchanged; regression fixtures reject removed browser access, arbitrary additional access modes and unrelated signature changes. This extension does not imply that an older host supports network communication packages.
+
 Every distribution build runs this check against its freshly emitted SDK. Maintainers can also run:
 
 ```sh

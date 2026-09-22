@@ -34,7 +34,7 @@ flowchart TD
     Action -->|Lost acknowledgement| Recovery[Unknown outcome; no automatic replay]
 ```
 
-Firefox selection does not change the terminal host or automatically replace the existing browser default. Terminal operations remain explicitly unsupported by Firefox. Operator setup and platform verification are recorded in its [README](../src/plugins/native-firefox/README.md).
+Slack uses the GoCaaS/OI Companion MCP provider by default; it requires no Firefox bridge. Firefox remains optional for general browser integrations and explicitly selected legacy Slack. Firefox selection does not change the terminal host or automatically replace the existing browser default. Terminal operations remain explicitly unsupported by Firefox. Operator setup and platform verification are recorded in its [README](../src/plugins/native-firefox/README.md).
 
 ## Plugin task presentation and command authority
 
@@ -284,14 +284,16 @@ flowchart TD
     Panels --> Target[Owned open PR + displayed provider artifact<br/>workspace, channel, mention and connection]
     Target --> Journal[Caller-scoped journal reserves exact UUID and input]
     Journal --> Durable[Verify cooldown and current destination<br/>Commit pinned operation before send]
-    Durable --> Provider[Slack package owns DOM and send policy<br/>Core supplies bounded browser primitives]
-    Provider --> Receipt{Exact retained receipt?}
+    Durable --> Provider[Selected Companion provider<br/>User-delegated Slack token; connection pinned]
+    Provider --> MCP[Slack MCP over HTTPS<br/>Read tools or explicit review-request send]
+    MCP --> Slack[Slack workspace and channel]
+    Slack --> Receipt{Exact retained receipt?}
     Receipt -->|Yes| Save[Save terminal result<br/>Then acknowledge journal]
     Receipt -->|Uncertain| Recovery[Keep original request, destination and artifact<br/>Exact retry or Core Recovery]
     Recovery -->|Missing journal| NoSend[Unavailable; send nothing]
 ```
 
-The cooldown covers callers even when a UUID is reused. Disablement blocks new admission but retains pinned public and legacy operation resolvers. An uncertain send cannot be proved by matching the same or another PR URL in Slack; only its exact retained receipt or an explicit Core Recovery resolution can settle it. Browser primitives come from the separately selected native provider; core guards the session and retains the original transport, while the Slack package owns DOM and policy. See [Communication authoring](communication-authoring.md).
+The cooldown covers callers even when a UUID is reused. Disablement blocks new admission but retains pinned public and legacy operation resolvers. An uncertain send cannot be proved by matching the same or another PR URL in Slack; only its exact retained receipt or an explicit Core Recovery resolution can settle it. The default Companion provider calls Slack MCP with a server-held delegated token distinct from the GoCaaS model key. Reading cannot send; posting requires the durable before-send authorization. Credentials do not enter plugin settings or public receipts. Legacy browser operations retain their original provider, artifact and guarded native transport. See [Communication authoring](communication-authoring.md).
 
 ## Terminal presentation and durable controls
 
@@ -451,11 +453,11 @@ flowchart TD
     Native --> Unknown[Unknown outcome stays inspectable<br/>Never replay input or use another provider]
     Browser[Separately selected browser host] --> Capture[Capture original browser provider and artifact closure]
     Capture --> Guard[Core guards workspace, origin and observed surfaces]
-    Guard --> Operation[Communication operation and before-send authorization]
+    Guard --> Operation[Legacy browser communication operation<br/>Before-send authorization]
     Operation --> Recovery[Reconcile through retained transport<br/>Disablement never substitutes current defaults]
 ```
 
-cmux supplies terminal and browser primitives; WezTerm supplies terminal I/O. Independent selections preserve WezTerm terminals alongside cmux-backed Slack. Replacing a native provider invalidates old terminal targets while receipts remain readable. Legacy `/api/cmux/*` endpoints return 410. See [native terminal authoring](native-terminal-authoring.md).
+cmux supplies terminal and browser primitives; WezTerm supplies terminal I/O. Firefox remains optional browser support. Default Slack communication uses Companion MCP independently of browser selection; legacy browser Slack can still use cmux or Firefox. Replacing a native provider invalidates old terminal targets while receipts remain readable. Legacy `/api/cmux/*` endpoints return 410. See [native terminal authoring](native-terminal-authoring.md).
 
 ## Header identity and installed-page discovery
 
@@ -519,7 +521,7 @@ Trigger extraction is reviewed and pushed through `12a62c9`. The roles `campaign
 flowchart TD
     Select[Selected trigger + immutable settings] --> Input{Trigger kind}
     Input -->|Campaign| Candidates[Bounded eligible candidate handles<br/>Campaign concurrency and galleon exclusion]
-    Input -->|Review| Reads[Selected communication / browser / PR providers<br/>Capture source revisions and observed event / target handles]
+    Input -->|Review| Reads[Selected communication / PR providers<br/>Capture source revisions and observed event / target handles]
     Input -->|Webhook| Auth[Core credential + raw-body HMAC<br/>Authenticate before duplicate lookup]
     Candidates --> Policy[Bounded plugin choice, scan or parse]
     Reads --> Policy

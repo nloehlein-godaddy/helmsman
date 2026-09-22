@@ -35,3 +35,35 @@ test('SDK baseline rejects removed exports and incompatible signatures while acc
     assert.throws(() => checkSdkCompatibility(baseline, candidate), /removed export stop/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('SDK communication manifest extension preserves old inputs and rejects unrelated widening', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'helmsman-sdk-communication-compat-'));
+  try {
+    const baseline = join(root, 'baseline');
+    const candidate = join(root, 'candidate');
+    const contract = `
+export interface CommunicationProviderDeclaration { readonly access: readonly ['browser-session']; }
+export interface PluginBackendDefinition { readonly entry: string; readonly communications?: Readonly<Record<string, CommunicationProviderDeclaration>>; }
+export interface OtherDeclaration { readonly access: readonly ['browser-session']; }
+`;
+    for (const directory of [baseline, candidate]) {
+      await mkdir(directory);
+      await writeFile(join(directory, 'package.json'), '{"type":"module"}');
+      await writeFile(join(directory, 'node.d.ts'), 'export {};');
+      await writeFile(join(directory, 'index.d.ts'), contract);
+    }
+    const extended = contract.replace("readonly ['browser-session'];", "readonly ['browser-session'] | readonly ['provider-network'];");
+    await writeFile(join(candidate, 'index.d.ts'), extended);
+    assert.equal(checkSdkCompatibility(baseline, candidate), 3);
+    for (const broken of [
+      extended.replace('readonly entry: string', 'readonly entry: number'),
+      extended.replace(" | readonly ['provider-network']", " | readonly ['arbitrary-access']"),
+      extended.replace("readonly ['browser-session'] | readonly ['provider-network']", "readonly ['provider-network']"),
+      extended.replace("readonly ['browser-session'] | readonly ['provider-network']", "readonly ['browser-session'] | readonly ['provider-network'] | readonly ['extra-access']"),
+      extended.replace("OtherDeclaration { readonly access: readonly ['browser-session']", "OtherDeclaration { readonly access: readonly ['browser-session'] | readonly ['provider-network']"),
+    ]) {
+      await writeFile(join(candidate, 'index.d.ts'), broken);
+      assert.throws(() => checkSdkCompatibility(baseline, candidate), /SDK compatibility check failed/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

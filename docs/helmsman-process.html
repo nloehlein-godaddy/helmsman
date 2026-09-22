@@ -74,7 +74,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <article class="flow-step"><h3>Automatic Slack review</h3><ol><li>Capture PR provider and connection; compare authenticated actor with exact-head author.</li><li>Own: persist policy and block. Unknown: keep queued and retained pins.</li><li>Other: recheck authority and dispatch claim before durable admission.</li></ol></article>
 <article class="flow-step"><h3>Firefox browser provider</h3><ol><li>Independent browser selection; local WebDriver and BiDi.</li><li>Fence discovered surface and session before one browser action.</li><li>Lost acknowledgement remains unknown; no automatic replay.</li></ol></article>
 </div>
-<p class="section-intro">Firefox does not change the terminal host or automatically replace the browser default; terminal operations are explicitly unsupported. See the <a href="../src/plugins/native-firefox/README.md">Firefox README</a> for setup and verification.</p>
+<p class="section-intro">Slack now defaults to GoCaaS/OI Companion MCP without a browser bridge. Firefox remains optional for general browser support and the explicit legacy Slack provider. Firefox does not change the terminal host or automatically replace the browser default; terminal operations are explicitly unsupported. See the <a href="../src/plugins/native-firefox/README.md">Firefox README</a> for setup and verification.</p>
 </section>
 <section aria-labelledby="task-plugins-heading">
 <h2 class="section-heading" id="task-plugins-heading">Plugin task presentation and command authority</h2>
@@ -174,12 +174,12 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="flow-step flow-common"><h3>Owned open PR + exact displayed destination → caller journal</h3><p>Capture provider artifact, workspace, channel, mention and connection. Reserve the complete input and UUID before transport. A missing retry entry is unavailable and sends nothing.</p></div>
 <div class="flow-arrow" aria-hidden="true">↓</div>
-<div class="flow-step flow-common"><h3>Cooldown + current destination → pinned durable operation → provider</h3><p>The cooldown applies across callers even when a UUID is reused. Commit caller, command, destination, provider binding and artifact before mutation. Core supplies bounded browser primitives; the Slack package owns DOM, drafts, navigation, message policy and receipt recognition.</p></div>
+<div class="flow-step flow-common"><h3>Cooldown + current destination → pinned durable operation → provider</h3><p>The cooldown applies across callers even when a UUID is reused. Commit caller, command, destination, provider binding and artifact before mutation. The default Companion provider pins its connection and calls Slack MCP over HTTPS with a server-held user-delegated Slack token. Reading uses read tools; posting requires explicit user action and the durable before-send authorization. The token is separate from the GoCaaS model key and never enters plugin settings.</p></div>
 <div class="host-options">
 <article class="flow-step"><h3>Exact retained receipt</h3><p>Project the retained PR and destination, save the terminal result, then acknowledge the browser journal.</p></article>
 <article class="flow-step"><h3>Uncertain delivery</h3><p>Keep the original request, destination and artifact for exact retry or Core Recovery. Matching the same or another PR URL in Slack cannot prove this send and cannot authorize replay.</p></article>
 </div>
-<p class="limit-note">Backend disablement blocks new admission while pinned public and legacy operation resolvers remain available for obligations. Browser primitives come from the selected native provider; core guards the session and retains the original transport. Slack DOM and policy stay in the package. See <a href="communication-authoring.md">Communication authoring</a>.</p>
+<p class="limit-note">Backend disablement blocks new admission while pinned public and legacy operation resolvers remain available for obligations. Default Slack needs no browser host. Retained legacy browser requests continue through their original provider, artifact and guarded native transport. Companion cannot use a matching channel-history URL to infer delivery. See <a href="communication-authoring.md">Communication authoring</a>.</p>
 </section>
 <section aria-labelledby="terminal-heading">
 <h2 class="section-heading" id="terminal-heading">Terminal presentation and durable controls</h2>

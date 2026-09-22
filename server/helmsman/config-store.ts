@@ -20,7 +20,7 @@ export const EDITABLE_KEYS: readonly string[] = [
   'GITHUB_PR_AUTHOR',
 ];
 
-export const SECRET_KEYS: readonly string[] = ['JIRA_API_TOKEN', 'GITHUB_TOKEN', 'JIRA_EMAIL', 'SLACK_BOT_TOKEN', 'HELMSMAN_WEBHOOK_SECRET'];
+export const SECRET_KEYS: readonly string[] = ['JIRA_API_TOKEN', 'GITHUB_TOKEN', 'JIRA_EMAIL', 'SLACK_BOT_TOKEN', 'SLACK_MCP_TOKEN', 'HELMSMAN_WEBHOOK_SECRET'];
 
 export const WRITABLE_SECRET_KEYS: readonly string[] = ['JIRA_API_TOKEN'];
 
@@ -71,8 +71,8 @@ export class ConfigStore {
     if (key === 'SLACK_REVIEW_CHANNEL' && slackTarget && !/^(?:[CG][A-Z\d]{2,31}|[a-z\d_-]{1,80})$/.test(slackTarget)) {
       throw new Error('Slack review channel must be a channel name or channel ID');
     }
-    if (key === 'SLACK_REVIEW_MENTION' && slackTarget && !/^[a-z\d_-]{1,80}$/.test(slackTarget)) {
-      throw new Error('Slack review mention must be a user group handle');
+    if (key === 'SLACK_REVIEW_MENTION' && slackTarget && !/^(?:S[A-Z\d]{2,31}|[a-z\d_-]{1,80})$/.test(slackTarget)) {
+      throw new Error('Slack review mention must be a user group ID or legacy browser handle');
     }
     const prePrSetting = PRE_PR_SETTING_DEFINITIONS.find(({ envKey }) => envKey === key);
     if (prePrSetting && value.trim() !== '' && parsePrePrSettingValue(value, prePrSetting) === undefined) {

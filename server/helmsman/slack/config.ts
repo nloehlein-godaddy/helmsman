@@ -12,7 +12,7 @@ export function slackSettings(env: Record<string, string | undefined>) {
   const channelId = env.SLACK_CHANNEL_ID?.trim() ?? '';
   const channelName = env.SLACK_CHANNEL_NAME?.trim() ?? '';
   const surface = env.SLACK_BROWSER_SURFACE?.trim() || undefined;
-  const error = enabled && (!/^[A-Z0-9]{3,32}$/.test(clientId) || !/^C[A-Z0-9]{2,31}$/.test(channelId)
+  const error = enabled && (!/^[A-Z0-9]{3,32}$/.test(clientId) || !/^[CG][A-Z0-9]{2,31}$/.test(channelId)
     || !/^[a-z0-9_-]{1,80}$/.test(channelName)
     || surface !== undefined && !/^(?:surface:[1-9]\d*|[a-f0-9-]{36})$/i.test(surface))
     ? 'Set a valid Slack client, channel, and browser surface in Config.' : null;

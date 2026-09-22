@@ -42,10 +42,11 @@ export type CommunicationProviderResultV1 =
   | { readonly status: 'unknown'; readonly reason: string; readonly evidence: unknown };
 
 export interface CommunicationProviderV1 {
+  connectionIdentity?(): string | null;
   prepareReviewRequest(input: { readonly repo: string; readonly number: number }, context: CommunicationProviderContextV1): Promise<Pick<CommunicationDestinationV1, 'workspace' | 'channel' | 'mention' | 'connectionId'>>;
   invokeReviewRequest(input: CommunicationReviewRequestV1, context: CommunicationProviderContextV1): Promise<CommunicationProviderResultV1>;
   reconcileReviewRequest(input: CommunicationReviewRequestV1, context: CommunicationProviderContextV1): Promise<CommunicationProviderResultV1>;
   scanReviewRequests(input: { readonly since: string | null }, context: CommunicationProviderContextV1): Promise<{ readonly messages: readonly { readonly channelId: string; readonly ts: string; readonly permalink: string; readonly author: string; readonly prUrls: readonly string[] }[]; readonly complete: boolean }>;
 }
 
-export interface CommunicationProviderDeclaration { readonly access: readonly ['browser-session']; }
+export interface CommunicationProviderDeclaration { readonly access: readonly ['browser-session'] | readonly ['provider-network']; }

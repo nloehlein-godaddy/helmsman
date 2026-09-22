@@ -6,6 +6,12 @@ const binding = { providerId: 'example.slack/slack', pluginId: 'example.slack', 
 const provider = { prepareReviewRequest: async () => ({ workspace: 'T123', channel: 'C123', mention: 'reviewers', connectionId: 'connection' }), invokeReviewRequest: async () => ({ status: 'unknown' as const, reason: 'unknown', evidence: {} }), reconcileReviewRequest: async () => ({ status: 'unknown' as const, reason: 'unknown', evidence: {} }), scanReviewRequests: async () => ({ messages: [], complete: true }) };
 
 describe('communication provider registry', () => {
+  it('requires explicit network identity support and preserves legacy browser registrations', () => {
+    const registry = createCommunicationProviderRegistry({ eligible: () => true });
+    expect(registry.stage(binding, provider).access).toBe('browser-session');
+    expect(() => registry.stage(binding, provider, {}, 'provider-network')).toThrow('connection identity');
+    expect(registry.stage(binding, { ...provider, connectionIdentity: () => 'nonsecret-connection-hash' }, {}, 'provider-network').access).toBe('provider-network');
+  });
   it('uses an exact artifact binding and removes registrations by plugin', () => {
     const registry = createCommunicationProviderRegistry({ eligible: () => true });
     registry.publish([registry.stage(binding, provider)]);

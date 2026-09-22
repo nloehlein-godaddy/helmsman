@@ -1,5 +1,7 @@
 # Firefox native browser
 
+Firefox is an optional browser provider. Default Slack integration uses the [Slack Companion provider](../slack-companion/README.md) and does not require this bridge.
+
 This backend-only package registers `helmsman.native-firefox/firefox` through `helmsman/native-terminal@1`. It exposes structured browser primitives for Firefox WebDriver BiDi and explicitly reports terminal screen/input methods as unsupported.
 
 Set `bidiEndpoint` to the exact `webSocketUrl` returned when an operator creates a disposable Firefox WebDriver session. It accepts only a credential-free loopback `ws:` URL. Its default is empty, so activation stays offline and browser discovery reports unavailable until configured. The package opens and closes only its own BiDi socket: it never creates or deletes the external WebDriver session, starts Firefox, or attaches to a user profile. A lost pointer-action acknowledgement is uncertain and is never replayed.
