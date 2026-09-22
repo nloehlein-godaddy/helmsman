@@ -1,0 +1,1 @@
+export const COMMUNICATION_TIMEOUT_MS = 120_000;

@@ -284,14 +284,21 @@ flowchart TD
     Panels --> Target[Owned open PR + displayed provider artifact<br/>workspace, channel, mention and connection]
     Target --> Journal[Caller-scoped journal reserves exact UUID and input]
     Journal --> Durable[Verify cooldown and current destination<br/>Commit pinned operation before send]
-    Durable --> Provider[Selected Companion provider<br/>User-delegated Slack token; connection pinned]
-    Provider --> MCP[Slack MCP over HTTPS<br/>Read tools or explicit review-request send]
+    Durable --> Provider{Selected communication provider}
+    Provider --> MCP[Default direct Slack MCP<br/>Server-held Slack token]
+    Provider --> OI[Opt-in OI Slack Companion<br/>OI token, OAuth session and Slack consent]
+    OI --> Approval{Native tool approvals enabled?}
+    Approval -->|No| Blocked[Fail before creating a chat task]
+    Approval -->|Yes| Tool[Saved chat; exact tool and arguments<br/>Send fence immediately before approval]
+    Tool --> Slack
     MCP --> Slack[Slack workspace and channel]
-    Slack --> Receipt{Exact retained receipt?}
+    Slack --> Receipt{Exact retained receipt?<br/>OI requires structured tool-result evidence}
     Receipt -->|Yes| Save[Save terminal result<br/>Then acknowledge journal]
     Receipt -->|Uncertain| Recovery[Keep original request, destination and artifact<br/>Exact retry or Core Recovery]
     Recovery -->|Missing journal| NoSend[Unavailable; send nothing]
 ```
+
+The OI provider is opt-in; direct MCP remains the default. Production OI currently disables native tool approvals, so automated OI delivery is blocked. `npm run slack:oi:check` performs read-only preflight without inference. The OI path reuses personal Slack consent and does not need a new Helmsman Slack app.
 
 The cooldown covers callers even when a UUID is reused. Disablement blocks new admission but retains pinned public and legacy operation resolvers. An uncertain send cannot be proved by matching the same or another PR URL in Slack; only its exact retained receipt or an explicit Core Recovery resolution can settle it. The default Companion provider calls Slack MCP with a server-held delegated token distinct from the GoCaaS model key. Reading cannot send; posting requires the durable before-send authorization. Credentials do not enter plugin settings or public receipts. Legacy browser operations retain their original provider, artifact and guarded native transport. See [Communication authoring](communication-authoring.md).
 

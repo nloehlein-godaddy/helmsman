@@ -1,3 +1,4 @@
+import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
 import type { PluginJson } from '../../src/plugins/backend';
 import { parseCampaignTriggerInputV1, parseCampaignTriggerChoiceV1, parseTriggerMetadataV1, parseReviewTriggerInputV1, parseReviewTriggerResultV1, parseTriggerCursorV1, parseTriggerMessageBatchV1, parseTriggerRequestedBatchV1, parseTriggerReviewDetailInputV1, parseTriggerReviewTargetV1, parseWebhookTriggerInputV1, parseWebhookTriggerResultV1, TRIGGER_LIMITS_V1, type TriggerMetadataV1, type TriggerProviderV1, type CampaignTriggerProviderV1, type CommunicationReviewTriggerProviderV1, type PullRequestReviewTriggerProviderV1, type WebhookTriggerProviderV1, type ReviewTriggerProviderV1, type ReviewTriggerContextV1, type ReviewTriggerInputV1, type ReviewTriggerResultV1, type TriggerReviewTargetV1, type TriggerMessageV1 } from '../../src/plugins/trigger';
 import { clarificationAbortable } from '../../src/plugins/clarification-transport';
@@ -55,7 +56,7 @@ export function boundedTriggerProvider(provider: TriggerProviderV1, signal?: Abo
     if (!context || context.source !== source || !context.signal || typeof context.detail !== 'function') throw new Error('Trigger review context does not match its source');
     const parsed = parseReviewTriggerInputV1(input); context.signal.throwIfAborted();
     if (source === 'pull-request' && parsed.cursor !== null) throw new Error('Requested-review trigger cannot use a communication cursor');
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(new Error('Trigger scan timed out')), 30_000);
+    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(new Error('Trigger scan timed out')), source === 'communication' ? COMMUNICATION_TIMEOUT_MS : 30_000);
     const combined = AbortSignal.any([controller.signal, context.signal, ...(signal ? [signal] : [])]);
     const events = new Map<string, TriggerMessageV1>(); const targets = new Map<string, TriggerReviewTargetV1>(); const requested = new Set<string>();
     let active = true; let calls = 0; let discoveryStarted = false; let discoveryCompleted = false; let complete = true;

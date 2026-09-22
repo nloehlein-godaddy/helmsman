@@ -1,3 +1,4 @@
+import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
 import { createHash } from 'node:crypto';
 import { parseTriggerRequestedBatchV1 } from '../../src/plugins/trigger';
 import type {
@@ -104,7 +105,7 @@ export async function runReviewTrigger(input: {
   input.source.assertCurrent();
   if (input.capture.record.metadata.kind !== 'review-watch' || input.capture.record.metadata.source !== input.source.kind) throw new Error('Review trigger source does not match the selected provider');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('Trigger scan timed out')), 30_000);
+  const timer = setTimeout(() => controller.abort(new Error('Trigger scan timed out')), input.source.kind === 'communication' ? COMMUNICATION_TIMEOUT_MS : 30_000);
   const signal = AbortSignal.any([controller.signal, ...(input.signal ? [input.signal] : [])]);
   const events = new Map<string, TriggerMessageV1>();
   const targets = new Map<string, TriggerReviewTargetV1>();

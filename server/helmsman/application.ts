@@ -1,3 +1,4 @@
+import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
 import { createRunLifetime } from './run-lifetime';
 import { readPullRequestDetail, retainPullRequestSource, prepareCommunicationReview, readOutcomePullRequest, verifyPullRequestExecution, parsePullRequestSource } from './pull-request-source';
 import { allowMutationRequest } from './request-origin';
@@ -803,7 +804,7 @@ const communicationCommands = createCommunicationCommandService({ persistence, o
       AND createdAt > ? AND status IN ('pending', 'sent', 'uncertain') LIMIT 1`).get(repo, number, Date.now() - 60_000);
     if (recent) throw new ClarificationServiceError(409, 'conflict');
   },
-  async prepareReviewRequest(input, signal = AbortSignal.timeout(30_000)) {
+  async prepareReviewRequest(input, signal = AbortSignal.timeout(COMMUNICATION_TIMEOUT_MS)) {
     const source = captureTriggerPullRequest(signal);
     const retained = await prepareCommunicationReview(input, source);
     const prepared = await communicationRuntime.effects.prepareReviewRequest(input, signal);

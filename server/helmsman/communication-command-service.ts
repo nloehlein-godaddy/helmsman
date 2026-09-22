@@ -1,3 +1,4 @@
+import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
 import { isContributionId } from "../../src/plugins/manifest";
 import { builtinFrontendManifests } from "../../src/plugins/frontend-manifests";
 import type { PluginCatalog } from "../../src/plugins/runtime";
@@ -253,7 +254,7 @@ export function createCommunicationCommandService(
     });
   };
   const dispatch = (id: string) =>
-    dispatchOperation(options.operations, id, resolve, { reconcile: true });
+    dispatchOperation(options.operations, id, resolve, { reconcile: true, timeoutMs: COMMUNICATION_TIMEOUT_MS });
   return {
     resolve,
     dispatch,

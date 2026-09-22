@@ -1,0 +1,13 @@
+{
+  "packageVersion": 1,
+  "manifest": { "manifestVersion": 1, "id": "example.slack-oi", "version": "0.1.0", "sdkVersion": 1, "pages": [] },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "backend.js",
+    "provides": [{ "id": "helmsman/communication", "version": 1, "localId": "slack" }],
+    "communications": { "slack": { "access": ["provider-network"] } },
+    "settings": {},
+    "storageVersion": 1
+  }
+}

@@ -668,6 +668,40 @@ explicitly reselecting the browser provider after migration persists. Changing p
 does not move pending
 requests: retained operations resolve through their original provider and artifact.
 
+### OI Slack Companion without a Helmsman Slack app
+
+The opt-in `helmsman.slack-oi/slack` provider calls OI's hosted
+`godaddy-slack-companion` using your existing Slack authorization in OI. It needs
+an OI credential, its OAuth session cookie and personal Slack consent in OI, but no separate Helmsman Slack
+app or exported Slack token. Direct MCP remains the default; installing this
+provider does not select it or migrate existing requests.
+
+**Production currently blocks automated use:** its `/api/config` reports native
+tool approvals disabled. Helmsman refuses to create a tool request without that
+capability. A successful OI login or model listing does not prove Slack delivery.
+
+| Value | Default | Purpose |
+| --- | --- | --- |
+| `SLACK_OI_URL` | `https://caas.open-webui.godaddy.com` | OI endpoint. |
+| `SLACK_OI_TOKEN` | Empty | OI credential, never a Slack token or `GOCAAS_API_KEY`. |
+| `SLACK_OI_TOKEN_FILE` | Empty | Alternative absolute path to a user-owned file (mode `0600`) containing the OI credential. |
+| `SLACK_OI_AUTH_MODE` | `bearer` | `bearer` or `sso-jwt`, matching the OI credential. |
+| `SLACK_OI_OAUTH_SESSION_ID` | Empty | OI `oauth_session_id` cookie value required to access your connected Slack account. |
+
+Keep both credentials in the secure server environment; Helmsman does not extract
+browser cookies or refresh OI sessions. Run `npm run slack:oi:check` with both
+credentials configured to check availability.
+This preflight is read-only and makes no model call or Slack request. After the
+OI deployment enables native tool approvals, select the provider explicitly:
+
+```sh
+helmsman plugins select-communication helmsman.slack-oi/slack
+```
+
+Restart after credential or provider changes. Workspace, channel and reviewer
+group settings still use Slack IDs. See [Communication authoring](docs/communication-authoring.md#oi-slack-companion)
+for the approval boundary and delivery evidence requirements.
+
 ### Requesting reviews in Slack
 
 Owned open PRs link to the authored Communication page with that PR selected. Its

@@ -1,6 +1,6 @@
 # Communication authoring
 
-Helmsman exposes communication presentation and delivery through public version 1 contracts. The shipped `helmsman.communication` frontend is an independently buildable notification header and composition page. Its notifications, review-request, and settings panels use only `@helmsman/plugin-sdk`. The default `helmsman.slack-companion/slack` backend is an independently buildable `helmsman/communication@1` provider using the Slack MCP service behind GoCaaS/OI Companion. `helmsman.slack/slack` remains an opt-in legacy browser provider. These packages do not import application source.
+Helmsman exposes communication presentation and delivery through public version 1 contracts. The shipped `helmsman.communication` frontend is an independently buildable notification header and composition page. Its notifications, review-request, and settings panels use only `@helmsman/plugin-sdk`. The default `helmsman.slack-companion/slack` backend is an independently buildable `helmsman/communication@1` provider using the Slack MCP service behind GoCaaS/OI Companion. `helmsman.slack-oi/slack` is an opt-in OI-hosted Companion provider; `helmsman.slack/slack` remains an opt-in legacy browser provider. These packages do not import application source.
 
 The `/communication` alias selects the `helmsman/communication-page` slot. The notification control selects `helmsman/notification-header`. The page accepts `helmsman/communication-panel@1` contributions and starts with separate notification, review-request, and settings instances. Layouts are authoritative: disabling or replacing a selected contribution leaves it unavailable without falling back, and existing empty, hidden, copied, or missing-panel layouts are preserved.
 
@@ -44,6 +44,46 @@ Companion while preserving custom selections. Operators can explicitly reselect 
 legacy provider after migration; later restarts preserve that choice. Pending browser
 operations retain their original binding and artifact.
 
+## OI Slack Companion
+
+The opt-in `helmsman.slack-oi/slack` provider reuses the user's Slack authorization
+in OI through the hosted `godaddy-slack-companion` model. It needs no separate
+Helmsman Slack application or exported Slack OAuth token. Personal Slack consent
+inside OI is still required. Existing default and explicit provider selections,
+as well as retained requests, are unchanged.
+
+**Current production limitation:** OI reports `enable_tool_permissions=false` in
+`/api/config`. The provider fails closed before creating a chat task when native
+tool approvals are disabled. Mocked integration tests demonstrate the supported
+approval-enabled protocol; they do not demonstrate live production delivery.
+
+Supply an OI credential through `SLACK_OI_TOKEN` or an absolute
+`SLACK_OI_TOKEN_FILE` path to a user-owned file with mode `0600`. `SLACK_OI_AUTH_MODE` is `bearer` by default or `sso-jwt`;
+`SLACK_OI_URL` defaults to `https://caas.open-webui.godaddy.com`. Also supply
+`SLACK_OI_OAUTH_SESSION_ID`, the OI `oauth_session_id` cookie value needed to
+retrieve your connected Slack authorization. Keep this session credential in the
+secure server environment. Neither a Slack token nor `GOCAAS_API_KEY` is an OI credential. The provider does not extract browser cookies, refresh credentials or implement the OAuth flow. Credentials stay outside settings,
+durable operations and public receipts. Restart after configuration changes.
+
+Run `npm run slack:oi:check` for a read-only preflight. It checks the OI deployment
+without starting inference or invoking Slack tools. When native approvals are
+available, explicitly select `helmsman.slack-oi/slack` with
+`helmsman plugins select-communication helmsman.slack-oi/slack`, then restart.
+An independently built external package uses `example.slack-oi/slack` instead.
+Workspace, channel and user group IDs use the same fields as direct MCP.
+
+Preparation validates local credentials and destination fields without inference.
+Invocation checks live readiness before creating any chat; unavailable approvals
+produce a durable failure receipt with the actionable reason. Existing host policy
+keeps that blocked request in Core Recovery; no Slack tool was invoked.
+For each tool operation, the transport creates a saved OI chat, requests one tool and
+polls for native approval. It approves only the exact expected tool name and
+arguments. The send authorization fence runs immediately before approving
+`send_message`; approval is the external write boundary. Only structured tool
+results establish search data or a Slack delivery receipt. Assistant
+prose cannot establish delivery. Unexpected calls remain unapproved; uncertain
+post-approval failures never trigger an automatic resend.
+
 ## Public frontend services
 
 Contributions declare `helmsman/communication@1` for reads and settings. `CommunicationServiceV1` provides:
@@ -69,7 +109,7 @@ Core admits a request only when the PR is open, unmerged, and owned by the confi
 
 The provider receipt reports workspace, channel, mention, connection, and an optional permalink. Core projects the retained repo, number, and destination into the public receipt; a provider cannot rebind them. A terminal result is saved by the panel before journal acknowledgment. Pending and recovery-required commands retain their original destination, provider binding, artifact, and request identity after settings changes, disablement, restart, or replacement.
 
-An uncertain Slack send cannot be proven by finding the same or another PR URL in channel history. The URL is not the retained request identity, and another author or request can post identical text. Reconciliation must return an exact retained provider receipt. Neither shipped Slack provider can establish an exact receipt after an uncertain send without retained evidence, so it reports unknown and prohibits automatic resend. Keep the request in Core Recovery until exact evidence or an operator resolution is available.
+An uncertain Slack send cannot be proven by finding the same or another PR URL in channel history. The URL is not the retained request identity, and another author or request can post identical text. Reconciliation must return an exact retained provider receipt. No shipped Slack provider can establish an exact receipt after an uncertain send without retained evidence, so it reports unknown and prohibits automatic resend. Keep the request in Core Recovery until exact evidence or an operator resolution is available.
 
 ## Backend provider contract
 
@@ -121,7 +161,7 @@ Core Recovery dispatches public communication operations through their retained 
 
 ## Independent build and acceptance
 
-The distribution ships `release/plugin-sources/communication`, `release/plugin-sources/slack-companion`, and the legacy `release/plugin-sources/slack`. Copy a directory outside the checkout, install the copied SDK and TypeScript, and run its build. Pack the resulting `dist` directory through the compiled CLI. Rename reserved `helmsman.*` frontend package IDs and their self-referencing initial-layout contribution IDs before installing an external copy. A backend copy also needs a nonreserved package/provider ID.
+The distribution ships `release/plugin-sources/communication`, `release/plugin-sources/slack-companion`, `release/plugin-sources/slack-oi`, and the legacy `release/plugin-sources/slack`. Copy a directory outside the checkout, install the copied SDK and TypeScript, and run its build. Pack the resulting `dist` directory through the compiled CLI. Rename reserved `helmsman.*` frontend package IDs and their self-referencing initial-layout contribution IDs before installing an external copy. A backend copy also needs a nonreserved package/provider ID.
 
 The communication production gate denies access to application source, compiles and installs the frontend and backend packages against only the distributed SDK, selects both frontend slots and a communication provider, and runs the real server. It covers lost browser responses without duplicate delivery, retained receipts, settings conflicts, desktop/mobile rendering, provider disablement, restart, and selected-page unavailability. This proves standalone frontend and backend builds through the public contracts; it does not turn trusted plugin code into a sandbox.
 

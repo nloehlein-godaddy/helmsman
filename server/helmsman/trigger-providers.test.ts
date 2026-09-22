@@ -83,7 +83,7 @@ it('bounds review scans and forwards cancellation to outstanding discovery', asy
   vi.useFakeTimers(); let signal: AbortSignal | undefined; const activation = new AbortController();
   const bounded = boundedTriggerProvider(watch, activation.signal) as CommunicationReviewTriggerProviderV1;
   const ctx = { ...context(), async messages(_input: { since: string | null }, request?: AbortSignal) { signal = request; return new Promise<never>(() => {}); } };
-  const timed = expect(bounded.scan(reviewInput, ctx)).rejects.toThrow('timed out'); await vi.advanceTimersByTimeAsync(30000); await timed; expect(signal?.aborted).toBe(true);
+  const timed = expect(bounded.scan(reviewInput, ctx)).rejects.toThrow('timed out'); await vi.advanceTimersByTimeAsync(30_000); expect(signal?.aborted).toBe(false); await vi.advanceTimersByTimeAsync(90_000); await timed; expect(signal?.aborted).toBe(true);
   const cancelled = expect(bounded.scan(reviewInput, ctx)).rejects.toThrow(); await vi.advanceTimersByTimeAsync(0); activation.abort(); await cancelled; expect(signal?.aborted).toBe(true);
   await expect(bounded.scan(reviewInput, context())).rejects.toThrow();
 });
