@@ -222,6 +222,10 @@ A complete file enumeration never claims complete patches. The public PR package
 ```mermaid
 flowchart TD
     Alias[PR alias or Runs composition] --> Panel[Independent public PR panel]
+    Panel --> Counts[Open authored rows within scope and result limit]
+    Counts --> Reviews[Bounded review history; effective reviewer decisions]
+    Reviews --> Totals[Approvals and changes requested; unknown if incomplete]
+    Counts --> Comments[GitHub discussion-comment count]
     Panel --> Scope[Explicit PR scope; header unchanged]
     Scope --> Inspect[Selected GitHub provider; exact head]
     Inspect --> Journal[Caller-scoped draft and reserved request ID]

@@ -10,6 +10,10 @@ Header scope stays unchanged when a user selects another galleon inside a panel.
 
 Draft/result storage uses the host-provided `PluginPanelContext.contributionId`, and command journals use the same caller identity. Renamed copies receive separate storage and requests. Missing host identity prevents storage access. This does not migrate old memory-only private-session drafts across an application reload.
 
+## Authored PR counts
+
+Open rows in the authored list expose current approvals and change requests from the selected provider, alongside GitHub discussion-comment counts. Review totals reduce complete review history to each reviewer's effective decision: comments do not erase decisions, dismissal clears them, and later approval/change requests replace them. Commented-review events are distinct from discussion comments. Unavailable, malformed or truncated review history yields unknown counts while the row and its discussion count remain visible. The GitHub provider enriches only the final scoped, deduplicated, limited open authored rows with bounded concurrency and pagination. These counts are observations, not merge authorization.
+
 ## Durable manual review
 
 Declare `helmsman/pull-request-command@1` to use `context.services.pullRequestCommands`. Submit `{version:1,repo,number,expectedHeadSha,event,body}`. Events are `APPROVE`, `REQUEST_CHANGES` and `COMMENT`. The browser reserves the request ID before transport and retains the exact body and observed head. Changed intent cannot replace an unresolved request for that caller and PR.

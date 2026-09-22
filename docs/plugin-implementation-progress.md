@@ -3,6 +3,14 @@
 All phases A–G in [the architecture plan](plugin-architecture-plan.md) are complete, with the shipped v1 scope and limitations documented below. Implementation, independent review, corrections and acceptance are complete through `553dff4`. Earlier entries preserve the evidence and status at each checkpoint.
 
 
+## Authored PR list counts
+
+Open PRs in the authored list now show effective approval and change-request counts plus GitHub discussion-comment counts. The provider enriches only final scoped/deduplicated visible rows with four concurrent readers and existing bounded pagination. It excludes closed/non-authored list queries, preserves rows on unavailable review history, and leaves unproven counts unknown. Comments do not override prior review decisions; dismissals and later decisions are reflected. Existing list filters remain unchanged.
+
+Independent provider/frontend worktrees and cross-review found no remaining material issues. The affected provider, UI and read-service suite passed 85 tests; TypeScript, production/distribution build and frozen SDK compatibility passed. The source-denied copied GitHub/provider-to-UI scenario verifies two approvals, one change request and seven discussion comments while preserving header scope and lost-response recovery with one simulated publication. Desktop/mobile count-row screenshots were reviewed; both layouts fit without viewport overflow. No real GitHub review was posted. Author/operator documentation and both process-flow formats describe count semantics and uncertainty.
+
+_Helmsman · not reported - not reported_
+
 ## OG feature extensions — batch 2
 
 Bugs descriptions, the public loading-wheel helper, Config disclosure placement and read-only canonical Underway navigation are implemented. Implementation, review corrections and acceptance are complete. Three isolated implementation worktrees and independent cross-reviews cover provider/contract projection, presentation and host authority. No remote-write capability or execution-concurrency policy changed.

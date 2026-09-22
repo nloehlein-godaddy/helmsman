@@ -12,7 +12,9 @@ test('independent PR page and GitHub provider preserve scope and recover a lost 
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   try {
     await expect(host.script('deny-pr-source.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/compat-pr/panel.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
-    await writeFile(stateFile, JSON.stringify({ posts: 0, reviews: [] }));
+    await writeFile(stateFile, JSON.stringify({ posts: 0, reviews: [
+      ['APPROVED', 'reviewer-a'], ['APPROVED', 'reviewer-b'], ['CHANGES_REQUESTED', 'reviewer-c'], ['COMMENTED', 'reviewer-d'],
+    ].map(([state, login], index) => ({ id: index + 1, user: { login }, state, commit_id: head, submitted_at: '2026-09-20T11:00:00.000Z' })) }));
     const preload = join(host.root, 'github.mjs');
     await writeFile(preload, `import { readFileSync, writeFileSync } from 'node:fs';
 const original = globalThis.fetch;
@@ -25,7 +27,7 @@ globalThis.fetch = async (input, init) => {
   const state = JSON.parse(readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
   if (url.pathname === '/user') return Response.json({login:'reviewer'});
   if (url.pathname === '/repos/org/b/pulls/42') return Response.json({number:42,title:'Independent PR package',html_url:'https://github.com/org/b/pull/42',state:'open',merged:false,draft:false,
-    user:{login:'reviewer'},head:{sha:'${head}',ref:'topic'},base:{sha:'${base}',repo:{full_name:'org/b'}},updated_at:'2026-09-20T12:00:00.000Z',comments:0,requested_reviewers:[],requested_teams:[]});
+    user:{login:'reviewer'},head:{sha:'${head}',ref:'topic'},base:{sha:'${base}',repo:{full_name:'org/b'}},updated_at:'2026-09-20T12:00:00.000Z',comments:7,requested_reviewers:[],requested_teams:[]});
   if (url.pathname.endsWith('/check-runs')) return Response.json({total_count:0,check_runs:[]});
   if (url.pathname.endsWith('/status')) return Response.json({sha:'${head}',total_count:0,statuses:[]});
   if (url.pathname === '/repos/org/b/pulls/42/reviews') {
@@ -58,9 +60,15 @@ globalThis.fetch = async (input, init) => {
     const pr = page.locator('.plugin-pr-compatibility');
     await expect(pr.locator('.pr-panel-title')).toHaveText('Independent PR package');
     const authored = pr.locator('.pr-authored');
-    await expect(authored).toContainText('unknown approvals');
-    await expect(authored).toContainText('unknown changes requested');
+    await expect(authored).toContainText('2 approvals');
+    await expect(authored).toContainText('1 changes requested');
     await expect(authored).toContainText('7 discussion comments');
+    await expect(page.locator('#boot')).toHaveCount(0);
+    await authored.screenshot({ path: testInfo.outputPath('authored-counts-desktop.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await authored.screenshot({ path: testInfo.outputPath('authored-counts-mobile.png') });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await pr.locator('.pr-review-body').fill('Original review body retained across uncertainty');
     await pr.locator('.pr-rerun-feedback').fill('Independent branch feedback');
