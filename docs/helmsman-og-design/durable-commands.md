@@ -1,6 +1,6 @@
 # Durable OG command design
 
-**Scope:** Triage `Assign to me`, configurable in-app feedback, and Underway task/run/PR actions. This is a design only; no production source was changed.
+**Scope:** Triage `Assign to me`, configurable in-app feedback, and Underway task/run/PR actions. This is a design only; no production source was changed. The decisions in the [consolidated design](../helmsman-og-feature-design.md) refine the illustrative shapes below: core owns binding authority, feedback uses a tracker-neutral destination, and assign-self never takes over another actor's assignment.
 
 ## Ground rules from the current implementation
 
@@ -235,4 +235,4 @@ Task context has no side effect. A row that was reassigned, settled, deleted, or
 4. **Underway context.** Add canonical task→claim→run→PR read projection and panel actions. Test source instance/revision changes, no claim, active/settled claim policies, run with no PR, PR in another repo rejection, deleted run/PR, galleon scope, and adversarial shared ticket strings/PR titles proving that no inferred action appears.
 5. **Settled integration.** Run affected unit/integration tests, TypeScript/build, copied-package/distribution checks for each new SDK surface, and the relevant browser flows. Perform the required architectural review of the implementation commit; verify recovery rows preserve artifact, binding, connection, request, and receipt identities without secrets.
 
-_Helmsman · gpt-6 - not reported_
+_Helmsman · not reported - not reported_

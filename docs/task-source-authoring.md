@@ -104,3 +104,7 @@ The Jira provider uses the fixed read query `jira.approximate-count/v1` with a J
 A submitted Todo draft without a request ID is recovery evidence, not authority to dispatch. Reconcile it against an exact-input match in the retained journal and check that original receipt. If no match remains, keep the draft and submission marker and show the unresolved identity; never submit the draft again as a retry.
 
 Automatic source selection is separate from [scheduling policy](scheduling-authoring.md). The selected policy sees only scoped eligible candidates through bounded discovery. Core preserves source revision, claim and quarantine checks, and records the policy decision at admission.
+
+### On-demand Triage descriptions
+
+Triage summary rows remain unchanged. The shipped panel calls the scoped task-read `load` operation when a description is expanded and checks the returned source instance, task reference and revision against the row. Providers return their existing `requirements.description`; no additional read-view field is required. Empty text is explicit, unavailable or changed results remain visible, and provider text is never interpreted as HTML. Bugs descriptions remain a planned additive read-contract extension.

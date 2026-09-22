@@ -48,3 +48,9 @@ Select a provider with `plugins select-pull-request example.github/github`; `def
 Copy `plugin-sources/compat-pr` and `plugin-sources/github` from the distribution, install its SDK and TypeScript, build, pack, install and enable them. Rename the frontend manifest ID and its initial self-references; keep public slot and contract IDs. Use `plugins select helmsman/pr-compatibility-page example.pr/page` to select the copied frontend. See [package installation](plugin-packages.md).
 
 Optional review-request controls open the selected [Communication page](communication-authoring.md) with an explicit PR target and the existing header scope. Legacy Config links using `slackPrRepo` and `slackPr` resolve to that authored page. Navigation never sends a message; the communication command journal retains new request identities independently of the PR package.
+
+## Authenticated ownership for automatic Slack reviews
+
+The optional `profile()` hook must identify the account authenticated by the same captured connection used for PR reads. Incoming automatic Slack reviews compare its nonempty `login` with `detail.authorLogin` at the queued head. They do not use the configured-author `isOwnPr` flag. Missing identity leaves the request queued; a matching author blocks it. Manual review-request eligibility retains its configured-author semantics.
+
+Providers that omit authenticated profile identity remain usable for other PR operations, but cannot authorize automatic incoming Slack review dispatch. Core rechecks provider/source authority after asynchronous reads and retains the policy observation with the queued notification.

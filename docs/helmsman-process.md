@@ -4,6 +4,28 @@ Open [helmsman-process.html](helmsman-process.html) for the standalone diagrams.
 
 The flow now includes Moon Units-inspired intake, frozen execution settings, isolated agent stages, Agent Questions, durable evidence and recovery, and Costs & Outcomes. Those services surround the existing exact-revision PR review gate; they do not replace it.
 
+## OG feature extensions
+
+The [remaining-feature design](helmsman-og-feature-design.md) extends completed phases A–G. The first batch adds scoped Triage description reads, accessible severity badges, an independently selected Firefox browser provider and authenticated ownership checks for incoming Slack reviews. Assignment, feedback, broader contextual actions and opt-in same-galleon parallelism remain planned; the current one-run-per-galleon default is unchanged.
+
+```mermaid
+flowchart TD
+    Row[Triage disclosure] --> Load[Scoped task load<br/>Exact source, task and revision]
+    Load --> Text[Bounded plain text<br/>Scoped expansion and focus]
+    Slack[Queued automatic Slack review] --> Capture[Captured PR provider and connection]
+    Capture --> Owner{Authenticated actor vs exact-head author}
+    Owner -->|Own| Block[Persist policy and block]
+    Owner -->|Unknown| Queue[Keep queued and retained pins]
+    Owner -->|Other| Guard[Recheck authority and dispatch claim]
+    Guard --> Admit[Existing durable admission]
+    Browser[Independent browser selection] --> Firefox[Firefox plugin: local WebDriver / BiDi]
+    Firefox --> Fence[Discovered surface and session fence]
+    Fence --> Action[Single browser action]
+    Action -->|Lost acknowledgement| Recovery[Unknown outcome; no automatic replay]
+```
+
+Firefox selection does not change the terminal host or automatically replace the existing browser default. Terminal operations remain explicitly unsupported by Firefox. Operator setup and platform verification are recorded in its [README](../src/plugins/native-firefox/README.md).
+
 ## Plugin task presentation and command authority
 
 Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use public plugin services. Task and Communication aliases select registered page implementations; core Config links to the separate Source settings page. The notification header, Communication panels and Slack provider are independently buildable. Scheduling, agents, execution hosts, native terminal/browser providers, workflows and triggers are independently replaceable; Phases A–G are complete, including retirement, SDK stabilization and final acceptance. See the [implementation ledger](plugin-implementation-progress.md).

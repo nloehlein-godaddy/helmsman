@@ -63,6 +63,16 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </ul>
 <p class="toolbar">Defaults shown; live configuration may differ. <a href="helmsman-process.md">Mermaid source and full notes</a> · Works offline · Print or save as PDF from your browser.</p>
 </header>
+<section aria-labelledby="og-extensions-heading">
+<h2 class="section-heading" id="og-extensions-heading">OG feature extensions</h2>
+<p class="section-intro">The <a href="helmsman-og-feature-design.md">remaining-feature design</a> extends completed phases A–G. The first batch adds scoped Triage descriptions, accessible severity badges, Firefox browser selection and authenticated ownership checks for incoming Slack reviews. Assignment, feedback, broader contextual actions and opt-in same-galleon parallelism remain planned. The current one-run-per-galleon default is unchanged.</p>
+<div class="intake-sources">
+<article class="flow-step"><h3>Triage disclosure</h3><ol><li>Scoped task load with exact source, task and revision.</li><li>Bounded plain text; preserve scoped expansion and keyboard focus.</li></ol></article>
+<article class="flow-step"><h3>Automatic Slack review</h3><ol><li>Capture PR provider and connection; compare authenticated actor with exact-head author.</li><li>Own: persist policy and block. Unknown: keep queued and retained pins.</li><li>Other: recheck authority and dispatch claim before durable admission.</li></ol></article>
+<article class="flow-step"><h3>Firefox browser provider</h3><ol><li>Independent browser selection; local WebDriver and BiDi.</li><li>Fence discovered surface and session before one browser action.</li><li>Lost acknowledgement remains unknown; no automatic replay.</li></ol></article>
+</div>
+<p class="section-intro">Firefox does not change the terminal host or automatically replace the browser default; terminal operations are explicitly unsupported. See the <a href="../src/plugins/native-firefox/README.md">Firefox README</a> for setup and verification.</p>
+</section>
 <section aria-labelledby="task-plugins-heading">
 <h2 class="section-heading" id="task-plugins-heading">Plugin task presentation and command authority</h2>
 <p class="section-intro">Costs, Helm, Todos, Triage, Bugs, Source settings and Communication use public plugin services. Task and Communication aliases select registered page implementations; core Config links to the separate Source settings page. The notification header, Communication panels and Slack provider are independently buildable. Scheduling, agents, execution hosts, native terminal/browser providers, workflows and triggers are independently replaceable; Phases A–G are complete, including retirement, SDK stabilization and final acceptance.</p>

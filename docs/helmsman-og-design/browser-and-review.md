@@ -11,14 +11,16 @@ Create `src/plugins/native-firefox/` as a backend-only package with the same aut
 - `backend.ts`, `provider.ts`, `firefox-bidi.ts`, package-local tests, `tsconfig.json`, `build.mjs`, `package.json`, `plugin-package.json`, and README;
 - imports only `@helmsman/plugin-sdk`, Node built-ins, and package-relative modules. It must not import `server/helmsman`, another plugin, or app source.
 
-The sole setting is `webdriverEndpoint` (string, default `http://127.0.0.1:4444`, bounded like the cmux socket/binary settings). Validate it before any request: `http:` only; host exactly `127.0.0.1`, `localhost`, or `[::1]`; no credentials, path other than `/`, query, or fragment. The WebDriver `POST /session` request asks for Firefox plus `webSocketUrl: true`, bounded timeouts, and no implicit wait. Validate the response before opening BiDi: nonempty session id; capability `browserName === "firefox"`; `ws:` URL with a loopback host and no credentials/query/fragment. Do not follow redirects.
+The sole setting is `bidiEndpoint` (string, empty/unconfigured by default). Validate it before connecting: `ws:` only; host exactly `127.0.0.1`, `localhost`, or `[::1]`; no credentials, query or fragment; bounded URL with the session-specific `/session/<UUID>` path. The operator creates one dedicated Firefox WebDriver/BiDi session and configures its returned WebSocket URL. The provider neither POSTs nor DELETEs WebDriver sessions. Each activation owns only its socket, so the long-lived selected provider and a fresh retained provider access the same logged-in contexts without competing for geckodriver's one WebDriver session. Empty configuration registers the plugin but browser reads report unavailable. The package README must contain exact dedicated-profile setup and shutdown commands.
+
+This corrects the initial design's per-activation `POST /session`: core instantiates retained native providers separately for durable command invocation/reconciliation. Privately owning a session in each activation is incompatible with that architecture. Real Firefox acceptance must prove two simultaneous sockets to the same explicit session before shipping.
 
 The provider's `metadata` is `{ version: 1, label: "Firefox", browser: true }`. It registers a full `NativeTerminalProviderV1`, although it intentionally is not a terminal:
 
 | Contract surface | Firefox behavior |
 |---|---|
 | `listTabs` | Use `browsingContext.getTree({ maxDepth: 0 })`; expose only top-level contexts as opaque `firefox:<encoded-context>` surfaces. `type` is `browser`, `cwd` is `null`, and window/workspace IDs are stable opaque Firefox values. Rebuild the context map on every tree call and reject malformed, duplicate, or over-limit data. |
-| `sessionIdentity` | A synchronous opaque value from canonical endpoint + activation generation + current validated WebDriver/BiDi session generation. It is stable while those values are unchanged. |
+| `sessionIdentity` | A synchronous opaque value from configured session endpoint + activation generation + current connection generation. It is stable while those values are unchanged. |
 | `readScreen`, `send`, `sendKey` | Return `{ ok: false, error: "Firefox does not provide terminal screen or input controls." }`. They never emulate a terminal, start a shell, or throw a successful terminal capability. |
 | `browser.tree` | Return the normalized tree used by core; include URL and virtual selected surface so core can discover the Slack target. |
 | `browser.focus` | Validate a reference discovered by the latest tree and update only the provider's virtual selection. Firefox BiDi has no needed safe background-tab activation primitive here, so this must not foreground a tab, window, or browser. |
@@ -31,11 +33,11 @@ The provider's `metadata` is `{ version: 1, label: "Firefox", browser: true }`. 
 
 ### Session and restart rules
 
-The package owns a small BiDi client with one monotonic generation. It increments the generation and clears context/virtual selection whenever the WebSocket errors/closes, a BiDi request times out or violates protocol, WebDriver session creation fails, the configured endpoint changes on a new activation, or package disposal begins. It does **not** silently reconnect inside an already-started browser operation.
+The package owns a small BiDi client with one monotonic generation. It increments the generation and clears context/virtual selection whenever the WebSocket errors/closes, a BiDi request times out or violates protocol, connection establishment fails, the configured endpoint changes on a new activation, or package disposal begins. It does **not** silently reconnect inside an already-started browser operation.
 
 The effect of those rules is deliberate:
 
-1. A Firefox/bridge restart before a new scan or delivery may create a new session. The new operation calls `tree()` again and discovers fresh opaque references under a new identity.
+1. A Firefox/bridge restart ends the configured external session. The operator must configure a new returned session endpoint for new work. Retained operations keep the original endpoint and cannot silently move to the replacement. A socket reconnect to the same explicit session is allowed only for fresh tree discovery, never inside a multi-step action.
 2. A restart while `createCommunicationBrowserSession` is executing changes `sessionIdentity()`. Its before/after checks reject the operation. The provider invalidates cached context IDs rather than mapping them into the replacement session.
 3. A transport failure after the one pointer action is an ambiguous result. Return an error, let the higher durable communication command mark delivery uncertain, and never replay the pointer action automatically. The same rule applies if the response to `input.performActions` is lost.
 4. `onDispose` closes the BiDi socket and advances the generation. A retained obligation loads the exact retained package/settings through `loadRetainedNativeTerminalProvider`; it never falls back to the newly selected browser provider.
@@ -52,14 +54,14 @@ helmsman plugins select-browser-host helmsman.native-firefox/firefox
 
 It must not become the terminal default and must not replace the current default browser host automatically. `select-browser-host` writes only `native-terminal-selection-v1:browser`; `select-native-terminal` continues to write `:terminal`. Selection changes produce a new revision, and `resolveNativeTerminalSelection`/`assertNativeTerminalSelectionCurrent` fence in-flight scans and admissions.
 
-For the shipped build, add this package to `builtinNativeTerminals` in `server/helmsman/plugins/builtin-terminals.ts`, importing its package-local backend and declaring the same manifest/settings as `plugin-package.json`. That is the only core registration needed. The package must still build independently: a copied source package with a nonreserved ID and correspondingly renamed provider ID can be packed, installed, enabled, and selected without the builtin registry. Update `docs/native-terminal-authoring.md`, the Firefox package README, the shipped-provider list, and plugin/distribution source manifests to describe endpoint setup and the two independent selections.
+For the shipped build, add this package to `builtinNativeTerminals` in `server/helmsman/plugins/builtin-terminals.ts`, importing its package-local backend and declaring the same manifest/settings as `plugin-package.json`. That is the only core registration needed. The package must still build independently: a copied source package with a nonreserved ID and correspondingly renamed provider ID can be packed, installed, enabled, and selected without the builtin registry. Update `docs/native-terminal-authoring.md`, the Firefox package README, the shipped-provider list, and plugin/distribution source manifests to describe external session setup and the two independent selections.
 
 ### Required tests
 
-- Package-local provider tests: endpoint/BiDi URL rejection, malformed session/tree/result rejection, cancellation/timeouts, context invalidation, virtual focus, terminal methods explicitly unsupported, fill/click target checks, exactly one pointer action, and lost pointer acknowledgement without replay.
+- Package-local provider tests: BiDi URL rejection, malformed tree/result rejection, cancellation/timeouts, context invalidation, virtual focus, terminal methods explicitly unsupported, fill/click target checks, exactly one pointer action, and lost pointer acknowledgement without replay.
 - Core tests: install/enable/select Firefox for `browser` while retaining a separate terminal selection; disable/restart/selection revision rejection; retained transport resolves the original package and does not follow replacement selection; stale surfaces/session identity abort browser session operations.
 - Independent-author test: copy/build/package with only released SDK dependencies, rename it to an external ID, install/enable/select it, and exercise registration. This test must prove it has no source-tree/private-server imports.
-- Distribution test: verify the builtin appears in the packaged catalog and can be selected, while the default remains cmux. Add a manually run Firefox smoke test for real WebDriver/BiDi tab discovery, background Slack selection, one click, restart fencing, and an ambiguous click with no resend. Static mocks do not establish Firefox interoperability.
+- Distribution test: verify the builtin appears in the packaged catalog and can be selected, while the default remains cmux. Add a disposable Firefox smoke test including simultaneous selected/retained sockets for real WebDriver/BiDi tab discovery, background Slack selection, one click, restart fencing, and an ambiguous click with no resend. Static mocks do not establish Firefox interoperability.
 
 ## 2. Authenticated ownership guard for automatic Slack reviews
 
@@ -119,4 +121,4 @@ The existing `verifyReviewProposal` must become an ownership-capable read path o
 - Queue durability: restart after `own`, `unknown`, claim-before-decision, and launch-before-status-update; reclaim only a proven no-run claim; pins survive retry and release only on terminal transitions.
 - Existing manual review-request tests: demonstrate that their configured-author eligibility remains unchanged, making the policy split explicit.
 
-_Helmsman · gpt-6 - high_
+_Helmsman · not reported - not reported_

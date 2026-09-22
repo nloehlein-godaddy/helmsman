@@ -5,6 +5,21 @@ import type { FirefoxBidiClient } from "./firefox-bidi";
 const endpoint =
   "ws://127.0.0.1:9222/session/00000000-0000-0000-0000-000000000001";
 
+it("cancels an unfinished connection handshake when the provider is disposed", async () => {
+  let connectionSignal: AbortSignal | undefined;
+  const provider = createFirefoxNativeTerminal({ bidiEndpoint: endpoint,
+    connect: (_url, signal) => new Promise<FirefoxBidiClient>((_resolve, reject) => {
+      connectionSignal = signal;
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }),
+  });
+  const pending = provider.browser!.tree();
+  const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  await provider.dispose();
+  expect(connectionSignal?.aborted).toBe(true);
+  await rejected;
+});
+
 function client(
   respond: (
     method: string,

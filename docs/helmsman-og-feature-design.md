@@ -1,6 +1,6 @@
 # Remaining feature design and delivery
 
-Status: design approved for implementation by the current user request; the first batch is starting. This document distinguishes planned behavior from shipped behavior. Baseline: `edd5a8a`; OG reference: `4ca712a`. See the [feature evaluation](helmsman-og-feature-evaluation-2026-09-21.md) for commit provenance.
+Status: first batch implemented and reviewed. The [delivery ledger](plugin-implementation-progress.md#og-feature-extensions--batch-1) records verification and remaining scope. This document distinguishes planned behavior from shipped behavior. Baseline: `edd5a8a`; OG reference: `4ca712a`. See the [feature evaluation](helmsman-og-feature-evaluation-2026-09-21.md) for commit provenance.
 
 ## Decisions
 
@@ -31,7 +31,7 @@ Later presentation batch:
 
 Detailed contracts, session state machine and acceptance are in [Firefox and authenticated review design](helmsman-og-design/browser-and-review.md).
 
-Firefox implements existing `helmsman/native-terminal@1` with browser support and explicit unsupported terminal operations. Ship `helmsman.native-firefox/firefox`, selectable independently from the terminal host. Keep current defaults. Only credential-free loopback WebDriver/BiDi endpoints are accepted. No redirects, implicit action replay, foreground-tab switching, or attachment to a replacement session during an operation. A lost trusted-click response remains uncertain. Use disposable Firefox profiles for interoperability verification.
+Firefox implements existing `helmsman/native-terminal@1` with browser support and explicit unsupported terminal operations. Ship `helmsman.native-firefox/firefox`, selectable independently from the terminal host. Keep current defaults. The operator owns one dedicated WebDriver/BiDi session and configures its credential-free loopback `bidiEndpoint`. Each selected/retained provider activation owns only a socket to that exact session; it never creates or deletes a browser session. Empty configuration stays unavailable. No redirects, implicit action replay, foreground-tab switching, or attachment to a replacement session during an operation. A lost trusted-click response remains uncertain. Use disposable Firefox profiles for interoperability verification.
 
 Own-PR observation uses `profile.login` and exact-head `detail.authorLogin` from one captured provider/connection, with authority checks after asynchronous reads. Only known-other authors may automatically dispatch; own blocks and unknown remains queued. Persist bounded evidence without credentials. The claim/currentness check must be synchronous with the final queue mutation. Scope this initial policy to the automatic incoming Slack review path that OG changed; do not change manual reviews or created-PR reviewer requests.
 
@@ -57,7 +57,7 @@ Preparation must use fetched object IDs/private refs rather than shared `FETCH_H
 
 | Batch | Deliverable | Dependencies and completion gate |
 |---|---|---|
-| 1 — Independent ports | Triage disclosure, severity badges; Firefox package; automatic own-PR guard | Three isolated worktrees. Focused regressions, independent review, integrated TypeScript/build/unit gate, affected browser and copied-package/distribution checks. Real Firefox evidence or an explicit remaining interoperability limit. |
+| 1 — Independent ports | Triage disclosure, severity badges; Firefox package; automatic own-PR guard | Three isolated worktrees. Focused regressions, independent review, integrated TypeScript/build/unit gate, affected browser and copied-package/distribution checks. Real Firefox evidence, including simultaneous selected/retained sockets, or an explicit remaining interoperability limit. |
 | 2 — Presentation and context | Bugs read extension, loading helper, Config note, log readiness; Underway canonical read service and navigation | Additive SDK compatibility and author build, visual and scope tests. No remote writes. |
 | 3 — Source action | Public remote-action declaration/service, journal, retained resolver, Jira assign-self, Triage action | Contract proof before provider/UI; duplicate/restart/stale identity and lost-PUT reconciliation tests. |
 | 4 — Feedback | Tracker-neutral capability, disabled/configured selection, durable draft and command, GitHub Issues provider | Operation-ledger integration and retained artifact lifecycle; lost-response reconciliation, draft recovery and destination-authority tests. |
@@ -89,6 +89,6 @@ flowchart TD
 
 ## Review corrections incorporated
 
-Independent design exploration identified campaign exclusion and shared `FETCH_HEAD`, schema-v1 retained pins, checkpoint ownership beyond active capacity, and one-decision-per-galleon source scheduling. These are explicit parallelism requirements. Main-thread review separated provider domain data from core authority, removed GitHub specificity from the future feedback contract, resolved assign-self takeover policy, documented the external Jira compare-and-set limitation, and corrected the Triage transport assumption: summary rows lack descriptions, so disclosure uses the existing on-demand task load service.
+Independent design exploration identified campaign exclusion and shared `FETCH_HEAD`, schema-v1 retained pins, checkpoint ownership beyond active capacity, and one-decision-per-galleon source scheduling. These are explicit parallelism requirements. Main-thread review separated provider domain data from core authority, removed GitHub specificity from the future feedback contract, resolved assign-self takeover policy, documented the external Jira compare-and-set limitation, corrected Firefox session ownership (selected and retained provider activations must attach to the same externally owned BiDi session), and corrected the Triage transport assumption: summary rows lack descriptions, so disclosure uses the existing on-demand task load service.
 
 _Helmsman · not reported - not reported_

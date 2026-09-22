@@ -2,6 +2,30 @@
 
 All phases A–G in [the architecture plan](plugin-architecture-plan.md) are complete, with the shipped v1 scope and limitations documented below. Implementation, independent review, corrections and acceptance are complete through `553dff4`. Earlier entries preserve the evidence and status at each checkpoint.
 
+
+## OG feature extensions — batch 1
+
+The [remaining-feature design](helmsman-og-feature-design.md) covers all remaining OG ports and their dependencies. Three independent worktrees implemented Triage description disclosure, Bugs severity badges, the Firefox browser package and authenticated own-PR protection for incoming automatic Slack reviews. This extends completed rewrite phases A–G.
+
+Delivered behavior:
+
+- Triage loads descriptions on demand through existing scoped task reads, validates source/task/revision, renders bounded literal text, and preserves disclosure/focus across refresh and reload. Canceled/off-page reads cannot leave a permanent loading state. Severity badges retain the original accessible value and use theme colors.
+- `helmsman.native-firefox/firefox` implements existing browser primitives without a new SDK capability. It starts unconfigured, accepts only a credential-free loopback session-specific BiDi URL, and never changes default terminal/browser selections. The operator owns the dedicated Firefox/WebDriver session; selected and retained activations own separate sockets to that same session. Actions pin one connection generation and do not replay a lost click acknowledgement. Disposal cancels an unfinished handshake.
+- Incoming automatic Slack reviews compare the authenticated PR provider profile with the exact-head author under captured authority. Own PRs block; unknown ownership stays queued. Durable evidence uses a new owned side table without changing the old Slack migration checksum. Manual outgoing review requests keep configured-author eligibility.
+- The initial-unavailable-log regression proves 404/503 recovery preserves cursor progress and delivers events once without relaunch.
+
+Review corrections included Triage transport assumptions, duplicate disclosure IDs/focus, canceled paging reads, mixed-case galleon scope, unresponsive ownership providers, BiDi error settlement, connection changes between hit testing and clicking, and selected/retained session ownership. Firefox deliberately attaches to an externally owned session; the rejected per-activation WebDriver-session design would have conflicted with retained provider loading.
+
+Validation: 5,018 unit/integration tests across 378 files passed, TypeScript/production/distribution build passed, and nine distribution checks passed. After the final Firefox handshake-disposal correction, its 16 affected tests and TypeScript/distribution build passed again. Installed copied-SDK Firefox enable/select/disable/restart, task-page cutover, and authored Triage/Bugs flows passed; the latter covers keyboard disclosure, reload persistence, scope isolation, literal HTML-like text and the two reviewed visual snapshots. Its initial fixture failure was corrected by using valid nullable provider data; no application workaround was needed.
+
+Real disposable smoke used Firefox 156.0 and geckodriver 0.37.1: two actual provider instances shared one session, discovered its context, used virtual focus, awaited async evaluation, filled an input and produced exactly one click event. Disposing one instance left the other and the externally owned session usable. All owned browser/bridge processes were stopped; no real Slack/Jira/GitHub messages or user workloads ran. This validates Firefox primitives and shared-session interoperability, not a signed-in production Slack send. Smoke artifacts were temporary and were removed.
+
+Remaining batches are planned, not implemented: Bugs descriptions/loading/Config placement and canonical Underway actions; durable assign-self; configured feedback submission; compatible opt-in same-galleon parallelism. Current execution remains galleon-exclusive by default. Read the design for authority, migration and recovery requirements before those implementations.
+
+_Helmsman · not reported - not reported_
+
+## Rewrite acceptance history
+
 The [revised delivery plan](plugin-remaining-delivery-plan.md) governed the final work: focused checks during implementation, a settled aggregate, one independent architectural review and correction-only verification. Phase G stabilizes SDK 1.0.0, removes obsolete feature admission paths, completes selected public PR source use, and proves independent authoring from the release. Required historical recovery remains intact. See the final acceptance entry for verification and the explicit v1 limits.
 
 

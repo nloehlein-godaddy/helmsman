@@ -127,6 +127,7 @@ export function createFirefoxNativeTerminal(
   const configuredBidiEndpoint = options.bidiEndpoint ?? "";
   const connect = options.connect ?? connectFirefoxBidi;
   const startup = options.startup ?? randomUUID();
+  const lifetime = new AbortController();
   let generation = 0;
   let disposed = false;
   let connecting: Promise<FirefoxBidiClient> | null = null;
@@ -174,9 +175,7 @@ export function createFirefoxNativeTerminal(
     const pending = (async () => {
       const endpoint = firefoxBidiEndpoint(configuredBidiEndpoint);
       const timeout = AbortSignal.timeout(TIMEOUT_MS);
-      const requestSignal = signal
-        ? AbortSignal.any([signal, timeout])
-        : timeout;
+      const requestSignal = AbortSignal.any([lifetime.signal, timeout, ...(signal ? [signal] : [])]);
       let client: FirefoxBidiClient | null = null;
       try {
         client = await connect(endpoint, requestSignal);
@@ -542,6 +541,7 @@ export function createFirefoxNativeTerminal(
     async dispose() {
       if (disposed) return;
       disposed = true;
+      lifetime.abort();
       invalidate();
     },
   });

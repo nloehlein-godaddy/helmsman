@@ -23,7 +23,12 @@ test('source-denied independent task views preserve scope, partial groups and me
     await writeFile(join(author, 'backend.ts'), `import type { PluginBackendModule, TaskSourceProviderV1 } from '@helmsman/plugin-sdk';
 const source: TaskSourceProviderV1 = {
   async identify() { return { version: 1, level: 'operator-seeded', authority: null, verifiedAt: new Date().toISOString(), proof: {} }; },
-  async list() { return { items: [], nextCursor: null }; }, async lookup() { return null; }, async load() { return null; },
+  async list() { return { items: [], nextCursor: null }; }, async lookup() { return null; },
+  async load(ref, context) {
+    const repo = context.repo; if (!repo || ref.externalId !== repo.replace('/', '-')) return null;
+    return { version: 1, ref, revision: '1', displayKey: 'TASK-1', title: 'Scoped ' + repo, repo, url: null, state: 'ready', priority: 1,
+      requirements: { description: 'Description for ' + repo + ' <img src=x onerror=alert(1)>', acceptanceCriteria: [], links: [] }, providerData: null };
+  },
   async planClaim() { throw new Error('No effects'); }, async planCompletion() { throw new Error('No effects'); }, async planAbort() { throw new Error('No effects'); }, async validateAdoption() { throw new Error('No adoption'); }, effects: {},
   async listTriage(input, context) {
     const unavailable = input.group === 'unassigned-backlog'; const included = input.priorities.includes(1); const suffix = input.cursor ? '-second' : '';
@@ -32,7 +37,7 @@ const source: TaskSourceProviderV1 = {
   async readBugs(input, context) {
     const known = { value: 25000, quality: 'approximate' as const }; const unknown = { value: null, quality: 'unavailable' as const };
     return { version: 1, repo: input.repo, asOf: input.asOf, open: known, createdLast7d: unknown, completedLast7d: known, pastSla: unknown,
-      rows: [{ ref: { sourceId: context.instance.sourceId, externalId: 'bug-1' }, displayKey: 'BUG-1', title: 'Independent bug ' + input.repo, url: null, priority: 'P1', severity: 'Major', dueAt: '2026-09-19', createdAt: input.asOf }], rowsQuality: 'partial', oldest: null, oldestQuality: 'unavailable', resolutionP75: { days: 4.5, sampleSize: 100, population: known, quality: 'partial', capped: true } };
+      rows: [{ ref: { sourceId: context.instance.sourceId, externalId: 'bug-1' }, displayKey: 'BUG-1', title: 'Independent bug ' + input.repo, url: null, priority: 'P1', severity: 'S2 - Major', dueAt: '2026-09-19', createdAt: input.asOf }], rowsQuality: 'partial', oldest: null, oldestQuality: 'unavailable', resolutionP75: { days: 4.5, sampleSize: 100, population: known, quality: 'partial', capped: true } };
   }
 }; const backend: PluginBackendModule = { activate(context) { context.registerTaskSource('tasks', source); } }; export default backend;
 `);
@@ -80,12 +85,21 @@ const page: PluginPageModule = { mount(container, context) {
     await triage.getByRole('checkbox', { name: 'Priority P1', exact: true }).uncheck(); await expect(triage).not.toContainText('Scoped org/a');
     await page.reload(); await expect(triage.getByRole('checkbox', { name: 'Priority P1', exact: true })).not.toBeChecked();
     await triage.getByRole('checkbox', { name: 'Priority P1', exact: true }).check(); await expect(triage).toContainText('Scoped org/a');
+    const disclosure = triage.getByRole('button', { name: /description/i }).first();
+    await disclosure.focus(); await page.keyboard.press('Enter');
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    await expect(triage).toContainText('Description for org/a <img src=x onerror=alert(1)>');
+    await expect(triage.locator('img')).toHaveCount(0);
+    await page.reload();
+    await expect(triage).toContainText('Description for org/a <img src=x onerror=alert(1)>');
     await expect(triage).toHaveScreenshot('triage-authored-groups.png');
     await page.goto(`${origin}/plugins/example.triage-view/page?repo=org/b`); await expect(triage).toContainText('Scoped org/b');
+    await expect(triage).not.toContainText('Description for org/a');
     await expect(triage.getByRole('link', { name: /Open related (run|voyage)/ })).toHaveCount(0);
     await page.goto(`${origin}/plugins/example.bugs-view/page?repo=org/b`);
     const bugs = page.locator('.plugin-bugs').last(); await expect(bugs).toContainText('Independent bug org/b');
     await expect(bugs).toContainText('≈ 25,000'); await expect(bugs).toContainText('Unavailable'); await expect(bugs).toContainText('100 sampled');
+    await expect(bugs.getByLabel('Severity S2 - Major', { exact: true })).toHaveText('S2');
     await expect(bugs).toHaveScreenshot('bugs-authored-metrics.png', { mask: [bugs.getByText(/^Observed /)] });
     await page.goto(`${origin}/outcomes?repo=org/b`); await expect(output).toContainText('Scoped org/b'); await expect(output).not.toContainText('Scoped org/a');
     const disabled = await request.post(`${origin}/api/task-sources/${selected.id}/enablement`, { data: { instanceRevision: 1, desiredEnabled: false } }); expect(disabled.ok()).toBe(true);
