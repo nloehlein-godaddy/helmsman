@@ -47,6 +47,12 @@ describe('coding workflow policy', () => {
     expect(codingNext(repaired)).toEqual({ kind: 'publish' });
   });
 
+  it('publishes completed approvals with non-blocking summary notes without a fix round', () => {
+    const report = { ...approved, summary: 'Non-blocking: a rare low-impact case can be handled in a follow-up.' };
+    expect(codingNext(step({ implemented: true, round: 1, revision: { baseSha, headSha, branch: 'agent/test' },
+      reviews: [{ reviewer: writerId, report }, { reviewer: alternateId, report }] }))).toEqual({ kind: 'publish' });
+  });
+
   it('stops on incomplete review and unresolved final-round findings', () => {
     const implemented = { implemented: true, round: 3, revision: { baseSha, headSha, branch: 'agent/test' } } as const;
     expect(codingNext(step({ ...implemented, reviews: [{ reviewer: writerId, report: comment }] }))).toMatchObject({ kind: 'stop', reason: expect.stringContaining('Review unavailable') });
@@ -68,11 +74,17 @@ describe('coding workflow prompts', () => {
       expect(value).toContain('NEVER push, open a PR');
       expect(value).toContain('/tmp/pr.json');
     }
+    expect(fix).toContain('Non-blocking observations and optional follow-ups are not required repairs');
     expect(fix).toContain('Repair this defect.');
   });
 
   it('pins independent review and narrows summary correction to the summary', () => {
     const review = renderCodingPrompt(prompt({ stage: 'review', baseSha, headSha, reportPath: '/tmp/review.json', round: 1 }));
+    expect(review).toContain('The goal is not perfection');
+    expect(review).toContain('why a narrower fix is insufficient');
+    expect(review).toContain('Non-blocking observations alone must not cause REQUEST_CHANGES or COMMENT');
+    expect(review).toContain('Pass these scope and non-blocking rules to every review sub-agent');
+    expect(review).toContain('APPROVE must use findings: []');
     expect(review).toContain(`${baseSha}..${headSha}`);
     expect(review).toContain('read-only leaf workers');
     expect(review).toContain('Do not modify code, commit, push, open a PR');

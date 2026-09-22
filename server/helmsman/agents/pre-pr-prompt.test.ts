@@ -38,6 +38,7 @@ describe('pre-PR prompt workflow boundaries', () => {
     }));
     expect(prompt).toContain('Task: Keep purchases idempotent');
     expect(prompt).toContain('Duplicate payment when the request times out.');
+    expect(prompt).toContain('Non-blocking observations and optional follow-ups are not required repairs');
     expect(prompt).toContain('Round: 2');
     expect(prompt).toContain('not dismiss a finding');
     expect(prompt).toContain('independent reviewer reapproval');
@@ -54,6 +55,11 @@ describe('pre-PR prompt workflow boundaries', () => {
     expect(prompt).toContain('APPROVE only if the required review completed');
     expect(prompt).toContain('COMMENT for missing required tools, skill, context');
     expect(prompt).toContain('does not pass the gate');
+    expect(prompt).toContain('The goal is not perfection');
+    expect(prompt).toContain('why a narrower fix is insufficient');
+    expect(prompt).toContain('Non-blocking observations alone must not cause REQUEST_CHANGES or COMMENT');
+    expect(prompt).toContain('Pass these scope and non-blocking rules to every review sub-agent');
+    expect(prompt).toContain('APPROVE must use findings: []');
     expect(prompt).toContain('Try to falsify');
     expect(prompt).toContain('no finding quota');
     expect(prompt).toContain('focused sub-agents');

@@ -31,6 +31,11 @@ describe('review workflow', () => {
     ['none', 'no review delegation support'],
   ] as const)('renders pinned read-only output rules for %s delegation', (mode, expected) => {
     const value = renderReviewPrompt(input(mode));
+    expect(value).toContain('The goal is not perfection');
+    expect(value).toContain('why a narrower fix is insufficient');
+    expect(value).toContain('Non-blocking observations alone must not cause REQUEST_CHANGES or COMMENT');
+    expect(value).toContain('Pass these scope and non-blocking rules to every review sub-agent');
+    expect(value).toContain('Put only blocking material defects in inline findings');
     expect(value).toContain(headSha);
     expect(value).toContain('/tmp/review.md');
     expect(value).toContain('/tmp/comments.json');

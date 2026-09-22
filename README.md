@@ -860,6 +860,8 @@ COMMENT limitation. Low effort remains the default for scoped workers; high effo
 is reserved for serious architecture changes. See the [five-review calibration
 audit](docs/reviewer-calibration-2026-09-17.md) for examples and rationale.
 
+Reviewers target a customer-ready implementation within the ticket scope, not perfection. Scope expansion needs an explicit acceptance criterion or a concrete consequential regression, plus an explanation of why a smaller fix is insufficient. Credible rare edge cases belong in brief **Non-blocking** summary notes; they do not prevent approval or become fix-stage obligations. Blocking a rare case requires concrete evidence of a serious consequence or an explicit material acceptance failure. Only blocking defects belong in findings; a completed staged review with advisory notes uses `APPROVE` and `findings: []`.
+
 Reviews prefer inline findings on the relevant diff lines, with concrete fixes when supported by the code. Exact replacements use GitHub suggestion blocks; broader changes use code examples. The agent writes a concise summary to `.agent-review.md` and a JSON array of inline findings to `.agent-review-comments.json`. Helmsman validates the anchors against the reviewed revision and submits the summary and inline findings together as one COMMENT review. Findings that cannot be safely anchored remain in the summary. If the PR head changed, inline publication fails rather than attaching stale findings to new code. Existing summary-only output remains supported. Reviews do not push code or approve/merge PRs.
 
 Model roles and effort guidance: [official OpenAI model documentation](https://developers.openai.com/codex/models/). Model availability depends on the account/provider.

@@ -32,3 +32,9 @@ Run IDs (newest first):
 Prompt contracts and provider-specific command assembly are covered by adapter tests. Those checks validate instructions and configuration; they do not prove that future model output will follow the rubric. The next natural reviews should be sampled for unsupported blockers, duplicate findings, and summary length. No historical review was reposted or changed.
 
 Prompt structure follows the [official OpenAI prompt-engineering guidance](https://developers.openai.com/api/docs/guides/prompt-engineering): explicit instructions, clear context, and evaluation of behavior. The review-agent leaf constraints were read from the installed `review-agent/SKILL.md`.
+
+## September 22 scope clarification
+
+Reviewers target a customer-ready implementation within the ticket scope, not perfection. Scope expansion needs an explicit acceptance criterion or a concrete consequential regression, plus an explanation of why a smaller fix is insufficient. Credible rare edge cases belong in brief **Non-blocking** summary notes; they do not prevent approval or become fix-stage obligations. Blocking a rare case requires concrete evidence of a serious consequence or an explicit material acceptance failure. Only blocking defects belong in findings; a completed staged review with advisory notes uses `APPROVE` and `findings: []`.
+
+Applied consistently to direct and pre-PR reviews in both the host fallback and shipped workflow packages, including delegated reviewers and subsequent fix/branch prompts. Report schemas, revision checks, required review capabilities, and publication gates are unchanged.
