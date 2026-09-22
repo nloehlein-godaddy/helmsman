@@ -46,6 +46,12 @@ describe('automatic Slack review ownership', () => {
     expect(await f.observe()).toMatchObject({ policy: { decision: 'own', actorLogin: 'author', authorLogin: 'author' },
       blockedReason: 'Automatic Slack review skipped: PR is authored by the authenticated GitHub account' });
   });
+  it('accepts a mixed-case galleon returned by a trigger within the configured scope', async () => {
+    const f = fixture(); const repo = f.input.proposal.repo.toUpperCase();
+    f.input.proposal.repo = repo; f.input.trigger = { ...f.input.trigger, proposalHash: persistenceHash(f.input.proposal) };
+    vi.mocked(f.provider.detail).mockResolvedValue({ ...inspectDetail, target: { ...inspectDetail.target, repo } });
+    expect(await f.observe()).toMatchObject({ blockedReason: null, policy: { decision: 'other' } });
+  });
 
   it.each(['missing-profile', 'empty-login', 'invalid-profile', 'missing-author', 'profile-error', 'invalid-detail'] as const)('keeps %s retryable', async kind => {
     const f = fixture();

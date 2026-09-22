@@ -70,7 +70,7 @@ export async function observeAutomaticReviewOwnership(input: {
     return policy('unknown', null, null, reason, reason);
   }
   const unknown = () => policy('unknown', null, null, 'Authenticated PR ownership is unavailable; waiting for a later check');
-  if (pullRequest.repos && !pullRequest.repos.includes(proposal.repo)) {
+  if (pullRequest.repos && !pullRequest.repos.some(repo => repo.toLowerCase() === proposal.repo.toLowerCase())) {
     const reason = `Galleon ${proposal.repo} is not configured`;
     return policy('unknown', null, null, reason, reason);
   }
