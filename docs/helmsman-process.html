@@ -135,7 +135,7 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 <div class="flow-arrow" aria-hidden="true">↓</div>
 <div class="flow-step flow-common"><h3>Caller draft → reserved request → durable operation</h3><p>Read the authenticated actor and pin the provider artifact and connection. Commit the operation before any external mutation, then authorize publication.</p></div>
 <div class="host-options">
-<article class="flow-step"><h3>Proven actor, head and review receipt</h3><p>Save the terminal result before acknowledging the browser journal. Server evidence remains retained.</p></article>
+<article class="flow-step"><h3>Proven actor, head and review receipt</h3><p>Save the terminal result before acknowledging the browser journal. Receipt lookup matches the original actor, commit and body in complete review history, even if the PR head later changes or the PR closes. It never republishes the review. Server evidence remains retained.</p></article>
 <article class="flow-step"><h3>Uncertain remote result</h3><p>Keep the original request ID and input for a receipt check or exact retry. Core Recovery resolves blocked obligations with the retained provider, including after disable or restart.</p></article>
 </div>
 <p class="limit-note">See <a href="pull-request-authoring.md">PR authoring</a> for public commands and replacement selection.</p>

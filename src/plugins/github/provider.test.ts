@@ -50,10 +50,33 @@ describe('exact review receipt reconciliation', () => {
     expect(ctx.http.request.mock.calls.filter(([request]) => request.path === path)).toHaveLength(20);
   });
 
-  it.each(['actor', 'head'] as const)('rechecks %s after reading the full history', async changed => {
-    let finished = false;
-    const ctx = fixture(() => { finished = true; return { status: 200, body: [receipt(1)] }; }, () => changed === 'actor' && finished ? 'replacement' : 'reviewer', () => changed === 'head' && finished ? 'b'.repeat(40) : target.headSha);
-    expect(await githubPullRequestProvider.reconcileReview!(input, ctx)).toMatchObject({ status: 'unknown' });
+  it.each(['head-moved', 'merged', 'closed', 'actor-changed'] as const)('reconciles the original receipt after %s', async changed => {
+    const ctx = context(async request => {
+      expect(request.method).toBe('GET');
+      if (request.path === path) return { status: 200, body: [receipt(1)] };
+      if (request.path === '/user') return { status: 200, body: { login: changed === 'actor-changed' ? 'replacement' : 'reviewer' } };
+      return { status: 200, body: metadata(changed === 'head-moved' ? { head: { sha: 'b'.repeat(40), ref: 'work' } }
+        : changed === 'merged' ? { state: 'closed', merged: true } : changed === 'closed' ? { state: 'closed' } : {}) };
+    });
+    expect(await githubPullRequestProvider.reconcileReview!(input, ctx)).toMatchObject({ status: 'acknowledged', receipt: { reviewId: 1, headSha: input.headSha, actor: input.actor } });
+    expect(ctx.http.request.mock.calls.map(([request]) => request.path)).toEqual([path]);
+  });
+
+  it.each(['actor', 'head', 'body'] as const)('rejects a historical receipt with a mismatched %s', async changed => {
+    const mismatched = { ...receipt(1), ...(changed === 'actor' ? { user: { login: 'replacement' } }
+      : changed === 'head' ? { commit_id: 'b'.repeat(40) } : { body: 'Unrelated' }) };
+    expect(await githubPullRequestProvider.reconcileReview!(input, fixture(() => ({ status: 200, body: [mismatched] })))).toMatchObject({ status: 'unknown' });
+  });
+
+  it.each(['head-moved', 'merged', 'actor-changed'] as const)('still refuses a new review after %s', async changed => {
+    const ctx = context(async request => {
+      expect(request.method).toBe('GET');
+      if (request.path === '/user') return { status: 200, body: { login: changed === 'actor-changed' ? 'replacement' : 'reviewer' } };
+      return { status: 200, body: metadata(changed === 'head-moved' ? { head: { sha: 'b'.repeat(40), ref: 'work' } }
+        : changed === 'merged' ? { state: 'closed', merged: true } : {}) };
+    });
+    expect(await githubPullRequestProvider.invokeReview!(input, ctx)).toMatchObject({ status: 'unknown' });
+    expect(ctx.http.request.mock.calls.every(([request]) => request.method === 'GET')).toBe(true);
   });
 
   it('stops pagination when cancellation arrives without acknowledging or sending a review', async () => {

@@ -453,10 +453,12 @@ restart. The shipped scheduling plugin rotates among selected available sources 
 ready-work ordering. Alternate [scheduling plugins](docs/scheduling-authoring.md) can choose a different policy; all use the same claim/concurrency gates as manual launch.
 Todos without a description remain editable drafts and are excluded from ready work.
 
-The Todos tab's automatic-start control enables the galleon's scheduler. At most
-one item is admitted per heartbeat while the galleon is idle. This opt-in control
-(`POST /api/repos/:repo/auto-claim {enabled}`) remains in memory and resets on restart;
-it is separate from the persisted selection of automatic sources.
+The Todos tab's automatic-start control enables the galleon's scheduler through
+versioned source-administration commands. At most one item is admitted per heartbeat
+while the galleon is idle. Enablement remains in memory and resets on restart; it is
+separate from the persisted selection of automatic sources. The legacy
+`POST /api/repos/:repo/auto-claim` endpoint also requires a JSON boolean `enabled`;
+malformed JSON or invalid values return 400 without changing enablement.
 
 ### Task-source plugins and recovery
 

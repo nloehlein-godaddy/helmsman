@@ -42,6 +42,14 @@ test('installed server rejects browser cross-origin mutations while preserving J
     }, path);
     expect(sameOrigin.status).toBe(200);
     expect((await (await request.get(`${origin}/api/agents`)).json()).autoClaim).toEqual(['fixture/project']);
+    const malformed = await page.evaluate(async path => {
+      const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' });
+      return { status: response.status, body: await response.json() };
+    }, path);
+    expect(malformed).toEqual({ status: 400, body: { error: 'Invalid JSON request body' } });
+    const invalid = await request.post(`${origin}${path}`, { data: { enabled: 'false' } });
+    expect(invalid.status()).toBe(400);
+    expect((await (await request.get(`${origin}/api/agents`)).json()).autoClaim).toEqual(['fixture/project']);
     const actions = await page.evaluate(async () => {
       const results = [];
       for (const action of ['stop', 'retry']) {
@@ -61,7 +69,7 @@ test('installed server rejects browser cross-origin mutations while preserving J
     const signed = await request.post(`${origin}/api/webhooks/github`, { headers: { Origin: foreignOrigin, 'Content-Type': 'text/plain', 'x-github-event': 'ping', 'x-github-delivery': 'signed-fixture', 'x-hub-signature-256': `sha256=${signature}` }, data: '{}' });
     expect(signed.status()).toBe(202);
     expect(await signed.json()).toMatchObject({ ignored: true, runId: null });
-    await testInfo.attach('mutation-boundary-evidence', { contentType: 'application/json', body: JSON.stringify({ foreignOrigin, origin, opaque, rejectedStatus: 403, sameOrigin, actions, unsignedWebhookStatus: unsigned.status(), signedWebhookStatus: signed.status() }, null, 2) });
+    await testInfo.attach('mutation-boundary-evidence', { contentType: 'application/json', body: JSON.stringify({ foreignOrigin, origin, opaque, rejectedStatus: 403, sameOrigin, malformed, invalidStatus: invalid.status(), actions, unsignedWebhookStatus: unsigned.status(), signedWebhookStatus: signed.status() }, null, 2) });
   } finally {
     await Promise.all([host.close(), new Promise<void>((resolve, reject) => attacker.close(error => error && 'code' in error && error.code !== 'ERR_SERVER_NOT_RUNNING' ? reject(error) : resolve()))]);
   }

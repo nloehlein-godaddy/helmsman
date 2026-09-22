@@ -1442,13 +1442,18 @@ scheduleTriggerPoll('campaign', () => campaignDispatcher.poll().catch(error => p
 
 setInterval(() => { void webhooks.poll().catch(error => process.stderr.write(`Webhook dispatch failed: ${String(error)}\n`)); }, 5000);
 
+class RequestBodyError extends Error {
+  readonly status: 400 | 413;
+  constructor(message: string, status: 400 | 413) { super(message); this.status = status; }
+}
+
 async function readRawBody(req: IncomingMessage, maximum = 2_000_000): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const c of req) {
     const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
     size += chunk.length;
-    if (size > maximum) throw new WebhookError('Request payload too large', 413);
+    if (size > maximum) throw new RequestBodyError('Request payload too large', 413);
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -1460,7 +1465,7 @@ async function readBody(req: IncomingMessage, maximum?: number): Promise<unknown
   try {
     return JSON.parse(raw.toString('utf8'));
   } catch {
-    return null;
+    throw new RequestBodyError('Invalid JSON request body', 400);
   }
 }
 
@@ -1548,8 +1553,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         res.writeHead(202, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(result));
         void webhooks.poll().catch(error => process.stderr.write(`Webhook dispatch failed: ${String(error)}\n`));
       } catch (error) {
-        res.writeHead(error instanceof WebhookError ? error.status : 500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: error instanceof WebhookError ? error.message : 'Webhook intake failed' }));
+        res.writeHead(error instanceof WebhookError || error instanceof RequestBodyError ? error.status : 500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error instanceof WebhookError || error instanceof RequestBodyError ? error.message : 'Webhook intake failed' }));
       }
       return;
     }
@@ -1647,6 +1652,10 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     res.writeHead(404);
     res.end('not found');
   })().catch((err: unknown) => {
+    if (err instanceof RequestBodyError && !res.headersSent) {
+      res.writeHead(err.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: err.message })); return;
+    }
     process.stderr.write(`request error: ${String(err)}\n`);
     if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain' });
     res.end('internal error');

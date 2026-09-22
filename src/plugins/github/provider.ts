@@ -281,7 +281,6 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
   },
   async reconcileReview(input, context) {
     try {
-      const pinned = await prepared(input.repo, input.number, input.headSha, context); if (pinned.actor.toLowerCase() !== input.actor.toLowerCase()) throw new Error('Authenticated actor changed');
       const history = await collection(context, `/repos/${input.repo}/pulls/${input.number}/reviews`, {}, { pages: 20 });
       if (history.quality !== 'complete') return unavailable('Pinned GitHub review history is incomplete.');
       const expectedBody = formatPullRequestReviewBody(input);
@@ -295,8 +294,6 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
         return value.commit_id === input.headSha && value.body === expectedBody && typeof actor === 'string' && actor.toLowerCase() === input.actor.toLowerCase();
       });
       if (found.length !== 1) return unavailable(found.length > 1 ? 'Multiple review receipts match this operation; operator reconciliation is required.' : 'No authenticated review receipt proves delivery; an earlier request may still be in flight.');
-      const current = await prepared(input.repo, input.number, input.headSha, context);
-      if (current.actor.toLowerCase() !== input.actor.toLowerCase()) throw new Error('Authenticated actor changed');
       return { status: 'acknowledged' as const, receipt: { repo: input.repo, prNumber: input.number, headSha: input.headSha, actor: input.actor, reviewId: found[0]!.id } };
     } catch { return unavailable('Pinned GitHub review history is unavailable.'); }
   },

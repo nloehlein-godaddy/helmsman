@@ -31,7 +31,9 @@ flowchart TD
     Publish --> Receipt{Proven remote result?}
     Receipt -->|Yes| Save[Save result then acknowledge browser journal]
     Receipt -->|Uncertain| Retain[Keep original request; inspect or retry]
-    Retain --> Operation
+    Retain --> Reconcile[Read complete history; match original actor, commit and body]
+    Reconcile -->|Exact receipt| Save
+    Reconcile -->|Unknown| Recovery
     Operation --> Recovery[Core Recovery for blocked obligations]
 ```
 
@@ -39,7 +41,7 @@ flowchart TD
 
 The independently buildable [GitHub package](../src/plugins/github/README.md) registers `helmsman/pull-request@1` with `registerPullRequest`. It owns list, detail/diff, review preparation, publication and reconciliation. The host owns scope, credentials, bounded HTTP, operation leases, authorization and retained artifacts. Credentials never enter frontend state or package settings. Read and reconciliation ports cannot POST; invocation rechecks authorization before each POST.
 
-Review publication must use the retained target's exact `/repos/{repo}/pulls/{number}/reviews` path, an empty query, and exactly `{event, body, commit_id}`. Use the SDK's `formatPullRequestReviewBody(operation)` for the body: it preserves the user text and appends the canonical operation marker. The host compares all fields against the retained operation and reconstructs the request before awaiting lease authorization, so a provider cannot change the destination or payload while authorization is pending. Reconciliation requires the same canonical body, authenticated actor and head.
+Review publication must use the retained target's exact `/repos/{repo}/pulls/{number}/reviews` path, an empty query, and exactly `{event, body, commit_id}`. Use the SDK's `formatPullRequestReviewBody(operation)` for the body: it preserves the user text and appends the canonical operation marker. The host compares all fields against the retained operation and reconstructs the request before awaiting lease authorization, so a provider cannot change the destination or payload while authorization is pending. Reconciliation requires a unique historical review with the same canonical body, original authenticated actor and original head. Current PR head/state changes do not invalidate that receipt; current authorization and retained provider/connection fences still apply. A reconciliation read never republishes the review.
 
 Select a provider with `plugins select-pull-request example.github/github`; `default` restores `helmsman.github/github`. Selection is persisted. An unavailable selected provider never silently falls back. New requests use the current selection; existing obligations resolve their exact retained provider. Disabling or replacing a provider does not migrate unresolved operations to another implementation.
 

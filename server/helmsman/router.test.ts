@@ -425,6 +425,13 @@ describe('auto-claim toggle route', () => {
     expect(r?.json).toEqual({ repo: 'o/r', enabled: true });
   });
 
+  it.each([null, {}, [], true, 'true', { enabled: null }, { enabled: 'false' }, { enabled: 1 }])('rejects invalid input without changing automatic starts: %j', async body => {
+    const setAutoClaim = vi.fn();
+    const result = await handleApi('POST', '/api/repos/o%2Fr/auto-claim', new URLSearchParams(), body, { ...launchDeps, setAutoClaim } as unknown as RouterDeps);
+    expect(result?.status).toBe(400);
+    expect(setAutoClaim).not.toHaveBeenCalled();
+  });
+
   it('URL-decodes the repo segment', async () => {
     const setAutoClaim = vi.fn();
     const toggleDeps = { ...launchDeps, setAutoClaim } as unknown as RouterDeps;

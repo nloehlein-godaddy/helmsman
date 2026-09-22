@@ -201,7 +201,9 @@ flowchart TD
     Publish --> Proven{Exact actor, head and review receipt?}
     Proven -->|Yes| Save[Save terminal result then acknowledge browser journal]
     Proven -->|Uncertain| Retain[Keep original ID and input for receipt check or retry]
-    Retain --> Durable
+    Retain --> Reconcile[Read complete history; no resend<br/>Match original actor, commit and body]
+    Reconcile -->|Exact receipt, even after head change or merge| Save
+    Reconcile -->|Unknown| Recovery
     Durable --> Recovery[Core Recovery; retained provider obligation]
     Panel --> Communication[Owned open PR routes to Communication<br/>Explicit Send only]
 ```

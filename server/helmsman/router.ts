@@ -426,7 +426,10 @@ export async function handleApi(
   const autoClaimMatch: RegExpMatchArray | null = path.match(/^\/api\/repos\/(.+)\/auto-claim$/);
   if (autoClaimMatch && method === 'POST') {
     const repo: string = decodeURIComponent(autoClaimMatch[1]);
-    const enabled: boolean = (_body as { enabled?: boolean } | null)?.enabled === true;
+    if (!_body || typeof _body !== 'object' || Array.isArray(_body) || !('enabled' in _body) || typeof _body.enabled !== 'boolean') {
+      return { status: 400, json: { error: 'enabled must be a boolean' } };
+    }
+    const enabled = _body.enabled;
     deps.setAutoClaim(repo, enabled);
     return { status: 200, json: { repo, enabled } };
   }
