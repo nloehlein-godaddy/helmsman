@@ -206,6 +206,28 @@ describe('backend plugin activation and pricing', () => {
     expect(runtime.errors).toEqual(['Plugin helmsman.cleanup cleanup failed.']);
   });
 
+  it('joins overlapping runtime disposal while asynchronous plugin cleanup is in progress', async () => {
+    const root = await temporary();
+    let cleanupStarted!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>(resolve => { cleanupStarted = resolve; });
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    let finished = false;
+    const runtime = await start(root, [builtin('helmsman.cleanup-race', context => {
+      context.onDispose(async () => { cleanupStarted(); await pending; finished = true; });
+      context.registerPricing('price', { estimate: () => estimate() });
+    })]);
+    const first = runtime.dispose();
+    await started;
+    let secondFinished = false;
+    const second = runtime.dispose().then(() => { secondFinished = true; });
+    await Promise.resolve();
+    expect(secondFinished).toBe(false);
+    release();
+    await Promise.all([first, second]);
+    expect(finished).toBe(true);
+  });
+
   it('bounds hanging activation and asynchronous cleanup', async () => {
     const root = await temporary();
     let context!: PluginBackendContext;

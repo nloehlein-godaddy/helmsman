@@ -225,10 +225,10 @@ export async function activateBackendPlugins(options: {
     let publishedPullRequests = false;
     let publishedCommunications = false;
     let phase: 'activating' | 'active' | 'disposed' = 'activating';
+    let cleanupPromise: Promise<void> | undefined;
     const activationLive = () => { if (phase === 'disposed') throw new CapabilityResolutionError('inactive', 'Plugin activation was disposed.'); };
     const live = () => { if (phase === 'disposed' || draining.has(id) || !canServeOrdinary()) throw new CapabilityResolutionError('inactive', 'Plugin has been disposed or is draining.'); };
-    const cleanup = async () => {
-      if (phase === 'disposed') return;
+    const cleanup = () => cleanupPromise ??= (async () => {
       if (phase === 'active') activeIds.delete(id);
       phase = 'disposed'; abort.abort();
       if (publishedSources) taskSources.removePlugin(id);
@@ -250,7 +250,7 @@ export async function activateBackendPlugins(options: {
       data?.close();
       await remove().catch(() => { errors.push(`Plugin ${id} runtime cleanup failed.`); });
       if (options.coordinator && artifactHash && options.coordinator.state(id)?.artifactHash === artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'inactive', null);
-    };
+    })();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       if (ids.has(id)) throw new Error('Duplicate backend plugin identity.');
@@ -443,6 +443,7 @@ export async function activateBackendPlugins(options: {
       });
     }
   });
+  let disposal: Promise<void> | undefined;
   return {
     errors,
     taskSources,
@@ -486,11 +487,12 @@ export async function activateBackendPlugins(options: {
         throw new CapabilityResolutionError('invalid-result', `Pricing provider ${providerId} failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     },
-    async dispose() {
-      if (disposed) return;
-      disposed = true; providers.clear(); activeIds.clear();
-      unsubscribe?.();
-      for (const cleanup of owners.reverse()) await cleanup();
+    dispose() {
+      return disposal ??= (async () => {
+        disposed = true; providers.clear(); activeIds.clear();
+        unsubscribe?.();
+        for (const cleanup of owners.reverse()) await cleanup();
+      })();
     },
   };
 }

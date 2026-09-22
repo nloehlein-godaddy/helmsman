@@ -54,15 +54,17 @@ export async function loadRetainedNativeTerminalProvider(input: {
   const record = parseNativeTerminalRetainedProviderV1(input.record);
   input.signal?.throwIfAborted(); const closure = await verifyClosure(input, record); input.signal?.throwIfAborted();
   let remove: (() => Promise<void>) | undefined; let pkg: PluginPackage; let imported: unknown;
-  const cleanups: Array<() => void | Promise<void>> = []; const controller = new AbortController(); let disposed = false;
+  const cleanups: Array<() => void | Promise<void>> = []; const controller = new AbortController(); let disposed = false; let disposal: Promise<void> | undefined;
   const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
-  async function dispose(): Promise<void> {
-    if (disposed) return; disposed = true; controller.abort();
-    for (const cleanup of cleanups.reverse()) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try { await Promise.race([Promise.resolve().then(cleanup), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Native terminal cleanup timed out')), 1000); })]); } catch {} finally { clearTimeout(timer); }
-    }
-    await remove?.();
+  function dispose(): Promise<void> {
+    return disposal ??= (async () => {
+      disposed = true; controller.abort();
+      for (const cleanup of cleanups.reverse()) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try { await Promise.race([Promise.resolve().then(cleanup), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Native terminal cleanup timed out')), 1000); })]); } catch {} finally { clearTimeout(timer); }
+      }
+      await remove?.();
+    })();
   }
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

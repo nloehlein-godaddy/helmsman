@@ -1,6 +1,6 @@
 // @vitest-environment node
 import Database from 'better-sqlite3';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, watch, type FSWatcher } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,12 +16,13 @@ import { createPluginCoordinator, installPlugin, loadPluginSnapshot, readPluginS
 
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 const id = 'example.coordinated';
-function archive(version = '1.0.0', pluginId = id) {
+function archive(version = '1.0.0', pluginId = id, padding = 0) {
   return Buffer.from(JSON.stringify({ format: 'helmsman-plugin', version: 1,
     package: { packageVersion: 1, manifest: { manifestVersion: 1, id: pluginId, version, sdkVersion: 1, pages: [] },
       node: { minMajor: nodeMajor, maxMajorExclusive: nodeMajor + 1 }, entries: {},
       backend: { entry: 'pricing.js', provides: [{ id: 'helmsman/pricing', version: 1, localId: 'fixed' }], settings: {}, storageVersion: 1 } },
-    files: [{ path: 'pricing.js', base64: Buffer.from('export default { activate(ctx) { ctx.registerPricing("fixed", { estimate() { return null; } }); ctx.onDispose(() => { globalThis.__phaseCDisposed = (globalThis.__phaseCDisposed ?? 0) + 1; }); } };').toString('base64') }],
+    files: [{ path: 'pricing.js', base64: Buffer.from('export default { activate(ctx) { ctx.registerPricing("fixed", { estimate() { return null; } }); ctx.onDispose(() => { globalThis.__phaseCDisposed = (globalThis.__phaseCDisposed ?? 0) + 1; }); } };').toString('base64') },
+      ...(padding ? [{ path: 'padding.txt', base64: Buffer.alloc(padding, 42).toString('base64') }] : [])],
   }));
 }
 const usage: UsageSnapshot = { version: 1, currency: 'USD', repo: null, window: { from: '2026-09-01T00:00:00.000Z', to: '2026-09-02T00:00:00.000Z' }, runs: [], records: [], reported: { observedCostUsd: null, knownCostUsd: null, runsWithKnownCost: 0, runsWithoutUsage: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, totalTokens: null } };
@@ -97,6 +98,39 @@ describe('coordinated plugin package lifecycle', () => {
       await coordinator.collect(installed.hash);
       await expect(readFile(join(plugins, 'artifacts', `${installed.hash}.json`))).rejects.toMatchObject({ code: 'ENOENT' });
     } finally { data.close(); }
+  });
+
+  it('rejects a replacement when another coordinator enables the current package during publication', async () => {
+    const installed = await installPlugin(plugins, archive(), coordinator);
+    const otherPersistence = openPersistence(join(root, 'state.sqlite'));
+    const otherExecutions = openExecutionStore(otherPersistence);
+    const otherLifecycle = openPluginLifecycle(otherPersistence, otherExecutions);
+    const other = await createPluginCoordinator({ root: plugins, persistence: otherPersistence, executions: otherExecutions, lifecycle: otherLifecycle });
+    let watcher: FSWatcher | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const enabled = new Promise<Promise<void>>((resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('Replacement artifact staging was not observed')), 5_000);
+        watcher = watch(join(plugins, 'artifacts'), (_event, file) => {
+          if (!String(file ?? '').startsWith('.stage-')) return;
+          watcher?.close();
+          const change = other.change(id, true);
+          void change.catch(reject);
+          resolve(change);
+        });
+      });
+      const replacement = installPlugin(plugins, archive('2.0.0', id, 4 * 1024 * 1024), coordinator);
+      const rejected = expect(replacement).rejects.toThrow('Disable the plugin before installing another version');
+      await await enabled;
+      await rejected;
+      expect(other.state(id)).toMatchObject({ artifactHash: installed.hash, desiredEnabled: true, revision: 2 });
+      expect(readPluginState(plugins).plugins).toEqual([{ id, hash: installed.hash, enabled: true }]);
+    } finally {
+      clearTimeout(timeout);
+      watcher?.close();
+      other.dispose();
+      otherPersistence.close();
+    }
   });
 
   it('observes another CLI connection disabling a live plugin and stops new calls before cleanup', async () => {

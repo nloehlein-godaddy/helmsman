@@ -26,17 +26,18 @@ export async function materializePluginBackend(root: string, archive: PluginArch
   }
   const current = entry;
   current.references++;
-  let disposed = false;
+  let disposal: Promise<void> | undefined;
   function dispose(): Promise<void> {
-    if (disposed) return Promise.resolve();
-    disposed = true; current.references--;
-    const removal = current.pending.then(async () => {
-      if (current.references) return;
-      current.materialized = false;
-      await rm(current.directory, { recursive: true, force: true });
-    });
-    current.pending = removal.catch(() => {});
-    return removal;
+    return disposal ??= (() => {
+      current.references--;
+      const removal = current.pending.then(async () => {
+        if (current.references) return;
+        current.materialized = false;
+        await rm(current.directory, { recursive: true, force: true });
+      });
+      current.pending = removal.catch(() => {});
+      return removal;
+    })();
   }
   const ready = current.pending.then(async () => {
     if (current.materialized) return;

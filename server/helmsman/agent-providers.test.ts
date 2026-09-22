@@ -87,6 +87,36 @@ it('uses the same restricted context in ordinary and retained activation with ex
   await retained.dispose(); await retained.dispose(); expect(() => retained.provider.buildCommand(input)).toThrow();
   writePluginSettings(f.root, f.archive.package, { commandTemplate: 'changed' }); expect(runtime.agents.list()).toEqual([]);
 });
+it('joins overlapping retained disposal while asynchronous cleanup is in progress', async () => {
+  const globals = globalThis as unknown as Record<string, unknown>;
+  let begin!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>(resolve => { begin = resolve; });
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  globals.helmsmanRetainedCleanupStarted = begin;
+  globals.helmsmanRetainedCleanupPending = pending;
+  globals.helmsmanRetainedCleanupFinished = false;
+  try {
+    const f = await fixture(`export default { activate(context) {
+      context.onDispose(async () => { globalThis.helmsmanRetainedCleanupStarted(); await globalThis.helmsmanRetainedCleanupPending; globalThis.helmsmanRetainedCleanupFinished = true; });
+      context.registerAgent('agent', { metadata: ${JSON.stringify(metadata)}, buildCommand() { return { cmd: 'echo', args: [] }; }, parseLine() { return null; } });
+    } };`);
+    const retained = await f.load();
+    const first = retained.dispose();
+    await started;
+    let secondFinished = false;
+    const second = retained.dispose().then(() => { secondFinished = true; });
+    await Promise.resolve();
+    expect(secondFinished).toBe(false);
+    release();
+    await Promise.all([first, second]);
+    expect(globals.helmsmanRetainedCleanupFinished).toBe(true);
+  } finally {
+    delete globals.helmsmanRetainedCleanupStarted;
+    delete globals.helmsmanRetainedCleanupPending;
+    delete globals.helmsmanRetainedCleanupFinished;
+  }
+});
 it('rejects missing and modified retained artifacts and incomplete dependency closures', async () => {
   const f = await fixture();
   await expect(loadRetainedAgentProvider({ pluginsRoot: f.root, runtimeArtifactsRoot: f.root, record: f.record, artifacts: [{ ...f.artifacts[0]!, requires: ['example.missing'] }] })).rejects.toThrow('dependency is missing');
