@@ -1,45 +1,97 @@
-import { parsePluginPackage } from '../../../src/plugins/package';
-import cmux from '../../../src/plugins/terminal-cmux/backend';
-import wezterm from '../../../src/plugins/terminal-wezterm/backend';
-import type { BuiltinBackendPlugin } from './backend';
+import { parsePluginPackage } from "../../../src/plugins/package";
+import cmux from "../../../src/plugins/terminal-cmux/backend";
+import firefox from "../../../src/plugins/native-firefox/backend";
+import wezterm from "../../../src/plugins/terminal-wezterm/backend";
+import type { BuiltinBackendPlugin } from "./backend";
 
 export const builtinNativeTerminals: readonly BuiltinBackendPlugin[] = [
   {
-    package: parsePluginPackage({
-      packageVersion: 1,
-      manifest: { manifestVersion: 1, id: 'helmsman.terminal-cmux', version: '0.1.0', sdkVersion: 1, pages: [] },
-      node: { minMajor: 22, maxMajorExclusive: 30 },
-      entries: {},
-      backend: {
-        entry: 'backend.js',
-        provides: [{ id: 'helmsman/native-terminal', version: 1, localId: 'cmux' }],
-        nativeTerminals: { cmux: { access: ['native-session'] } },
-        settings: {
-          binary: { type: 'string', default: 'cmux', maxLength: 4096 },
-          socketPath: { type: 'string', default: '', maxLength: 4096 },
+    package: parsePluginPackage(
+      {
+        packageVersion: 1,
+        manifest: {
+          manifestVersion: 1,
+          id: "helmsman.terminal-cmux",
+          version: "0.1.0",
+          sdkVersion: 1,
+          pages: [],
         },
-        storageVersion: 1,
+        node: { minMajor: 22, maxMajorExclusive: 30 },
+        entries: {},
+        backend: {
+          entry: "backend.js",
+          provides: [
+            { id: "helmsman/native-terminal", version: 1, localId: "cmux" },
+          ],
+          nativeTerminals: { cmux: { access: ["native-session"] } },
+          settings: {
+            binary: { type: "string", default: "cmux", maxLength: 4096 },
+            socketPath: { type: "string", default: "", maxLength: 4096 },
+          },
+          storageVersion: 1,
+        },
       },
-    }, { allowBuiltin: true }),
+      { allowBuiltin: true },
+    ),
     module: cmux,
   },
   {
-    package: parsePluginPackage({
-      packageVersion: 1,
-      manifest: { manifestVersion: 1, id: 'helmsman.terminal-wezterm', version: '0.1.0', sdkVersion: 1, pages: [] },
-      node: { minMajor: 22, maxMajorExclusive: 30 },
-      entries: {},
-      backend: {
-        entry: 'backend.js',
-        provides: [{ id: 'helmsman/native-terminal', version: 1, localId: 'wezterm' }],
-        nativeTerminals: { wezterm: { access: ['native-session'] } },
-        settings: {
-          binary: { type: 'string', default: 'wezterm', maxLength: 4096 },
-          socketPath: { type: 'string', default: '', maxLength: 4096 },
+    package: parsePluginPackage(
+      {
+        packageVersion: 1,
+        manifest: {
+          manifestVersion: 1,
+          id: "helmsman.native-firefox",
+          version: "0.1.0",
+          sdkVersion: 1,
+          pages: [],
         },
-        storageVersion: 1,
+        node: { minMajor: 22, maxMajorExclusive: 30 },
+        entries: {},
+        backend: {
+          entry: "backend.js",
+          provides: [
+            { id: "helmsman/native-terminal", version: 1, localId: "firefox" },
+          ],
+          nativeTerminals: { firefox: { access: ["native-session"] } },
+          settings: {
+            bidiEndpoint: { type: "string", default: "", maxLength: 4096 },
+          },
+          storageVersion: 1,
+        },
       },
-    }, { allowBuiltin: true }),
+      { allowBuiltin: true },
+    ),
+    module: firefox,
+  },
+  {
+    package: parsePluginPackage(
+      {
+        packageVersion: 1,
+        manifest: {
+          manifestVersion: 1,
+          id: "helmsman.terminal-wezterm",
+          version: "0.1.0",
+          sdkVersion: 1,
+          pages: [],
+        },
+        node: { minMajor: 22, maxMajorExclusive: 30 },
+        entries: {},
+        backend: {
+          entry: "backend.js",
+          provides: [
+            { id: "helmsman/native-terminal", version: 1, localId: "wezterm" },
+          ],
+          nativeTerminals: { wezterm: { access: ["native-session"] } },
+          settings: {
+            binary: { type: "string", default: "wezterm", maxLength: 4096 },
+            socketPath: { type: "string", default: "", maxLength: 4096 },
+          },
+          storageVersion: 1,
+        },
+      },
+      { allowBuiltin: true },
+    ),
     module: wezterm,
   },
 ];

@@ -89,7 +89,7 @@ distributed system."
 
 ### The actual loop
 
-**State store = Jira, not a new database.** Ticket status *is* the state
+**State store = Jira, not a new database.** Ticket status _is_ the state
 machine — `Backlog → In Progress → In Review → Done` — and it's already the
 view your human reviewers use. Don't shadow it with a parallel SQLite/Postgres
 tracker; that's a second source of truth to keep in sync for no benefit.
@@ -111,7 +111,7 @@ heartbeat wakes (cron / Claude Code /schedule, not a standing daemon) →
 parallel just means merge conflicts and wasted work. Parallelize across
 repos if you need throughput; serialize within one.
 
-**The human gate is real, not cosmetic.** PR opened + ticket → "In Review" *is*
+**The human gate is real, not cosmetic.** PR opened + ticket → "In Review" _is_
 the gate — the agent never merges to main. Same read/write split this
 dashboard's "Working on" panel calls out: investigation (explore, read, run
 tests) is unrestricted; anything that writes — branch push, PR open — is the
@@ -142,6 +142,7 @@ a bounded per-ticket agent session is the whole architecture.
 
    Keep `.env` local. It is required by the server, even if you leave credentials blank
    to explore the degraded/demo dashboard. Run subsequent npm commands from this directory.
+
 3. Create a parent directory for the repositories Helmsman will work in, and clone each
    repository into a directory matching its **repository name**, without the owner:
 
@@ -157,6 +158,7 @@ a bounded per-ticket agent session is the whole architecture.
    repository. Repositories with the same name under different owners cannot share
    this directory layout. Install each target project's dependencies as its own README
    requires, and verify its build/test commands before launching a voyage.
+
 4. Configure GitHub in `.env`. Create a [personal access token](https://github.com/settings/tokens)
    that can access the selected repositories, including organization approval or SSO
    authorization where required. Dashboard reads need repository, PR, and CI-status
@@ -174,6 +176,7 @@ a bounded per-ticket agent session is the whole architecture.
    `GITHUB_PR_AUTHOR` is a login, not an email; it scopes authored PRs and requested
    reviews. Both it and the token are required to enable the GitHub integration.
    The server currently targets `api.github.com`.
+
 5. For Jira-backed work, set `JIRA_BASE_URL` to your Jira Cloud site, `JIRA_EMAIL` to
    the authenticating account, and `JIRA_API_TOKEN` to that account's
    [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens).
@@ -192,6 +195,7 @@ a bounded per-ticket agent session is the whole architecture.
    Replace the organization-specific examples in `.env.example` with your values.
    Jira is optional for PR reviews and free-form voyages. Leave its credentials blank
    if you do not use it; Jira panels will identify their data as degraded.
+
 6. Leave both review watchers disabled for the initial check. Run `npm run dev` and open
    the printed Vite URL (normally `http://localhost:5173`). The API listens on
    `127.0.0.1:8787` by default. Open **Config**, select a repository, and verify the
@@ -371,17 +375,17 @@ Each tab has a page URL: `/helm`, `/triage`, `/todos`, `/terminal`, `/bugs`, `/p
 `/runs`. `/` opens Helm, and `/pr` is an alias for `/prs`. Links can include a pane
 and the context needed to open a PR, inspect a voyage, or prepare a new voyage.
 
-| Destination | Example URL |
-| --- | --- |
-| Repository's open PRs on Helm | `/helm?repo=gdcorp-partners/airo-app-builder&pane=repoprs` |
-| Requested reviews | `/prs?pane=review-requests` |
-| PR details and diff | `/prs?repo=gdcorp-partners/airo-app-builder&pr=10280&pane=diff` |
-| Prepare a crew PR review | `/runs?repo=gdcorp-partners/airo-app-builder&pr=10280&mode=review&pane=newrun` |
-| Prepare a PR relaunch | `/runs?repo=gdcorp-partners/airo-app-builder&pr=10280&mode=rerun&pane=newrun` |
-| Existing voyage's log | `/runs?run=99723f3e-ff89-433a-8621-f30a48b96fd4` |
-| Prepare a ticket voyage | `/helm?repo=gdcorp-partners/airo-app-builder&ticket=AIRO-123&pane=newrun` |
-| Local branches and worktrees | `/local-git?repo=gdcorp-partners/airo-app-builder` |
-| Selected terminal | `/terminal?surface=surface:15&pane=screen` |
+| Destination                   | Example URL                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------ |
+| Repository's open PRs on Helm | `/helm?repo=gdcorp-partners/airo-app-builder&pane=repoprs`                     |
+| Requested reviews             | `/prs?pane=review-requests`                                                    |
+| PR details and diff           | `/prs?repo=gdcorp-partners/airo-app-builder&pr=10280&pane=diff`                |
+| Prepare a crew PR review      | `/runs?repo=gdcorp-partners/airo-app-builder&pr=10280&mode=review&pane=newrun` |
+| Prepare a PR relaunch         | `/runs?repo=gdcorp-partners/airo-app-builder&pr=10280&mode=rerun&pane=newrun`  |
+| Existing voyage's log         | `/runs?run=99723f3e-ff89-433a-8621-f30a48b96fd4`                               |
+| Prepare a ticket voyage       | `/helm?repo=gdcorp-partners/airo-app-builder&ticket=AIRO-123&pane=newrun`      |
+| Local branches and worktrees  | `/local-git?repo=gdcorp-partners/airo-app-builder`                             |
+| Selected terminal             | `/terminal?surface=surface:15&pane=screen`                                     |
 
 Voyage links only prefill the form; opening a link never launches an agent or submits
 a review. A PR number requires its `repo=owner/name`. On Helm, `repo` selects a tracked
@@ -533,10 +537,10 @@ settings once. Explicit lists, settings and subsequent resets are preserved. See
 
 Use `helmsman plugins select-native-terminal <plugin/id>` for terminal I/O and
 `helmsman plugins select-browser-host <plugin/id>` for communication browsing.
-The shipped providers are `helmsman.terminal-cmux/cmux` and
-`helmsman.terminal-wezterm/wezterm`; cmux supports browser primitives.
-Selections are independent, so WezTerm terminals can coexist with cmux-backed Slack.
-Configure `binary` and `socketPath` on the owning package. `TERM_BRIDGE`,
+The shipped providers are `helmsman.terminal-cmux/cmux`,
+`helmsman.native-firefox/firefox`, and `helmsman.terminal-wezterm/wezterm`; cmux and Firefox support browser primitives.
+Selections are independent, so WezTerm terminals can coexist with cmux- or Firefox-backed Slack.
+Configure `binary` and `socketPath` on cmux/WezTerm, or the exact credential-free loopback `bidiEndpoint` returned by an operator-created disposable Firefox WebDriver session. `TERM_BRIDGE`,
 `CMUX_SOCKET_PATH`, `WEZTERM_BIN` and `WEZTERM_UNIX_SOCKET` seed initial settings once.
 Existing terminal receipts never resend input after provider changes or disablement.
 See [native terminal authoring](docs/native-terminal-authoring.md).
@@ -602,20 +606,20 @@ CLI restart instruction after changing trigger settings.
 
 ### Jira
 
-| Value | Default | Where it applies / how to set it | Change |
-| --- | --- | --- | --- |
-| `JIRA_ENABLED` | `true` | Initial Jira source enablement during conversion. Manage an existing source independently in Config → Source settings; Todos remains available. | Initial conversion |
-| `JIRA_BASE_URL` | Empty | Jira Cloud site URL, e.g. `https://your-team.atlassian.net`, without an issue/API path. Required with email and token to enable Jira. | Restart |
-| `JIRA_EMAIL` | Empty | Email of the account that owns the API token. Never returned to the UI. | Restart |
-| `JIRA_API_TOKEN` | Empty | Atlassian API token for that account; see setup for read/write permissions. The Jira connection page accepts a revision-checked replacement without returning the token and stores it in SQLite. Empty token updates are rejected. | Live, write-only |
-| `JIRA_PROJECT` | `AIROBUILD` | Default Jira project key. Selecting a mapped repository substitutes its project from `REPO_PROJECT_MAP`. | Live |
-| `JIRA_ASSIGNEE` | `currentUser()` | Assignee for the queue, active-work, and My issues queries. Use a Jira account ID or JQL function such as `currentUser()`. | Live |
-| `JIRA_JQL` | Empty | Full override of the backlog queue query, e.g. `project = PROJECT AND status = Backlog ORDER BY priority`. Also affects auto-claim; a custom query must apply its own project/assignee scope. Other panels retain their own queries. | Live |
-| `BOT_ACCOUNT_ID` | Empty | Jira account ID to assign ticket voyages to. Without it, the initial bot-assignment/claim step is skipped. Free-form and PR tasks do not claim Jira tickets. | Restart |
-| `JIRA_STATUS_IN_PROGRESS` | `In Progress` | Destination status when claiming a ticket; must be reachable through an available Jira transition. | Restart |
-| `JIRA_STATUS_IN_REVIEW` | `In Review` | Destination status after successful ticket work reaches its review gate. | Restart |
-| `JIRA_STATUS_BACKLOG` | `Backlog` | Actual Jira status for Triage's unassigned Backlog column. | Restart |
-| `JIRA_STATUS_TODO` | `To Do` | Actual Jira status for Triage's unassigned To Do column; use the status name rather than a board-column label. | Restart |
+| Value                     | Default         | Where it applies / how to set it                                                                                                                                                                                                     | Change             |
+| ------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| `JIRA_ENABLED`            | `true`          | Initial Jira source enablement during conversion. Manage an existing source independently in Config → Source settings; Todos remains available.                                                                                      | Initial conversion |
+| `JIRA_BASE_URL`           | Empty           | Jira Cloud site URL, e.g. `https://your-team.atlassian.net`, without an issue/API path. Required with email and token to enable Jira.                                                                                                | Restart            |
+| `JIRA_EMAIL`              | Empty           | Email of the account that owns the API token. Never returned to the UI.                                                                                                                                                              | Restart            |
+| `JIRA_API_TOKEN`          | Empty           | Atlassian API token for that account; see setup for read/write permissions. The Jira connection page accepts a revision-checked replacement without returning the token and stores it in SQLite. Empty token updates are rejected.   | Live, write-only   |
+| `JIRA_PROJECT`            | `AIROBUILD`     | Default Jira project key. Selecting a mapped repository substitutes its project from `REPO_PROJECT_MAP`.                                                                                                                             | Live               |
+| `JIRA_ASSIGNEE`           | `currentUser()` | Assignee for the queue, active-work, and My issues queries. Use a Jira account ID or JQL function such as `currentUser()`.                                                                                                           | Live               |
+| `JIRA_JQL`                | Empty           | Full override of the backlog queue query, e.g. `project = PROJECT AND status = Backlog ORDER BY priority`. Also affects auto-claim; a custom query must apply its own project/assignee scope. Other panels retain their own queries. | Live               |
+| `BOT_ACCOUNT_ID`          | Empty           | Jira account ID to assign ticket voyages to. Without it, the initial bot-assignment/claim step is skipped. Free-form and PR tasks do not claim Jira tickets.                                                                         | Restart            |
+| `JIRA_STATUS_IN_PROGRESS` | `In Progress`   | Destination status when claiming a ticket; must be reachable through an available Jira transition.                                                                                                                                   | Restart            |
+| `JIRA_STATUS_IN_REVIEW`   | `In Review`     | Destination status after successful ticket work reaches its review gate.                                                                                                                                                             | Restart            |
+| `JIRA_STATUS_BACKLOG`     | `Backlog`       | Actual Jira status for Triage's unassigned Backlog column.                                                                                                                                                                           | Restart            |
+| `JIRA_STATUS_TODO`        | `To Do`         | Actual Jira status for Triage's unassigned To Do column; use the status name rather than a board-column label.                                                                                                                       | Restart            |
 
 The default queue JQL still uses literal `Backlog`; use `JIRA_JQL` for a different
 queue status. The active-work query still uses `In Progress`, `In Review`, and `Done`.
@@ -623,23 +627,23 @@ Changing `JIRA_STATUS_*` does not rewrite those dashboard queries.
 
 ### GitHub and repository scope
 
-| Value | Default | Where it applies / how to set it | Change |
-| --- | --- | --- | --- |
-| `GITHUB_TOKEN` | Empty | GitHub token used by the server for API reads and review publication. See setup for repository access and permissions. Never displayed or editable in Config. | Restart |
-| `GITHUB_PR_AUTHOR` | Empty | GitHub login used for authored PRs and review requests. Both this and `GITHUB_TOKEN` must be nonempty for GitHub to be configured. | Live |
-| `GITHUB_REPO` | Empty | Optional `owner/name` repository added to tracked repositories and automatic-review eligibility; also supplies the default repository label. With no repo, the label falls back to `@<author>`. | Live |
-| `REPO_PROJECT_MAP` | Empty | Comma-separated `owner/name=PROJECT` pairs. Populates the repo selector, maps dashboard/auto-claim Jira scope, and permits automatic reviews for those repos. | Live |
-| `GITHUB_REVIEW_WATCH_ENABLED` | `false` | Seeds GitHub review trigger enablement once. Subsequently configure the selected `github-review` trigger. Existing pending requests can launch when enabled. | Initial conversion |
+| Value                         | Default | Where it applies / how to set it                                                                                                                                                                | Change             |
+| ----------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `GITHUB_TOKEN`                | Empty   | GitHub token used by the server for API reads and review publication. See setup for repository access and permissions. Never displayed or editable in Config.                                   | Restart            |
+| `GITHUB_PR_AUTHOR`            | Empty   | GitHub login used for authored PRs and review requests. Both this and `GITHUB_TOKEN` must be nonempty for GitHub to be configured.                                                              | Live               |
+| `GITHUB_REPO`                 | Empty   | Optional `owner/name` repository added to tracked repositories and automatic-review eligibility; also supplies the default repository label. With no repo, the label falls back to `@<author>`. | Live               |
+| `REPO_PROJECT_MAP`            | Empty   | Comma-separated `owner/name=PROJECT` pairs. Populates the repo selector, maps dashboard/auto-claim Jira scope, and permits automatic reviews for those repos.                                   | Live               |
+| `GITHUB_REVIEW_WATCH_ENABLED` | `false` | Seeds GitHub review trigger enablement once. Subsequently configure the selected `github-review` trigger. Existing pending requests can launch when enabled.                                    | Initial conversion |
 
 ### Slack browser reader
 
-| Value | Default | Where it applies / how to set it | Change |
-| --- | --- | --- | --- |
-| `SLACK_WATCH_ENABLED` | `false` | Seeds Slack review trigger enablement once. Subsequently configure the selected `slack-review` trigger. The communication source and signed-in browser must also be available. | Initial conversion |
-| `SLACK_CLIENT_ID` | Empty | First identifier after `/client/` in the open Slack URL. This is the browser client/workspace identifier, not an OAuth app client ID. | Live |
-| `SLACK_CHANNEL_ID` | Empty | Channel identifier beginning with `C`, from the Slack channel URL. Must match the channel being watched. | Live |
-| `SLACK_CHANNEL_NAME` | Empty | Channel name without `#`, using lowercase letters, digits, `_`, or `-`; used to scope Slack search. | Live |
-| `SLACK_BROWSER_SURFACE` | Empty | Optional cmux browser reference, e.g. `surface:24` or its UUID. Leave empty to discover the matching signed-in Slack tab. Useful when multiple tabs match. | Live |
+| Value                   | Default | Where it applies / how to set it                                                                                                                                               | Change             |
+| ----------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| `SLACK_WATCH_ENABLED`   | `false` | Seeds Slack review trigger enablement once. Subsequently configure the selected `slack-review` trigger. The communication source and signed-in browser must also be available. | Initial conversion |
+| `SLACK_CLIENT_ID`       | Empty   | First identifier after `/client/` in the open Slack URL. This is the browser client/workspace identifier, not an OAuth app client ID.                                          | Live               |
+| `SLACK_CHANNEL_ID`      | Empty   | Channel identifier beginning with `C`, from the Slack channel URL. Must match the channel being watched.                                                                       | Live               |
+| `SLACK_CHANNEL_NAME`    | Empty   | Channel name without `#`, using lowercase letters, digits, `_`, or `-`; used to scope Slack search.                                                                            | Live               |
+| `SLACK_BROWSER_SURFACE` | Empty   | Optional cmux browser reference, e.g. `surface:24` or its UUID. Leave empty to discover the matching signed-in Slack tab. Useful when multiple tabs match.                     | Live               |
 
 Slack text fields are blank by default and the watcher is off. See
 [Automatic PR reviews](#automatic-pr-reviews) for first-time browser setup and triggers.
@@ -660,9 +664,9 @@ Requests use the signed-in Slack browser, sharing `SLACK_CLIENT_ID` and
 serialized so they do not interfere. Existing message drafts are preserved.
 Sending works independently of whether automatic Slack watching is enabled.
 
-| Value | Default | Purpose |
-| --- | --- | --- |
-| `SLACK_REVIEW_CHANNEL` | `airo-editing` | Destination channel name or ID; live-editable. |
+| Value                  | Default              | Purpose                                                 |
+| ---------------------- | -------------------- | ------------------------------------------------------- |
+| `SLACK_REVIEW_CHANNEL` | `airo-editing`       | Destination channel name or ID; live-editable.          |
 | `SLACK_REVIEW_MENTION` | `airo-editing-squad` | User group handle; selected as an actual Slack mention. |
 
 The server verifies that the PR is open and authored by the configured GitHub user.
@@ -674,20 +678,20 @@ Recovery. See [Communication authoring](docs/communication-authoring.md).
 
 ### Agent execution and server storage
 
-| Value | Default | Where it applies / how to set it | Change |
-| --- | --- | --- | --- |
-| `AGENT_MAX_ATTEMPTS` | `1` | Total attempts for existing-PR voyages, including the initial attempt; `1` means no retry. New coding voyages use one workflow, with review rounds controlled by its captured `maxRounds` setting. | Live |
-| `AGENT_MAX_COST_USD` | Empty (no cap) | Cost limit in USD across attempts, enforced from validated provider cost events. | Live |
-| `PRE_PR_REVIEWER_COUNT` | `2` | Legacy count seeds the explicit ordered agent reviewer list once, preserving an existing explicit list. Subsequently use `plugins select-agent-reviewers ID[,ID...]`; `default` resets to shipped defaults without reimporting the old count. | Bootstrap only |
-| `PRE_PR_MAX_ROUNDS` | `3` | One-time seed for `helmsman.workflow-coding` setting `maxRounds` (1–5). Afterwards configure the package; explicit settings and resets are preserved. | Bootstrap only |
-| `PRE_PR_STAGE_TIMEOUT_MINUTES` | `45` | One-time seed for `helmsman.workflow-coding` setting `stageTimeoutMinutes` (5–180). Afterwards configure the package; explicit settings and resets are preserved. | Bootstrap only |
-| `AGENT_MAX_CONCURRENCY` | `3` | Maximum simultaneous runs across repositories. The separate one-run-per-repository limit still applies. | Restart |
-| `AUTO_CLAIM_INTERVAL_MS` | `60000` | One-time migration seed for the shipped scheduling plugin’s `intervalMs`. Does not enable automatic starts or control PR watchers. | Bootstrap only; then configure plugin settings |
-| `AGENTS_ROOT` | Server working directory | Parent directory of target repo checkouts, e.g. `/absolute/path/to/agent-repos`; not the path to a single checkout. | Restart |
-| `RUNS_DIR` | `<AGENTS_ROOT>/.helmsman-runs` | Directory for detached-run specifications, logs, and exit records. Created on startup; use a writable absolute path. | Restart |
-| `RUN_HOST` | Detached process | One-time execution-host selection seed: `detached`, `cmux`, `wezterm` or `docker`. Unknown names fail; unavailable hosts never fall back. After migration use `plugins select-execution-host`. | Bootstrap only; then plugin selection and restart |
-| `HELMSMAN_DB` | `<server working directory>/.helmsman.sqlite` | SQLite file for runs, config overrides, watcher state, and notifications. Use a writable path and retain it across restarts. A saved Jira token is stored here, so treat this file as sensitive. | Restart |
-| `HELMSMAN_PORT` | `8787` | Local API/static-server port, bound to `127.0.0.1`; the Vite API proxy uses the same value. | Restart server and Vite |
+| Value                          | Default                                       | Where it applies / how to set it                                                                                                                                                                                                              | Change                                            |
+| ------------------------------ | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `AGENT_MAX_ATTEMPTS`           | `1`                                           | Total attempts for existing-PR voyages, including the initial attempt; `1` means no retry. New coding voyages use one workflow, with review rounds controlled by its captured `maxRounds` setting.                                            | Live                                              |
+| `AGENT_MAX_COST_USD`           | Empty (no cap)                                | Cost limit in USD across attempts, enforced from validated provider cost events.                                                                                                                                                              | Live                                              |
+| `PRE_PR_REVIEWER_COUNT`        | `2`                                           | Legacy count seeds the explicit ordered agent reviewer list once, preserving an existing explicit list. Subsequently use `plugins select-agent-reviewers ID[,ID...]`; `default` resets to shipped defaults without reimporting the old count. | Bootstrap only                                    |
+| `PRE_PR_MAX_ROUNDS`            | `3`                                           | One-time seed for `helmsman.workflow-coding` setting `maxRounds` (1–5). Afterwards configure the package; explicit settings and resets are preserved.                                                                                         | Bootstrap only                                    |
+| `PRE_PR_STAGE_TIMEOUT_MINUTES` | `45`                                          | One-time seed for `helmsman.workflow-coding` setting `stageTimeoutMinutes` (5–180). Afterwards configure the package; explicit settings and resets are preserved.                                                                             | Bootstrap only                                    |
+| `AGENT_MAX_CONCURRENCY`        | `3`                                           | Maximum simultaneous runs across repositories. The separate one-run-per-repository limit still applies.                                                                                                                                       | Restart                                           |
+| `AUTO_CLAIM_INTERVAL_MS`       | `60000`                                       | One-time migration seed for the shipped scheduling plugin’s `intervalMs`. Does not enable automatic starts or control PR watchers.                                                                                                            | Bootstrap only; then configure plugin settings    |
+| `AGENTS_ROOT`                  | Server working directory                      | Parent directory of target repo checkouts, e.g. `/absolute/path/to/agent-repos`; not the path to a single checkout.                                                                                                                           | Restart                                           |
+| `RUNS_DIR`                     | `<AGENTS_ROOT>/.helmsman-runs`                | Directory for detached-run specifications, logs, and exit records. Created on startup; use a writable absolute path.                                                                                                                          | Restart                                           |
+| `RUN_HOST`                     | Detached process                              | One-time execution-host selection seed: `detached`, `cmux`, `wezterm` or `docker`. Unknown names fail; unavailable hosts never fall back. After migration use `plugins select-execution-host`.                                                | Bootstrap only; then plugin selection and restart |
+| `HELMSMAN_DB`                  | `<server working directory>/.helmsman.sqlite` | SQLite file for runs, config overrides, watcher state, and notifications. Use a writable path and retain it across restarts. A saved Jira token is stored here, so treat this file as sensitive.                                              | Restart                                           |
+| `HELMSMAN_PORT`                | `8787`                                        | Local API/static-server port, bound to `127.0.0.1`; the Vite API proxy uses the same value.                                                                                                                                                   | Restart server and Vite                           |
 
 ### Browser preferences
 
@@ -832,11 +836,11 @@ Keep one signed-in Slack browser tab open in cmux for the configured channel/cli
 
 Review model selection defaults to these tiers for Codex:
 
-| Complexity | Model | Effort | Signals |
-| --- | --- | --- | --- |
-| Low | `gpt-5.6-terra` | low | Default, including large changes confined to one area or unavailable scope |
-| Medium | `gpt-5.6-sol` | medium | More than 5 files or 300 changed lines, spanning multiple areas |
-| High | `gpt-6-astra` | high | Explicit selection for serious architecture changes; never selected automatically |
+| Complexity | Model           | Effort | Signals                                                                           |
+| ---------- | --------------- | ------ | --------------------------------------------------------------------------------- |
+| Low        | `gpt-5.6-terra` | low    | Default, including large changes confined to one area or unavailable scope        |
+| Medium     | `gpt-5.6-sol`   | medium | More than 5 files or 300 changed lines, spanning multiple areas                   |
+| High       | `gpt-6-astra`   | high   | Explicit selection for serious architecture changes; never selected automatically |
 
 Automatic routing is limited to low and medium. File size, sensitive paths, and unavailable diffs do not trigger high effort. Claude Code uses Sonnet for low/medium and Opus for high; the command adapter keeps its own model behavior. Explicit selections in PR controls override automatic tuning. The assessed revision, model, effort, complexity, and reason are saved with the run; review checkouts are pinned to that revision.
 

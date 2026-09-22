@@ -1,0 +1,13 @@
+{
+  "packageVersion": 1,
+  "manifest": { "manifestVersion": 1, "id": "helmsman.native-firefox", "version": "0.1.0", "sdkVersion": 1, "pages": [] },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": {},
+  "backend": {
+    "entry": "backend.js",
+    "provides": [{ "id": "helmsman/native-terminal", "version": 1, "localId": "firefox" }],
+    "nativeTerminals": { "firefox": { "access": ["native-session"] } },
+    "settings": { "bidiEndpoint": { "type": "string", "default": "", "maxLength": 4096 } },
+    "storageVersion": 1
+  }
+}

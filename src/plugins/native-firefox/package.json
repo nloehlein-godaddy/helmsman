@@ -1,0 +1,1 @@
+{"name":"helmsman-native-firefox","private":true,"type":"module","scripts":{"build":"node build.mjs","test":"vitest run provider.test.ts backend.test.ts firefox-bidi.test.ts"}}
