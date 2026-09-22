@@ -4,13 +4,13 @@ import { once } from 'node:events';
 import type Database from 'better-sqlite3';
 import { storeConnection } from './store-connection';
 import { parsePublicationRequest, type PublicationRequest, type PublicationResponse } from './publication-client';
+import type { GoCaaSAuthMode } from './gocaas';
 
 export interface GatewayCapability { token: string; runId: string; expiresAt: number }
 export interface GatewayScope { repo: string; branch: string; readOnly: boolean }
 export interface ScopedGatewayOptions {
   path?: string | Database.Database;
-  openaiKey: string | (() => string | undefined);
-  anthropicKey?: () => string | undefined;
+  modelUpstream: { baseUrl: string; credential: () => Promise<string | undefined>; authMode?: GoCaaSAuthMode };
   githubKey?: () => string | undefined;
   active(runId: string): boolean;
   scope?: (runId: string) => GatewayScope | null;
@@ -93,12 +93,12 @@ export function createScopedGateway(input: ScopedGatewayOptions) {
       let key: string | undefined;
       let headers: Record<string, string>;
       if (req.method === 'POST' && ['/openai/v1/responses', '/openai/v1/responses/compact'].includes(path)) {
-        key = typeof input.openaiKey === 'function' ? input.openaiKey() : input.openaiKey;
-        url = `https://api.openai.com${path.slice('/openai'.length)}`;
-        headers = { Authorization: `Bearer ${key}`, 'content-type': 'application/json' };
+        key = await input.modelUpstream.credential();
+        url = `${input.modelUpstream.baseUrl}${path.slice('/openai/v1'.length)}`;
+        headers = { Authorization: `${input.modelUpstream.authMode === 'sso-jwt' ? 'sso-jwt' : 'Bearer'} ${key ?? ''}`, 'content-type': 'application/json' };
       } else if (req.method === 'POST' && ['/anthropic/v1/messages', '/anthropic/v1/messages?beta=true'].includes(path)) {
-        key = input.anthropicKey?.(); url = `https://api.anthropic.com/v1/messages${path.endsWith('?beta=true') ? '?beta=true' : ''}`;
-        headers = { 'x-api-key': key ?? '', 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
+        key = await input.modelUpstream.credential(); url = `${input.modelUpstream.baseUrl}/messages${path.endsWith('?beta=true') ? '?beta=true' : ''}`;
+        headers = { ...(input.modelUpstream.authMode === 'sso-jwt' ? { Authorization: `sso-jwt ${key ?? ''}` } : { 'x-api-key': key ?? '' }), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
         const beta = req.headers['anthropic-beta'];
         if (beta !== undefined) {
           if (typeof beta !== 'string' || beta.length > 2048 || !/^[a-z0-9][a-z0-9-]{0,127}(?:,\s*[a-z0-9][a-z0-9-]{0,127})*$/.test(beta)) {
