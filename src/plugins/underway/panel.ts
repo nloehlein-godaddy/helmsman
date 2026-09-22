@@ -8,6 +8,7 @@ function commandKey(input: RunCommandInputV1): string | null {
 }
 const key = (source: Selection): string => JSON.stringify([source.repo, source.sourceId, source.instanceId]);
 const taskKey = (task: TaskReadTaskV1): string => JSON.stringify([task.ref.sourceId, task.ref.externalId, task.revision]);
+const taskFocusKey = (source: TaskReadSourceV1, task: TaskReadTaskV1, control: string): string => JSON.stringify([source.repo, source.sourceId, source.instanceId, task.ref.sourceId, task.ref.externalId, control]);
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => {
   const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value;
 };
@@ -116,8 +117,9 @@ class UnderwayPanel implements PluginPanelInstance {
       }
     }));
   }
-  private presentationLink(label: string, locator: { readonly version: 1; readonly kind: 'run'; readonly repo: string; readonly runId: string } | { readonly version: 1; readonly kind: 'pull-request'; readonly repo: string; readonly number: number }, href: string): HTMLAnchorElement {
+  private presentationLink(label: string, locator: { readonly version: 1; readonly kind: 'run'; readonly repo: string; readonly runId: string } | { readonly version: 1; readonly kind: 'pull-request'; readonly repo: string; readonly number: number }, href: string, focus: string): HTMLAnchorElement {
     const link = element('a', label); link.href = href;
+    link.dataset.underwayFocus = focus;
     link.addEventListener('click', event => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
@@ -126,7 +128,8 @@ class UnderwayPanel implements PluginPanelInstance {
     return link;
   }
   private presentationHref(kind: 'run' | 'pull-request', repo: string, value: string): string {
-    const params = new URLSearchParams({ ...(this.state.repo ? { repo: this.state.repo } : {}), ...(kind === 'run' ? { runRepo: repo, run: value } : { prRepo: repo, pr: value }) });
+    const headerRepo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
+    const params = new URLSearchParams({ ...(headerRepo ? { repo: headerRepo } : {}), ...(kind === 'run' ? { runRepo: repo, run: value } : { prRepo: repo, pr: value }) });
     return `/${kind === 'run' ? 'runs' : 'prs'}?${params}`;
   }
   private more(section: Section): void {
@@ -248,24 +251,25 @@ class UnderwayPanel implements PluginPanelInstance {
       const list = element('ul');
       for (const task of section.tasks) {
         const row = element('li');
-        if (task.url) { const link = element('a', `${task.displayKey}: ${task.title}`); link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; row.append(link); }
+        if (task.url) { const link = element('a', `${task.displayKey}: ${task.title}`); link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.dataset.underwayFocus = taskFocusKey(section.source, task, 'source'); row.append(link); }
         else row.append(element('span', `${task.displayKey}: ${task.title}`));
         row.append(element('small', task.priority === null ? 'Priority unknown' : `Priority ${task.priority}`));
         const context = section.context.get(taskKey(task));
         if (context && this.state.visible && this.state.activity.active) {
           if (context.run) {
             const locator = { version: 1 as const, kind: 'run' as const, repo: context.run.repo, runId: context.run.runId };
-            row.append(this.presentationLink('Open run', locator, this.presentationHref('run', locator.repo, locator.runId)));
+            row.append(this.presentationLink('Open run', locator, this.presentationHref('run', locator.repo, locator.runId), taskFocusKey(section.source, task, 'run')));
           }
           if (context.pullRequest) {
             const locator = { version: 1 as const, kind: 'pull-request' as const, repo: context.pullRequest.repo, number: context.pullRequest.number };
-            row.append(this.presentationLink('Open pull request', locator, this.presentationHref('pull-request', locator.repo, String(locator.number))));
+            row.append(this.presentationLink('Open pull request', locator, this.presentationHref('pull-request', locator.repo, String(locator.number)), taskFocusKey(section.source, task, 'pull-request')));
           }
         }
         list.append(row);
         if (this.state.repo !== null && task.state !== 'ready') row.append(element('small', 'Not ready for a new run.'));
         if (this.state.repo !== null && task.state === 'ready') {
           const launch = element('button', 'Launch'); launch.type = 'button';
+          launch.dataset.underwayFocus = taskFocusKey(section.source, task, 'launch');
           launch.disabled = !this.evidenceReady || !this.state.visible || !this.state.activity.active || this.state.repo !== task.repo
             || Boolean(this.pending) || section.loading || Boolean(section.error) || this.hasCommand(JSON.stringify([task.repo, task.ref.sourceId, task.ref.externalId]));
           launch.addEventListener('click', () => { void this.launch(section, task); }); row.append(launch);
