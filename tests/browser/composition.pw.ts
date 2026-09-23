@@ -73,6 +73,7 @@ test('Helm keeps independent panel scopes and layout through disablement and rel
     return route.fulfill({ json: body });
   });
   await page.goto('/helm?repo=org/a&panel=legacy-0-0-0');
+  await expect(page).toHaveTitle('↻ Helm · Helmsman');
   await expect(page.locator('#boot')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Helm', exact: true })).toBeVisible();
   await expect(page.locator('#helm-body-legacy-0-0-0').getByText('TASK-1: Work for org/a', { exact: true })).toBeVisible();

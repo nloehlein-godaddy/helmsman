@@ -218,7 +218,7 @@ describe('registered plugin page integration', () => {
     await start();
     expect(plugin.mount).toHaveBeenCalledOnce();
     expect(document.querySelector('#page-content')?.textContent).toBe('External summary for org/a');
-    expect(document.title).toBe('External summary · Helmsman');
+    expect(document.title).toBe('↻ External summary · Helmsman');
     expect(document.querySelector('#page-tab-plugin')?.getAttribute('aria-selected')).toBe('true');
     const header = document.querySelector('.helm-head');
     const scope = document.querySelector<HTMLSelectElement>('.repo-select')!;

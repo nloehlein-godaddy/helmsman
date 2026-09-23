@@ -128,7 +128,7 @@ export function createSafeStartServer(options: SafeStartOptions): Server {
       if (url.pathname === '/recovery') {
         const data = escapeHtml(JSON.stringify(recovery(options, pluginsDir), null, 2));
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
-        res.end(head ? undefined : `<!doctype html><html lang="en"><meta charset="utf-8"><title>Helmsman recovery</title><main><h1>Safe start</h1><p>Provider recovery, background work, page plugins, and mutations are disabled. Existing work and artifacts are preserved.</p><p><a href="/runs">Stored runs</a> · <a href="/api/recovery">Recovery JSON</a></p><p>Use the plugin CLI to disable a failing package or install a compatible archive while it is disabled, then restart Helmsman normally.</p><pre>${data}</pre></main></html>`);
+        res.end(head ? undefined : `<!doctype html><html lang="en"><meta charset="utf-8"><title>↻ Helmsman recovery</title><main><h1>Safe start</h1><p>Provider recovery, background work, page plugins, and mutations are disabled. Existing work and artifacts are preserved.</p><p><a href="/runs">Stored runs</a> · <a href="/api/recovery">Recovery JSON</a></p><p>Use the plugin CLI to disable a failing package or install a compatible archive while it is disabled, then restart Helmsman normally.</p><pre>${data}</pre></main></html>`);
         return;
       }
       const repo = url.searchParams.get('repo');
