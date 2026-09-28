@@ -160,7 +160,7 @@ import { openSlackStore } from './slack/store';
 import { openVoyageNotifications } from './voyage-notifications';
 import { createSlackWatcher, type SlackWatcher } from './slack/watcher';
 import { createSlackBrowserReviewSender } from './slack/browser-review';
-import { slackSettings, SLACK_INTERVAL_MS } from './slack/config';
+import { slackIntegrationEnabled, slackSettings, SLACK_INTERVAL_MS } from './slack/config';
 import { openSlackReviewRequester, slackReviewSettings } from './slack/review-request';
 import { observeAutomaticReviewOwnership } from './automatic-review-ownership';
 import type { SlackState } from '../../src/data/slack';
@@ -970,7 +970,7 @@ function drainEffects(): Promise<void> {
     await slackEffects.drainPending();
     await manualReviewEffects.drainPending();
     await pullRequestCommands.drainPending();
-    if (slackSettings(triggerEnvironment()).enabled) {
+    if (slackIntegrationEnabled(triggerEnvironment())) {
       try { await communicationRuntime.refreshConnection(AbortSignal.timeout(30_000)); } catch {}
     }
     await communicationCommands.drainPending();

@@ -8,6 +8,7 @@ test('packaged Slack OAuth connects, survives restart and disconnects without br
   test.setTimeout(120_000);
   const host = await fixture();
   const token = 'fixture-slack-user-token';
+  const rotatedToken = `${token}-rotated`;
   const callsPath = join(host.cwd, 'oauth-calls.json');
   const callbackOrigin = 'https://helmsman.example';
   const headers = { 'x-helmsman-contribution': 'helmsman.communication/settings' };
@@ -23,9 +24,13 @@ globalThis.fetch = async (input, init) => {
   if (['127.0.0.1', 'localhost'].includes(url.hostname)) return original(input, init);
   const calls = JSON.parse(readFileSync(${JSON.stringify(callsPath)}, 'utf8'));
   calls.push(url.origin + url.pathname); writeFileSync(${JSON.stringify(callsPath)}, JSON.stringify(calls));
-  if (url.href === 'https://slack.com/api/oauth.v2.access') return Response.json({ ok: true, team: { id: 'T123' }, authed_user: { id: 'U123', token_type: 'user', access_token: ${JSON.stringify(token)}, scope: 'channels:read,chat:write,search:read' } });
+  if (url.href === 'https://slack.com/api/oauth.v2.access') {
+    const values = new URLSearchParams(init?.body);
+    if (values.get('grant_type') === 'refresh_token') return Response.json({ ok: true, token_type: 'user', access_token: ${JSON.stringify(rotatedToken)}, refresh_token: 'fixture-refresh-rotated', expires_in: 7200, scope: 'channels:read,chat:write,search:read' });
+    return Response.json({ ok: true, team: { id: 'T123' }, authed_user: { id: 'U123', token_type: 'user', access_token: ${JSON.stringify(token)}, refresh_token: 'fixture-refresh-token', expires_in: 7200, scope: 'channels:read,chat:write,search:read' } });
+  }
   if (url.href === 'https://slack.com/api/auth.test') {
-    if (new Headers(init?.headers).get('authorization') !== 'Bearer ' + ${JSON.stringify(token)}) throw new Error('Unexpected token');
+    if (!${JSON.stringify([`Bearer ${token}`, `Bearer ${rotatedToken}`])}.includes(new Headers(init?.headers).get('authorization'))) throw new Error('Unexpected token');
     return Response.json({ ok: true, team_id: 'T123', user_id: 'U123' });
   }
   if (url.href === 'https://mcp-slack.goarena.gdcorp.tools/mcp') {
@@ -74,7 +79,17 @@ globalThis.fetch = async (input, init) => {
     await settings.locator('.communication-connection').scrollIntoViewIfNeeded();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('slack-oauth-mobile.png') });
+    await page.goto('about:blank');
+    await host.stop();
+    const credentialPath = host.env.SLACK_OAUTH_TOKEN_FILE!;
+    const saved = JSON.parse(await readFile(credentialPath, 'utf8'));
+    const grantId = saved.grant.grantId;
+    saved.grant.expiresAt = Date.now() - 1000;
+    await writeFile(credentialPath, JSON.stringify(saved));
     origin = await host.start();
+    await expect.poll(async () => JSON.parse(await readFile(credentialPath, 'utf8')).grant?.accessToken,
+      { message: 'Recovery refreshes expired OAuth with automatic watching disabled and no account UI', timeout: 15_000 }).toBe(rotatedToken);
+    expect(JSON.parse(await readFile(credentialPath, 'utf8')).grant.grantId).toBe(grantId);
     await page.goto(`${origin}/communication?repo=org/a`);
     await expect(settings).toContainText('Slack account connected.');
     await settings.getByRole('button', { name: 'Disconnect Slack', exact: true }).click();

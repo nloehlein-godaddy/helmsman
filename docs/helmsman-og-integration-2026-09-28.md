@@ -55,6 +55,7 @@ workloads were launched.
 - Installed copied-package tests cover PR presentation, shared run presentation,
   Local Git release/restart recovery, direct MCP, optional OAuth, and guarded OI.
 - OAuth browser acceptance proves connection, persisted grant after restart,
+  expired-grant recovery with automatic watching disabled and no account UI,
   explicit disconnect, credential redaction, and no fallback. Desktop/mobile
   screenshots were inspected. Direct-MCP and OI acceptance also pass.
 - Independent implementation and integration reviews corrected tab focus identity,
