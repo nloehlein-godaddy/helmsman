@@ -354,7 +354,7 @@ class ViewerPanel implements PluginPanelInstance {
       this.logIdentity = tabKey(tab); root.append(this.log);
     }
     this.drawRequests(root);
-    for (const control of root.querySelectorAll<HTMLElement>('button')) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey, control.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, control.getAttribute('aria-label') ?? control.textContent]);
+    for (const control of root.querySelectorAll<HTMLElement>('button')) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey, control.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, control.getAttribute('role') === 'tab' ? 'select-tab' : control.getAttribute('aria-label') ?? control.textContent]);
     this.container.replaceChildren(root);
     if (tab) { this.log.scrollTop = tab.follow ? this.log.scrollHeight : tab.scrollTop; if (tab.follow) tab.scrollTop = this.log.scrollTop; }
     if (focused === this.log && this.log.isConnected) this.log.focus({ preventScroll: true });

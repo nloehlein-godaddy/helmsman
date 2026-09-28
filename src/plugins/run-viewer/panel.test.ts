@@ -186,7 +186,9 @@ it.each(['missing', 'newer', 'unsupported'] as const)('does not create another v
 it.each([['APPROVE', 'Approve'], ['REQUEST_CHANGES', 'Request changes'], ['COMMENT', 'Comment only']] as const)('shows saved %s recommendations only on succeeded run tabs', async (outcome, label) => {
   const f = await mount(); await ready(f.container);
   f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), status: 'succeeded', review: { outcome, verdict: 'Saved verdict' } } }));
+  f.container.querySelector<HTMLElement>('[role=tab]')?.focus();
   await f.instance.refresh?.();
+  expect(document.activeElement).toBe(f.container.querySelector('[role=tab]'));
   const status = f.container.querySelector<HTMLElement>('.run-tab-status');
   expect(status?.textContent).toBe(label); expect(status?.dataset.reviewOutcome).toBe(outcome); expect(status?.title).toBe(`Review recommendation: ${label}`);
   f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), status: 'failed', review: { outcome, verdict: 'Saved verdict' } } }));
