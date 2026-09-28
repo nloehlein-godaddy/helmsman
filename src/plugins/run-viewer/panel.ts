@@ -28,6 +28,8 @@ class ViewerPanel implements PluginPanelInstance {
   private evidenceReady = false;
   private busy = false;
   private reading = false;
+  private summariesReading = false;
+  private summariesReadAt = 0;
   private commandBusy = false;
   private error = '';
   private message = '';
@@ -62,7 +64,7 @@ class ViewerPanel implements PluginPanelInstance {
     ++this.generation; this.controller?.abort(); this.controller = null;
     if (this.timer) clearTimeout(this.timer); this.timer = null;
     for (const controller of this.downloads) controller.abort(); this.downloads.clear();
-    this.busy = false; this.reading = false; this.commandBusy = false; this.evidenceReady = false;
+    this.busy = false; this.reading = false; this.summariesReading = false; this.summariesReadAt = 0; this.commandBusy = false; this.evidenceReady = false;
   };
   dispose = () => {
     if (this.disposed) return; this.disposed = true; this.cancel();
@@ -129,13 +131,28 @@ class ViewerPanel implements PluginPanelInstance {
     if (!this.active(generation) || !this.selected()) return;
     this.timer = setTimeout(() => { this.timer = null; void this.load('follow'); }, this.selected()?.hasLater && this.selected()?.follow ? 100 : 2000);
   }
+  private refreshInactiveSummaries(generation: number, signal: AbortSignal) {
+    if (this.summariesReading || Date.now() - this.summariesReadAt < 2000) return;
+    const tabs = this.tabs.filter(tab => tab !== this.selected() && this.inScope(tab.repo));
+    if (!tabs.length) return;
+    this.summariesReading = true; this.summariesReadAt = Date.now();
+    void Promise.all(tabs.map(async tab => {
+      try {
+        const result = await this.context.services.runs!.load({ version: 1, repo: tab.repo, runId: tab.runId }, signal);
+        if (!this.active(generation) || signal.aborted || !this.tabs.includes(tab) || tab === this.selected()) return;
+        const run = result?.status === 'available' ? result.value?.run : null;
+        tab.summary = run?.repo === tab.repo && run?.id === tab.runId ? run : null;
+        this.draw();
+      } catch { if (this.active(generation) && this.tabs.includes(tab) && tab !== this.selected()) { tab.summary = null; this.draw(); } }
+    })).finally(() => { if (this.active(generation)) this.summariesReading = false; });
+  }
   private async load(direction: 'initial' | 'older' | 'follow') {
     if (this.reading) return;
     const tab = this.selected();
     if (!this.active() || !tab) { await this.restorePending(this.generation); this.draw(); return; }
     const generation = this.generation; const controller = this.controller ?? new AbortController(); this.controller = controller;
     if (this.timer) clearTimeout(this.timer); this.timer = null;
-    this.reading = true; this.busy = true; this.draw();
+    this.reading = true; this.busy = true; this.refreshInactiveSummaries(generation, controller.signal); this.draw();
     try {
       const target = await this.resolve(tab, controller.signal);
       if (!this.active(generation) || this.selected() !== tab) return;
@@ -290,9 +307,17 @@ class ViewerPanel implements PluginPanelInstance {
     const visibleTabs = this.tabs.filter(item => this.inScope(item.repo));
     for (const [index, tab] of visibleTabs.entries()) {
       const group = node('span'); group.className = 'run-tab'; group.dataset.runKey = tabKey(tab);
+      const outcome = tab.summary?.status === 'succeeded' ? tab.summary.review?.outcome : null;
+      const recommendation = outcome === 'APPROVE' ? 'Approve' : outcome === 'REQUEST_CHANGES' ? 'Request changes' : outcome === 'COMMENT' ? 'Comment only' : null;
+      const statusLabel = recommendation ?? tab.summary?.status ?? 'Status unavailable';
+      group.dataset.runStatus = tab.summary?.status ?? '';
       const label = `${tab.summary?.displayKey ?? tab.runId} · ${tab.repo} · ${tab.runId}`;
       const button = this.button(label, () => this.activate(tab), !this.context.selectPresentation); button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(this.activeKey === tabKey(tab)));
-      button.setAttribute('aria-label', `${label}${tab.summary ? ` · Attempt ${tab.summary.attempt}` : ''}`);
+      button.setAttribute('aria-label', `${label}${tab.summary ? ` · Attempt ${tab.summary.attempt}` : ''} · ${statusLabel}`);
+      const status = node('span', statusLabel); status.className = 'run-tab-status';
+      status.title = recommendation ? `Review recommendation: ${recommendation}` : statusLabel;
+      if (recommendation && outcome) status.dataset.reviewOutcome = outcome;
+      button.append(status);
       button.tabIndex = this.activeKey === tabKey(tab) || this.activeKey === null && index === 0 ? 0 : -1;
       button.addEventListener('keydown', event => {
         const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? visibleTabs.length - 1 : event.key === 'ArrowRight' ? (index + 1) % visibleTabs.length : event.key === 'ArrowLeft' ? (index + visibleTabs.length - 1) % visibleTabs.length : null;

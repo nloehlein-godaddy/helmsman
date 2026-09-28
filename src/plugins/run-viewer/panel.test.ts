@@ -55,9 +55,9 @@ describe('authored run viewer lifecycle and commands', () => {
     await f.instance.refresh?.();
     await f.instance.update({ ...f.state, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'two' } });
     await vi.waitFor(() => expect(f.container.querySelectorAll('[role="tab"]')).toHaveLength(2));
-    await vi.waitFor(() => expect([...f.container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['TASK-1 · org/a · one', 'TASK-1 · org/a · two']));
+    await vi.waitFor(() => expect([...f.container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['TASK-1 · org/a · onerunning', 'TASK-1 · org/a · tworunning']));
     const tabs = [...f.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-    expect(tabs.map(tab => tab.getAttribute('aria-label'))).toEqual(['TASK-1 · org/a · one · Attempt 1', 'TASK-1 · org/a · two · Attempt 1']);
+    expect(tabs.map(tab => tab.getAttribute('aria-label'))).toEqual(['TASK-1 · org/a · one · Attempt 1 · running', 'TASK-1 · org/a · two · Attempt 1 · running']);
     tabs[0]!.click();
     expect(f.selectPresentation).toHaveBeenLastCalledWith({ version: 1, kind: 'run', repo: 'org/a', runId: 'one' });
     expect(f.state.repo).toBe('org/a');
@@ -181,4 +181,35 @@ it.each(['missing', 'newer', 'unsupported'] as const)('does not create another v
     await vi.waitFor(() => expect(f.container.querySelector(`[data-request-id="${requestId}"]`)).toBeNull()); expect(f.pending()).toEqual(preserved);
   }
   expect(f.commands.submit).not.toHaveBeenCalled(); expect(f.commands.acknowledge).not.toHaveBeenCalled();
+});
+
+it.each([['APPROVE', 'Approve'], ['REQUEST_CHANGES', 'Request changes'], ['COMMENT', 'Comment only']] as const)('shows saved %s recommendations only on succeeded run tabs', async (outcome, label) => {
+  const f = await mount(); await ready(f.container);
+  f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), status: 'succeeded', review: { outcome, verdict: 'Saved verdict' } } }));
+  await f.instance.refresh?.();
+  const status = f.container.querySelector<HTMLElement>('.run-tab-status');
+  expect(status?.textContent).toBe(label); expect(status?.dataset.reviewOutcome).toBe(outcome); expect(status?.title).toBe(`Review recommendation: ${label}`);
+  f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), status: 'failed', review: { outcome, verdict: 'Saved verdict' } } }));
+  await f.instance.refresh?.(); expect(f.container.querySelector('.run-tab-status')?.textContent).toBe('failed'); expect(f.container.querySelector<HTMLElement>('.run-tab-status')?.dataset.reviewOutcome).toBeUndefined();
+});
+it('updates a completed inactive tab without replacing the selected run or reading inactive logs', async () => {
+  const f = await mount(); await ready(f.container);
+  f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId, run: input.runId === 'one' ? { ...summary('one'), status: 'succeeded', review: { outcome: 'COMMENT', verdict: 'Saved verdict' } } : summary(input.runId) }));
+  vi.mocked(f.inspect.log).mockClear();
+  await f.instance.update({ ...f.state, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'two' } });
+  await vi.waitFor(() => expect(f.container.querySelector('.run-tab-status')?.textContent).toBe('Comment only'));
+  expect(f.container.querySelector('[aria-selected=true]')?.textContent).toContain('TWO');
+  expect(vi.mocked(f.inspect.log).mock.calls.every(([input]) => input.target.runId === 'two')).toBe(true);
+});
+
+it('ignores a late inactive summary after the viewer becomes hidden', async () => {
+  const f = await mount(); await ready(f.container);
+  const late = deferred<Awaited<ReturnType<typeof f.runs.load>>>();
+  f.runs.load.mockImplementation(input => input.runId === 'one' ? late.promise : Promise.resolve(available({ version: 1, repo: 'org/a', runId: input.runId, run: summary(input.runId) })));
+  await f.instance.update({ ...f.state, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'two' } });
+  await vi.waitFor(() => expect(f.container.querySelector('[aria-selected=true]')?.textContent).toContain('TWO'));
+  await f.instance.update({ ...f.state, visible: false, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'two' } });
+  late.resolve(available({ version: 1, repo: 'org/a', runId: 'one', run: { ...summary(), status: 'succeeded', review: { outcome: 'APPROVE', verdict: 'Late result' } } }));
+  await Promise.resolve(); await Promise.resolve();
+  expect(f.container.textContent).not.toContain('Approve');
 });

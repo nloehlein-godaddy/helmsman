@@ -129,7 +129,17 @@ class PrPanel implements PluginPanelInstance {
     catch (error) { this.storageError = error instanceof Error ? error.message : 'Draft could not be saved.'; }
     this.draw();
   }
-  private async lookupTarget() { const next = parseLookup(this.lookup); if (!next) { this.error = 'Enter a GitHub pull request URL or owner/name#number.'; this.draw(); return; } await this.select(next); }
+  private async lookupTarget() {
+    const repo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
+    const next = parseLookup(this.lookup, repo);
+    if (!next) {
+      this.error = !repo && /^#?\d+$/.test(this.lookup.trim())
+        ? `Select a ${this.state.pirateMode ? 'galleon' : 'repository'} to look up a PR by number, or enter a full GitHub URL or owner/name#number.`
+        : 'Enter a PR number, GitHub URL or owner/name#number.';
+      this.draw(); return;
+    }
+    await this.select(next);
+  }
   private async inherit() {
     if (!this.context.setScope) return;
     try { this.localTarget = true; this.selected = null; this.lookup = ''; this.detail = null; this.diff = null;
@@ -285,7 +295,7 @@ class PrPanel implements PluginPanelInstance {
     this.container.innerHTML = `<section class="plugin-public-pr" aria-busy="${this.loading}"><style>${styles}</style><div class="pr-review-actions"><button data-refresh>Refresh</button><button data-inherit${!this.context.setScope ? ' disabled' : ''}>Use header scope</button><span>Panel: ${esc(this.state.activity.repo ?? 'All repositories')}</span></div>
       ${this.unsupported ? '<p role="alert">Saved panel state uses an unsupported format. Its original data is kept.</p>' : ''}<p role="alert" data-storage-error>${esc(this.storageError)}</p><button data-save-draft${this.storageError ? '' : ' hidden'}>Save current draft</button>${this.error ? `<p role="alert" class="pr-review-error">${esc(this.error)}</p>` : ''}${this.result ? `<p role="status" class="pr-command-result">${esc(this.result)}</p>` : ''}
       <div class="pr-inbox">${renderList('review-requested', this.lists.requested, this.listErrors.requested, this.state.pirateMode)}${renderList('authored-recent', this.lists.authored, this.listErrors.authored, this.state.pirateMode)}</div>${renderRuns(this.runs, this.moreRuns, this.runsError, this.state.pirateMode)}
-      <section class="pr-lookup-panel panel" data-pr-pane="lookup"><h3>${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3><div class="pr-lookup-form"><label class="interface-field">Pull request URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo, this.state.pirateMode) : `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : this.selected ? 'Pull request unavailable. Refresh to retry.' : 'Select a pull request from the inbox or enter its URL.'}</p>`}</div></section>${this.diff ? renderDiff(this.diff) : ''}<section aria-label="Retained pull request commands">${this.pendingMarkup()}</section><section aria-label="Saved command results">${this.savedResults()}</section></section>`;
+      <section class="pr-lookup-panel panel" data-pr-pane="lookup"><h3>${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3><div class="pr-lookup-form"><label class="interface-field">Pull request number, URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup placeholder="PR number, #number, URL or owner/name#number" value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo, this.state.pirateMode) : `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : this.selected ? 'Pull request unavailable. Refresh to retry.' : 'Select a pull request from the inbox or enter its URL.'}</p>`}</div></section>${this.diff ? renderDiff(this.diff) : ''}<section aria-label="Retained pull request commands">${this.pendingMarkup()}</section><section aria-label="Saved command results">${this.savedResults()}</section></section>`;
     for (const detail of this.container.querySelectorAll<HTMLDetailsElement>('details')) if (opened.has(detail.querySelector('.diff-file-name')?.textContent)) detail.open = true;
     if (!this.active() || this.busy) this.container.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = true; }); this.paintSafety();
     const next = field ? this.container.querySelector<HTMLTextAreaElement>(`[data-draft="${field}"]`) : lookupFocus ? this.container.querySelector<HTMLInputElement>('[data-pr-compat-lookup]') : null;

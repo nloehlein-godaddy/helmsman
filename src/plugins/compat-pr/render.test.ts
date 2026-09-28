@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { PullRequestInspectDetailV1, PullRequestReadPageV1, RunReadSummaryV1 } from '@helmsman/plugin-sdk';
-import { renderDetail, renderList, renderRuns } from './render';
+import { parseLookup, renderDetail, renderList, renderRuns } from './render';
 const detail: PullRequestInspectDetailV1 = { version: 1, target: { repo: 'org/b', number: 42, headSha: 'a'.repeat(40), baseSha: 'b'.repeat(40) }, observedAt: '2026-09-20T12:00:00Z', title: 'Review current work', url: 'https://github.com/org/b/pull/42', status: 'open', draft: false, authorLogin: 'writer', isOwnPr: true, headRefName: 'topic', updatedAt: '2026-09-20T12:00:00Z', comments: 3, checks: { quality: 'complete', passed: 2, failed: 0, pending: 0 }, reviews: { quality: 'complete', approved: 1, changesRequested: 0, commented: 2, requested: 0, viewerReview: 'APPROVED', viewerReviewedAt: '2026-09-19T12:00:00Z', viewerReviewedCommitId: 'c'.repeat(40) } };
 const draft = { body: '', feedback: '', model: '', effort: '' };
 function mount(html: string) { const node = document.createElement('div'); node.innerHTML = html; return node; }
@@ -30,4 +30,11 @@ it('keeps approvals, requested changes, and discussion comments distinct from un
 it.each([true, false])('keeps recent run identity and user text literal in pirate mode %s', pirate => {
   const run: RunReadSummaryV1 = { version: 1, id: 'review-agent', repo: 'org/agent-review', displayKey: 'Review PR tokens voyage', status: 'failed', attempt: 1, startedAt: detail.observedAt, endedAt: null, prNumber: 42, costUsd: null, review: null, sourceSettlement: null };
   const node = mount(renderRuns([run], true, '', pirate)); expect(node.querySelector('button')?.dataset.run).toBe('review-agent'); expect(node.querySelector('button')?.dataset.repo).toBe('org/agent-review'); expect(node.querySelector('button')?.textContent).toContain(run.displayKey); expect(node.textContent).toContain('bounded history sample');
+});
+
+it.each(['0', '#0', '9007199254740993', '-12', '#12x'])('rejects invalid bare PR lookup %s', input => {
+  expect(parseLookup(input, 'org/current')).toBeNull();
+});
+it.each(['org/other#12', 'https://github.com/org/other/pull/12'])('preserves explicit lookup scope %s', input => {
+  expect(parseLookup(input, 'org/current')).toEqual({ repo: 'org/other', number: 12 });
 });

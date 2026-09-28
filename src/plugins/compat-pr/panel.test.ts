@@ -161,3 +161,26 @@ it('does not replace the next field during a blur/change storage notification an
   f.lifetime.abort(); const next = await fixture(); await ready(next);
   expect(next.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Review before moving focus'); expect(next.container.querySelector<HTMLTextAreaElement>('.pr-rerun-feedback')?.value).toBe('Feedback entered while moving focus');
 });
+
+it.each(['10254', '#10254', '  #10254  '])('resolves bare lookup %s against header scope after a panel override', async input => {
+  const f = await fixture(); await ready(f);
+  fill(f.container, '[data-pr-compat-lookup]', input); click(f.container, '[data-load]');
+  await vi.waitFor(() => expect(f.context.navigate).toHaveBeenCalled());
+  expect(f.context.setScope).toHaveBeenCalledWith({ kind: 'galleon', repo: 'org/a' });
+  expect(f.context.saveState).toHaveBeenCalledWith({ version: 1, value: { target: { repo: 'org/a', number: 10254 } } });
+  const url = new URL(vi.mocked(f.context.navigate).mock.calls[0]![0], 'https://host.test');
+  expect(url.searchParams.get('repo')).toBe('org/a'); expect(url.searchParams.get('prRepo')).toBe('org/a');
+});
+it.each(['12', '#12'])('rejects bare lookup %s when header scope is all repositories', async input => {
+  const f = await fixture({ headerRepo: null }); await ready(f);
+  vi.mocked(f.context.services.pullRequestInspect!.detail).mockClear();
+  fill(f.container, '[data-pr-compat-lookup]', input); click(f.container, '[data-load]');
+  expect(f.container.textContent).toContain('Select a repository'); expect(f.container.textContent).toContain('full GitHub URL');
+  expect(f.context.navigate).not.toHaveBeenCalled(); expect(f.context.services.pullRequestInspect!.detail).not.toHaveBeenCalled();
+});
+it('leaves external links independent from PR selection', async () => {
+  const f = await fixture(); await ready(f);
+  const link = f.container.querySelector<HTMLAnchorElement>('.pr-panel a[target="_blank"]')!;
+  const click = new MouseEvent('click', { bubbles: true, cancelable: true }); link.dispatchEvent(click);
+  expect(click.defaultPrevented).toBe(false); expect(f.context.navigate).not.toHaveBeenCalled(); expect(f.context.setScope).not.toHaveBeenCalled();
+});
