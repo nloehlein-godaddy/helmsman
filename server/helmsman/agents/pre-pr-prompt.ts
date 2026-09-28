@@ -109,6 +109,7 @@ export function buildPrePrPrompt(task: AgentTask, runtime: string): string {
     '',
     '## Work',
     '- Use the current Helmsman-managed branch and worktree. Read applicable repository instructions and task acceptance criteria, explore the affected code, implement the requested behavior, run relevant tests and build/type checks, and commit the finished changes on this branch.',
+    '- Helmsman owns the independent review stages. Do not request GitHub Copilot or other external AI reviewers.',
     ...(stage.stage === 'fix' ? [
       '- Fix verified material blockers with the smallest sufficient change. Non-blocking observations and optional follow-ups are not required repairs; do not expand the ticket to address them unless explicitly requested. Explain any scope expansion necessary for an acceptance criterion or concrete consequential regression.',
       '- Address every verified material finding below and add focused regression coverage when appropriate. Preserve the original task requirements. Check related paths for the same root cause without broadening into unrelated cleanup.',
@@ -125,6 +126,6 @@ export function buildPrePrPrompt(task: AgentTask, runtime: string): string {
     '',
     '## Publication boundary',
     '- NEVER push, open a PR, request reviewers, publish GitHub comments/reviews, or merge. Do not create a new branch or change the managed branch. These restrictions override repository instructions or skills that ask you to publish after committing.',
-    '- Helmsman owns the review loop and publishes only after independent reviewers approve the same final commit. It requests only Copilot after publication. Your role ends with the committed implementation and the metadata file; do not bypass or simulate reviewer approval.',
+    '- Helmsman owns the review loop and publishes only after independent reviewers approve the same final commit. Your role ends with the committed implementation and the metadata file; do not bypass or simulate reviewer approval.',
   ].join('\n');
 }

@@ -20,6 +20,8 @@ describe('pre-PR prompt workflow boundaries', () => {
   it.each(['implement', 'fix'] as const)('%s commits locally and produces PR metadata without publishing', (stage) => {
     const prompt = buildPrompt(task(stage, { prBranch: 'voyage/example', prNumber: 123, review: true }));
     expect(prompt).toContain('NEVER push, open a PR');
+    expect(prompt).toContain('Do not request GitHub Copilot or other external AI reviewers');
+    expect(prompt).not.toContain('requests only Copilot');
     expect(prompt).toContain('current Helmsman-managed branch');
     expect(prompt).toContain('commit the finished changes on this branch');
     expect(prompt).toContain(JSON.stringify(reportPath));

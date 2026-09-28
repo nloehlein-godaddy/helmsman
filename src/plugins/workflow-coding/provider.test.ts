@@ -111,3 +111,10 @@ it('renders an interrupted review with bounded verification permissions and unch
   expect(rendered).toContain('retain COMMENT');
   expect(rendered).not.toContain('This is the only file you may write.');
 });
+
+
+it.each(['implement', 'fix'] as const)('keeps %s review within Helmsman without external AI requests', stage => {
+  const rendered = renderCodingPrompt(prompt({ stage, baseSha, reportPath: '/tmp/metadata.json' }));
+  expect(rendered).toContain('Helmsman owns the independent review stages');
+  expect(rendered).toContain('Do not request GitHub Copilot or other external AI reviewers');
+});
