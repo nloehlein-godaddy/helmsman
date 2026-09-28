@@ -365,7 +365,15 @@ so you can act on PRs that aren't from a run. From the panel you can **Approve /
 Request changes / Comment** through durable public PR commands and — when the PR's
 repo is checked out under `AGENTS_ROOT` — **Relaunch with feedback**: the agent checks out the
 existing PR branch, addresses the feedback, and pushes the **same** branch so the PR updates
-(no new PR, no Jira claim). Reads and new review/rerun preparation use the selected
+(no new PR, no Jira claim). The feedback agent inventories all reviews, comments,
+and threads, including paginated results, resolved/outdated threads, and non-blocking
+suggestions. Each finding needs an accurate GitHub disposition: a verified fix with
+its pushed commit and validation, or an evidence-backed reason for leaving it unchanged.
+Existing accurate replies are linked instead of duplicated; a final PR comment accounts
+for every finding. Optional suggestions do not require scope expansion or code changes.
+The agent uses only authorized publication tools and reports any missing responses or
+publication blockers; local reports alone do not establish completion. Reads and new
+review/rerun preparation use the selected
 PR provider, retaining its connection, settings, artifact and exact head. A missing
 or changed selection blocks admission. Publication remains a guarded server-side
 operation; credentials never reach the browser. **There is no Merge button** —
