@@ -255,15 +255,12 @@ export async function getLocalGit(
     const branches = parseBranches(branchOutput, config);
     const worktrees = parseWorktrees(treeOutput);
     for (const [index, tree] of worktrees.entries()) {
-      tree.active = active.has(resolve(tree.path));
       tree.deletionBlockedReason = tree.bare ? 'Bare repositories cannot be removed.'
         : index === 0 || resolve(tree.path) === canonicalPath ? 'The primary or configured checkout cannot be removed.'
         : tree.locked ? 'Worktree is locked.'
         : tree.prunable ? 'Worktree is missing or inaccessible.'
         : active.has(resolve(tree.path)) ? 'Worktree belongs to an active run.'
         : tree.branch && defaults.has(tree.branch) ? 'Worktree contains a protected default branch.' : null;
-      tree.releaseBlockedReason = tree.deletionBlockedReason
-        ?? (!tree.branch ? 'Worktree is already detached.' : null);
     }
     for (const branch of branches) {
       branch.deletionBlockedReason ??= defaults.has(branch.name) ? 'Default branches are protected.'
@@ -403,7 +400,7 @@ export async function mutateLocalGit(
         const tree = state.json.worktrees.find(item => item.path === resolve(action.path)) as Worktree | undefined;
         if (!tree) return fail(404, 'Worktree is not registered with this galleon.');
         const releasing = action.action === 'release-worktree';
-        const blocked = releasing ? tree.releaseBlockedReason : tree.deletionBlockedReason;
+        const blocked = tree.deletionBlockedReason ?? (releasing && (!tree.branch || tree.detached) ? 'Worktree is already detached.' : null);
         if (blocked) return fail(409, blocked);
         if (releasing && tree.branch !== action.expectedBranch) return fail(409, 'Worktree branch changed. Refresh before releasing.');
         if (tree.commit !== action.expectedCommit) return fail(409, 'Worktree changed. Refresh before continuing.');

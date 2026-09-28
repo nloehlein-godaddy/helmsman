@@ -1,3 +1,4 @@
+import type { CommunicationConnectionSnapshotV1 } from './communication-connection';
 import type { ClarificationReadResultV1 } from "./clarification-read";
 import {
   clarificationArray,
@@ -90,6 +91,10 @@ export interface CommunicationSettingsSnapshotV1 {
 }
 
 export interface CommunicationServiceV1 {
+  connectionStatus?(signal?: AbortSignal): Promise<ClarificationReadResultV1<CommunicationConnectionSnapshotV1>>;
+  connect?(input: { readonly expectedRevision: string }, signal?: AbortSignal): Promise<ClarificationReadResultV1<{ readonly version: 1; readonly authorizationUrl: string }>>;
+  disconnect?(input: { readonly expectedRevision: string }, signal?: AbortSignal): Promise<ClarificationReadResultV1<CommunicationConnectionSnapshotV1>>;
+  checkConnection?(input: { readonly expectedRevision: string }, signal?: AbortSignal): Promise<ClarificationReadResultV1<CommunicationConnectionSnapshotV1>>;
   readonly version: 1;
   notifications(
     input: {

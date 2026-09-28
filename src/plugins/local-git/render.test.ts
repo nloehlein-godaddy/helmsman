@@ -182,13 +182,13 @@ describe('renderLocalGit', () => {
 });
 
 it('shows branch release separately from deletion and escapes preserved worktree identity', () => {
-  const tree = { path: '/workspace/topic', branch: 'topic<unsafe>', commit: 'a'.repeat(40), bare: false, detached: false, locked: false, prunable: false, active: false };
+  const tree = { path: '/workspace/topic', branch: 'topic<unsafe>', commit: 'a'.repeat(40), bare: false, detached: false, locked: false, prunable: false };
   const root = render({ worktrees: [tree], confirmation: { action: 'release-worktree', path: tree.path, expectedCommit: tree.commit, expectedBranch: tree.branch } });
-  expect(root.textContent).toContain('No active run');
+  expect(root.textContent).not.toContain('Active run');
   expect(root.querySelector<HTMLButtonElement>('[data-local-release]')?.disabled).toBe(false);
   expect(root.querySelector('[aria-label="Confirm branch release"]')?.textContent).toContain(tree.branch);
   expect(root.querySelector('[aria-label="Confirm branch release"]')?.textContent).toContain('directory and files are preserved');
   expect(root.querySelector('unsafe')).toBeNull();
   expect(root.querySelector('.local-git-force')).toBeNull();
-  expect(render({ worktrees: [{ ...tree, active: true }] }).querySelector<HTMLButtonElement>('[data-local-release]')?.disabled).toBe(true);
+  expect(render({ worktrees: [{ ...tree, deletionBlockedReason: 'Worktree belongs to an active run.' }] }).querySelector<HTMLButtonElement>('[data-local-release]')?.disabled).toBe(true);
 });

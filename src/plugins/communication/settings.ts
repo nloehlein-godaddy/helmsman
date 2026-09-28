@@ -1,4 +1,4 @@
-import type { CommunicationSettingsSnapshotV1, CommunicationSettingsValuesV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState } from '@helmsman/plugin-sdk';
+import type { CommunicationConnectionSnapshotV1, CommunicationSettingsSnapshotV1, CommunicationSettingsValuesV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState } from '@helmsman/plugin-sdk';
 import { esc, message, Storage } from './util.js';
 import { styles } from './styles.js';
 interface Draft { version: 1; revision: string; values: CommunicationSettingsValuesV1; }
@@ -12,6 +12,7 @@ class SettingsPanel implements PluginPanelInstance {
   private readonly storage: Storage;
   private draft: Draft | null = null;
   private snapshot: CommunicationSettingsSnapshotV1 | null = null;
+  private connection: CommunicationConnectionSnapshotV1 | null = null;
   private error = '';
   private storageError = '';
   private unsupported = false;
@@ -38,6 +39,9 @@ class SettingsPanel implements PluginPanelInstance {
     try { const result = await this.context.services.communication!.settings(controller.signal); if (!this.active(generation)) return;
       if (result?.status !== 'available' || !validDraft({ version: 1, revision: result.value?.revision, values: result.value?.values })) throw new Error('Communication settings unavailable. Existing edits are kept.');
       this.snapshot = result.value; if (!this.draft && !this.unsupported) this.draft = { version: 1, revision: result.value.revision, values: { ...result.value.values } }; this.error = '';
+      const connection = await this.context.services.communication?.connectionStatus?.(controller.signal);
+      if (!this.active(generation)) return;
+      this.connection = connection?.status === 'available' ? connection.value : null;
     } catch (error) { if (this.active(generation)) this.error = message(error, 'Communication settings unavailable.'); }
     finally { if (this.active(generation)) this.draw(); }
   };
@@ -50,10 +54,33 @@ class SettingsPanel implements PluginPanelInstance {
   private click = (event: MouseEvent) => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null; if (!button || button.disabled || !this.active()) return; event.stopPropagation();
     if (button.matches('[data-save-settings]')) void this.save();
+    else if (button.matches('[data-connection-action]')) void this.connectionAction(button.dataset.connectionAction);
     else if (button.matches('[data-refresh]')) void this.refresh();
     else if (button.matches('[data-save-draft]')) { this.persist(); this.paintSafety(); }
     else if (button.matches('[data-reload-settings]') && this.snapshot && !this.unsupported) { this.draft = { version: 1, revision: this.snapshot.revision, values: { ...this.snapshot.values } }; this.persist(); this.error = ''; this.draw(); }
   };
+  private async connectionAction(action: string | undefined) {
+    const service = this.context.services.communication;
+    const method = action === 'connect' ? service?.connect : action === 'disconnect' ? service?.disconnect : action === 'check' ? service?.checkConnection : null;
+    if (!method || this.busy || !this.connection?.revision) return;
+    this.busy = true; this.error = ''; this.draw();
+    const generation = this.generation;
+    try {
+      const result = await method({ expectedRevision: this.connection.revision }, this.state.activity.signal);
+      if (!this.active(generation)) return;
+      if (result?.status !== 'available') throw new Error('Connection action unavailable. Refresh connection status before trying again.');
+      if ('authorizationUrl' in result.value) window.location.assign(result.value.authorizationUrl);
+      else this.connection = result.value;
+    } catch (error) { if (this.active(generation)) this.error = message(error, 'Connection action failed.'); }
+    finally { this.busy = false; if (this.active(generation)) this.draw(); }
+  }
+  private connectionHtml() {
+    const connection = this.connection;
+    if (!connection || connection.status === 'unsupported') return '';
+    const callbackOrigin = connection.redirectUri ? new URL(connection.redirectUri).origin : null;
+    const canConnect = callbackOrigin === window.location.origin && connection.status !== 'setup-required';
+    return `<section class="communication-connection"><h3>Slack account</h3><p role="status">${esc(connection.message)}</p>${connection.accountLabel ? `<p>${esc(connection.accountLabel)}</p>` : ''}${callbackOrigin && callbackOrigin !== window.location.origin ? `<p>To connect, open <a href="${esc(`${callbackOrigin}/communication`)}">Helmsman at the registered HTTPS address</a>.</p>` : ''}<div class="communication-tools"><button data-connection-action="connect"${!canConnect || this.busy ? ' disabled' : ''}>Connect Slack</button><button data-connection-action="check"${connection.status === 'setup-required' || this.busy ? ' disabled' : ''}>Check connection</button><button data-connection-action="disconnect"${connection.status === 'setup-required' || this.busy ? ' disabled' : ''}>Disconnect Slack</button></div></section>`;
+  }
   private async save() {
     if (!this.draft || this.unsupported || this.busy || !this.persist()) { this.paintSafety(); return; }
     const input = { expectedRevision: this.draft.revision, values: { ...this.draft.values, watchEnabled: this.snapshot?.values.watchEnabled ?? this.draft.values.watchEnabled } }; this.busy = true; this.error = ''; this.draw();
@@ -63,11 +90,11 @@ class SettingsPanel implements PluginPanelInstance {
     } catch (error) { this.error = message(error, 'Settings result unavailable. Your edits are kept.'); }
     finally { this.busy = false; this.draw(); }
   }
-  private paintSafety() { const disabled = !this.active() || this.busy || this.unsupported; this.container.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-setting]').forEach(input => { input.disabled = input.dataset.setting === 'watchEnabled' || disabled; }); const save = this.container.querySelector<HTMLButtonElement>('[data-save-settings]'); if (save) save.disabled = disabled || !this.draft || Boolean(this.storageError); const error = this.container.querySelector('[data-storage-error]'); if (error) error.textContent = this.storageError; }
+  private paintSafety() { this.container.querySelectorAll<HTMLButtonElement>('[data-connection-action]').forEach(button => { button.disabled ||= !this.active() || this.busy; }); const disabled = !this.active() || this.busy || this.unsupported; this.container.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-setting]').forEach(input => { input.disabled = input.dataset.setting === 'watchEnabled' || disabled; }); const save = this.container.querySelector<HTMLButtonElement>('[data-save-settings]'); if (save) save.disabled = disabled || !this.draft || Boolean(this.storageError); const error = this.container.querySelector('[data-storage-error]'); if (error) error.textContent = this.storageError; }
   private draw() {
     if (this.disposed) return; const focus = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.setting : undefined; const selection = document.activeElement instanceof HTMLInputElement ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] as const : null;
     const draft = this.draft ? { ...this.draft, values: { ...this.draft.values, watchEnabled: this.snapshot?.values.watchEnabled ?? this.draft.values.watchEnabled } } : null;
-    this.container.innerHTML = `<section class="plugin-communication communication-settings"><style>${styles}</style><h2>Communication settings</h2><p>Uses the selected Slack provider. The default Companion connects directly to Slack; configure its credential in the server environment. Browser surface applies only to the legacy browser provider. Companion review requests require a channel ID beginning with C or G and a user group ID beginning with S. Saving settings never sends a message. Turning Slack off preserves saved destinations and admitted requests. Automatic review status is read-only here; configure the selected slack-review trigger in plugin settings and restart after changing its settings.</p><div class="communication-tools"><button data-refresh>Refresh settings</button><button data-reload-settings${!this.snapshot || this.unsupported ? ' disabled' : ''}>Discard edits and use latest settings</button></div>${this.error ? `<p role="status">${esc(this.error)}</p>` : ''}<p role="alert" data-storage-error>${esc(this.storageError)}</p>${draft ? fields.map(([key, title]) => `<label>${esc(title)}${key === 'enabled' || key === 'watchEnabled' ? `<select${key === 'watchEnabled' ? ' disabled' : ''} data-setting="${key}" aria-label="${esc(title)}"><option value="true"${draft.values[key] ? ' selected' : ''}>Enabled</option><option value="false"${!draft.values[key] ? ' selected' : ''}>Disabled</option></select>` : `<input data-setting="${key}" aria-label="${esc(title)}" maxlength="2048" value="${esc(draft.values[key])}">`}</label>`).join('') : '<p>Settings unavailable.</p>'}${this.snapshot && draft && this.snapshot.revision !== draft.revision ? '<p role="alert">Settings changed since these edits began. Your original revision and edits are retained; saving will check that revision.</p>' : ''}<div class="communication-tools"><button data-save-settings>Save settings</button><button data-save-draft>Save draft</button></div></section>`;
+    this.container.innerHTML = `<section class="plugin-communication communication-settings"><style>${styles}</style><h2>Communication settings</h2>${this.connectionHtml()}<p>Uses the selected Slack provider. The default Companion connects directly to Slack; configure its credential in the server environment. Browser surface applies only to the legacy browser provider. Companion review requests require a channel ID beginning with C or G and a user group ID beginning with S. Saving settings never sends a message. Turning Slack off preserves saved destinations and admitted requests. Automatic review status is read-only here; configure the selected slack-review trigger in plugin settings and restart after changing its settings.</p><div class="communication-tools"><button data-refresh>Refresh settings</button><button data-reload-settings${!this.snapshot || this.unsupported ? ' disabled' : ''}>Discard edits and use latest settings</button></div>${this.error ? `<p role="status">${esc(this.error)}</p>` : ''}<p role="alert" data-storage-error>${esc(this.storageError)}</p>${draft ? fields.map(([key, title]) => `<label>${esc(title)}${key === 'enabled' || key === 'watchEnabled' ? `<select${key === 'watchEnabled' ? ' disabled' : ''} data-setting="${key}" aria-label="${esc(title)}"><option value="true"${draft.values[key] ? ' selected' : ''}>Enabled</option><option value="false"${!draft.values[key] ? ' selected' : ''}>Disabled</option></select>` : `<input data-setting="${key}" aria-label="${esc(title)}" maxlength="2048" value="${esc(draft.values[key])}">`}</label>`).join('') : '<p>Settings unavailable.</p>'}${this.snapshot && draft && this.snapshot.revision !== draft.revision ? '<p role="alert">Settings changed since these edits began. Your original revision and edits are retained; saving will check that revision.</p>' : ''}<div class="communication-tools"><button data-save-settings>Save settings</button><button data-save-draft>Save draft</button></div></section>`;
     if (focus) { const input = [...this.container.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-setting]')].find(input => input.dataset.setting === focus); input?.focus({ preventScroll: true }); if (selection && input instanceof HTMLInputElement) input.setSelectionRange(...selection); } this.paintSafety();
   }
 }

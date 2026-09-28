@@ -17,7 +17,7 @@ export const sameTarget = (a: LocalGitTargetV1 | null | undefined, b: LocalGitTa
 export function snapshotValid(value: unknown): value is LocalGitSnapshotV1 {
   return object(value) && value.version === 1 && targetValid(value) && (value.path === null || text(value.path)) && (value.error === null || text(value.error))
     && Array.isArray(value.branches) && value.branches.length <= 2000 && value.branches.every(row => object(row) && text(row.name) && !!row.name && text(row.commit) && typeof row.current === 'boolean' && (row.upstream === null || text(row.upstream)) && (row.upstreamStatus === undefined || ['present','gone','none','unknown'].includes(String(row.upstreamStatus))) && optionalText(row.deletionBlockedReason))
-    && Array.isArray(value.worktrees) && value.worktrees.length <= 2000 && value.worktrees.every(row => object(row) && text(row.path) && !!row.path && text(row.commit) && (row.branch === null || text(row.branch)) && ['bare','detached','locked','prunable'].every(key => typeof row[key] === 'boolean') && (row.active === undefined || typeof row.active === 'boolean') && optionalText(row.releaseBlockedReason) && optionalText(row.deletionBlockedReason));
+    && Array.isArray(value.worktrees) && value.worktrees.length <= 2000 && value.worktrees.every(row => object(row) && text(row.path) && !!row.path && text(row.commit) && (row.branch === null || text(row.branch)) && ['bare','detached','locked','prunable'].every(key => typeof row[key] === 'boolean') && optionalText(row.deletionBlockedReason));
 }
 export function previewValid(value: unknown): value is LocalGitPreviewV1 {
   if (!object(value) || value.version !== 1 || !targetValid(value.target) || !object(value.cleanup)) return false;

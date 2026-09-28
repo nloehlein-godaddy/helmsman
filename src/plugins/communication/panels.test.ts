@@ -87,3 +87,24 @@ it('keeps pending retry identity and server cooldown authoritative when a prior 
   vi.mocked(service.submit).mockImplementation(async command => { f.pending.push({ command: { ...command, requestId: nextId }, receipt: null }); return { status: 'unavailable', reason: 'connection-failed' }; }); click(f.container, '[data-send-review]'); await vi.waitFor(() => expect(f.container.querySelector('[data-retry="true"]')).not.toBeNull()); expect(f.container.querySelector<HTMLButtonElement>('[data-prepare-repeat]')?.disabled).toBe(true); click(f.container, '[data-prepare-repeat]'); expect(service.submit).toHaveBeenCalledTimes(1);
   vi.mocked(service.retry).mockResolvedValue(available({ ...original, requestId: nextId, status: 'rejected', result: null, reason: 'Recent request cooldown remains active.' })); click(f.container, '[data-retry="true"]'); await vi.waitFor(() => expect(service.acknowledge).toHaveBeenCalledWith({ repo: 'org/b', requestId: nextId })); expect(service.retry).toHaveBeenCalledWith({ repo: 'org/b', requestId: nextId }, expect.any(AbortSignal)); expect(f.container.textContent).toContain('cooldown remains active'); expect(service.submit).toHaveBeenCalledTimes(1); expect(localStorage.getItem(key)).toBe(JSON.stringify(original)); expect(f.container.querySelector<HTMLButtonElement>('[data-send-review]')?.disabled).toBe(true);
 });
+
+it('shows optional OAuth connection state and requires an explicit account action', async () => {
+  const connection = { version: 1 as const, providerId: 'helmsman.slack-companion/slack', revision: 'a'.repeat(64), status: 'connected' as const,
+    message: 'Slack account connected.', accountLabel: '<operator>', redirectUri: 'https://helmsman.example/api/communication-connection/callback' };
+  const status = vi.fn(async () => available(connection));
+  const disconnect = vi.fn(async () => available({ ...connection, status: 'disconnected' as const, message: 'Connect your Slack account.', accountLabel: null }));
+  const connect = vi.fn(); const check = vi.fn();
+  const f = await fixture(settings, {}, context => {
+    Object.assign(context.services.communication!, { connectionStatus: status, connect, disconnect, checkConnection: check });
+  }, 'helmsman.communication/settings');
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Slack account connected.'));
+  expect(f.container.querySelector('operator')).toBeNull();
+  expect(f.container.querySelector<HTMLAnchorElement>('.communication-connection a')?.href).toBe('https://helmsman.example/communication');
+  expect(f.container.querySelector<HTMLButtonElement>('[data-connection-action="connect"]')?.disabled).toBe(true);
+  expect(connect).not.toHaveBeenCalled(); expect(check).not.toHaveBeenCalled(); expect(disconnect).not.toHaveBeenCalled();
+  click(f.container, '[data-connection-action="disconnect"]');
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Connect your Slack account.'));
+  expect(disconnect).toHaveBeenCalledWith({ expectedRevision: connection.revision }, expect.any(AbortSignal));
+  expect(f.context.services.communicationCommands!.submit).not.toHaveBeenCalled();
+  expect(Object.values(localStorage).join('')).not.toContain('<operator>');
+});

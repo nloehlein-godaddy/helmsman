@@ -1,3 +1,4 @@
+import { parseCommunicationConnectionSnapshotV1, parseCommunicationConnectionStartV1 } from './communication-connection';
 import {
   COMMUNICATION_LIMITS,
   parseCommunicationMarkReadReceiptV1,
@@ -25,6 +26,10 @@ export function createHostCommunicationService(
   );
   return Object.freeze<CommunicationServiceV1>({
     version: 1,
+    async connectionStatus(signal) { return operation(signal).request('/api/communication-connection', parseCommunicationConnectionSnapshotV1); },
+    async connect(input, signal) { return operation(signal).request('/api/communication-connection/start', parseCommunicationConnectionStartV1, input); },
+    async disconnect(input, signal) { return operation(signal).request('/api/communication-connection/disconnect', parseCommunicationConnectionSnapshotV1, input); },
+    async checkConnection(input, signal) { return operation(signal).request('/api/communication-connection/check', parseCommunicationConnectionSnapshotV1, input); },
     async notifications(input, signal) {
       const call = operation(signal);
       if (

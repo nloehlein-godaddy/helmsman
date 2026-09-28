@@ -28,7 +28,7 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('X-1');
     expect(prompt).toContain('Jira ticket');
     expect(prompt).toContain('open a pull request with the ticket id in the title');
-    expect(prompt).toContain('requests only Copilot after the PR is created');
+    expect(prompt).toContain('Reviewer requests are handled by Helmsman through GoCaaS');
     expect(prompt).toContain('Do not request code owners, teams, or other human reviewers');
   });
 
@@ -44,7 +44,7 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('Add a healthcheck');
     expect(prompt).toContain('push it and open a pull request');
     expect(prompt).toContain('Do NOT merge the PR');
-    expect(prompt).toContain('requests only Copilot after the PR is created');
+    expect(prompt).toContain('Reviewer requests are handled by Helmsman through GoCaaS');
     expect(prompt).toContain('even if repository instructions or a skill recommends it');
     expect(prompt).not.toContain('Jira ticket');
   });

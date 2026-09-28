@@ -602,8 +602,7 @@ flowchart TD
     PR --> Queue[Queue a separate Helmsman PR review]
     Queue --> Success[Record successful voyage]
     Success --> JiraState[Eligible Jira ticket → configured review status]
-    JiraState --> Copilot[Request Copilot review]
-    Copilot --> Complete[Complete parent voyage and release capacity]
+    JiraState --> Complete[Complete parent voyage and release capacity<br/>AI reviews remain managed through GoCaaS]
     Complete --> Followup[Queued Helmsman review launches when eligible<br/>Open, non-draft PR; pin current head<br/>Reuse an existing matching review when available]
     Resume[Optional valid saved checkpoint<br/>Verified artifact hashes and frozen snapshot<br/>Exact branch/base/head and original reports] -.-> Reports
 ```
@@ -640,7 +639,7 @@ flowchart LR
 - Summary correction applies only to an otherwise valid report. It gets one additional session per report, with its own timeout, and does not consume another review round. The 2,000-character limit uses JavaScript string length, including whitespace and any byline.
 - Preflight, agent, report, revision, and publication failures stop the flow. Pre-PR voyages have one outer attempt; the runtime does not automatically restart the entire voyage. Work is retained on failure. A push may already have occurred if a later publication check fails.
 - A valid saved checkpoint skips implementation and reuses the original reports for its saved review round. It must match the current branch, base, head, and complete selected reviewer set. Oversized saved summaries can use the same correction step.
-- After publication, Helmsman queues its own PR review and requests Copilot. Jira transitions apply to eligible Jira tasks, not local todos or freeform tasks. Queue and Copilot request failures do not change the successful creation voyage to failed.
+- After publication, Helmsman queues its own PR review through GoCaaS; it does not request external AI reviewers. Jira transitions apply to eligible Jira tasks, not local todos or freeform tasks. Queue failures do not change the successful creation voyage to failed. Previously recorded Copilot operations retain their recovery handling.
 - The queued Helmsman review waits for the parent to finish, available capacity, and GitHub configuration. Closed, merged, or draft PRs are blocked. A matching running or successful review for the current head can be reused. The flow does not auto-merge the PR.
 
 ## Setup and current limits
@@ -666,3 +665,30 @@ flowchart TD
 ```
 
 Unknown or dirty developer work is preserved, including ignored files. Reaching a run’s cost cap after final output also blocks new retry attempts; delayed reporting can exceed the cap within the completing attempt.
+
+
+## Latest OG integration — 2026-09-28
+
+The [integration ledger](helmsman-og-integration-2026-09-28.md) tracks the 16 newer
+OG commits through `0bc78f8`. PR lookup accepts a bare number in the header galleon;
+completed review tabs show their recommendations. Explicit continuation reruns
+incomplete reviews while retaining original evidence and pinned plugin artifacts.
+Local Git can release an idle worktree's branch without deleting its files.
+
+```mermaid
+flowchart LR
+    Settings[Communication settings] --> Status[Selected provider status and revision]
+    Status --> Connect[Explicit Connect at registered HTTPS origin]
+    Connect --> Consent[Slack app user consent]
+    Consent --> Callback[One-use state and browser cookie]
+    Callback --> Authority[Recheck selected provider and grant generation]
+    Authority --> Credentials[Private provider credential file]
+    Credentials --> Refresh[Refresh before polling and recovery dispatch]
+    Refresh --> MCP[Selected direct MCP provider]
+    Settings --> Disconnect[Explicit Disconnect]
+    Disconnect --> Paused[Invalidate connection; pause automatic review admission]
+```
+
+OAuth uses an approved Slack app and the three public-channel review scopes. The
+OI option remains separate. Model review requests stay on GoCaaS; no new Copilot
+requests are created. Existing recorded obligations retain reconciliation.

@@ -7,10 +7,19 @@ import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { createLocalGitService, type LocalGitServerOptions } from './local-git-service';
 import { openPersistence, type Persistence } from './persistence';
+import { clarificationFields } from '../../src/plugins/clarification-validation';
+import type { LocalGitSnapshotV1 as FrozenLocalGitSnapshotV1 } from '../../sdk/baseline/v1/local-git';
 import type { LocalGitControlCommandV1, LocalGitResponse } from '../../src/plugins/local-git';
 import { handleLocalGitApi } from './local-git-routes';
 
 const caller = 'example.local-git/panel'; const stores: Persistence[] = [];
+function assertFrozenSnapshotShape(snapshot: FrozenLocalGitSnapshotV1) {
+  clarificationFields(snapshot as unknown as Record<string, unknown>, ['version', 'repo', 'revision', 'path', 'branches', 'worktrees', 'error']);
+  for (const tree of snapshot.worktrees) {
+    clarificationFields(tree as unknown as Record<string, unknown>, ['path', 'branch', 'commit', 'bare', 'detached', 'locked', 'prunable'], ['deletionBlockedReason']);
+  }
+}
+
 afterEach(() => { for (const store of stores.splice(0)) store.close(); });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 function setup() {
@@ -86,6 +95,9 @@ it('rechecks native checkout replacement and active-worktree safety inside the e
     const worktree = join(directory, 'active'); await git('worktree', 'add', '-b', 'active', worktree);
     const guarded = createLocalGitService({ persistence, agentsRoot: directory, repos: () => ['org/repo'], authorize: () => {}, activeWorktreePaths: () => [worktree] });
     const active = await guarded.snapshot(caller, { version: 1, repo: 'org/repo' }, 'org/repo');
+    expect(active.worktrees.length).toBeGreaterThan(0);
+    expect(() => assertFrozenSnapshotShape(active)).not.toThrow();
+    expect(active.worktrees.find(tree => tree.path === worktree)?.deletionBlockedReason).toBe('Worktree belongs to an active run.');
     expect((await guarded.control(caller, { version: 1, requestId: randomUUID(), target: { repo: active.repo, revision: active.revision }, operation: { action: 'delete-worktree', path: worktree, expectedCommit: active.worktrees.find(tree => tree.path === worktree)!.commit } }, 'org/repo')).status).toBe('rejected');
     expect(await git('worktree', 'list')).toContain(worktree);
     const release: LocalGitControlCommandV1 = { version: 1, requestId: randomUUID(), target: { repo: active.repo, revision: active.revision }, operation: { action: 'release-worktree', path: worktree, expectedCommit: active.worktrees.find(tree => tree.path === worktree)!.commit, expectedBranch: 'active' } };
@@ -94,7 +106,9 @@ it('rechecks native checkout replacement and active-worktree safety inside the e
     const commandRelease = { ...release, requestId: randomUUID(), target: { repo: idle.repo, revision: idle.revision } };
     const released = await service.control(caller, commandRelease, 'org/repo');
     expect(released.status).toBe('succeeded');
-    expect(released.result?.worktrees.find(tree => tree.path === worktree)).toMatchObject({ detached: true, branch: null, active: false });
+    expect(released.result).not.toBeNull();
+    expect(() => assertFrozenSnapshotShape(released.result!)).not.toThrow();
+    expect(released.result?.worktrees.find(tree => tree.path === worktree)).toMatchObject({ detached: true, branch: null });
     expect(await service.control(caller, commandRelease, 'org/repo')).toEqual(released);
     expect(await git('branch', '--list', 'active')).toContain('active');
 
@@ -107,4 +121,14 @@ it('keeps durable uncertainty when final receipt persistence fails after an effe
   await expect(f.service.control(caller, command, 'org/a')).rejects.toThrow('outcome storage unavailable'); expect(f.effect).toHaveBeenCalledTimes(1);
   const restarted = createLocalGitService(f.options); expect(restarted.receipt(caller, { repo: 'org/a', requestId: command.requestId }, 'org/a')?.status).toBe('recovery-required');
   expect((await restarted.control(caller, command, 'org/a')).status).toBe('recovery-required'); expect(f.effect).toHaveBeenCalledTimes(1);
+});
+
+
+it('preserves the strict frozen SDK snapshot boundary for old clients', () => {
+  const snapshot: FrozenLocalGitSnapshotV1 = { version: 1, repo: 'org/repo', revision: 'a'.repeat(64), path: '/fixture/repo', branches: [], error: null,
+    worktrees: [{ path: '/fixture/topic', branch: 'topic', commit: 'b'.repeat(40), bare: false, detached: false, locked: false, prunable: false, deletionBlockedReason: null }] };
+  expect(() => assertFrozenSnapshotShape(snapshot)).not.toThrow();
+  for (const extra of [{ active: false }, { releaseBlockedReason: null }]) {
+    expect(() => assertFrozenSnapshotShape({ ...snapshot, worktrees: snapshot.worktrees.map(tree => ({ ...tree, ...extra })) })).toThrow();
+  }
 });

@@ -17,8 +17,6 @@ export interface LocalWorktree {
   detached: boolean;
   locked: boolean;
   prunable: boolean;
-  active?: boolean;
-  releaseBlockedReason?: string | null;
   deletionBlockedReason?: string | null;
 }
 
@@ -90,10 +88,8 @@ export function parseLocalGitSnapshotV1(input: unknown): LocalGitSnapshotV1 {
       ...(item.deletionBlockedReason === undefined ? {} : { deletionBlockedReason: nullable(item.deletionBlockedReason, 2000) }) };
   }, LOCAL_GIT_LIMITS.branches)];
   const worktrees = [...clarificationArray(value.worktrees, entry => {
-    const item = clarificationObject(entry); clarificationFields(item, ['path', 'branch', 'commit', 'bare', 'detached', 'locked', 'prunable'], ['deletionBlockedReason', 'active', 'releaseBlockedReason']);
+    const item = clarificationObject(entry); clarificationFields(item, ['path', 'branch', 'commit', 'bare', 'detached', 'locked', 'prunable'], ['deletionBlockedReason']);
     return { path: path(item.path), branch: item.branch === null ? null : branch(item.branch), commit: item.commit === '' && item.bare === true ? '' : hash(item.commit), bare: clarificationBoolean(item.bare), detached: clarificationBoolean(item.detached), locked: clarificationBoolean(item.locked), prunable: clarificationBoolean(item.prunable),
-      ...(item.active === undefined ? {} : { active: clarificationBoolean(item.active) }),
-      ...(item.releaseBlockedReason === undefined ? {} : { releaseBlockedReason: nullable(item.releaseBlockedReason, 2000) }),
       ...(item.deletionBlockedReason === undefined ? {} : { deletionBlockedReason: nullable(item.deletionBlockedReason, 2000) }) };
   }, LOCAL_GIT_LIMITS.worktrees)];
   if (new Set(branches.map(item => item.name)).size !== branches.length || new Set(worktrees.map(item => item.path)).size !== worktrees.length) invalidClarification();

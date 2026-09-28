@@ -36,8 +36,8 @@ export function renderLocalGit(state: LocalGitViewState): string {
   }).join('');
   const worktreeRows = worktrees.map((worktree) => {
     const blocked = text(worktree.deletionBlockedReason) || (worktree.locked ? 'Unlock this worktree before deleting it.' : worktree.bare ? 'Bare worktrees cannot be deleted here.' : worktree.path === path ? 'The selected checkout cannot be deleted.' : '');
-    const releaseBlocked = text(worktree.releaseBlockedReason) || (worktree.active ? 'Worktree belongs to an active run.' : worktree.locked ? 'Worktree is locked.' : worktree.bare ? 'Bare worktrees cannot release a branch.' : worktree.path === path ? 'The selected checkout cannot release its branch.' : worktree.prunable ? 'Worktree is missing or inaccessible.' : !worktree.branch || worktree.detached ? 'No branch to release.' : '');
-    const activity = typeof worktree.active === 'boolean' ? `<span class="chip ${worktree.active ? 'chip-progress' : ''}">${worktree.active ? 'Active run' : 'No active run'}</span>` : '';
+    const releaseBlocked = text(worktree.deletionBlockedReason) || (worktree.locked ? 'Worktree is locked.' : worktree.bare ? 'Bare worktrees cannot release a branch.' : worktree.path === path ? 'The selected checkout cannot release its branch.' : worktree.prunable ? 'Worktree is missing or inaccessible.' : !worktree.branch || worktree.detached ? 'No branch to release.' : '');
+    const activity = worktree.deletionBlockedReason === 'Worktree belongs to an active run.' ? '<span class="chip chip-progress">Active run</span>' : '';
     return `<li class="local-git-item">
       <div class="local-git-item-head"><span class="local-git-name mono">${esc(worktree.bare ? 'Bare' : worktree.detached ? 'Detached HEAD' : text(worktree.branch) || 'No branch')}</span>${activity}${worktree.locked ? '<span class="chip chip-progress">Locked</span>' : ''}${worktree.prunable ? '<span class="chip chip-blocked">Prunable</span>' : ''}${shortCommit(worktree.commit)}</div>
       <div class="local-git-path mono">${esc(worktree.path)}</div>

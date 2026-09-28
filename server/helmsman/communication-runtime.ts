@@ -14,6 +14,7 @@ import { resolveSelectedCommunicationProvider, type CommunicationProviderRegistr
 import { slackSettings } from './slack/config';
 import { slackReviewSettings } from './slack/review-request';
 import { withSlackBrowserLock } from './slack/browser';
+import { readCommunicationProviderBinding } from './plugins/data';
 
 export function communicationContributionEnabled(catalog: PluginCatalog, caller: string, command = false): boolean {
   if (catalog.safeMode || !isContributionId(caller)) return false;
@@ -131,6 +132,17 @@ export function createCommunicationRuntime(options: {
     return { surface: null, watchedChannel: { id: settings.channelId, name: settings.channelName }, browser: unsupportedBrowser,
       assertCurrent, dispose: async () => {} };
   }
+  function captureConnection() {
+    const providerId = readCommunicationProviderBinding(options.root);
+    const registration = options.registry.list().find(item => item.binding.providerId === providerId);
+    if (!registration?.provider.connection) return null;
+    const identity = stableJson({ binding: registration.binding, settings: registration.settings ?? {} });
+    return { providerId: registration.binding.providerId, identity, provider: registration.provider.connection,
+      assertCurrent() {
+        const current = options.registry.list().find(item => item.binding.providerId === readCommunicationProviderBinding(options.root));
+        if (current !== registration || stableJson({ binding: current.binding, settings: current.settings ?? {} }) !== identity) throw new Error('Communication provider changed.');
+      } };
+  }
   const assertAdmission = () => {
     const binding = selected();
     if (!binding || !destination(binding)) throw new Error('Selected communication provider is unavailable.');
@@ -152,6 +164,14 @@ export function createCommunicationRuntime(options: {
     },
   });
   return Object.freeze({ effects, selected, assertAdmission,
+    captureConnection,
+    async refreshConnection(signal: AbortSignal) {
+      const captured = captureConnection();
+      if (!captured) return;
+      captured.assertCurrent();
+      await captured.provider.status(signal);
+      signal.throwIfAborted(); captured.assertCurrent();
+    },
     destination(): CommunicationDestinationV1 | null { const binding = selected(); return binding ? destination(binding) : null; },
     scanKey(): string {
       try { return scanIdentity(); }

@@ -1,3 +1,4 @@
+import type { CommunicationConnectionProviderV1 } from './communication-connection';
 export interface CommunicationDestinationV1 {
   readonly providerId: string;
   readonly artifactHash: string;
@@ -42,6 +43,7 @@ export type CommunicationProviderResultV1 =
   | { readonly status: 'unknown'; readonly reason: string; readonly evidence: unknown };
 
 export interface CommunicationProviderV1 {
+  readonly connection?: CommunicationConnectionProviderV1;
   connectionIdentity?(): string | null;
   prepareReviewRequest(input: { readonly repo: string; readonly number: number }, context: CommunicationProviderContextV1): Promise<Pick<CommunicationDestinationV1, 'workspace' | 'channel' | 'mention' | 'connectionId'>>;
   invokeReviewRequest(input: CommunicationReviewRequestV1, context: CommunicationProviderContextV1): Promise<CommunicationProviderResultV1>;

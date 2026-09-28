@@ -44,6 +44,26 @@ Companion while preserving custom selections. Operators can explicitly reselect 
 legacy provider after migration; later restarts preserve that choice. Pending browser
 operations retain their original binding and artifact.
 
+## Optional account connection
+
+`CommunicationProviderV1.connection` is an optional SDK extension with status,
+begin, complete, disconnect, and check methods. Existing providers remain valid
+without it. Core exposes the selected provider through optional
+`CommunicationServiceV1` account methods, including when no credentials exist.
+Account actions carry the displayed provider revision; replacement or disablement
+invalidates it. The host binds a one-use OAuth state to the initiating browser and
+selected artifact. Providers must invoke the completion authority fence immediately
+before storing credentials, in addition to fencing their own concurrent grant
+changes. Short-lived cookies remain after callbacks so older responses cannot
+clear a newer authorization; consumed states cannot be replayed.
+
+The direct Slack MCP plugin owns authorization, refresh, account checks, private
+credential storage, and its exact three Slack user scopes. Core handles caller
+permissions, callback dispatch, HTTPS-origin checks, and selected-provider lifetime.
+No credential crosses the public SDK snapshot, settings draft, or operation receipt.
+The connection controls do not send Slack messages. The configured app and HTTPS
+callback are operator prerequisites; OI authentication is independent.
+
 ## OI Slack Companion
 
 The opt-in `helmsman.slack-oi/slack` provider reuses the user's Slack authorization

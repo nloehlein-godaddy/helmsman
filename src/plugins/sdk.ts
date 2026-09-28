@@ -35,6 +35,7 @@ export * from './pull-request-read';
 export * from './pull-request-inspect';
 export * from './pull-request-command';
 export * from './communication';
+export * from './communication-connection';
 export * from './communication-command';
 export * from './pull-request-provider';
 export * from './communication-provider';

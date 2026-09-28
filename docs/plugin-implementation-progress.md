@@ -544,3 +544,17 @@ A fresh six-agent review of `e3ccca4` found seven additional issues: two P1, fou
 ## Second-review fixes and OG evaluation — 2026-09-21
 
 The seven second-review findings are implemented, including independent cross-review corrections for cleanup registered during disposal. Work used isolated workspace, execution and lifecycle branches. The [second fix ledger](adversarial-fixes-2026-09-21-round-2.md) records commits, tests and operational limits. The [OG feature evaluation](helmsman-og-feature-evaluation-2026-09-21.md) compares all 23 commits since the shared baseline; it proposes clean plugin ports and identifies policy/contract changes. No OG feature was imported as part of the fixes.
+
+
+## OG integration — 2026-09-28
+
+Integrated the newer active OG branch through `0bc78f8`; see the [commit disposition
+and validation ledger](helmsman-og-integration-2026-09-28.md). This adds scoped PR
+lookup and row layout, completed-review tab recommendations, preserved incomplete
+review continuation, idle worktree branch release, feedback response coverage, and
+optional Slack OAuth account controls. New external Copilot requests are suppressed
+under the mandatory GoCaaS policy; recorded obligations remain recoverable.
+
+The earlier planned assign-self, tracker feedback, and parallel-execution batches
+remain separate future work. This integration preserves version 0.4.0 and the
+rewrite tab marker.

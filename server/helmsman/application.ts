@@ -1,4 +1,5 @@
 import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
+import { createCommunicationConnectionHandler } from './communication-connection-http';
 import { createRunLifetime } from './run-lifetime';
 import { readPullRequestDetail, retainPullRequestSource, prepareCommunicationReview, readOutcomePullRequest, verifyPullRequestExecution, parsePullRequestSource } from './pull-request-source';
 import { allowMutationRequest } from './request-origin';
@@ -969,6 +970,9 @@ function drainEffects(): Promise<void> {
     await slackEffects.drainPending();
     await manualReviewEffects.drainPending();
     await pullRequestCommands.drainPending();
+    if (slackSettings(triggerEnvironment()).enabled) {
+      try { await communicationRuntime.refreshConnection(AbortSignal.timeout(30_000)); } catch {}
+    }
     await communicationCommands.drainPending();
     await taskSourceRuntime.drain();
   })().catch(error => { process.stderr.write(`Operation recovery failed: ${String(error)}\n`); }).finally(() => { drainingEffects = null; });
@@ -1432,6 +1436,7 @@ function reconcileTriggerReviewReceipts(): void {
 function pollSlack(): Promise<void> {
   slackTick ??= Promise.resolve().then(async () => {
     reconcileTriggerReviewReceipts();
+    if (slackSettings(triggerEnvironment()).enabled) await communicationRuntime.refreshConnection(AbortSignal.timeout(30_000));
     await configuredSlackWatcher()?.poll();
   }).catch((error: unknown) => process.stderr.write(`Slack watcher failed: ${String(error)}\n`))
     .then(() => undefined).finally(() => { slackTick = null; });
@@ -1550,9 +1555,13 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
 } });
 
 
+const communicationConnectionHandler = createCommunicationConnectionHandler({ capture: communicationRuntime.captureConnection,
+  authorize(caller) { if (!communicationContributionEnabled(pluginSnapshot.catalog, caller)) throw new Error('Forbidden'); } });
+
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   void (async () => {
     const url: URL = new URL(req.url ?? '/', `http://localhost:${PORT}`);
+    if (await communicationConnectionHandler(req, res, url)) return;
     if (!allowMutationRequest(req, url.pathname)) {
       res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify({ error: 'Mutations require a same-origin JSON request to the local server.' })); return;

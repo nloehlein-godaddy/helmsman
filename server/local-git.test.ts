@@ -145,7 +145,7 @@ describe('local Git mutations', () => {
     await writeFile(join(path, '.env'), 'PRIVATE=keep');
     const result = await mutate({ action: 'release-worktree', path, expectedCommit, expectedBranch: 'feature/release' });
     expect(result.status).toBe(200);
-    expect(result.json.worktrees).toContainEqual(expect.objectContaining({ path, detached: true, branch: null, commit: expectedCommit, active: false }));
+    expect(result.json.worktrees).toContainEqual(expect.objectContaining({ path, detached: true, branch: null, commit: expectedCommit }));
     expect(result.json.branches).toContainEqual(expect.objectContaining({ name: 'feature/release', commit: expectedCommit, deletionBlockedReason: null }));
     expect(await readFile(join(path, 'tracked.txt'), 'utf8')).toBe('local edits');
     expect(await readFile(join(path, 'untracked.txt'), 'utf8')).toBe('keep');
@@ -165,7 +165,7 @@ describe('local Git mutations', () => {
       expect((await mutate({ action: 'release-worktree', path, expectedCommit: await sha(), expectedBranch }, { activeWorktreePaths: () => [active] })).status).toBe(409);
     }
     expect((await getLocalGit(root, repo, configured, { activeWorktreePaths: () => [active] })).json.worktrees)
-      .toContainEqual(expect.objectContaining({ path: active, active: true, releaseBlockedReason: 'Worktree belongs to an active run.' }));
+      .toContainEqual(expect.objectContaining({ path: active, deletionBlockedReason: 'Worktree belongs to an active run.' }));
   });
 
   it('rechecks ownership before releasing and refuses stale branch or commit selections', async () => {

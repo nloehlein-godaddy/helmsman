@@ -81,7 +81,7 @@ class LocalGitPanel implements PluginPanelInstance {
     const releasePath = button.dataset.localRelease;
     const tree = this.snapshot?.worktrees.find(row => row.path === (releasePath ?? button.dataset.localWorktree));
     if (releasePath) {
-      if (!tree?.branch || tree.active || tree.locked || tree.bare || tree.detached || tree.prunable || tree.path === this.snapshot?.path || tree.releaseBlockedReason) return;
+      if (!tree?.branch || tree.locked || tree.bare || tree.detached || tree.prunable || tree.path === this.snapshot?.path || tree.deletionBlockedReason) return;
       this.confirmation = {version:1,target,operation:{action:'release-worktree',path:tree.path,expectedCommit:tree.commit,expectedBranch:tree.branch}};
     } else if (branch && !branch.current && !branch.deletionBlockedReason) this.confirmation = {version:1,target,operation:{action:'delete-branch',branch:branch.name,expectedCommit:branch.commit}};
     else if (tree && !tree.locked && !tree.bare && tree.path !== this.snapshot?.path && !tree.deletionBlockedReason) this.confirmation = {version:1,target,operation:{action:'delete-worktree',path:tree.path,expectedCommit:tree.commit}};

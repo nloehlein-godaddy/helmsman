@@ -296,13 +296,15 @@ The workflow runs in the existing durable run host and survives server restarts.
 This gate applies to new coding voyages, not existing-PR feedback reruns. The generic
 `command` adapter cannot launch a new coding voyage because it cannot provide this
 review contract. `AGENT_MAX_ATTEMPTS` does not multiply the captured workflow `maxRounds`.
-Each author, fix, or reviewer session has a 45-minute timeout by default. The existing post-PR review
-and Copilot request still run after successful publication.
+Each author, fix, or reviewer session has a 45-minute timeout by default. The managed post-PR review still runs through GoCaaS after successful publication.
+New Copilot or other external AI reviewer requests are not created.
+
+See the [latest OG integration ledger](docs/helmsman-og-integration-2026-09-28.md) for continuation, worktree release, PR navigation, and Slack OAuth updates.
 
 ### Recent voyages
 
-After a successful coding voyage opens a PR, Helmsman requests Copilot and queues
-its own independent adversarial review as a separate voyage. The durable queue
+After a successful coding voyage opens a PR, Helmsman queues
+its own independent adversarial review through GoCaaS as a separate voyage. The durable queue
 waits for repository capacity, survives restarts, and reuses a running or successful
 review of the same revision. It runs on completion and retries pending work on the
 existing five-minute cadence, with no external reads when idle or busy. This does
@@ -675,6 +677,29 @@ signed-in browser requirements still apply. A one-time upgrade switches the old 
 explicitly reselecting the browser provider after migration persists. Changing providers
 does not move pending
 requests: retained operations resolve through their original provider and artifact.
+
+### Connect your Slack account through OAuth
+
+The direct MCP provider also supports **Connect Slack**, **Check connection**, and
+**Disconnect Slack** in Communication settings. This option requires an approved
+Slack application with user scopes `channels:read`, `chat:write`, and `search:read`.
+It does not request bot, message-history, or user-profile scopes.
+
+Configure `SLACK_OAUTH_CLIENT_ID`, `SLACK_OAUTH_CLIENT_SECRET`,
+`SLACK_OAUTH_REDIRECT_URI`, `SLACK_OAUTH_TOKEN_FILE`, and the existing
+`SLACK_CLIENT_ID` workspace ID in the server environment. Register an exact HTTPS
+callback ending `/api/communication-connection/callback` and route that approved
+HTTPS address to this instance. Open Communication settings at that same HTTPS
+address to connect. The token file must have an absolute path in a private,
+user-owned directory; the provider stores credentials privately and refreshes
+expiring user tokens. Secrets are never entered into plugin settings or browser
+storage.
+
+Explicit OAuth configuration disables fallback to an environment token.
+Disconnect invalidates the connection and pauses queued automatic reviews;
+reconnection never silently retargets retained sends. Existing externally supplied
+`SLACK_MCP_TOKEN` configurations continue to work. The OI provider below remains a
+separate option and has its own deployment requirements.
 
 ### OI Slack Companion without a Helmsman Slack app
 

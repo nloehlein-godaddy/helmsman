@@ -8,4 +8,6 @@ Review requests show their exact workspace, channel, and mention before sending.
 
 Settings drafts retain their original revision until explicitly saved or discarded. Refresh keeps unsent edits, conflicts keep the draft, and saving settings never sends a message. Browser storage uses the mounted contribution identity, so copied packages receive separate drafts and saved results.
 
+When the selected provider offers account connections, settings show its public connection status and explicit Connect, Check, and Disconnect controls. Actions carry the displayed provider revision. Connecting requires the registered HTTPS origin; local HTTP shows a link to that address. Credentials never enter drafts or browser storage. Providers without account controls keep their existing settings flow.
+
 Run focused checks from the repository root with `npx vitest run src/plugins/communication`. Distribution tooling supplies the published SDK to build this source package using `node build.mjs`.

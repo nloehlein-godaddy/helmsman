@@ -64,7 +64,7 @@ it('confirms branch release with the original scope, branch, commit and checkout
 it('disables branch release for active worktrees and while receipt recovery is pending', async () => {
   const f = await fixture({}, (context, pending) => {
     pending.push({ command: { ...input, requestId }, receipt: null });
-    vi.mocked(context.services.localGit!.snapshot).mockResolvedValue(available({ ...snapshot, worktrees: snapshot.worktrees.map(tree => ({ ...tree, active: true })) }));
+    vi.mocked(context.services.localGit!.snapshot).mockResolvedValue(available({ ...snapshot, worktrees: snapshot.worktrees.map(tree => ({ ...tree, deletionBlockedReason: 'Worktree belongs to an active run.' })) }));
   });
   await vi.waitFor(() => expect(f.container.querySelector('[data-local-release="/work/topic"]')).not.toBeNull());
   expect(f.container.querySelector<HTMLButtonElement>('[data-local-release="/work/topic"]')?.disabled).toBe(true);
