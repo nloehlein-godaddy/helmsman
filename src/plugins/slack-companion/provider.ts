@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { CommunicationProviderContextV1, CommunicationProviderResultV1, CommunicationProviderV1, CommunicationReviewRequestV1 } from '@helmsman/plugin-sdk';
 import { record, slackConfiguration, SlackMcpClient } from './transport.js';
+import { createSlackOAuth, usesSlackOAuth } from './oauth.js';
 
 const channelId = (value: unknown): value is string => typeof value === 'string' && /^[CG][A-Z\d]{2,31}$/.test(value);
 const timestamp = (value: unknown): value is string => typeof value === 'string' && /^\d{10,}\.\d{1,6}$/.test(value) && Number.isFinite(Number(value));
@@ -16,6 +17,7 @@ function validateDestination(context: CommunicationProviderContextV1): void {
 }
 
 function validateSend(context: CommunicationProviderContextV1): void {
+  validateDestination(context);
   if (!channelId(context.destination.channel)) throw new Error('Configure the Slack destination using its channel ID (C… or G…).');
   if (!/^S[A-Z\d]{2,31}$/.test(context.destination.mention)) throw new Error('Configure the Slack user group ID (S…), not its handle; Slack MCP cannot resolve user group handles.');
 }
@@ -40,17 +42,23 @@ export function createSlackCompanionProvider(options: {
   env?: Readonly<Record<string, string | undefined>>;
   fetch?: typeof fetch;
   now?: () => number;
-} = {}): CommunicationProviderV1 {
+} = {}) {
   const env = options.env ?? process.env;
   const now = options.now ?? Date.now;
+  const oauth = usesSlackOAuth(env) ? createSlackOAuth({ env, fetch: options.fetch, now }) : null;
   function connectionIdentity(): string | null {
-    try { const config = slackConfiguration(env); return `slack-mcp:${createHash('sha256').update(JSON.stringify([config.url, config.token])).digest('hex')}`; } catch { return null; }
+    try {
+      const config = slackConfiguration(oauth ? { ...env, SLACK_MCP_TOKEN: 'oauth-managed' } : env);
+      const identity = oauth ? oauth.identity() : config.token;
+      return identity ? `slack-mcp:${createHash('sha256').update(JSON.stringify([config.url, identity])).digest('hex')}` : null;
+    } catch { return null; }
   }
-  function client(context: CommunicationProviderContextV1): SlackMcpClient {
-    const config = slackConfiguration(env);
+  async function client(context: CommunicationProviderContextV1): Promise<SlackMcpClient> {
+    validateDestination(context);
+    if (oauth && context.destination.workspace !== env.SLACK_CLIENT_ID) throw new Error('Slack OAuth workspace changed.');
+    const config = slackConfiguration(oauth ? { ...env, SLACK_MCP_TOKEN: await oauth.accessToken(context.signal) } : env);
     const identity = connectionIdentity();
     if (!identity) throw new Error('Slack MCP credentials are unavailable.');
-    validateDestination(context);
     return new SlackMcpClient(config, options.fetch ?? fetch, AbortSignal.any([context.signal, AbortSignal.timeout(60_000)]));
   }
   async function checkChannel(mcp: SlackMcpClient, workspace: string, id: string): Promise<void> {
@@ -58,11 +66,11 @@ export function createSlackCompanionProvider(options: {
     if (channel.id !== id || channel.is_archived !== false || channel.is_im === true || channel.is_mpim === true || typeof channel.name !== 'string'
       || (typeof channel.context_team_id === 'string' && channel.context_team_id !== workspace)) throw new Error('Slack channel is unavailable, archived, or belongs to another workspace.');
   }
-  return {
+  const provider: CommunicationProviderV1 = {
     connectionIdentity,
     async prepareReviewRequest(input, context) {
       validateRequest(input); validateSend(context);
-      const mcp = client(context); await mcp.initialize();
+      const mcp = await client(context); await mcp.initialize();
       await checkChannel(mcp, context.destination.workspace, context.destination.channel);
       const { workspace, channel, mention, connectionId } = context.destination;
       return { workspace, channel, mention, connectionId };
@@ -74,7 +82,7 @@ export function createSlackCompanionProvider(options: {
         if (!/^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i.test(input.requestId)
           || !input.destination || ['workspace', 'channel', 'mention', 'connectionId'].some(key => input.destination[key as keyof typeof input.destination] !== context.destination[key as keyof typeof context.destination])) throw new Error('Slack review destination changed.');
         const identity = connectionIdentity();
-        const mcp = client(context); await mcp.initialize();
+        const mcp = await client(context); await mcp.initialize();
         await checkChannel(mcp, context.destination.workspace, context.destination.channel);
         const { workspace, channel, mention, connectionId } = context.destination;
         await context.beforeSend();
@@ -98,7 +106,7 @@ export function createSlackCompanionProvider(options: {
       const after = new Date(sinceMs - 2 * 86_400_000).toISOString().slice(0, 10);
       const before = new Date(untilMs + 2 * 86_400_000).toISOString().slice(0, 10);
       const query = `in:${watched.id} after:${after} before:${before} github.com`;
-      const mcp = client(context); await mcp.initialize();
+      const mcp = await client(context); await mcp.initialize();
       await checkChannel(mcp, context.destination.workspace, watched.id);
       const messages: { channelId: string; ts: string; permalink: string; author: string; prUrls: string[] }[] = [];
       const seen = new Set<string>();
@@ -134,4 +142,5 @@ export function createSlackCompanionProvider(options: {
       return { messages, complete: false };
     },
   };
+  return { ...provider, ...(oauth ? { connection: { status: oauth.status, begin: oauth.begin, complete: oauth.complete, disconnect: oauth.disconnect, check: oauth.check } } : {}) };
 }
