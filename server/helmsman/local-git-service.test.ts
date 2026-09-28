@@ -88,6 +88,16 @@ it('rechecks native checkout replacement and active-worktree safety inside the e
     const active = await guarded.snapshot(caller, { version: 1, repo: 'org/repo' }, 'org/repo');
     expect((await guarded.control(caller, { version: 1, requestId: randomUUID(), target: { repo: active.repo, revision: active.revision }, operation: { action: 'delete-worktree', path: worktree, expectedCommit: active.worktrees.find(tree => tree.path === worktree)!.commit } }, 'org/repo')).status).toBe('rejected');
     expect(await git('worktree', 'list')).toContain(worktree);
+    const release: LocalGitControlCommandV1 = { version: 1, requestId: randomUUID(), target: { repo: active.repo, revision: active.revision }, operation: { action: 'release-worktree', path: worktree, expectedCommit: active.worktrees.find(tree => tree.path === worktree)!.commit, expectedBranch: 'active' } };
+    expect((await guarded.control(caller, release, 'org/repo')).status).toBe('rejected');
+    const idle = await service.snapshot(caller, { version: 1, repo: 'org/repo' }, 'org/repo');
+    const commandRelease = { ...release, requestId: randomUUID(), target: { repo: idle.repo, revision: idle.revision } };
+    const released = await service.control(caller, commandRelease, 'org/repo');
+    expect(released.status).toBe('succeeded');
+    expect(released.result?.worktrees.find(tree => tree.path === worktree)).toMatchObject({ detached: true, branch: null, active: false });
+    expect(await service.control(caller, commandRelease, 'org/repo')).toEqual(released);
+    expect(await git('branch', '--list', 'active')).toContain('active');
+
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 30_000);
 

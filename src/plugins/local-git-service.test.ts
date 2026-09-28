@@ -52,3 +52,18 @@ it('pins cleanup previews and rejects malformed branch references and duplicate 
   expect(() => parseLocalGitControlInputV1({ ...input, operation: { action: 'delete-untracked-branches', expectedHead: 'a'.repeat(40), branches: [{ branch: 'same', expectedCommit: 'b'.repeat(40) }, { branch: 'same', expectedCommit: 'b'.repeat(40) }] } })).toThrow();
   expect(() => parseLocalGitPreviewV1({ version: 1, target: { ...input.target, revision: 'c'.repeat(64) }, cleanup: { expectedHead: 'a'.repeat(40), force: false, candidates: [], skipped: [] } }, input.target)).toThrow();
 });
+
+it('validates exact branch-release confirmation and retains its journal after a lost response', async () => {
+  const operation = { action: 'release-worktree' as const, path: '/fixture/topic', expectedCommit: 'b'.repeat(40), expectedBranch: 'topic' };
+  const release = { ...input, operation };
+  expect(parseLocalGitControlInputV1(release)).toEqual(release);
+  for (const invalid of [{ ...operation, expectedBranch: undefined }, { ...operation, expectedBranch: '-bad' }, { ...operation, path: 'relative' }, { ...operation, force: true }]) {
+    expect(() => parseLocalGitControlInputV1({ ...release, operation: invalid })).toThrow();
+  }
+  const f = setup(); f.fetcher.mockRejectedValueOnce(new Error('Response lost'));
+  expect(await f.service.control(release)).toMatchObject({ status: 'unavailable' });
+  const pending = await f.journal.pending();
+  expect(pending).toHaveLength(1);
+  expect(pending[0]?.command.operation).toEqual(operation);
+  expect(pending[0]?.receipt).toBeNull();
+});

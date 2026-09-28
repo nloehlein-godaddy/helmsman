@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, run, sourceRoot } from './isolated-fixture';
 
@@ -26,10 +26,13 @@ test('source-denied Local Git replacement preserves confirmed intent and fences 
     await local('commit', '--allow-empty', '-m', 'Isolated fixture');
     await local('branch', 'merged-topic');
     await local('branch', 'retained-topic');
+    const idleWorktree = join(host.cwd, 'idle');
+    await local('worktree', 'add', '-b', 'release-topic', idleWorktree);
+    await writeFile(join(idleWorktree, 'draft.txt'), 'Preserved local draft');
     await writeFile(join(host.root, 'commands/git'), `#!${process.execPath}
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
-if (args[0] !== '-C' || !args[1]?.startsWith(${JSON.stringify(host.cwd + '/')}) || args.includes('fetch') || args.includes('push') || args.includes('clone')) process.exit(1);
+if (!['-C', '--git-dir'].includes(args[0]) || !args[1]?.startsWith(${JSON.stringify(host.cwd + '/')}) || args.includes('fetch') || args.includes('push') || args.includes('clone')) process.exit(1);
 const result = spawnSync(${JSON.stringify(git)}, args, { stdio: 'inherit', env: process.env });
 process.exit(result.status ?? 1);
 `, { mode: 0o755 });
@@ -43,6 +46,20 @@ process.exit(result.status ?? 1);
     await expect(panel.locator('[data-local-branch="merged-topic"]')).toBeEnabled();
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await expect(panel.locator('[data-local-branch="main"]')).toBeDisabled();
+    await panel.locator(`[data-local-release="${idleWorktree}"]`).click();
+    await expect(panel.locator('[aria-label="Confirm branch release"]')).toContainText('release-topic');
+    await expect(panel.locator('[aria-label="Confirm branch release"]')).toContainText('directory and files are preserved');
+    await page.screenshot({ path: testInfo.outputPath('local-git-release-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('local-git-release-mobile.png'), fullPage: true });
+    await panel.locator('.local-git-confirm-release').click();
+    await expect(panel.locator(`[data-local-release="${idleWorktree}"]`)).toBeDisabled();
+    await expect(panel.locator('[data-local-branch="release-topic"]')).toBeEnabled();
+    expect(await readFile(join(idleWorktree, 'draft.txt'), 'utf8')).toBe('Preserved local draft');
+    expect(await local('branch', '--list', 'release-topic')).toContain('release-topic');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+
     await panel.locator('.local-git-cleanup-preview').click();
     await expect(panel.locator('.local-git-cleanup')).toContainText('merged-topic');
     await expect(panel.locator('.local-git-cleanup')).toContainText('retained-topic');

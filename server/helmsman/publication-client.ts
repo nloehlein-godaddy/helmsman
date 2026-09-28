@@ -8,6 +8,7 @@ export interface PublicationApproval {
   baseBranch: string;
   round: number;
   reviewers: readonly string[];
+  reviewStages?: Readonly<Record<string, string>>;
   metadata: { stage: 'implement' | 'fix'; round: number };
 }
 export interface PublicationRequest { version: 1; kind: 'pre-pr'; approved: PublicationApproval; }
@@ -24,18 +25,22 @@ export function parsePublicationRequest(input: unknown): PublicationRequest {
   const value = object(input);
   const approved = object(value?.approved);
   const metadata = object(approved?.metadata);
+  const reviewStages = approved?.reviewStages === undefined ? undefined : object(approved.reviewStages);
   if (!value || Object.keys(value).some(key => !['version', 'kind', 'approved'].includes(key)) || value.version !== 1 || value.kind !== 'pre-pr'
-    || !approved || Object.keys(approved).some(key => !['baseSha', 'headSha', 'branch', 'baseBranch', 'round', 'reviewers', 'metadata'].includes(key))
+    || !approved || Object.keys(approved).some(key => !['baseSha', 'headSha', 'branch', 'baseBranch', 'round', 'reviewers', 'metadata', 'reviewStages'].includes(key))
     || !sha(approved.baseSha) || !sha(approved.headSha) || approved.baseSha === approved.headSha || !branch(approved.branch) || !branch(approved.baseBranch)
     || !Number.isSafeInteger(approved.round) || Number(approved.round) < 1 || Number(approved.round) > 5
     || !Array.isArray(approved.reviewers) || approved.reviewers.length < 1 || approved.reviewers.length > 8
     || new Set(approved.reviewers).size !== approved.reviewers.length || approved.reviewers.some(id => !provider(id))
+    || approved.reviewStages !== undefined && (!reviewStages || Object.entries(reviewStages).some(([id, stage]) => !(approved.reviewers as unknown[]).includes(id)
+      || typeof stage !== 'string' || !/^review-resume-[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/.test(stage)))
     || !metadata || Object.keys(metadata).some(key => !['stage', 'round'].includes(key)) || !['implement', 'fix'].includes(String(metadata.stage))
     || !Number.isSafeInteger(metadata.round) || Number(metadata.round) < 0 || Number(metadata.round) >= Number(approved.round)
     || metadata.stage === 'implement' && metadata.round !== 0 || metadata.stage === 'fix' && metadata.round === 0) throw new Error('Invalid approved publication request');
   return Object.freeze({ version: 1, kind: 'pre-pr', approved: Object.freeze({ baseSha: approved.baseSha, headSha: approved.headSha,
     branch: approved.branch, baseBranch: approved.baseBranch, round: Number(approved.round),
     reviewers: Object.freeze([...approved.reviewers]) as PublicationApproval['reviewers'],
+    ...(reviewStages ? { reviewStages: Object.freeze({ ...reviewStages }) as Readonly<Record<string, string>> } : {}),
     metadata: Object.freeze({ stage: metadata.stage as 'implement' | 'fix', round: Number(metadata.round) }) }) });
 }
 

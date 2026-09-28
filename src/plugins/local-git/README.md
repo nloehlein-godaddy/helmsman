@@ -2,7 +2,9 @@
 
 The SDK-only Local Git page mounts one replaceable panel through `helmsman/local-git-page`. The panel implements `helmsman/local-git-panel@1` and uses the injected `helmsman/local-git@1` service. Its runtime imports only package-local modules and SDK types.
 
-The panel preserves local branch/worktree lists, remote tracking status, active-worktree protections, explicit branch/worktree deletion confirmations, and bulk cleanup preview. Header scope is authoritative unless the operator changes the standard composition scope. All requires selecting a repository; the panel never chooses an arbitrary checkout.
+The panel preserves local branch/worktree lists, remote tracking status, active-worktree protections, explicit branch/worktree deletion and branch release confirmations, and bulk cleanup preview. Header scope is authoritative unless the operator changes the standard composition scope. All requires selecting a repository; the panel never chooses an arbitrary checkout.
+
+Release branch detaches an idle linked worktree at the same commit and preserves its directory and files. Confirmation pins the worktree path, branch, commit and checkout revision; active and recovery-blocked worktrees remain protected.
 
 Refresh reads local state. Fetch remote status is an explicit journaled operation. Cleanup preview reads the exact checkout revision and selected force mode; confirmation retains that revision, HEAD, candidates and expected commits. Changes to the force option invalidate the preview. Destructive confirmations remain pinned through polling and reset on activity/scope changes. Unmerged deletion requires a separate explicit opt-in.
 

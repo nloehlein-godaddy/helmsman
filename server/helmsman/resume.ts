@@ -178,12 +178,18 @@ export async function resumeFailedPrePrRun(row: RunRow, deps: { publication?: Pr
   const retainedAgentSelection = checkpoint.task.agentSelection ? persistenceHash(checkpoint.task.agentSelection) : null;
   const hostState = (task: AgentTask) => persistenceHash([task.executionHost ?? null, task.hostRuntime ?? null, task.hostConfiguration ?? null]);
   const retainedHost = hostState(checkpoint.task);
+  const previousSnapshotId = checkpoint.task.workflowSnapshotId;
   if (deps.prepareTask) checkpoint.task = await deps.prepareTask(checkpoint.task);
   if (hostState(checkpoint.task) !== retainedHost) throw new ResumeError('Continuation must retain the original execution host configuration.');
   if ((checkpoint.task.agentRuntime ? persistenceHash(checkpoint.task.agentRuntime) : null) !== retainedAgentRuntime
     || (checkpoint.task.agentSelection ? persistenceHash(checkpoint.task.agentSelection) : null) !== retainedAgentSelection) {
     throw new ResumeError('Continuation must retain the original agent provider records and artifact closure.');
   }
+  const recordPromptUpgrade = () => {
+    if (previousSnapshotId && checkpoint.task.workflowSnapshotId && previousSnapshotId !== checkpoint.task.workflowSnapshotId) {
+      deps.db.appendEvent(row.id, 'phase', `Explicit continuation upgraded prompt snapshot ${previousSnapshotId} to ${checkpoint.task.workflowSnapshotId}; prior workflow choices, verified skills, and original history retained.`, deps.now());
+    }
+  };
   const adapter = prePrAdapter(checkpoint.writerId, resolve(deps.runsDir), checkpoint.settings, deps.publication);
   const command = adapter.buildCommand(checkpoint.task);
   if (deps.durable) {
@@ -201,6 +207,7 @@ export async function resumeFailedPrePrRun(row: RunRow, deps: { publication?: Pr
         launchId: attempt.launchId, attempt: attempt.attempt });
       if (leaseError) throw leaseError;
       attempt.launched(ref, { launchId: attempt.launchId, attempt: attempt.attempt, ref });
+      recordPromptUpgrade();
       deps.db.appendEvent(row.id, 'phase', `Continuing preserved revision ${checkpoint.task.prePrResume?.headSha} from review round ${checkpoint.task.prePrResume?.round}; original implementation and history retained.`, deps.now());
       const resumed = deps.db.getRun(row.id);
       if (!resumed) throw new ResumeError('The resumed voyage could not be read.');
@@ -222,6 +229,7 @@ export async function resumeFailedPrePrRun(row: RunRow, deps: { publication?: Pr
     ref = await deps.host.launch({ runId: row.id, ...command, cwd: checkpoint.cwd,
       logPath: checkpoint.logPath, exitPath: checkpoint.exitPath, specPath: checkpoint.specPath });
     deps.db.updateRun(row.id, { hostKind: ref.kind, hostRef: JSON.stringify(ref) });
+    recordPromptUpgrade();
     deps.db.appendEvent(row.id, 'phase', `Continuing preserved revision ${checkpoint.task.prePrResume?.headSha} from review round ${checkpoint.task.prePrResume?.round}; original implementation and history retained.`, deps.now());
     const resumed = deps.db.getRun(row.id);
     if (!resumed) throw new Error('The resumed voyage could not be read.');

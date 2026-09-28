@@ -24,6 +24,7 @@ export interface PrepareExecutionInput {
   skills?: readonly string[];
   skillsRoots?: readonly string[];
   store?: WorkflowStore;
+  allowPromptUpgrade?: boolean;
 }
 
 export interface PreparedExecution {
@@ -87,14 +88,14 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Pr
     const found = await declarations(requestedSkills, roots);
     const verified: VerifiedSkill[] = [];
     for (const [name, root] of found.roots) verified.push(...await preflightSkills({ declarations: found.declarations.filter(item => item.name === name), trustedNames: new Set(requestedSkills), skillsRoot: root }));
-    if (existingSnapshot && (existingSnapshot.promptCodeHash !== codeHash
-      || JSON.stringify(existingSnapshot.skills) !== JSON.stringify(found.declarations.sort((a, b) => a.name.localeCompare(b.name))))) {
+    if (existingSnapshot && JSON.stringify(existingSnapshot.skills) !== JSON.stringify(found.declarations.sort((a, b) => a.name.localeCompare(b.name)))) {
       throw new Error('Required skills do not match the saved workflow snapshot');
     }
+    const promptChanged = existingSnapshot && existingSnapshot.promptCodeHash !== codeHash;
+    if (promptChanged && workflow) throw new Error('Retained workflow artifacts do not match the saved workflow snapshot');
+    if (promptChanged && !input.allowPromptUpgrade) throw new Error('Prompt implementation does not match the saved workflow snapshot; explicit continuation is required to upgrade it.');
     const metadata = input.task.agentSelection?.writer.metadata;
     const defaults = metadata ? { model: input.model ?? input.task.model ?? metadata.defaults.model ?? undefined, effort: input.effort ?? input.task.effort ?? metadata.defaults.effort ?? undefined } : input.provider === 'codex' ? codexSettings({ model: input.model ?? input.task.model, effort: input.effort ?? input.task.effort }) : { model: input.model ?? input.task.model, effort: input.effort ?? input.task.effort };
-    const snapshot = existingSnapshot ?? store.createSnapshot({ workflowId: workflow?.binding.providerId ?? input.workflow, ...(workflow ? { definition: { id: workflow.binding.providerId, version: 1, promptRevision: workflow.binding.artifactHash, prompt: '', provider: workflow } } : {}), model: defaults.model ?? input.model, effort: defaults.effort ?? input.effort,
-      promptCodeHash: codeHash, reviewSettings: workflowSettings as unknown as Record<string, unknown>, skills: found.declarations });
     const skillsPath = join(input.runsDir, `${input.runId}.runtime`);
     const installRoot = join(skillsPath, 'skills');
     if (await existing(installRoot)) {
@@ -102,6 +103,12 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Pr
         if (await hashSkillDirectory(join(installRoot, skill.name)) !== skill.contentHash) throw new Error(`Provisioned skill ${skill.name} no longer matches the saved workflow snapshot`);
       }
     } else await installVerifiedSkills(verified, installRoot);
+    const snapshot = existingSnapshot
+      ? promptChanged ? store.createSnapshot({ workflowId: existingSnapshot.workflowId, version: existingSnapshot.version ?? existingSnapshot.definition.version,
+        definition: existingSnapshot.definition, model: existingSnapshot.model, effort: existingSnapshot.effort, promptCodeHash: codeHash,
+        reviewSettings: existingSnapshot.reviewSettings, skills: existingSnapshot.skills }) : existingSnapshot
+      : store.createSnapshot({ workflowId: workflow?.binding.providerId ?? input.workflow, ...(workflow ? { definition: { id: workflow.binding.providerId, version: 1, promptRevision: workflow.binding.artifactHash, prompt: '', provider: workflow } } : {}), model: defaults.model ?? input.model, effort: defaults.effort ?? input.effort,
+      promptCodeHash: codeHash, reviewSettings: workflowSettings as unknown as Record<string, unknown>, skills: found.declarations });
     const reviewSettings = (existingSnapshot?.reviewSettings ?? workflowSettings) as PrePrSettings;
     const model = snapshot.model;
     const effort = snapshot.effort;

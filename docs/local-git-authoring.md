@@ -15,7 +15,9 @@ Declare `helmsman/local-git@1` and use `context.services.localGit`. The panel in
 | `inspect(query)` | Inspect a retained command; atomically fence it if no dispatch was recorded. |
 | `pending()` / `acknowledge(query)` | Recover caller-owned commands and retire browser reservations after saving evidence. |
 
-Targets contain `repo` and the snapshot's `revision`. Operations are `delete-branch`, `delete-worktree`, `delete-untracked-branches` and `refresh-remotes`. Deletion retains expected commits, cleanup retains expected HEAD and the explicit force choice. The host rechecks checkout identity and existing Git protections inside the serialized operation path. Default/current/checked-out branches and active or recovery-blocked worktrees remain protected. A plugin cannot replace these checks with its own confirmation.
+Targets contain `repo` and the snapshot's `revision`. Operations are `delete-branch`, `delete-worktree`, `release-worktree`, `delete-untracked-branches` and `refresh-remotes`. Deletion retains expected commits, cleanup retains expected HEAD and the explicit force choice. The host rechecks checkout identity and existing Git protections inside the serialized operation path. Default/current/checked-out branches and active or recovery-blocked worktrees remain protected. A plugin cannot replace these checks with its own confirmation.
+
+`release-worktree` retains `path`, `expectedCommit` and `expectedBranch`. It detaches an idle linked worktree at the same commit, preserving its directory, branch, tracked changes and untracked/ignored files. Snapshots optionally expose `active` and `releaseBlockedReason`. Primary/configured, locked, missing, detached, active and recovery-blocked worktrees cannot release; an in-progress Git operation also blocks release. The operation uses the same authorization, revision checks and durable receipts as deletion.
 
 ## Confirmation and uncertainty
 

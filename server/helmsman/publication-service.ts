@@ -80,6 +80,13 @@ export function createPublicationService(options: PublicationServiceOptions) {
     const manifests = [await artifacts.verify(metadataIdentity)];
     for (const reviewer of approval.reviewers) {
       const identity = { runId: snapshot.runId, stage: 'review', round: approval.round, reviewer };
+      const resumedStage = approval.reviewStages?.[reviewer];
+      if (resumedStage) {
+        const prior = parsePrePrReview(JSON.parse(Buffer.from(await artifacts.read(identity)).toString()), approval);
+        if (prior.verdict !== 'COMMENT') throw new Error('Review continuation requires an original incomplete review');
+        manifests.push(await artifacts.verify(identity));
+        identity.stage = resumedStage;
+      }
       const report = parsePrePrReview(JSON.parse(Buffer.from(await artifacts.read(identity)).toString()), approval);
       if (report.verdict !== 'APPROVE' || report.findings.length !== 0) throw new Error('Publication requires unanimous exact-revision approval');
       manifests.push(await artifacts.verify(identity));

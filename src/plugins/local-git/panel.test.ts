@@ -47,3 +47,28 @@ it('blocks malformed external snapshots and previews instead of enabling partial
 it('rechecks pending commands before admission and cancels a preflight on scope changes',async()=>{const f=await fixture();await ready(f);click(f,'[data-local-branch="topic"]');f.pending.push({command:{...input,requestId},receipt:null});click(f,'.local-git-confirm-delete');await vi.waitFor(()=>expect(f.container.textContent).toContain('Reconcile the original'));expect(f.service.control).not.toHaveBeenCalled();});
 it('suspends polling when hidden and resumes under a new activity lifetime',async()=>{const f=await fixture();await ready(f);vi.useFakeTimers();await f.instance.refresh?.();const count=f.service.snapshot.mock.calls.length;await f.instance.update({...f.state,visible:false});await vi.advanceTimersByTimeAsync(60_000);expect(f.service.snapshot).toHaveBeenCalledTimes(count);await f.instance.update({...f.state,activity:{epoch:2,repo:'org/b',active:true,signal:new AbortController().signal}});await Promise.resolve();expect(f.service.snapshot).toHaveBeenCalledTimes(count+1);});
 it('requires a fresh cleanup preview after a definite bulk rejection',async()=>{const f=await fixture({},context=>{vi.mocked(context.services.localGit!.control).mockImplementation(async value=>available(receipt(value,'rejected')));});await ready(f);click(f,'.local-git-cleanup-preview');await vi.waitFor(()=>expect(f.container.querySelector('.local-git-cleanup-confirm')).not.toBeNull());await ready(f);click(f,'.local-git-cleanup-confirm');await vi.waitFor(()=>expect(f.service.acknowledge).toHaveBeenCalledOnce());expect(f.container.querySelector('.local-git-cleanup-confirm')).toBeNull();expect(f.container.textContent).toContain('Branch changed');expect(f.service.control).toHaveBeenCalledOnce();});
+
+it('confirms branch release with the original scope, branch, commit and checkout revision', async () => {
+  const f = await fixture(); await ready(f);
+  click(f, '[data-local-release="/work/topic"]');
+  expect(f.container.querySelector('[aria-label="Confirm branch release"]')?.textContent).toContain('directory and files are preserved');
+  expect(f.service.control).not.toHaveBeenCalled();
+  f.service.snapshot.mockResolvedValue(available({ ...snapshot, revision: 'b'.repeat(64) }));
+  await f.instance.refresh?.();
+  click(f, '.local-git-confirm-release');
+  await vi.waitFor(() => expect(f.service.control).toHaveBeenCalledOnce());
+  expect(f.service.control.mock.calls[0]?.[0]).toEqual({ version: 1, target, operation: { action: 'release-worktree', path: '/work/topic', expectedCommit: '2'.repeat(40), expectedBranch: 'topic' } });
+  await vi.waitFor(() => expect(f.service.acknowledge).toHaveBeenCalledOnce());
+});
+
+it('disables branch release for active worktrees and while receipt recovery is pending', async () => {
+  const f = await fixture({}, (context, pending) => {
+    pending.push({ command: { ...input, requestId }, receipt: null });
+    vi.mocked(context.services.localGit!.snapshot).mockResolvedValue(available({ ...snapshot, worktrees: snapshot.worktrees.map(tree => ({ ...tree, active: true })) }));
+  });
+  await vi.waitFor(() => expect(f.container.querySelector('[data-local-release="/work/topic"]')).not.toBeNull());
+  expect(f.container.querySelector<HTMLButtonElement>('[data-local-release="/work/topic"]')?.disabled).toBe(true);
+  expect(f.container.textContent).toContain('Active run');
+  click(f, '[data-local-release="/work/topic"]');
+  expect(f.service.control).not.toHaveBeenCalled();
+});

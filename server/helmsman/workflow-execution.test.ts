@@ -64,3 +64,13 @@ describe('retained workflow execution', () => {
     expect(buildCommand).toHaveBeenCalledOnce();
   });
 });
+
+it('projects a validated interrupted review into the retained workflow without leaking host state', () => {
+  const incompleteReview = { reportPath: '/runtime/prior-report.json', summary: 'Dependencies unavailable' };
+  const stage = { ...task.prePr!, incompleteReview };
+  expect(workflowPromptProjection({ ...task, prePr: stage }, agent).stage?.incompleteReview).toEqual(incompleteReview);
+  for (const invalid of [null, { ...incompleteReview, reportPath: stage.reportPath }, { ...incompleteReview, summary: '' }, { ...incompleteReview, summary: 'x'.repeat(2001) }]) {
+    expect(() => workflowPromptProjection({ ...task, prePr: { ...stage, incompleteReview: invalid } } as unknown as AgentTask, agent)).toThrow();
+  }
+  expect(() => workflowPromptProjection({ ...task, prePr: { ...stage, stage: 'fix' } }, agent)).toThrow();
+});

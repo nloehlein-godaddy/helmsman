@@ -83,3 +83,12 @@ describe('retained execution host stages', () => {
     expect(dispose).toHaveBeenCalledOnce();
   });
 });
+
+it('copies interrupted review evidence through the retained isolated host prior-report path', async () => {
+  const { adapter, task, buildCommand, prepareStage } = fixture();
+  task.prePr = { ...task.prePr!, summaryCorrection: undefined, incompleteReview: { reportPath: '/host/incomplete.json', summary: 'Missing dependencies' } };
+  const stage = await prepareExecutionHostStage(adapter, task, '/checkout');
+  expect(prepareStage).toHaveBeenCalledWith(expect.objectContaining({ priorReportPath: '/host/incomplete.json' }), expect.any(Function));
+  expect(buildCommand).toHaveBeenCalledWith(expect.objectContaining({ prePr: expect.objectContaining({ incompleteReview: { reportPath: '/guest/prior-report.json', summary: 'Missing dependencies' } }) }));
+  await stage.cleanup(true);
+});

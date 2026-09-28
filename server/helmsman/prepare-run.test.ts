@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { WorkflowRetainedProviderV1 } from './workflow-providers';
 import { prepareExecution } from './prepare-run';
+import { openWorkflowStore } from './workflow-snapshots';
 
 const roots: string[] = [];
 async function fixture() {
@@ -43,6 +44,43 @@ describe('prepare execution', () => {
     expect(result.task.model).toBeUndefined(); expect(result.task.effort).toBeUndefined();
   });
 
+  it('upgrades only prompt code on explicit continuation while preserving old snapshots and frozen choices', async () => {
+    const f = await fixture();
+    const store = openWorkflowStore(join(f.root, 'workflow.db'));
+    try {
+      const input = { runId: 'run_1', runsDir: join(f.root, 'runs'), workflowDbPath: join(f.root, 'workflow.db'), task: f.task,
+        workflow: 'coding' as const, reviewSettings: f.settings, model: 'gpt-5.6-sol', effort: 'high', skillsRoots: [f.skills], store };
+      const current = await prepareExecution(input);
+      const snapshot = store.resolveSnapshot(current.snapshotId)!;
+      const old = store.createSnapshot({ ...snapshot, promptCodeHash: 'a'.repeat(64) });
+      const task = { ...current.task, workflowSnapshotId: old.id };
+      await expect(prepareExecution({ ...input, task })).rejects.toThrow('Prompt implementation does not match');
+      const upgraded = await prepareExecution({ ...input, task, model: 'other', effort: 'low', reviewSettings: { ...f.settings, maxRounds: 1 }, allowPromptUpgrade: true });
+      expect(upgraded).toMatchObject({ snapshotId: current.snapshotId, model: old.model, effort: old.effort, reviewSettings: f.settings });
+      expect(upgraded.snapshotId).not.toBe(old.id);
+      expect(store.resolveSnapshot(upgraded.snapshotId)).toMatchObject({ workflowId: old.workflowId, version: old.version, definition: old.definition, skills: old.skills });
+      expect(store.resolveSnapshot(old.id)).toEqual(old);
+      const retry = await prepareExecution({ ...input, task: upgraded.task });
+      expect(retry.snapshotId).toBe(upgraded.snapshotId);
+    } finally { store.close(); }
+  });
+
+  it.each(['source', 'provisioned'] as const)('rejects %s skill drift even during explicit prompt upgrades', async target => {
+    const f = await fixture();
+    const store = openWorkflowStore(join(f.root, 'workflow.db'));
+    try {
+      const input = { runId: 'run_1', runsDir: join(f.root, 'runs'), workflowDbPath: join(f.root, 'workflow.db'), task: f.task,
+        workflow: 'coding' as const, reviewSettings: f.settings, skillsRoots: [f.skills], store };
+      const current = await prepareExecution(input);
+      const old = store.createSnapshot({ ...store.resolveSnapshot(current.snapshotId)!, promptCodeHash: 'a'.repeat(64) });
+      const source = target === 'source' ? f.skills : join(current.task.skillsPath, 'skills');
+      await writeFile(join(source, 'review-agent', 'SKILL.md'), '# changed');
+      await expect(prepareExecution({ ...input, task: { ...current.task, workflowSnapshotId: old.id }, allowPromptUpgrade: true }))
+        .rejects.toThrow(target === 'source' ? 'Required skills do not match' : 'Provisioned skill review-agent no longer matches');
+      expect(store.resolveSnapshot(old.id)).toEqual(old);
+    } finally { store.close(); }
+  });
+
 });
 
 it('pins authored workflow settings/artifacts and rejects a changed original binding on continuation', async () => {
@@ -53,6 +91,7 @@ it('pins authored workflow settings/artifacts and rejects a changed original bin
   const input = { runId: 'authored', runsDir: join(f.root, 'runs'), workflowDbPath: join(f.root, 'workflow.db'), task: { ...f.task, workflow, workflowRuntime }, workflow: 'coding' as const, reviewSettings: f.settings, skillsRoots: [] };
   const initial = await prepareExecution(input);
   expect(initial.task.promptRevision).toBe(workflow.binding.artifactHash);
+  await expect(prepareExecution({ ...input, task: { ...initial.task, workflowRuntime: { ...workflowRuntime, artifacts: [...workflowRuntime.artifacts, { pluginId: 'example.extra', artifactHash: 'd'.repeat(64), packageVersion: '1.0.0', requires: [] }] } }, allowPromptUpgrade: true })).rejects.toThrow('Retained workflow artifacts do not match');
   expect(initial.reviewSettings).toMatchObject({ maxRounds: 4, stageTimeoutMinutes: 10 });
   expect((await prepareExecution({ ...input, task: initial.task, reviewSettings: { ...f.settings, maxRounds: 1 } })).snapshotId).toBe(initial.snapshotId);
   await expect(prepareExecution({ ...input, task: { ...initial.task, workflow: { ...workflow, settings: { marker: 'changed' } } } })).rejects.toThrow('binding differs');

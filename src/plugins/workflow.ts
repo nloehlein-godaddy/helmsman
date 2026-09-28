@@ -10,6 +10,7 @@ export interface WorkflowMetadataV1 {
 }
 export interface WorkflowStageV1 {
   readonly stage: 'implement' | 'review' | 'fix'; readonly baseSha: string; readonly headSha?: string; readonly reportPath: string;
+  readonly incompleteReview?: { readonly reportPath: string; readonly summary: string };
   readonly feedback?: string; readonly round?: number; readonly summaryCorrection?: { readonly reportPath: string; readonly actualLength: number };
 }
 export interface WorkflowPromptInputV1 {
@@ -76,12 +77,17 @@ export function parseWorkflowMetadataV1(input: unknown): WorkflowMetadataV1 {
     requiredSkills: value.requiredSkills as readonly string[], maxRounds: integer(value.maxRounds, 1, 5), stageTimeoutMinutes: integer(value.stageTimeoutMinutes, 5, 180) });
 }
 export function parseWorkflowStageV1(input: unknown): WorkflowStageV1 {
-  const value = sourceObject(sourceJson(input, WORKFLOW_LIMITS_V1.input)); sourceFields(value, ['stage', 'baseSha', 'reportPath'], ['headSha', 'feedback', 'round', 'summaryCorrection']);
+  const value = sourceObject(sourceJson(input, WORKFLOW_LIMITS_V1.input)); sourceFields(value, ['stage', 'baseSha', 'reportPath'], ['headSha', 'feedback', 'round', 'summaryCorrection', 'incompleteReview']);
   if (!['implement', 'review', 'fix'].includes(String(value.stage))) invalid();
   sha(value.baseSha); path(value.reportPath);
   if (Object.hasOwn(value, 'headSha')) sha(value.headSha);
   if (Object.hasOwn(value, 'feedback')) text(value.feedback, 256 * 1024, true);
   if (Object.hasOwn(value, 'round')) integer(value.round, 0, 5);
+  if (Object.hasOwn(value, 'incompleteReview')) {
+    const prior = sourceObject(value.incompleteReview); sourceFields(prior, ['reportPath', 'summary']);
+    path(prior.reportPath); text(prior.summary, 2000);
+    if (value.stage !== 'review' || prior.reportPath === value.reportPath || Object.hasOwn(value, 'summaryCorrection')) invalid();
+  }
   if (Object.hasOwn(value, 'summaryCorrection')) {
     const correction = sourceObject(value.summaryCorrection); sourceFields(correction, ['reportPath', 'actualLength']);
     path(correction.reportPath); integer(correction.actualLength, 1, Number.MAX_SAFE_INTEGER);

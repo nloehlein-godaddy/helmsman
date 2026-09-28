@@ -22,6 +22,7 @@ function mappedTask(task: AgentTask, paths: ExecutionHostStagePathsV1): AgentTas
     prePr: task.prePr ? {
       ...task.prePr,
       reportPath: paths.reportPath ?? task.prePr.reportPath,
+      ...(task.prePr.incompleteReview ? { incompleteReview: { ...task.prePr.incompleteReview, reportPath: paths.priorReportPath ?? task.prePr.incompleteReview.reportPath } } : {}),
       ...(task.prePr.summaryCorrection ? {
         summaryCorrection: {
           ...task.prePr.summaryCorrection,
@@ -73,7 +74,7 @@ export async function prepareExecutionHostStage(adapter: AgentAdapter, task: Age
       stage: isolatedStage(task),
       skillsPath: task.skillsPath ?? null,
       reportPath: task.prePr?.reportPath ?? null,
-      priorReportPath: task.prePr?.summaryCorrection?.reportPath ?? null,
+      priorReportPath: task.prePr?.summaryCorrection?.reportPath ?? task.prePr?.incompleteReview?.reportPath ?? null,
       reviewOutputPaths,
       clarification: task.clarification ? {
         questionsPath: task.clarification.questionsPath,

@@ -44,11 +44,19 @@ export function checkSdkCompatibility(baseline, candidate) {
         const newType = `${kind === 'Value' ? 'typeof ' : ''}import(${JSON.stringify(join(candidate, entry).replace(/\.d\.ts$/, '.js'))}).${exported.name}${argumentsText}`;
         // The host accepts one new communication manifest input. Project only that exact
         // access union for old consumers; all previous-to-current assignments stay strict.
-        const legacyType = entry === 'index.d.ts' && kind === 'Type' && exported.name === 'PluginBackendDefinition'
+        let legacyType = entry === 'index.d.ts' && kind === 'Type' && exported.name === 'PluginBackendDefinition'
           ? `LegacyCommunicationManifest<${newType}>`
           : entry === 'index.d.ts' && kind === 'Type' && exported.name === 'CommunicationProviderDeclaration'
             ? `LegacyCommunicationDeclaration<${newType}>` : newType;
-        assignments.push(`function check${assignments.length}${argumentsText}(previous: ${oldType}, current: ${legacyType}) { const oldCheck: ${oldType} = current; const newCheck: ${newType} = previous; }`);
+        if (entry === 'index.d.ts' && kind === 'Type') {
+          if (exported.name.startsWith('LocalGit')) legacyType = `LegacyLocalGit<${newType}>`;
+          else if (['PluginPageServices', 'PluginPanelServicesV1'].includes(exported.name)) legacyType = `LegacyLocalGitServices<${newType}>`;
+          else if (['PluginPageContext', 'PluginPanelContext'].includes(exported.name)) legacyType = `LegacyLocalGitContext<${newType}>`;
+        }
+        const localGitParser = entry === 'index.d.ts' && kind === 'Value' && exported.name.startsWith('parseLocalGit');
+        if (localGitParser) legacyType = `LegacyLocalGit<${newType}>`;
+        const acceptedType = localGitParser ? `LegacyLocalGitParameters<${newType}>` : newType;
+        assignments.push(`function check${assignments.length}${argumentsText}(previous: ${oldType}, current: ${legacyType}) { const oldCheck: ${oldType} = current; const newCheck: ${acceptedType} = previous; }`);
       }
     }
   }
@@ -60,6 +68,15 @@ type LegacyCommunicationAccess<T> = [T] extends [readonly ['browser-session'] | 
 type LegacyCommunicationDeclaration<T> = { [K in keyof T]: K extends 'access' ? LegacyCommunicationAccess<T[K]> : T[K] };
 type LegacyCommunicationDeclarations<T> = T extends undefined ? T : { [K in keyof T]: LegacyCommunicationDeclaration<T[K]> };
 type LegacyCommunicationManifest<T> = { [K in keyof T]: K extends 'communications' ? LegacyCommunicationDeclarations<T[K]> : T[K] };
+type ReleaseWorktree = { action: 'release-worktree'; path: string; expectedCommit: string; expectedBranch: string };
+type LegacyLocalGit<T> = T extends { action: 'release-worktree' }
+  ? Exclude<keyof T, keyof ReleaseWorktree> extends never ? [T] extends [ReleaseWorktree] ? [ReleaseWorktree] extends [T] ? never : T : T : T
+  : T extends (...args: infer A) => infer R ? (...args: A) => LegacyLocalGit<R>
+  : T extends Promise<infer R> ? Promise<LegacyLocalGit<R>>
+  : T extends object ? { [K in keyof T]: LegacyLocalGit<T[K]> } : T;
+type LegacyLocalGitParameters<T> = T extends (...args: infer A) => infer R ? (...args: { [K in keyof A]: LegacyLocalGit<A[K]> }) => R : T;
+type LegacyLocalGitServices<T> = { [K in keyof T]: K extends 'localGit' ? LegacyLocalGit<T[K]> : T[K] };
+type LegacyLocalGitContext<T> = { [K in keyof T]: K extends 'services' ? LegacyLocalGitServices<T[K]> : T[K] };
 ${assignments.join('\n')}`;
   const host = ts.createCompilerHost(options);
   const getSourceFile = host.getSourceFile.bind(host);

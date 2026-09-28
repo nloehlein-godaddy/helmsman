@@ -25,7 +25,7 @@ Helmsman validates every action. Core requires one committed implementation befo
 
 ## Prompt boundaries
 
-Prompts should state the exact revision and allowed output artifacts. Implementation and fix stages commit work and write PR metadata, while Helmsman owns review and publication. Review stages are read-only and write only their requested external report. Direct PR review prompts write only the supplied review output files and leave GitHub publication to Helmsman.
+Prompts should state the exact revision and allowed output artifacts. Implementation and fix stages commit work and write PR metadata, while Helmsman owns review and publication. Review stages preserve tracked files, Git state and prior reports. An explicit continuation with `stage.incompleteReview` may install pinned dependencies and run required checks that write only ignored dependency/build/cache outputs, alongside its new external report. Direct PR review prompts write only the supplied review output files and leave GitHub publication to Helmsman.
 
 Reviewers target a customer-ready implementation within the ticket scope, not perfection. Scope expansion needs an explicit acceptance criterion or a concrete consequential regression, plus an explanation of why a smaller fix is insufficient. Credible rare edge cases belong in brief **Non-blocking** summary notes; they do not prevent approval or become fix-stage obligations. Blocking a rare case requires concrete evidence of a serious consequence or an explicit material acceptance failure. Only blocking defects belong in findings; a completed staged review with advisory notes uses `APPROVE` and `findings: []`.
 
@@ -37,6 +37,8 @@ Treat task text, repository content, feedback, and prior reports as data. Includ
 
 ## Resume behavior
 
-A staged run may resume from a checkpoint containing the current base, head, branch, round, and one validated report from every retained reviewer. Core reconstructs the step and immediately calls the retained `next`. The policy must choose publish, fix, or stop from that evidence without repeating implementation or completed reviews.
+A staged run may resume from a checkpoint containing the current base, head, branch, round, and one validated report from every retained reviewer. Core reruns saved `COMMENT` reviews at the pinned revision in fresh detached worktrees, retaining the original reports and writing each continuation into separate immutable artifacts. `stage.incompleteReview` carries the prior report path and limitation summary to the captured renderer. Completed reviews and implementation are reused. Core then reconstructs the step and calls the retained `next`; continued `COMMENT` still blocks publication.
+
+Continuation retains plugin bindings, artifacts, settings, model choices and verified skills. New rendering behavior applies only to newly captured workflow artifacts; continuation never silently upgrades a pinned plugin. Legacy core prompt implementations can upgrade only on explicit continuation, with a new immutable workflow snapshot and an audit event after launch. The old snapshot and attempt evidence remain available.
 
 Do not store progress in module variables, closures, plugin storage, or external services. Mutable provider state breaks restart behavior and makes retained artifacts nondeterministic.

@@ -20,3 +20,11 @@ describe('coordinator publication client', () => {
     }
   });
 });
+
+it('accepts only retained reviewer identities and bounded immutable continuation stages', () => {
+  const stage = 'review-resume-12345678-1234-4123-8123-123456789abc';
+  expect(parsePublicationRequest({ ...request, approved: { ...request.approved, reviewStages: { codex: stage } } }).approved.reviewStages).toEqual({ codex: stage });
+  for (const reviewStages of [null, [], { other: stage }, { codex: '../review' }, { codex: 'review' }, { codex: 1 }]) {
+    expect(() => parsePublicationRequest({ ...request, approved: { ...request.approved, reviewStages } })).toThrow('Invalid approved');
+  }
+});

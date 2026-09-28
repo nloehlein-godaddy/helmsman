@@ -100,3 +100,14 @@ describe('coding workflow prompts', () => {
     expect(value).toContain('do NOT open a new pull request');
   });
 });
+
+it('renders an interrupted review with bounded verification permissions and unchanged prior evidence', () => {
+  const incompleteReview = { reportPath: '/tmp/original.json', summary: 'Dependencies unavailable' };
+  const rendered = renderCodingPrompt(prompt({ stage: 'review', baseSha, headSha, reportPath: '/tmp/resumed.json', round: 1, incompleteReview }));
+  expect(rendered).toContain('explicit continuation of a COMMENT review');
+  expect(rendered).toContain(JSON.stringify(incompleteReview.reportPath));
+  expect(rendered).toContain('use the pinned lockfile');
+  expect(rendered).toContain('git-ignored dependency/build/cache files');
+  expect(rendered).toContain('retain COMMENT');
+  expect(rendered).not.toContain('This is the only file you may write.');
+});

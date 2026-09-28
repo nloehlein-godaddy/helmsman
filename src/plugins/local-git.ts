@@ -17,12 +17,15 @@ export interface LocalWorktree {
   detached: boolean;
   locked: boolean;
   prunable: boolean;
+  active?: boolean;
+  releaseBlockedReason?: string | null;
   deletionBlockedReason?: string | null;
 }
 
 export type LocalGitAction =
   | { action: 'delete-branch'; branch: string; expectedCommit: string; force?: boolean }
   | { action: 'delete-worktree'; path: string; expectedCommit: string }
+  | { action: 'release-worktree'; path: string; expectedCommit: string; expectedBranch: string }
   | { action: 'preview-delete-untracked-branches'; force?: boolean }
   | { action: 'delete-untracked-branches'; expectedHead: string; branches: { branch: string; expectedCommit: string }[]; force?: boolean }
   | { action: 'refresh-remotes' };
@@ -87,8 +90,10 @@ export function parseLocalGitSnapshotV1(input: unknown): LocalGitSnapshotV1 {
       ...(item.deletionBlockedReason === undefined ? {} : { deletionBlockedReason: nullable(item.deletionBlockedReason, 2000) }) };
   }, LOCAL_GIT_LIMITS.branches)];
   const worktrees = [...clarificationArray(value.worktrees, entry => {
-    const item = clarificationObject(entry); clarificationFields(item, ['path', 'branch', 'commit', 'bare', 'detached', 'locked', 'prunable'], ['deletionBlockedReason']);
+    const item = clarificationObject(entry); clarificationFields(item, ['path', 'branch', 'commit', 'bare', 'detached', 'locked', 'prunable'], ['deletionBlockedReason', 'active', 'releaseBlockedReason']);
     return { path: path(item.path), branch: item.branch === null ? null : branch(item.branch), commit: item.commit === '' && item.bare === true ? '' : hash(item.commit), bare: clarificationBoolean(item.bare), detached: clarificationBoolean(item.detached), locked: clarificationBoolean(item.locked), prunable: clarificationBoolean(item.prunable),
+      ...(item.active === undefined ? {} : { active: clarificationBoolean(item.active) }),
+      ...(item.releaseBlockedReason === undefined ? {} : { releaseBlockedReason: nullable(item.releaseBlockedReason, 2000) }),
       ...(item.deletionBlockedReason === undefined ? {} : { deletionBlockedReason: nullable(item.deletionBlockedReason, 2000) }) };
   }, LOCAL_GIT_LIMITS.worktrees)];
   if (new Set(branches.map(item => item.name)).size !== branches.length || new Set(worktrees.map(item => item.path)).size !== worktrees.length) invalidClarification();
@@ -116,6 +121,7 @@ export function parseLocalGitControlInputV1(input: unknown): LocalGitControlInpu
   if (data.action === 'refresh-remotes') { clarificationFields(data, ['action']); operation = { action: 'refresh-remotes' }; }
   else if (data.action === 'delete-branch') { clarificationFields(data, ['action', 'branch', 'expectedCommit'], ['force']); operation = { action: 'delete-branch', branch: branch(data.branch), expectedCommit: hash(data.expectedCommit), ...force() }; }
   else if (data.action === 'delete-worktree') { clarificationFields(data, ['action', 'path', 'expectedCommit']); operation = { action: 'delete-worktree', path: path(data.path), expectedCommit: hash(data.expectedCommit) }; }
+  else if (data.action === 'release-worktree') { clarificationFields(data, ['action', 'path', 'expectedCommit', 'expectedBranch']); operation = { action: 'release-worktree', path: path(data.path), expectedCommit: hash(data.expectedCommit), expectedBranch: branch(data.expectedBranch) }; }
   else if (data.action === 'delete-untracked-branches') {
     clarificationFields(data, ['action', 'expectedHead', 'branches'], ['force']);
     const branches = [...clarificationArray(data.branches, entry => { const item = clarificationObject(entry); clarificationFields(item, ['branch', 'expectedCommit']); return { branch: branch(item.branch), expectedCommit: hash(item.expectedCommit) }; }, LOCAL_GIT_LIMITS.branches)];

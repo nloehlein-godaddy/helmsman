@@ -94,9 +94,11 @@ export async function prepareDockerStage(adapter: AgentAdapter, task: AgentTask,
       skillsPath: task.skillsPath ? '/skills' : undefined,
       reviewOutputPaths: task.review ? { markdown: '/runtime/review.md', comments: '/runtime/review-comments.json' } : undefined,
       prePr: task.prePr ? { ...task.prePr, reportPath: '/runtime/report.json',
+        ...(task.prePr.incompleteReview ? { incompleteReview: { ...task.prePr.incompleteReview, reportPath: '/runtime/prior-report.json' } } : {}),
         ...(task.prePr.summaryCorrection ? { summaryCorrection: { ...task.prePr.summaryCorrection, reportPath: '/runtime/prior-report.json' } } : {}) } : undefined,
       clarification: task.clarification ? { questionsPath: '/runtime/questions.jsonl', answersPath: '/runtime/answers.jsonl' } : undefined };
-    if (task.prePr?.summaryCorrection) await copyFile(task.prePr.summaryCorrection.reportPath, join(runtime, 'prior-report.json'));
+    const priorReportPath = task.prePr?.summaryCorrection?.reportPath ?? task.prePr?.incompleteReview?.reportPath;
+    if (priorReportPath) await copyFile(priorReportPath, join(runtime, 'prior-report.json'));
     const syncClarification = async () => {
       if (!task.clarification) return;
       const questions = await boundedFile(join(runtime, 'questions.jsonl'), true);

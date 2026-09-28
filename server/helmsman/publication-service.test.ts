@@ -21,7 +21,7 @@ const baseSha = 'a'.repeat(40);
 const headSha = 'b'.repeat(40);
 const request: PublicationRequest = { version: 1, kind: 'pre-pr', approved: { baseSha, headSha, branch: 'agent/run', baseBranch: 'main', round: 1, reviewers: ['codex', 'claude-code'], metadata: { stage: 'implement', round: 0 } } };
 const scope = { repo: 'org/repo', branch: 'agent/run', readOnly: false };
-async function fixture() {
+async function fixture(incomplete = false) {
   const root = await mkdtemp(join(tmpdir(), 'publication-test-')); roots.push(root);
   await mkdir(join(root, 'objects'));
   const persistence = openPersistence(':memory:'); databases.push(persistence);
@@ -37,7 +37,7 @@ async function fixture() {
     paths: { worktree: root, log: '/run.log', exit: '/run.exit', spec: '/run.json' } });
   const artifacts = createRunArtifactStore(join(root, '.artifacts'));
   await artifacts.write({ runId: 'run', stage: 'implement', round: 0 }, JSON.stringify({ title: '[TASK-1] Improve behavior', body: 'The change.' }));
-  for (const reviewer of request.approved.reviewers) await artifacts.write({ runId: 'run', stage: 'review', round: 1, reviewer }, JSON.stringify({ baseSha, headSha, verdict: 'APPROVE', summary: 'Approved.', findings: [] }));
+  for (const reviewer of request.approved.reviewers) await artifacts.write({ runId: 'run', stage: 'review', round: 1, reviewer }, JSON.stringify({ baseSha, headSha, verdict: incomplete && reviewer === 'codex' ? 'COMMENT' : 'APPROVE', summary: 'Review evidence.', findings: [] }));
   const remote = { sha: null as string | null, dirty: false, localHead: headSha, actor: 'actor', url: 'git@github.com:org/repo.git', base: baseSha,
     losePush: false, losePr: false, stopped: false, stopDuringTransportSetup: false, stopAtObservation: 0, observations: 0, clarified: true, pr: null as null | { number: number; body: string; title: string } };
   const command = vi.fn<PublicationCommand>(async (cmd, args, context) => {
@@ -176,4 +176,29 @@ describe('core publication outbox', () => {
     expect(f.operations.byKey('run:1:publication:pr')).toBeNull();
     expect(f.writes()).toHaveLength(1);
   });
+});
+
+
+it.each(['APPROVE', 'COMMENT', 'REQUEST_CHANGES'] as const)('publishes a resumed review only with exact immutable approval: %s', async verdict => {
+  const f = await fixture(true);
+  const stage = 'review-resume-12345678-1234-4123-8123-123456789abc';
+  await f.artifacts.write({ runId: 'run', stage, round: 1, reviewer: 'codex' }, JSON.stringify({ baseSha, headSha, verdict, summary: 'Continued review.', findings: verdict === 'REQUEST_CHANGES' ? [{ title: 'Guard missing', body: 'Empty input throws in the changed flow.' }] : [] }));
+  const resumed = { ...request, approved: { ...request.approved, reviewStages: { codex: stage } } };
+  const result = f.service.publish('run', scope, resumed, AbortSignal.timeout(3000));
+  if (verdict === 'APPROVE') {
+    expect(await result).toEqual({ ok: true, prNumber: 12 });
+    expect(JSON.stringify(f.operations.list())).toContain(stage);
+  } else {
+    await expect(result).rejects.toThrow('unanimous');
+    expect(f.writes()).toEqual([]);
+  }
+  expect(JSON.parse(Buffer.from(await f.artifacts.read({ runId: 'run', stage: 'review', round: 1, reviewer: 'codex' })).toString()).verdict).toBe('COMMENT');
+});
+
+it('rejects a resumed stage that is not backed by an original incomplete review', async () => {
+  const f = await fixture();
+  const stage = 'review-resume-12345678-1234-4123-8123-123456789abc';
+  await f.artifacts.write({ runId: 'run', stage, round: 1, reviewer: 'codex' }, JSON.stringify({ baseSha, headSha, verdict: 'APPROVE', summary: 'Approved.', findings: [] }));
+  await expect(f.service.publish('run', scope, { ...request, approved: { ...request.approved, reviewStages: { codex: stage } } }, AbortSignal.timeout(3000))).rejects.toThrow('original incomplete');
+  expect(f.writes()).toEqual([]);
 });

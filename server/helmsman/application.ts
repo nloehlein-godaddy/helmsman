@@ -1062,7 +1062,7 @@ async function resumeVoyage(runId: string): Promise<void> {
         }
         task.modelGateway = { url: `http://127.0.0.1:${gatewayPort}`, token: gateway.issue(runId, 86_400_000).token };
         task.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: row.attempt + 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
-        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^pre-pr:/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort });
+        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^pre-pr:/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort, allowPromptUpgrade: true });
         if (prepared.task.hostIsolation) {
           if (!hosting.context.isolated) throw new ResumeError('The retained host cannot continue an isolated voyage.');
           prepared.task.hostIsolation = { ...prepared.task.hostIsolation, capability: gateway.issue(runId, 86_400_000).token };

@@ -35,6 +35,7 @@ export function workflowPromptProjection(task: AgentTask, agent: AgentRetainedPr
     reportPath: task.prePr.reportPath,
     ...(task.prePr.feedback !== undefined ? { feedback: task.prePr.feedback } : {}),
     ...(task.prePr.round !== undefined ? { round: task.prePr.round } : {}),
+    ...(task.prePr.incompleteReview !== undefined ? { incompleteReview: { ...task.prePr.incompleteReview } } : {}),
     ...(task.prePr.summaryCorrection ? { summaryCorrection: { ...task.prePr.summaryCorrection } } : {}),
   } : null;
   return parseWorkflowPromptInputV1({

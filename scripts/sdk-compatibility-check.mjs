@@ -67,3 +67,39 @@ export interface OtherDeclaration { readonly access: readonly ['browser-session'
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('Local Git release extension preserves existing operations and rejects unrelated contract drift', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'helmsman-sdk-local-git-compat-'));
+  try {
+    const baseline = join(root, 'baseline'); const candidate = join(root, 'candidate');
+    const original = `
+export type LocalGitAction = { action: 'delete-worktree'; path: string; expectedCommit: string };
+export interface LocalGitControlInputV1 { operation: LocalGitAction; }
+export interface LocalGitControlReceiptV1 { input: LocalGitControlInputV1; status: 'succeeded' | 'rejected'; }
+export interface LocalGitServiceV1 { control(input: LocalGitControlInputV1): Promise<LocalGitControlReceiptV1>; }
+export interface PluginPageServices { localGit?: LocalGitServiceV1; other: string; }
+export interface PluginPageContext { services?: PluginPageServices; }
+export declare function parseLocalGitControlReceiptV1(input: unknown, expected?: LocalGitControlInputV1): LocalGitControlReceiptV1;
+export type UnrelatedAction = { action: 'delete-worktree'; path: string; expectedCommit: string };
+`;
+    for (const directory of [baseline, candidate]) {
+      await mkdir(directory); await writeFile(join(directory, 'package.json'), '{"type":"module"}');
+      await writeFile(join(directory, 'node.d.ts'), 'export {};'); await writeFile(join(directory, 'index.d.ts'), original);
+    }
+    const release = " | { action: 'release-worktree'; path: string; expectedCommit: string; expectedBranch: string }";
+    const extended = original.replace('expectedCommit: string };', `expectedCommit: string }${release};`);
+    await writeFile(join(candidate, 'index.d.ts'), extended);
+    assert.equal(checkSdkCompatibility(baseline, candidate), 8);
+    for (const broken of [
+      extended.replace("action: 'delete-worktree'", "action: 'removed-worktree'"),
+      extended.replace('expectedBranch: string', 'expectedBranch: number'),
+      extended.replace('expectedBranch: string', 'expectedBranch: string; force?: boolean'),
+      extended.replace('other: string', 'other: number'),
+      extended.replace("status: 'succeeded' | 'rejected'", "status: 'succeeded' | 'rejected' | 'unknown'"),
+      extended.replace("export type UnrelatedAction =", "export type UnrelatedAction = { action: 'release-worktree'; path: string; expectedCommit: string; expectedBranch: string } |"),
+    ]) {
+      await writeFile(join(candidate, 'index.d.ts'), broken);
+      assert.throws(() => checkSdkCompatibility(baseline, candidate), /SDK compatibility check failed/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
