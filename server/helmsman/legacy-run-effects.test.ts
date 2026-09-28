@@ -37,6 +37,7 @@ function fixture(taskOverrides: Partial<AgentTask> = {}) {
   let status = { id: '1', name: 'Open' };
   let copilot = false;
   let failWrite = false;
+  let failCopilotWrite = false;
   let outage = false;
   const fetcher = vi.fn(async (url: unknown, init?: RequestInit) => {
     if (outage) throw new Error('offline');
@@ -53,7 +54,7 @@ function fixture(taskOverrides: Partial<AgentTask> = {}) {
     }
     if (path.endsWith('/user')) return json({ login: 'actor' });
     if (path.endsWith('/requested_reviewers')) {
-      if (init?.method === 'POST') { copilot = true; return json({}); }
+      if (init?.method === 'POST') { copilot = true; if (failCopilotWrite) throw new Error('lost Copilot acknowledgment'); return json({}); }
       return json({ users: copilot ? [{ login: 'copilot-pull-request-reviewer[bot]' }] : [] });
     }
     if (path.endsWith('/reviews') && init?.method === 'POST') return json({ id: 90 });
@@ -64,7 +65,13 @@ function fixture(taskOverrides: Partial<AgentTask> = {}) {
   const options = { persistence, runId: row.id, operations, executions, getRun: db.getRun, currentConfig: () => config,
     verifyArtifacts: vi.fn(async () => {}), createdReviews: { enqueue, find: (input: CreatedReviewTarget) => queued.get(`${input.parentRunId}:${input.prNumber}`) ?? null },
     authorize: async () => ({ allowed: true as const }), fetcher };
-  return { persistence, db, executions, operations, config, row, snapshot, options, fetcher, enqueue,
+  function seedRetainedCopilot() {
+    return operations.enqueue({ version: 1, key: 'run:1:github.copilot-review:finalization', kind: 'github.copilot-review',
+      origin: { kind: 'run-finalization', id: snapshot.id, revision: snapshot.contentHash, runId: row.id, attempt: row.attempt },
+      binding: snapshot.bindings.find(binding => binding.role === 'effect' && binding.capability === 'github')!, artifacts: snapshot.artifacts,
+      target: { repo: row.repo, prNumber: 12, headSha, actor: 'actor', reviewer: 'copilot-pull-request-reviewer[bot]' }, payload: {}, dependencies: [] });
+  }
+  return { persistence, db, executions, operations, config, row, snapshot, options, fetcher, enqueue, seedRetainedCopilot, loseCopilotAck: () => { failCopilotWrite = true; },
     effects: createLegacyRunEffects(options), loseAssignmentAck: () => { failWrite = true; }, setOutage: (value: boolean) => { outage = value; } };
 }
 
@@ -108,7 +115,7 @@ describe('legacy run effects cutover facade', () => {
       }
       writeFileSync(channel.questionsPath, questionLine + ' \t\r');
       await effects.drainPending('run');
-      expect(data.operations.list()).toHaveLength(3);
+      expect(data.operations.list()).toHaveLength(2);
       expect(data.operations.list().every(operation => operation.status === 'completed')).toBe(true);
       expect(authorize).toHaveBeenCalled(); expect(data.enqueue).toHaveBeenCalledOnce();
       expect(store.list()).toEqual(before); expect(store.protocol.provenance('answered')).toEqual(provenance);
@@ -126,7 +133,7 @@ describe('legacy run effects cutover facade', () => {
     await data.effects.prepareFinalizationLookups(finalRow, data.snapshot);
     data.persistence.transaction(() => data.effects.prepareFinalization(finalRow, data.snapshot));
     const effects = data.operations.list().filter(operation => operation.origin.kind === 'run-finalization');
-    expect(effects).toHaveLength(3);
+    expect(effects).toHaveLength(2);
     for (const operation of effects) {
       expect(authorizeRunEffect(operation, finalRow).allowed).toBe(true);
       expect(authorizeRunEffect(operation, { ...finalRow, prNumber: 13 }).allowed).toBe(false);
@@ -168,15 +175,15 @@ describe('legacy run effects cutover facade', () => {
     expect(data.db.getRun('run')?.status).toBe('running');
     expect(data.operations.list()).toEqual([]);
     data.persistence.transaction(() => { data.effects.prepareFinalization(finalRow, data.snapshot); data.db.updateRun('run', { status: 'succeeded', prNumber: 12 }); });
-    expect(data.operations.list().map(item => item.kind).sort()).toEqual(['github.copilot-review', 'jira.transition', 'queue.created-pr-review']);
+    expect(data.operations.list().map(item => item.kind).sort()).toEqual(['jira.transition', 'queue.created-pr-review']);
     expect(data.enqueue).not.toHaveBeenCalled();
     await data.effects.drainPending('run');
     expect(data.operations.list().every(item => item.status === 'completed')).toBe(true);
     expect(data.enqueue).toHaveBeenCalledOnce();
   });
 
-  it('reuses finalization targets after restart without reading current remote identities', async () => {
-    const data = fixture();
+  it('reuses retained legacy Copilot and other finalization targets after restart without new remote lookup', async () => {
+    const data = fixture(); data.seedRetainedCopilot();
     const finalRow = { ...data.row, status: 'succeeded' as const, prNumber: 12 };
     await data.effects.prepareFinalizationLookups(finalRow, data.snapshot);
     data.persistence.transaction(() => data.effects.prepareFinalization(finalRow, data.snapshot));
@@ -191,7 +198,7 @@ describe('legacy run effects cutover facade', () => {
   });
 
   it('blocks a changed connection while preserving the admitted target and pins', async () => {
-    const data = fixture();
+    const data = fixture(); data.seedRetainedCopilot();
     const finalRow = { ...data.row, status: 'succeeded' as const, prNumber: 12 };
     await data.effects.prepareFinalizationLookups(finalRow, data.snapshot);
     data.persistence.transaction(() => data.effects.prepareFinalization(finalRow, data.snapshot));
@@ -214,4 +221,27 @@ describe('legacy run effects cutover facade', () => {
     expect(vi.mocked(data.fetcher).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
     expect(data.operations.list()).toHaveLength(1);
   });
+});
+
+it.each([{}, { task: 'Implement a freeform request' }])('does not prepare or send new Copilot requests while retaining managed review finalization', async taskOverrides => {
+  const data = fixture(taskOverrides);
+  const finalRow = { ...data.row, status: 'succeeded' as const, prNumber: 12 };
+  await data.effects.prepareFinalizationLookups(finalRow, data.snapshot);
+  data.persistence.transaction(() => { data.effects.prepareFinalization(finalRow, data.snapshot); data.db.updateRun('run', { status: 'succeeded', prNumber: 12 }); });
+  await data.effects.drainPending('run');
+  expect(data.operations.byKey('run:1:github.copilot-review:finalization')).toBeNull();
+  expect(data.enqueue).toHaveBeenCalledExactlyOnceWith({ parentRunId: 'run', repo: 'org/repo', prNumber: 12 });
+  expect(vi.mocked(data.fetcher).mock.calls.some(([url]) => String(url).includes('api.github.com'))).toBe(false);
+  expect(await data.effects.requestCopilotReview('org/repo', 12)).toMatchObject({ ok: false, error: expect.stringContaining('disabled') });
+  expect(data.operations.byKey('run:1:github.copilot-review:finalization')).toBeNull();
+});
+
+it('reconciles a retained Copilot lost response after restart without replay or changing its identity', async () => {
+  const data = fixture(); const original = data.seedRetainedCopilot(); data.loseCopilotAck();
+  data.db.updateRun('run', { status: 'succeeded', prNumber: 12 });
+  expect((await data.effects.dispatch(original.id)).status).toBe('uncertain');
+  await createLegacyRunEffects(data.options).drainPending('run');
+  const settled = data.operations.get(original.id)!;
+  expect(settled.status).toBe('completed'); expect(settled.target).toEqual(original.target); expect(settled.binding).toEqual(original.binding); expect(settled.contentHash).toBe(original.contentHash);
+  expect(vi.mocked(data.fetcher).mock.calls.filter(([url, init]) => String(url).endsWith('/requested_reviewers') && init?.method === 'POST')).toHaveLength(1);
 });

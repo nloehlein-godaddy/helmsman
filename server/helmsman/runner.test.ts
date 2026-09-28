@@ -349,7 +349,7 @@ describe('startRun', () => {
     db.close();
   });
 
-  it('requests a Copilot review on the opened PR after a successful run', async () => {
+  it('does not request an external Copilot review after a successful managed run', async () => {
     const db: Db = openDb(':memory:');
     const jira = fakeJira();
     const findPrNumber = vi.fn(async () => 42);
@@ -358,11 +358,11 @@ describe('startRun', () => {
 
     await startRun(task, d);
 
-    expect(requestCopilotReview).toHaveBeenCalledWith('o/r', 42);
+    expect(requestCopilotReview).not.toHaveBeenCalled();
     db.close();
   });
 
-  it.each([['ticket', task], ['freeform', freeformTask]] as const)('queues an own review before completing a %s run and requesting Copilot', async (_label, codingTask) => {
+  it.each([['ticket', task], ['freeform', freeformTask]] as const)('queues a managed review before completing a %s run without requesting Copilot', async (_label, codingTask) => {
     const db = openDb(':memory:');
     const enqueueCreatedPrReview = vi.fn(({ parentRunId }: { parentRunId: string }) => {
       expect(db.getRun(parentRunId)?.status).toBe('running');
@@ -381,7 +381,7 @@ describe('startRun', () => {
     expect(enqueueCreatedPrReview).toHaveBeenCalledExactlyOnceWith({ parentRunId: id, repo: 'o/r', prNumber: 42 });
     expect(db.getRun(id)?.status).toBe('succeeded');
     expect(db.listEvents(id)).toContainEqual(expect.objectContaining({ kind: 'log', text: 'Queued Helmsman review for PR #42' }));
-    expect(requestCopilotReview).toHaveBeenCalledOnce();
+    expect(requestCopilotReview).not.toHaveBeenCalled();
     db.close();
   });
 
@@ -409,31 +409,14 @@ describe('startRun', () => {
     db.close();
   });
 
-  it.each(['enqueue', 'copilot'] as const)('keeps a successful coding run succeeded when %s throws', async (failure) => {
+  it('keeps a successful coding run succeeded when managed review enqueue throws', async () => {
     const db = openDb(':memory:');
-    const enqueueCreatedPrReview = vi.fn(() => {
-      if (failure === 'enqueue') throw new Error('queue unavailable');
-    });
-    const requestCopilotReview = vi.fn(async () => {
-      if (failure === 'copilot') throw new Error('GitHub unavailable');
-      return { ok: true as const };
-    });
-    const d: RunnerDeps = {
-      ...deps(db, jsonAdapter(), singleAttemptHost([], true, 42), freshRunsDir()),
-      enqueueCreatedPrReview, requestCopilotReview,
-    };
-
+    const enqueueCreatedPrReview = vi.fn(() => { throw new Error('queue unavailable'); });
+    const requestCopilotReview = vi.fn(async () => ({ ok: true as const }));
+    const d: RunnerDeps = { ...deps(db, jsonAdapter(), singleAttemptHost([], true, 42), freshRunsDir()), enqueueCreatedPrReview, requestCopilotReview };
     const id = await startRun(task, d);
-
-    expect(db.getRun(id)?.status).toBe('succeeded');
-    expect(enqueueCreatedPrReview).toHaveBeenCalledOnce();
-    expect(requestCopilotReview).toHaveBeenCalledOnce();
-    expect(db.listEvents(id)).toContainEqual(expect.objectContaining({
-      kind: failure === 'enqueue' ? 'error' : 'log',
-      text: failure === 'enqueue'
-        ? 'Queuing Helmsman review for PR #42 failed: queue unavailable'
-        : 'requesting Copilot review failed (non-fatal): GitHub unavailable',
-    }));
+    expect(db.getRun(id)?.status).toBe('succeeded'); expect(enqueueCreatedPrReview).toHaveBeenCalledOnce(); expect(requestCopilotReview).not.toHaveBeenCalled();
+    expect(db.listEvents(id)).toContainEqual(expect.objectContaining({ kind: 'error', text: 'Queuing Helmsman review for PR #42 failed: queue unavailable' }));
     db.close();
   });
 

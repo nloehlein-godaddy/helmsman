@@ -290,20 +290,6 @@ async function finalizeRun(p: FinalizeParams): Promise<void> {
   if (createdPr && deps.jira && !task.todoId && !task.task && !durableEffects) {
     await markInReview(deps.jira, task.ticketId, statusInReview, onEvent);
   }
-
-  if (createdPr && deps.requestCopilotReview && !durableEffects) {
-    try {
-      const r: { ok: true } | { ok: false; error: string } = await deps.requestCopilotReview(task.repo, prNumber);
-      if (r.ok) {
-        onEvent({ kind: 'log', text: `requested Copilot review on PR #${prNumber}` });
-      } else {
-        onEvent({ kind: 'log', text: `requesting Copilot review failed (non-fatal): ${r.error}` });
-      }
-    } catch (err) {
-      const text = err instanceof Error ? err.message : String(err);
-      onEvent({ kind: 'log', text: `requesting Copilot review failed (non-fatal): ${text}` });
-    }
-  }
 }
 
 async function resolvePrNumber(

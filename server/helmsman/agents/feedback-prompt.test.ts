@@ -51,3 +51,10 @@ describe.each(['codex', 'claude-code', 'example.agent/writer'] as const)('%s PR 
     expect(prePrPrompt).toContain('NEVER push');
   });
 });
+
+it.each(['codex', 'claude-code', 'example.agent/writer'] as const)('routes new-PR review ownership through GoCaaS in %s prompts', runtime => {
+  const prompt = buildPrompt({ ticketId: 'TASK-1', title: 'Implement', repo: 'owner/repo', jiraBaseUrl: '' }, runtime);
+  expect(prompt).toContain('Reviewer requests are handled by Helmsman through GoCaaS');
+  expect(prompt).toContain('Do not request Copilot or any other external AI reviewer');
+  expect(prompt).not.toContain('requests only Copilot');
+});

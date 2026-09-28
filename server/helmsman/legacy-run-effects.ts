@@ -146,8 +146,7 @@ export function createLegacyRunEffects(options: LegacyRunEffectsOptions): Legacy
   async function copilotDraft(snapshot: ExecutionSnapshot, repo: string, prNumber: number): Promise<OperationDraft> {
     const existing = operations.byKey(key(snapshot, 'github.copilot-review'));
     if (existing) { sameTarget(existing, repo, prNumber); return copyDraft(existing); }
-    const state = await githubState(snapshot, repo, prNumber);
-    return draft(snapshot, 'github.copilot-review', state.binding, { repo, prNumber, headSha: state.headSha, actor: state.actor, reviewer: 'copilot-pull-request-reviewer[bot]' }, {});
+    throw new PersistenceConflictError('New external AI reviewer requests are disabled; Helmsman reviews use GoCaaS.');
   }
   function queueDraft(snapshot: ExecutionSnapshot, input: CreatedReviewTarget): OperationDraft {
     if (input.parentRunId !== snapshot.runId || input.repo !== snapshot.repo || !positive(input.prNumber)) throw new PersistenceConflictError('Created-PR review target differs from its originating run');
@@ -205,7 +204,7 @@ export function createLegacyRunEffects(options: LegacyRunEffectsOptions): Legacy
     if (!task || task.repo !== snapshot.repo || !text(task.ticketId)) throw new PersistenceConflictError('Retained finalization task identity is invalid');
     const created = row.status === 'succeeded' && row.prNumber !== null && !task?.prBranch && !task?.review;
     return { created, task, jira: created && !task?.todoId && !task?.task && snapshot.bindings.some(binding => binding.role === 'effect' && binding.capability === 'jira'),
-      github: created && snapshot.bindings.some(binding => binding.role === 'effect' && binding.capability === 'github') };
+      github: created && operations.byKey(key(snapshot, 'github.copilot-review')) !== null };
   }
   return {
     resolve, dispatch,
