@@ -46,6 +46,11 @@ function fixture() {
   return { ...f, options, executions, operations, registry, sources, service, command, result, plan, prepare, invoke, reconcile, load, send, get, authorize,
     query: { repo: command.selection.repo, requestId: command.requestId } };
 }
+function recoveryFixture(f: ReturnType<typeof fixture>) {
+  return createRecoveryService({ db: { activeRuns: () => [], getRun: () => null }, executions: f.executions,
+    admissions: openAdmissionStore(f.persistence, f.executions), operations: f.operations, lifecycle: { list: () => [] },
+    callbacks: { reconcileOperation: async id => { await f.service.recover(id); }, resolveOperation: (id, resolution) => { f.operations.resolve(id, resolution); } } });
+}
 describe('durable remote source actions', () => {
   it('commits the reservation and operation before sending; replays without another effect', async () => {
     const f = fixture();
@@ -101,12 +106,10 @@ describe('durable remote source actions', () => {
     const operation = f.operations.list()[0]!;
     expect(operation.target).toEqual({ repo: f.command.selection.repo, providerTarget });
     expect(f.invoke.mock.calls[0]?.[0].target).toEqual(providerTarget);
-    const recovery = createRecoveryService({ db: { activeRuns: () => [], getRun: () => null }, executions: f.executions,
-      admissions: openAdmissionStore(f.persistence, f.executions), operations: f.operations, lifecycle: { list: () => [] },
-      callbacks: { reconcileOperation: async id => { await f.service.dispatch(id); } } });
+    const recovery = recoveryFixture(f);
     const selected = recovery.snapshot(f.command.selection.repo);
     expect(selected.errors).toEqual([]);
-    expect(selected.operations).toMatchObject([{ id: operation.id, status: 'uncertain', actions: ['reconcile-operation'] }]);
+    expect(selected.operations).toMatchObject([{ id: operation.id, status: 'uncertain', actions: ['reconcile-operation', 'resolve-operation'] }]);
     expect(selected.pins).toMatchObject([{ kind: 'operation', ownerId: operation.id }]);
     expect(recovery.snapshot('other/project').operations).toEqual([]);
     expect(recovery.snapshot('untrusted/project').operations).toEqual([]);
@@ -115,6 +118,48 @@ describe('durable remote source actions', () => {
     expect(f.reconcile.mock.calls[0]?.[0].target).toEqual(providerTarget);
     expect(f.service.receipt(caller, f.query, null)?.status).toBe('succeeded');
     expect(f.send).toHaveBeenCalledTimes(1);
+  });
+  it('lets explicit Recovery retry a transient provider-proven no-write failure', async () => {
+    const f = fixture();
+    f.invoke.mockResolvedValueOnce({ status: 'definitely-not-applied', retryable: true, reason: 'Preflight rate limited', evidence: { status: 429 } });
+    expect((await f.service.submit(caller, f.command, null)).status).toBe('recovery-required');
+    const operation = f.operations.list()[0]!;
+    expect(f.send).not.toHaveBeenCalled();
+    const recovery = recoveryFixture(f);
+    await recovery.act({ action: 'reconcile-operation', id: operation.id });
+    expect(f.service.receipt(caller, f.query, null)?.status).toBe('succeeded');
+    expect(f.invoke).toHaveBeenCalledTimes(2);
+    expect(f.send).toHaveBeenCalledTimes(1);
+    expect(f.operations.list()).toHaveLength(1);
+    expect(f.operations.attempts(operation.id)).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'operator-retry', evidence: expect.objectContaining({ actor: 'core.recovery' }) })]));
+  });
+  it('keeps operator Recovery read-only while delivery remains unknown', async () => {
+    const f = fixture(); f.send.mockRejectedValue(new Error('Reply lost'));
+    f.reconcile.mockResolvedValue({ status: 'unknown', reason: 'No proof', evidence: {} });
+    await f.service.submit(caller, f.command, null);
+    const recovery = recoveryFixture(f); const operation = f.operations.list()[0]!;
+    for (let i = 0; i < 2; i++) await recovery.act({ action: 'reconcile-operation', id: operation.id });
+    expect(f.service.receipt(caller, f.query, null)?.status).toBe('recovery-required');
+    expect(f.reconcile).toHaveBeenCalledTimes(2); expect(f.invoke).toHaveBeenCalledTimes(1); expect(f.send).toHaveBeenCalledTimes(1);
+  });
+  it('keeps the receipt in Recovery after operator no-write resolution until an explicit retry completes', async () => {
+    const f = fixture(); f.send.mockRejectedValueOnce(new Error('Reply lost'));
+    expect((await f.service.submit(caller, f.command, null)).status).toBe('recovery-required');
+    const recovery = recoveryFixture(f); const operation = f.operations.list()[0]!;
+    await recovery.act({ action: 'resolve-operation', id: operation.id, outcome: 'definitely-not-applied', actor: 'operator',
+      reason: 'Verified no assignment occurred', evidence: { audited: true } });
+    expect(f.service.receipt(caller, f.query, null)?.status).toBe('recovery-required');
+    expect(f.send).toHaveBeenCalledTimes(1);
+    await recovery.act({ action: 'reconcile-operation', id: operation.id });
+    expect(f.service.receipt(caller, f.query, null)?.status).toBe('succeeded');
+    expect(f.send).toHaveBeenCalledTimes(2); expect(f.operations.list()).toHaveLength(1);
+  });
+  it('requires current source authority before Recovery can redeliver a proven-safe operation', async () => {
+    const f = fixture(); f.invoke.mockResolvedValueOnce({ status: 'definitely-not-applied', retryable: true, reason: 'Preflight unavailable', evidence: {} });
+    await f.service.submit(caller, f.command, null);
+    f.store.configureInstance({ instanceId: f.instance.id, expectedRevision: f.instance.revision, desiredEnabled: false });
+    await expect(recoveryFixture(f).act({ action: 'reconcile-operation', id: f.operations.list()[0]!.id })).rejects.toThrow();
+    expect(f.invoke).toHaveBeenCalledTimes(1); expect(f.send).not.toHaveBeenCalled();
   });
   it('keeps repeated unknown reconciliations from replaying a remote write', async () => {
     const f = fixture(); f.send.mockRejectedValue(new Error('Reply lost'));

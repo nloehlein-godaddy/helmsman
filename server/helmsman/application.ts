@@ -1530,7 +1530,7 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
   reconcileOperation: async id => {
     const operation = operations.get(id);
     if (operation?.kind === 'task-source.effect') { await dispatchOperation(operations, id, taskSourceRuntime.effects.resolve, { reconcile: operation.requiresReconciliation }); await taskSourceRuntime.drain(); return; }
-    if (operation?.origin.kind === 'public-source-action') { await taskActions.dispatch(id); return; }
+    if (operation?.origin.kind === 'public-source-action') { await taskActions.recover(id); return; }
     if (operation?.origin.kind === 'public-communication-review-request') { await communicationCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'public-pull-request-review') { await pullRequestCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'manual-review') { await manualReviewEffects.dispatch(id); return; }

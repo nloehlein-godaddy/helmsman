@@ -120,7 +120,7 @@ export function createTaskActionService(options: TaskActionServerOptions) {
           resolution: { version: 1, kind: 'not-applied', id: `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}` } }, record.command);
       }
     }
-    return operation.requiresReconciliation || ['blocked', 'uncertain'].includes(operation.status)
+    return operation.requiresReconciliation || operation.deliveryAttempts > 0 || ['blocked', 'uncertain'].includes(operation.status)
       ? receipt(record.command, 'recovery-required', operation.diagnostic?.message?.slice(0, 2000) ?? 'Recovery is required.') : receipt(record.command, 'pending');
   }
   const find = (caller: string, query: SourceRemoteActionReceiptQueryV1) => {
@@ -171,6 +171,19 @@ export function createTaskActionService(options: TaskActionServerOptions) {
       invoke: (_operation, context) => execute(context, true), reconcile: (_operation, context) => execute(context, false) };
   };
   const dispatch = (id: string) => dispatchOperation(operations, id, resolve, { reconcile: true });
+  async function recover(record: ActionRecord, actor: string): Promise<DurableOperation> {
+    const operation = checkedOperation(record);
+    if (operation.status === 'blocked' && !operation.requiresReconciliation && operation.diagnostic?.code === 'delivery-blocked') {
+      const attempt = operations.attempts(operation.id).at(-1);
+      const evidence = attempt?.kind === 'definitely-not-applied' ? sourceObject(attempt.evidence) : null;
+      const proof = evidence?.status === 'definitely-not-applied' ? sourceObject(evidence.evidence) : null;
+      if (proof?.manualRetryAllowed === true) {
+        current(record);
+        operations.retry(operation.id, { actor, reason: 'Explicit retry after provider proved no write occurred', evidence: { requestId: record.command.requestId } });
+      }
+    }
+    return dispatch(operation.id);
+  }
   persistence.transaction(() => {
     for (const row of sql.prepare('SELECT id FROM task_action_commands').all() as { id: string }[]) {
       const record = read(row.id)!;
@@ -179,6 +192,12 @@ export function createTaskActionService(options: TaskActionServerOptions) {
   });
   return {
     resolve, dispatch,
+    async recover(id: string): Promise<DurableOperation> {
+      const operation = operations.get(id);
+      const record = operation ? read(operation.key) : null;
+      if (!record || record.operationId !== id) throw new ClarificationServiceError(404, 'not-found');
+      return recover(record, 'core.recovery');
+    },
     discover(caller: string, raw: TaskReadSelectionV1, scope: string | null): SourceRemoteActionDiscoveryV1 {
       access(caller, raw?.repo, scope); const instance = selection(raw); const source = store.source(instance.sourceId);
       if (!source) throw new PersistenceConflictError('Task source is unavailable');
@@ -235,19 +254,7 @@ export function createTaskActionService(options: TaskActionServerOptions) {
     async retry(caller: string, raw: SourceRemoteActionReceiptQueryV1, scope: string | null) {
       const query = parseSourceRemoteActionReceiptQueryV1(raw); access(caller, query.repo, scope); const record = find(caller, query);
       if (!record) throw new ClarificationServiceError(404, 'not-found');
-      if (record.operationId) {
-        const operation = checkedOperation(record);
-        if (operation.status === 'blocked' && !operation.requiresReconciliation && operation.diagnostic?.code === 'delivery-blocked') {
-          const attempt = operations.attempts(operation.id).at(-1);
-          const evidence = attempt?.kind === 'definitely-not-applied' ? sourceObject(attempt.evidence) : null;
-          const proof = evidence?.status === 'definitely-not-applied' ? sourceObject(evidence.evidence) : null;
-          if (proof?.manualRetryAllowed === true) {
-            current(record);
-            operations.retry(operation.id, { actor: caller, reason: 'Explicit retry after provider proved no write occurred', evidence: { requestId: query.requestId } });
-          }
-        }
-        await dispatch(record.operationId);
-      }
+      if (record.operationId) await recover(record, caller);
       return project(record);
     },
   };
