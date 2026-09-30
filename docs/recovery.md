@@ -10,7 +10,7 @@ Stop cancels admission work and signals an admitted worker while retaining its o
 
 Pending external effects remain visible after process completion. Reconcile checks the recorded provider, target, identity, and remote receipt. An uncertain Slack browser send or GitHub review never triggers a blind resend. Explicit resolutions require actor, reason, and evidence. Treat a definitely-not-applied resolution as a factual assertion about the remote result, not a way to dismiss an inconvenient error.
 
-For **Assign to me**, only the retained provider can confirm success with the exact task and account evidence. Recovery offers manual **Confirmed not applied** resolution, but does not accept manual acknowledgment as assignment success. Reconcile the operation when remote evidence can confirm assignment; record non-application only after verifying it did not occur.
+For **Assign to me**, only the retained provider can confirm success with the exact task and account evidence. Recovery offers manual **Confirmed not applied** resolution, but does not accept manual acknowledgment as assignment success. Reconcile the operation when remote evidence can confirm assignment; record non-application only after verifying it did not occur. A separate explicit **Reconcile operation** can retry a provider-proven retryable no-write failure or a confirmed-not-applied operation, subject to the original caller, source and task authority. An unknown outcome only reconciles; it never blindly resends. Assignment operations appear under their captured galleon filter.
 
 Source claims are independent of worker outcomes. A successful voyage can retain a
 `settling` source claim when a local update or remote completion fails. The Source

@@ -13,6 +13,10 @@ Implementation used separate backend, provider and frontend worktrees. Integrati
 
 Validation: 377 focused tests across 15 files passed, covering the new command/provider/UI flow and affected source, package, permission and composition boundaries. TypeScript, production build, distribution emission and the frozen SDK gate passed. All four SDK compatibility regressions passed. Installed copied Jira/Triage acceptance proves authenticated actor selection, one fixture assignment despite response loss, restart receipt recovery, unauthorized-caller rejection, scope isolation and terminal dismissal; the existing installed task-view scenario also passed. Desktop/mobile assignment screenshots and offline process-flow rendering were inspected; 101 affected documentation links resolve. The new browser fixture was corrected to use the button's task-specific accessible name and wait for the startup overlay before screenshots.
 
+Final independent review found and closed three Recovery integration defects: assignment operations now carry a core-owned galleon scope; explicit Recovery can retry a provider-proven retryable no-write failure; and manual acknowledgment cannot manufacture an assignment-success receipt. Unknown operations remain reconciliation-only, and operator-confirmed non-application requires a separate explicit action before any redelivery. All 54 affected backend/Recovery checks passed after correction, and all nine distribution checks passed. Correction-only review found no remaining material issues. The final installed scenarios exercise both lost Jira acknowledgments and retryable no-write responses through Triage's scoped Recovery link, with one successful fixture assignment each.
+
+Advisory follow-up: prevent deliberate operator reopening of an already definite, nonretryable assignment rejection; this is separate from ordinary pending/uncertain recovery and does not block this batch.
+
 Remaining feature batches are configured feedback and compatible opt-in same-galleon parallelism. Underway Slack mutation remains separate future scope. This extends the completed rewrite; phases A–G remain closed.
 
 ## Authored PR list counts

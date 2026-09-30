@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fixture } from './isolated-fixture';
 
-test('installed Jira and Triage assign the authenticated actor once and restore the receipt after response loss and restart', async ({ page, request }, testInfo) => {
+for (const failure of ['lost-reply', 'retryable-no-write'] as const) test(`installed Jira and Triage recover ${failure} without duplicate assignments`, async ({ page, request }, testInfo) => {
   test.setTimeout(120_000);
   const host = await fixture(); const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -13,7 +13,7 @@ test('installed Jira and Triage assign the authenticated actor once and restore 
     status: { id: '1', name: 'To Do', statusCategory: { key: 'new' } }, priority: { name: 'High' }, project: { key: 'TASK' },
     assignee: null, reporter: { accountId: 'reporter-id' }, description: 'Assignment acceptance' }, names: {} };
   try {
-    await writeFile(stateFile, JSON.stringify({ issue: initialIssue, writes: [] }));
+    await writeFile(stateFile, JSON.stringify({ issue: initialIssue, writes: [], sendAttempts: 0 }));
     const preload = join(host.root, 'jira-http-fixture.mjs');
     await writeFile(preload, `import { readFileSync, writeFileSync } from 'node:fs';
 const original=globalThis.fetch;
@@ -25,9 +25,15 @@ globalThis.fetch=async(input,init)=>{
   if(url.pathname==='/rest/api/3/myself') return Response.json({accountId:'authenticated-actor'});
   if(url.pathname==='/_edge/tenant_info') return Response.json({}, {status:404});
   if(url.pathname==='/rest/api/3/issue/10001/assignee' && init?.method==='PUT') {
+    state.sendAttempts++;
+    if(${JSON.stringify(failure)}==='retryable-no-write' && state.sendAttempts===1) {
+      writeFileSync(${JSON.stringify(stateFile)},JSON.stringify(state)); return Response.json({error:'fixture rate limit'},{status:429});
+    }
     const body=JSON.parse(init.body); if(body.accountId!=='authenticated-actor') throw new Error('Wrong assignee');
     state.writes.push(body); state.issue.fields.assignee={accountId:body.accountId}; state.issue.fields.updated=new Date().toISOString();
-    writeFileSync(${JSON.stringify(stateFile)},JSON.stringify(state)); return new Response(null,{status:204});
+    writeFileSync(${JSON.stringify(stateFile)},JSON.stringify(state));
+    if(${JSON.stringify(failure)}==='lost-reply') throw new Error('Fixture lost Jira acknowledgement');
+    return new Response(null,{status:204});
   }
   if(init?.method && init.method!=='GET') throw new Error('Unexpected Jira mutation');
   if(url.pathname==='/rest/api/3/issue/10001') return Response.json(state.issue);
@@ -79,13 +85,26 @@ try {
       submitted = route.request().postDataJSON(); await route.fetch(); await route.abort('failed');
     });
     await assign.click();
-    await expect.poll(async () => JSON.parse(await readFile(stateFile, 'utf8')).writes.length).toBe(1);
+    await expect.poll(async () => JSON.parse(await readFile(stateFile, 'utf8')).sendAttempts).toBe(1);
     await page.unroute('**/api/task-action');
     await page.reload();
     const saved = triage.getByRole('region', { name: 'Saved assignment' });
     await expect(saved).toBeVisible();
     const check = saved.getByRole('button', { name: 'Check assignment receipt', exact: true });
     if (await check.isVisible()) await check.click();
+    await expect(saved).toContainText('Assignment requires Recovery.');
+    await saved.getByRole('link', { name: 'Open Recovery', exact: true }).click();
+    await expect(page).toHaveURL(/\/recovery\?repo=org%2Fa/);
+    const operation = page.getByRole('row').filter({ hasText: 'source-remote-action.assign-self' });
+    await expect(operation).toHaveCount(1);
+    await operation.getByRole('button', { name: 'Resolve operation', exact: true }).click();
+    await expect(page.locator('#outcome option')).toHaveCount(1);
+    await expect(page.locator('#outcome')).toHaveValue('definitely-not-applied');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await operation.getByRole('button', { name: 'Reconcile operation', exact: true }).click();
+    await expect(operation).toContainText('completed');
+    await page.goto(`${origin}/plugins/example.assignment-triage/page?repo=org/a`);
+    await saved.getByRole('button', { name: 'Check assignment receipt', exact: true }).click();
     await expect(saved).toContainText('Assigned to you.');
     expect(submitted).toBeTruthy();
     const forbidden = await request.post(`${origin}/api/task-action`, {
@@ -100,6 +119,7 @@ try {
     await expect(triage).not.toContainText('Claim this task'); await expect(assign).toHaveCount(0);
     const final = JSON.parse(await readFile(stateFile, 'utf8'));
     expect(final.writes).toEqual([{ accountId: 'authenticated-actor' }]);
+    expect(final.sendAttempts).toBe(failure === 'lost-reply' ? 1 : 2);
     expect(errors).toEqual([]); expect(host.output()).not.toContain('fixture-token');
   } finally { await host.close(); }
 });
