@@ -25,13 +25,25 @@ export async function readJiraState(http: SourceReadHttpV1, signal: AbortSignal,
   if (!jiraIssueId(issueId)) throw new Error('Invalid Jira issue ID');
   const response = await jiraGet(http, signal, `/rest/api/3/issue/${issueId}`, { fields: 'assignee,status' });
   if (response.status !== 200) throw new Error(`Jira state lookup failed (${response.status})`);
-  const issue = jiraRecord(response.body);
+  return parseJiraState(response.body, issueId);
+}
+function parseJiraState(body: PluginJson, issueId: string): JiraState {
+  const issue = jiraRecord(body);
   const fields = jiraRecord(issue?.fields);
   const status = jiraRecord(fields?.status);
   const accountId = fields?.assignee === null ? null : jiraRecord(fields?.assignee)?.accountId;
   if (issue?.id !== issueId || !jiraText(status?.id, 128) || !jiraText(status?.name, 240)
     || accountId !== null && !jiraText(accountId, 320)) throw new Error('Malformed Jira issue state');
   return { issueId, statusId: status.id, statusName: status.name, accountId };
+}
+export async function readJiraAssignmentState(http: SourceReadHttpV1, signal: AbortSignal, issueId: string): Promise<JiraState & { revision: string; projectKey: string }> {
+  if (!jiraIssueId(issueId)) throw new Error('Invalid Jira issue ID');
+  const response = await jiraGet(http, signal, `/rest/api/3/issue/${issueId}`, { fields: 'assignee,status,updated,project' });
+  if (response.status !== 200) throw new Error(`Jira assignment lookup failed (${response.status})`);
+  const fields = jiraRecord(jiraRecord(response.body)?.fields);
+  const projectKey = jiraRecord(fields?.project)?.key;
+  if (!jiraText(fields?.updated, 128) || !Number.isFinite(Date.parse(fields.updated)) || !jiraText(projectKey, 128)) throw new Error('Malformed Jira assignment evidence');
+  return { ...parseJiraState(response.body, issueId), revision: fields.updated, projectKey };
 }
 export interface JiraTransition { id: string; statusId: string; statusName: string; }
 export function jiraArray(value: unknown, maximum: number): readonly PluginJson[] {

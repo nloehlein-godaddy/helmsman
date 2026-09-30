@@ -5,6 +5,8 @@ import { jiraIssue } from './fixtures';
 import { jiraProvider, jiraSettings, JIRA_AUTHORITY_PROTOCOL, JIRA_IDENTITY_FORMAT } from './provider';
 import { jiraEffects } from './effects';
 import { probeJiraSubject } from './http';
+import { parseSourceRemoteActionPlanV1 } from '../task-actions';
+import type { SourceRemoteActionInputV1 } from '../task-actions';
 
 const sourceId = '11111111-1111-4111-8111-111111111111';
 const repo = 'owner/repo';
@@ -42,7 +44,7 @@ function fixture() {
     async send(input) {
       calls.push(input);
       if (sendStatus === 204) {
-        if (input.method === 'PUT') issue = { ...issue, fields: { ...issue.fields, assignee: { accountId: 'bot' } } };
+        if (input.method === 'PUT') issue = { ...issue, fields: { ...issue.fields, assignee: { accountId: (input.body as { accountId: string }).accountId } } };
         else {
           const review = JSON.stringify(input.body).includes('21');
           issue = { ...issue, fields: { ...issue.fields, status: { id: review ? '3' : '2', name: review ? 'In Review' : 'In Progress', statusCategory: { key: 'indeterminate' } } } };
@@ -60,6 +62,109 @@ function fixture() {
     set transitionOverride(value: PluginJson) { transitionOverride = value; }, set afterGet(value: (path: string) => void) { afterGet = value; } };
 }
 function remote(plan: SourceMutationPlanV1) { expect(plan.kind).toBe('remote-effects'); if (plan.kind !== 'remote-effects') throw new Error('Expected remote effects'); return plan.effects; }
+
+describe('Jira Assign to me', () => {
+  const request = (f: ReturnType<typeof fixture>): SourceRemoteActionInputV1 => ({ version: 1, action: 'assign-self', sourceRevision: 1,
+    selection: { version: 1, sourceId, instanceId: f.instance.id, instanceRevision: 1, repo },
+    target: { ref: { sourceId, externalId: '10001' }, repo, expectedRevision: f.issue.fields.updated } });
+  async function prepare(f = fixture()) {
+    f.subject = { status: 200, body: { accountId: 'signed-in-user' } };
+    const input = request(f); const plan = await jiraProvider.prepareRemoteAction!(input, f.context);
+    parseSourceRemoteActionPlanV1(plan, input);
+    if (plan.kind !== 'effect') throw new Error('Expected assignment effect');
+    return { f, plan };
+  }
+  it('uses the authenticated account and returns observed evidence after delivery', async () => {
+    const { f, plan } = await prepare();
+    expect(plan).toMatchObject({ effectId: 'assign', payload: { action: 'assign-self', accountId: 'signed-in-user', expectedAccountId: null, expectedStatusId: '1', expectedRevision: f.issue.fields.updated, repo, projectKey: 'TASK' }, receipt: { ref: request(f).target.ref, repo, accountId: 'signed-in-user' } });
+    expect(f.calls.every(call => call.method === 'GET')).toBe(true);
+    expect(await jiraEffects.assign!.invoke(plan, f.effectContext)).toMatchObject({ status: 'acknowledged', receipt: { result: { ref: request(f).target.ref, repo, revision: f.issue.fields.updated, accountId: 'signed-in-user' } } });
+    expect(f.calls.filter(call => call.method !== 'GET')).toEqual([{ method: 'PUT', path: '/rest/api/3/issue/10001/assignee', body: { accountId: 'signed-in-user' } }]);
+    expect((await jiraEffects.assign!.invoke(plan, f.effectContext)).status).toBe('acknowledged');
+    expect(f.calls.filter(call => call.method !== 'GET')).toHaveLength(1);
+  });
+  it('acknowledges already-self without writing and refuses another assignee', async () => {
+    const f = fixture(); f.issue = jiraIssue({ assignee: { accountId: 'bot' } });
+    expect(await jiraProvider.prepareRemoteAction!(request(f), f.context)).toMatchObject({ kind: 'acknowledged', result: { accountId: 'bot' } });
+    f.issue = jiraIssue({ assignee: { accountId: 'someone-else' } });
+    await expect(jiraProvider.prepareRemoteAction!(request(f), f.context)).rejects.toThrow('another user');
+    expect(f.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+  it('validates source, instance, repository, issue, project and revision before planning', async () => {
+    const f = fixture(); const input = request(f);
+    const invalid: SourceRemoteActionInputV1[] = [
+      { ...input, sourceRevision: 2 },
+      { ...input, selection: { ...input.selection, instanceId: 'another-instance' } },
+      { ...input, selection: { ...input.selection, instanceRevision: 2 } },
+      { ...input, selection: { ...input.selection, sourceId: 'another-source' } },
+      { ...input, selection: { ...input.selection, repo: 'owner/other' } },
+      { ...input, target: { ...input.target, ref: { sourceId: 'another-source', externalId: '10001' } } },
+      { ...input, target: { ...input.target, ref: { sourceId, externalId: 'TASK-1' } } },
+      { ...input, target: { ...input.target, repo: 'owner/other' } },
+      { ...input, target: { ...input.target, expectedRevision: 'stale' } },
+    ];
+    for (const value of invalid) await expect(jiraProvider.prepareRemoteAction!(value, f.context)).rejects.toThrow();
+    f.issue = { ...jiraIssue(), id: '10002' };
+    await expect(jiraProvider.prepareRemoteAction!(input, f.context)).rejects.toThrow('changed');
+    f.issue = jiraIssue({ project: { key: 'OTHER' } });
+    await expect(jiraProvider.prepareRemoteAction!(input, f.context)).rejects.toThrow('project');
+    expect(f.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+  it('uses the mapped project during retained delivery', async () => {
+    const f = fixture(); f.issue = jiraIssue({ project: { key: 'mapped' } });
+    const instance = { ...f.instance, settings: { ...f.instance.settings, projectByRepo: { [repo]: 'MAPPED' } } };
+    const plan = await jiraProvider.prepareRemoteAction!(request(f), { ...f.context, instance });
+    if (plan.kind !== 'effect') throw new Error('Expected assignment effect');
+    expect((await jiraEffects.assign!.invoke(plan, { ...f.effectContext, instance })).status).toBe('acknowledged');
+    expect(f.calls.filter(call => call.method === 'PUT')).toHaveLength(1);
+  });
+  it('rejects changed actors without writing and leaves reconciliation uncertain', async () => {
+    const { f, plan } = await prepare(); f.subject = { status: 200, body: { accountId: 'new-login' } };
+    expect(await jiraEffects.assign!.invoke(plan, f.effectContext)).toMatchObject({ status: 'definitely-not-applied', retryable: false });
+    expect((await jiraEffects.assign!.reconcile(plan, f.effectContext)).status).toBe('unknown');
+    expect(f.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+  it.each([{ assignee: { accountId: 'another-user' } }, { updated: '2026-09-21T00:00:00.000Z' },
+    { status: { id: '2', name: 'In Progress', statusCategory: { key: 'indeterminate' } } }, { project: { key: 'OTHER' } },
+  ])('blocks changed task evidence before writing (%j)', async change => {
+    const { f, plan } = await prepare(); f.issue = jiraIssue(change);
+    expect(await jiraEffects.assign!.invoke(plan, f.effectContext)).toMatchObject({ status: 'definitely-not-applied', retryable: false });
+    expect(f.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+  it('reads fresh state after checking the actor', async () => {
+    const { f, plan } = await prepare();
+    f.afterGet = path => { if (path.endsWith('/myself')) f.issue = jiraIssue({ assignee: { accountId: 'another-user' } }); };
+    expect(await jiraEffects.assign!.invoke(plan, f.effectContext)).toMatchObject({ status: 'definitely-not-applied', retryable: false });
+    expect(f.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+  it('reconciles lost write responses from observed state without replay', async () => {
+    const { f, plan } = await prepare(); f.dropResponse = true;
+    expect((await jiraEffects.assign!.invoke(plan, f.effectContext)).status).toBe('unknown');
+    f.issue = jiraIssue({ updated: '2026-09-21T00:00:00.000Z', assignee: { accountId: 'signed-in-user' } });
+    expect(await jiraEffects.assign!.reconcile(plan, f.effectContext)).toMatchObject({ status: 'acknowledged', receipt: { result: { revision: '2026-09-21T00:00:00.000Z', accountId: 'signed-in-user' } } });
+    f.issue = jiraIssue(); expect((await jiraEffects.assign!.reconcile(plan, f.effectContext)).status).toBe('unknown');
+    expect(f.calls.filter(call => call.method !== 'GET')).toHaveLength(1);
+  });
+  it.each([[403, 'definitely-not-applied', false], [429, 'definitely-not-applied', true], [408, 'unknown', undefined], [503, 'unknown', undefined]])('classifies assignment HTTP %s', async (status, expected, retryable) => {
+    const { f, plan } = await prepare(); f.sendStatus = Number(status);
+    const result = await jiraEffects.assign!.invoke(plan, f.effectContext); expect(result.status).toBe(expected);
+    if (result.status === 'definitely-not-applied') expect(result.retryable).toBe(retryable);
+  });
+  it('requires postwrite evidence and honors cancellation', async () => {
+    const { f, plan } = await prepare(); const originalSend = f.http.send;
+    f.http.send = async input => { const result = await originalSend(input); f.issueStatus = 503; return result; };
+    expect((await jiraEffects.assign!.invoke(plan, f.effectContext)).status).toBe('unknown');
+    const cancelled = await prepare(); cancelled.f.controller.abort();
+    expect((await jiraEffects.assign!.invoke(cancelled.plan, cancelled.f.effectContext)).status).toBe('definitely-not-applied');
+    await expect(jiraProvider.prepareRemoteAction!(request(cancelled.f), cancelled.f.context)).rejects.toThrow();
+    expect(cancelled.f.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+  it.each([null, {}, { accountId: '' }, { accountId: 'signed-in-user', active: false }])('rejects invalid authenticated identity (%j)', async body => {
+    const f = fixture(); f.subject = { status: 200, body: body as PluginJson };
+    await expect(jiraProvider.prepareRemoteAction!(request(f), f.context)).rejects.toThrow();
+    expect(f.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+});
 
 describe('Jira assigned unfinished view', () => {
   it('ignores queue JQL, includes assigned ready/blocked work, and excludes Done and other assignees', async () => {

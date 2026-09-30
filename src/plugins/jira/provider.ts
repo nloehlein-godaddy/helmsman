@@ -212,6 +212,27 @@ async function identify(context: SourceCallContextV1): Promise<SourceIdentityEvi
 export const jiraProvider: TaskSourceProviderV1 = {
   ...createJiraViews({ access, snapshot, assignedTo }),
   identify, readHistory: jiraHistory,
+  async prepareRemoteAction(input, context) {
+    const selection = input?.selection; const target = input?.target;
+    const { http, repo, project } = access(context, target?.repo);
+    if (input?.version !== 1 || input.action !== 'assign-self' || input.sourceRevision !== context.instance.revision
+      || selection?.version !== 1 || selection.sourceId !== context.instance.sourceId || selection.instanceId !== context.instance.id
+      || selection.instanceRevision !== context.instance.revision || selection.repo !== repo || target?.repo !== repo
+      || !jiraText(target?.expectedRevision, 128)) throw new Error('Jira action selection changed');
+    assertRef(target.ref, context);
+    const { accountId } = await probeJiraSubject(http, context.signal);
+    const task = await loadIssue(target.ref.externalId, context);
+    if (!task || task.ref.externalId !== target.ref.externalId || task.revision !== target.expectedRevision) throw new Error('Jira task changed after selection');
+    const state = metadata(task);
+    if (state.accountId !== null && state.accountId !== accountId) throw new Error('Jira task is assigned to another user');
+    const result = { ref: task.ref, repo, revision: task.revision, accountId };
+    if (state.accountId === accountId) return { version: 1, action: 'assign-self', kind: 'acknowledged', result };
+    return { version: 1, action: 'assign-self', kind: 'effect', effectId: 'assign',
+      target: { sourceId: task.ref.sourceId, issueId: task.ref.externalId },
+      payload: { action: 'assign-self', accountId, expectedAccountId: null, expectedStatusId: state.statusId,
+        expectedRevision: task.revision, repo, projectKey: project },
+      receipt: { ref: { ...task.ref }, repo, accountId } };
+  },
   async listUnderway(input, context) {
     const { settings, http, repo, project } = access(context, input?.repo);
     if (!input || !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100

@@ -32,6 +32,7 @@
           "retain-claim"
         ],
         "commandIds": [],
+        "remoteActions": [{ "id": "assign-self", "effectId": "assign" }],
         "access": [
           "connection-http"
         ],
