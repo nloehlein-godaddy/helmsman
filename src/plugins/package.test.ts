@@ -41,6 +41,19 @@ describe('plugin packages', () => {
     for (const invalid of [['other'], ['underway', 'underway'], null, 'underway']) expect(() => parsePluginPackage(withViews(invalid))).toThrow();
   });
 
+  it('requires explicit HTTP effects for remote task actions and rejects undeclared assignment handlers', () => {
+    const source = taskSource();
+    const remote = { ...source.taskSources.tasks, commandIds: [], effectIds: ['assign'], access: ['connection-http'] };
+    const input = (value: unknown) => ({ ...descriptor(), backend: { ...source, taskSources: { tasks: value } } });
+    const action = { id: 'assign-self', effectId: 'assign' };
+    expect(parsePluginPackage(input({ ...remote, remoteActions: [action] })).backend?.taskSources?.tasks?.remoteActions).toEqual([action]);
+    expect(parsePluginPackage(input(remote)).backend?.taskSources?.tasks?.remoteActions).toBeUndefined();
+    for (const remoteActions of [[{ ...action, id: 'assign-anyone' }], [{ ...action, effectId: 'missing' }], [{ ...action, accountId: 'injected' }], [action, action], null]) {
+      expect(() => parsePluginPackage(input({ ...remote, remoteActions }))).toThrow();
+    }
+    expect(() => parsePluginPackage(input({ ...remote, effectIds: [], access: ['local-records'], remoteActions: [action] }))).toThrow();
+  });
+
   it('accepts task source declarations while preserving existing pricing packages', () => {
     const source = taskSource();
     const parsed = parsePluginPackage({ ...descriptor(), backend: source });

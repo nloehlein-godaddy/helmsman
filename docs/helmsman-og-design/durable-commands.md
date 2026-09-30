@@ -1,6 +1,6 @@
 # Durable OG command design
 
-**Scope:** Triage `Assign to me`, configurable in-app feedback, and Underway task/run/PR actions. Assignment and feedback remain design-only. The read-only Underway context in section 3 is implemented in Batch 2. The decisions in the [consolidated design](../helmsman-og-feature-design.md) refine the illustrative shapes below: core owns binding authority, feedback uses a tracker-neutral destination, and assign-self never takes over another actor's assignment.
+**Scope:** Triage `Assign to me`, configurable in-app feedback, and Underway task/run/PR actions. Assignment is implemented through the SDK 1.2 task-action service; feedback remains design-only. The assignment shapes below record the design; see [task-source authoring](../task-source-authoring.md#remote-assignment-actions) and the SDK for the shipped contract. The read-only Underway context in section 3 is implemented in Batch 2. The decisions in the [consolidated design](../helmsman-og-feature-design.md) refine the illustrative shapes below: core owns binding authority, feedback uses a tracker-neutral destination, and assign-self never takes over another actor's assignment.
 
 ## Ground rules from the current implementation
 
@@ -100,7 +100,7 @@ Use `source-remote-action.assign-self` as the operation kind rather than the run
 
 ### Backward compatibility
 
-This is additive. Sources with no `remoteActions` remain readable; Triage hides the action. Existing `TaskSourceProviderV1`, task-source manifests, SourceCommand APIs, and source effect plans retain their current behavior. An older host does not expose `taskActions`; an authored Triage package treats the service as unavailable rather than attempting a direct fetch.
+This is additive. Sources with no `remoteActions` remain readable; Triage hides the action. Existing `TaskSourceProviderV1`, task-source manifests, SourceCommand APIs, and source effect plans retain their current behavior. Older hosts reject the new action declaration or permission. On a supporting host, an authored Triage package still feature-detects `taskActions` and treats a missing service as unavailable rather than attempting a direct fetch.
 
 ## 2. Configurable in-app feedback submission
 

@@ -11,6 +11,18 @@ describe('task source registry', () => {
     expect(registry.list()[0]?.declaration.settingsFields?.project?.label).toBe('Project');
     expect(Object.isFrozen(staged.declaration.settingsFields?.project?.schema)).toBe(true);
   });
+  it('requires remote-action preparation and freezes its declared effect binding', () => {
+    const registry = createTaskSourceRegistry({ eligible: () => true });
+    const action = { id: 'assign-self' as const, effectId: 'assign' };
+    const remote = { ...declaration, access: ['connection-http' as const], effectIds: ['assign'], remoteActions: [action] };
+    const implementation = { ...provider, effects: { assign: { delivery: 'reconcile' as const,
+      invoke: async () => ({ status: 'acknowledged' as const, receipt: null }), reconcile: async () => ({ status: 'acknowledged' as const, receipt: null }) } } };
+    expect(() => registry.stage(binding, remote, implementation)).toThrow();
+    const staged = registry.stage(binding, remote, { ...implementation, prepareRemoteAction: async () => { throw new Error('unused'); } });
+    action.effectId = 'changed'; registry.publish([staged]);
+    expect(registry.list()[0]?.declaration.remoteActions).toEqual([{ id: 'assign-self', effectId: 'assign' }]);
+    expect(Object.isFrozen(staged.declaration.remoteActions?.[0])).toBe(true);
+  });
   it('publishes atomically and resolves disabled instances only for retained obligations', () => {
     const { persistence, instance } = fixture(); try {
       const registry = createTaskSourceRegistry({ eligible: () => true }); const staged = registry.stage(binding, declaration, provider);

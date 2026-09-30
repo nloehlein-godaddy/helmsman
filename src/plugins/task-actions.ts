@@ -32,7 +32,7 @@ export interface TaskActionServiceV1 {
   pending(): Promise<readonly SourceRemoteActionPendingV1[]>;
   acknowledge(query: SourceRemoteActionReceiptQueryV1): Promise<void>;
 }
-export const SOURCE_REMOTE_ACTION_LIMITS = Object.freeze({ responseBytes: 512 * 1024, pending: 256, aggregateBytes: 8 * 1024 * 1024 });
+export const SOURCE_REMOTE_ACTION_LIMITS: Readonly<{ responseBytes: number; pending: number; aggregateBytes: number }> = Object.freeze({ responseBytes: 512 * 1024, pending: 256, aggregateBytes: 8 * 1024 * 1024 });
 const same = (left: unknown, right: unknown) => JSON.stringify(sourceJson(left)) === JSON.stringify(sourceJson(right));
 export function parseSourceRemoteActionInputV1(input: unknown): SourceRemoteActionInputV1 {
   const value = sourceObject(sourceJson(input)); sourceFields(value, ['version', 'action', 'selection', 'sourceRevision', 'target']);
@@ -44,7 +44,7 @@ export function parseSourceRemoteActionInputV1(input: unknown): SourceRemoteActi
   return Object.freeze({ version: 1, action: 'assign-self', selection, sourceRevision: sourceInteger(value.sourceRevision),
     target: Object.freeze({ ref, repo, expectedRevision: sourceText(target.expectedRevision, 512) }) });
 }
-export const parseSourceRemoteActionRequestV1 = parseSourceRemoteActionInputV1;
+export const parseSourceRemoteActionRequestV1: (input: unknown) => SourceRemoteActionInputV1 = parseSourceRemoteActionInputV1;
 export function parseSourceRemoteActionCommandV1(input: unknown): SourceRemoteActionCommandV1 {
   const { requestId, ...rest } = sourceObject(input);
   return Object.freeze({ ...parseSourceRemoteActionInputV1(rest), requestId: sourceUuid(requestId) });

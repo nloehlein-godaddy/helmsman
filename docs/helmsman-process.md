@@ -8,7 +8,7 @@ Local development uses UI port `43872` → server/API port `43871`. The producti
 
 ## OG feature extensions
 
-The [remaining-feature design](helmsman-og-feature-design.md) extends completed phases A–G. The first batch adds scoped Triage description reads, accessible severity badges, an independently selected Firefox browser provider and authenticated ownership checks for incoming Slack reviews. Batch 2 adds Bugs descriptions, public loading wheels, the Config operator note and canonical Underway run/PR navigation. Assignment, feedback, Underway Slack commands and opt-in same-galleon parallelism remain planned; the current one-run-per-galleon default is unchanged.
+The [remaining-feature design](helmsman-og-feature-design.md) extends completed phases A–G. The first batch adds scoped Triage description reads, accessible severity badges, an independently selected Firefox browser provider and authenticated ownership checks for incoming Slack reviews. Batch 2 adds Bugs descriptions, public loading wheels, the Config operator note and canonical Underway run/PR navigation. Batch 3 adds authenticated Jira Assign to me through durable plugin actions. Feedback, Underway Slack commands and opt-in same-galleon parallelism remain planned; the current one-run-per-galleon default is unchanged.
 
 ```mermaid
 flowchart TD
@@ -35,6 +35,28 @@ flowchart TD
 ```
 
 Slack uses the GoCaaS/OI Companion MCP provider by default; it requires no Firefox bridge. Firefox remains optional for general browser integrations and explicitly selected legacy Slack. Firefox selection does not change the terminal host or automatically replace the existing browser default. Terminal operations remain explicitly unsupported by Firefox. Operator setup and platform verification are recorded in its [README](../src/plugins/native-firefox/README.md).
+
+## Assign to me
+
+```mermaid
+flowchart TD
+    Click[Triage Assign to me] --> Journal[Persist original request ID and task revision]
+    Journal --> Gate[Explicit task-action permission<br/>Source, scope and claim checks]
+    Gate --> Actor[Jira authenticated actor and exact task]
+    Actor --> Existing{Current assignee}
+    Existing -->|Other account| Reject[Reject without a write]
+    Existing -->|Same account| Receipt[Retain verified success receipt]
+    Existing -->|Unassigned| Queue[Queue declared effect<br/>Pin provider, settings and connection]
+    Queue --> Recheck[Recheck actor, project, revision and assignee]
+    Recheck --> Put[Jira assignment PUT]
+    Put -->|Confirmed| Receipt
+    Put -->|Uncertain| Recover[Reconcile original effect<br/>Never blindly replay]
+    Recover -->|Proven applied| Receipt
+    Recover -->|Unproven| Operator[Core Recovery]
+    Receipt --> Dismiss[Consume and dismiss receipt<br/>Reread before another assignment]
+```
+
+The Jira endpoint is unconditional; the final read reduces but cannot eliminate a concurrent assignment between GET and PUT. See [task-source authoring](task-source-authoring.md#remote-assignment-actions).
 
 ## Plugin task presentation and command authority
 

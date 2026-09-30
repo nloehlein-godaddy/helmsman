@@ -3,6 +3,18 @@
 All phases A–G in [the architecture plan](plugin-architecture-plan.md) are complete, with the shipped v1 scope and limitations documented below. Implementation, independent review, corrections and acceptance are complete through `553dff4`. Earlier entries preserve the evidence and status at each checkpoint.
 
 
+## OG feature extensions — batch 3: Assign to me
+
+Triage now offers authenticated Jira self-assignment through optional public `taskActions` and provider `remoteActions` contracts. SDK 1.2 adds an explicit `helmsman/task-action@1` requirement; read-only plugins receive no assignment authority. Sources without the optional action retain their existing reads. Jira and Triage packages release the changed behavior as 0.2.0; application version remains 0.4.0.
+
+The browser retains the original request ID and locks duplicate task actions before dispatch. Core captures source/instance/task revisions, scope, provider artifacts, settings and connection identity, rejects active claims, and uses the operation ledger for external delivery. Jira reads the authenticated actor rather than configured search/bot settings, rejects another assignee, and acknowledges an already-self assignment without writing. Delivery rechecks exact task evidence; uncertain outcomes reconcile without blind replay. Receipts survive response loss and restart. Interrupted queued delivery waits for explicit Retry or Recovery; preparation interrupted before enqueue is safely rejected. Dismissal rereads the task before another action.
+
+Implementation used separate backend, provider and frontend worktrees. Integration corrected an independent source-versus-instance revision check. Jira's unconditional assignment endpoint still has a concurrent-change window between its final GET and PUT; no atomic compare-and-set is claimed. Acceptance uses fixture Jira services and sends no live assignments.
+
+Validation: 377 focused tests across 15 files passed, covering the new command/provider/UI flow and affected source, package, permission and composition boundaries. TypeScript, production build, distribution emission and the frozen SDK gate passed. All four SDK compatibility regressions passed. Installed copied Jira/Triage acceptance proves authenticated actor selection, one fixture assignment despite response loss, restart receipt recovery, unauthorized-caller rejection, scope isolation and terminal dismissal; the existing installed task-view scenario also passed. Desktop/mobile assignment screenshots and offline process-flow rendering were inspected; 101 affected documentation links resolve. The new browser fixture was corrected to use the button's task-specific accessible name and wait for the startup overlay before screenshots.
+
+Remaining feature batches are configured feedback and compatible opt-in same-galleon parallelism. Underway Slack mutation remains separate future scope. This extends the completed rewrite; phases A–G remain closed.
+
 ## Authored PR list counts
 
 Open PRs in the authored list now show effective approval and change-request counts plus GitHub discussion-comment counts. The provider enriches only final scoped/deduplicated visible rows with four concurrent readers and existing bounded pagination. It excludes closed/non-authored list queries, preserves rows on unavailable review history, and leaves unproven counts unknown. Comments do not override prior review decisions; dismissals and later decisions are reflected. Existing list filters remain unchanged.

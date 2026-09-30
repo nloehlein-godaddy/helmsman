@@ -20,6 +20,7 @@ export type PluginSetting =
 export interface TaskSourceDeclaration {
   readonly settingsFields?: SourceSettingFieldsV1;
   readonly editorContracts?: readonly TaskEditorDeclarationV1[];
+  readonly remoteActions?: readonly { readonly id: 'assign-self'; readonly effectId: string }[];
   readonly readViews?: readonly ('underway' | 'history' | 'triage' | 'bugs')[];
   readonly identityFormats: readonly string[];
   readonly effectIds: readonly string[];

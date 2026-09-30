@@ -5,6 +5,41 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkSdkCompatibility } from './sdk-compatibility.mjs';
 
+test('task-action permission extension preserves existing manifest inputs without broadening other contracts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'helmsman-sdk-task-action-compat-'));
+  try {
+    const baseline = join(root, 'baseline'); const candidate = join(root, 'candidate');
+    const contract = `
+export interface PluginServiceRequirementV1 { readonly id: 'helmsman/task-read'; readonly version: 1; }
+export interface PluginPanelDefinition { readonly id: string; readonly requires: readonly PluginServiceRequirementV1[]; }
+export interface PluginPageDefinition { readonly id: string; readonly requires?: readonly PluginServiceRequirementV1[]; }
+export interface PluginManifestV2 { readonly pages: readonly PluginPageDefinition[]; readonly panels: readonly PluginPanelDefinition[]; }
+export interface CompositionServiceV1 { discover(): readonly PluginPanelDefinition[]; }
+export interface PluginPageContext { readonly composition?: CompositionServiceV1; }
+export interface PluginPageModule { mount(container: string, context: PluginPageContext): void; }
+export interface OtherRequirement { readonly id: 'helmsman/task-read'; readonly version: 1; }
+`;
+    for (const directory of [baseline, candidate]) {
+      await mkdir(directory); await writeFile(join(directory, 'package.json'), '{"type":"module"}');
+      await writeFile(join(directory, 'node.d.ts'), 'export {};'); await writeFile(join(directory, 'index.d.ts'), contract);
+    }
+    const extended = contract.replace("id: 'helmsman/task-read';", "id: 'helmsman/task-read' | 'helmsman/task-action';");
+    await writeFile(join(candidate, 'index.d.ts'), extended);
+    assert.equal(checkSdkCompatibility(baseline, candidate), 8);
+    for (const broken of [
+      extended.replace("'helmsman/task-read' | ", ''),
+      extended.replace("'helmsman/task-action'", "'helmsman/arbitrary-action'"),
+      extended.replace("'helmsman/task-action'", "'helmsman/task-action' | 'helmsman/arbitrary-action'"),
+      extended.replace('readonly version: 1', 'readonly version: 2'),
+      extended.replace('readonly id: string', 'readonly id: number'),
+      extended.replace("OtherRequirement { readonly id: 'helmsman/task-read'", "OtherRequirement { readonly id: 'helmsman/task-read' | 'helmsman/task-action'"),
+    ]) {
+      await writeFile(join(candidate, 'index.d.ts'), broken);
+      assert.throws(() => checkSdkCompatibility(baseline, candidate), /SDK compatibility check failed/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('SDK baseline rejects removed exports and incompatible signatures while accepting optional additions', async () => {
   const root = await mkdtemp(join(tmpdir(), 'helmsman-sdk-compat-'));
   try {

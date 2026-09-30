@@ -9,6 +9,14 @@ function manifest() {
 }
 
 describe('plugin manifest validation', () => {
+  it('accepts the explicit task-action permission without allowing arbitrary action capabilities', () => {
+    const base = manifest();
+    const input = (id: string, version: number) => ({ ...base, manifestVersion: 2, panels: [], pages: [{ ...base.pages[0], requires: [{ id, version }] }] });
+    expect(parsePluginManifest(input('helmsman/task-action', 1)).pages[0]?.requires).toEqual([{ id: 'helmsman/task-action', version: 1 }]);
+    expect(() => parsePluginManifest(input('helmsman/task-action', 2))).toThrow();
+    expect(() => parsePluginManifest(input('helmsman/arbitrary-action', 1))).toThrow();
+  });
+
   it.each([1, 2])('validates optional navigation metadata for manifest %s', version => {
     const base = { ...manifest(), manifestVersion: version, ...(version === 2 ? { panels: [] } : {}) };
     for (const navigation of [true, false]) {

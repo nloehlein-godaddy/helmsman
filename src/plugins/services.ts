@@ -1,3 +1,4 @@
+import type { TaskActionServiceV1 } from './task-actions';
 import type { ProfileServiceV1 } from './profile';
 import type { GithubSettingsServiceV1 } from './github-settings';
 import type { JiraSettingsServiceV1 } from './jira-settings';
@@ -36,6 +37,7 @@ export interface PluginPageServices {
   readonly sourceAdmin?: SourceAdminServiceV1;
   readonly taskViews?: TaskViewsReadServiceV1;
   readonly taskContext?: TaskContextServiceV1;
+  readonly taskActions?: TaskActionServiceV1;
   readonly runs?: RunReadServiceV1;
   readonly runInspect?: RunInspectServiceV1;
   readonly downloads?: DownloadServiceV1;

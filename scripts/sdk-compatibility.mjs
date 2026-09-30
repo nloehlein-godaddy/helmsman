@@ -53,6 +53,13 @@ export function checkSdkCompatibility(baseline, candidate) {
           else if (['PluginPageServices', 'PluginPanelServicesV1'].includes(exported.name)) legacyType = `LegacyLocalGitServices<${newType}>`;
           else if (['PluginPageContext', 'PluginPanelContext'].includes(exported.name)) legacyType = `LegacyLocalGitContext<${newType}>`;
         }
+        if (entry === 'index.d.ts' && kind === 'Type') {
+          if (exported.name === 'PluginServiceRequirementV1') legacyType = `LegacyTaskActionRequirement<${legacyType}>`;
+          else if (['PluginPageDefinition', 'PluginPanelDefinition', 'RegisteredPluginPage', 'RegisteredPluginPanel', 'PluginManifestV1', 'PluginManifestV2', 'PluginManifest', 'PageResolution'].includes(exported.name)) legacyType = `LegacyTaskActionMetadata<${legacyType}>`;
+          else if (exported.name === 'CompositionServiceV1') legacyType = `LegacyTaskActionComposition<${legacyType}>`;
+          else if (exported.name === 'PluginPageContext') legacyType = `LegacyTaskActionContext<${legacyType}>`;
+          else if (exported.name === 'PluginPageModule') legacyType = `LegacyTaskActionModule<${legacyType}>`;
+        }
         const localGitParser = entry === 'index.d.ts' && kind === 'Value' && exported.name.startsWith('parseLocalGit');
         if (localGitParser) legacyType = `LegacyLocalGit<${newType}>`;
         const acceptedType = localGitParser ? `LegacyLocalGitParameters<${newType}>` : newType;
@@ -68,6 +75,15 @@ type LegacyCommunicationAccess<T> = [T] extends [readonly ['browser-session'] | 
 type LegacyCommunicationDeclaration<T> = { [K in keyof T]: K extends 'access' ? LegacyCommunicationAccess<T[K]> : T[K] };
 type LegacyCommunicationDeclarations<T> = T extends undefined ? T : { [K in keyof T]: LegacyCommunicationDeclaration<T[K]> };
 type LegacyCommunicationManifest<T> = { [K in keyof T]: K extends 'communications' ? LegacyCommunicationDeclarations<T[K]> : T[K] };
+type LegacyTaskActionRequirement<T> = { [K in keyof T]: K extends 'id' ? Exclude<T[K], 'helmsman/task-action'> : T[K] };
+type LegacyTaskActionRequirements<T> = T extends readonly unknown[] ? { [K in keyof T]: LegacyTaskActionRequirement<T[K]> } : T;
+type LegacyTaskActionMetadata<T> = T extends readonly unknown[] ? { [K in keyof T]: LegacyTaskActionMetadata<T[K]> }
+  : T extends object ? { [K in keyof T]: K extends 'requires' ? LegacyTaskActionRequirements<T[K]> : K extends 'pages' | 'panels' | 'page' ? LegacyTaskActionMetadata<T[K]> : T[K] } : T;
+type LegacyTaskActionComposition<T> = T extends object ? { [K in keyof T]: K extends 'discover'
+  ? T[K] extends (...args: infer A) => infer R ? (...args: A) => LegacyTaskActionMetadata<R> : T[K] : T[K] } : T;
+type LegacyTaskActionContext<T> = { [K in keyof T]: K extends 'composition' ? LegacyTaskActionComposition<T[K]> : T[K] };
+type LegacyTaskActionModule<T> = { [K in keyof T]: K extends 'mount' ? T[K] extends (...args: infer A) => infer R
+  ? (...args: { [I in keyof A]: LegacyTaskActionContext<A[I]> }) => R : T[K] : T[K] };
 type ReleaseWorktree = { action: 'release-worktree'; path: string; expectedCommit: string; expectedBranch: string };
 type LegacyLocalGit<T> = T extends { action: 'release-worktree' }
   ? Exclude<keyof T, keyof ReleaseWorktree> extends never ? [T] extends [ReleaseWorktree] ? [ReleaseWorktree] extends [T] ? never : T : T : T

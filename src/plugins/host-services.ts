@@ -1,3 +1,4 @@
+import { createHostTaskActionService } from './task-action-service';
 import { createHostProfileService } from './profile-service';
 import { createHostGithubSettingsService } from './github-settings-service';
 import { createHostJiraSettingsService } from './jira-settings-service';
@@ -126,6 +127,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
         communicationCommands: createHostCommunicationCommandService(lifetime, { scope, caller }),
         suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope, caller }),
         sourceAdmin: createHostSourceAdminService(lifetime, { scope, caller }),
+        taskActions: createHostTaskActionService(lifetime, { scope, caller }),
         sourceCommands: createHostSourceCommandService(lifetime, { scope, caller }) } : {}) } : {}),
     usage: Object.freeze({ async query(input: UsageQuery, signal?: AbortSignal) {
       const body = await request('/api/usage/v1', input, signal);

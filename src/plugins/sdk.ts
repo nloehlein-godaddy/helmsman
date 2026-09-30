@@ -132,3 +132,5 @@ export * from './native-terminal';
 export * from './workflow';
 
 export * from './trigger';
+
+export * from './task-actions';

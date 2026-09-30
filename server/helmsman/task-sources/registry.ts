@@ -1,3 +1,4 @@
+import { parseTaskSourceRemoteActionsV1 } from '../../../src/plugins/task-action-declaration';
 import { parseTaskEditorDeclarationV1 } from '../../../src/plugins/task-editor-contract';
 import { parseSourceSettingFieldsV1 } from '../../../src/plugins/source-settings';
 import type { TaskSourceDeclaration } from '../../../src/plugins/backend';
@@ -27,6 +28,7 @@ export function createTaskSourceRegistry(options: { eligible(binding: SourceBind
       if (parsed.connectionId !== null || parsed.credentialHandle !== null) throw new PersistenceConflictError('Registrations cannot capture an instance connection');
       validateTaskSourceProvider(provider, declaration);
       const registration = Object.freeze({ binding: parsed, declaration: Object.freeze({ identityFormats: Object.freeze([...declaration.identityFormats]), effectIds: Object.freeze([...declaration.effectIds]), commandIds: Object.freeze([...declaration.commandIds]), access: Object.freeze([...declaration.access]),
+        ...(declaration.remoteActions ? { remoteActions: parseTaskSourceRemoteActionsV1(declaration.remoteActions, declaration) } : {}),
         ...(declaration.editorContracts ? { editorContracts: Object.freeze(declaration.editorContracts.map(parseTaskEditorDeclarationV1)) } : {}),
         ...(declaration.settingsFields ? { settingsFields: parseSourceSettingFieldsV1(declaration.settingsFields) } : {}),
         ...(declaration.readViews ? { readViews: Object.freeze([...declaration.readViews]) } : {}) }), provider });

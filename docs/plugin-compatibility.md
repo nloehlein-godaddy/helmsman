@@ -1,6 +1,6 @@
 # SDK compatibility and deprecation
 
-The public SDK is stable at **1.1.0**, distributed in `sdk/` with Helmsman. It is not published to npm. Install that directory into an independent author project. The SDK package version is maintained in `sdk/version.json` independently of the application version.
+The public SDK is stable at **1.2.0**, distributed in `sdk/` with Helmsman. It is not published to npm. Install that directory into an independent author project. The SDK package version is maintained in `sdk/version.json` independently of the application version.
 
 | Version | Meaning and current support |
 |---|---|
@@ -8,7 +8,7 @@ The public SDK is stable at **1.1.0**, distributed in `sdk/` with Helmsman. It i
 | `packageVersion` | Archive descriptor format: 1. |
 | `manifestVersion` | Presentation metadata: 1 for pages; 2 adds panels/compositions. Both remain supported. |
 | `sdkVersion` | Exact host protocol major: 1. It is an integer, not an npm semver range. |
-| SDK package version | Public TypeScript declarations and bundleable helpers: 1.1.0. Patch releases fix compatible behavior; minor releases add compatible optional APIs. |
+| SDK package version | Public TypeScript declarations and bundleable helpers: 1.2.0. Patch releases fix compatible behavior; minor releases add compatible optional APIs. |
 | Capability/service/contract version | Independent protocol version, currently 1. Keep shared `helmsman/...` IDs when replacing implementations. |
 | `storageVersion` | Namespaced backend storage schema: 1. It never authorizes changing a retained execution binding. |
 | `node` range | Inclusive `minMajor`, exclusive `maxMajorExclusive`; checked at installation, enablement, startup and retained external recovery before module evaluation. |
@@ -19,6 +19,8 @@ New optional methods/fields may be added within a contract version. Existing req
 
 Version 1.1 adds optional Bugs descriptions, feature-detected `services.taskContext`, and the bundleable loading wheel. Task context is optional only: do not add it to the v1 manifest's closed `requires` identifiers. Existing packages and protocol major 1 remain supported; the frozen 1.0 baseline remains the compatibility reference.
 
+Version 1.2 adds optional `taskActions`, source `remoteActions` declarations and `prepareRemoteAction`. Assignment requires explicit `helmsman/task-action@1` frontend permission. Existing read-only permissions do not authorize it. Older sources remain readable without implementing assignment. Older hosts reject packages declaring the new permission or remote actions; install a host supporting SDK 1.2 before those packages. The frozen 1.0 baseline remains unchanged.
+
 ## Enforcement
 
 `sdk/baseline/v1/` records the stabilized public declarations. `scripts/sdk-compatibility.mjs` checks every baseline export in both SDK entries, compiling assignments in both directions between baseline and candidate types with strict TypeScript settings. It rejects missing exports and incompatible structural signatures; optional additive members and new exports remain allowed. Generic public types are compared with shared type parameters, not erased to `any`. Unsupported constrained baseline generics fail closed and require an explicit compatibility fixture.
@@ -26,6 +28,8 @@ Version 1.1 adds optional Bugs descriptions, feature-detected `services.taskCont
 Communication manifests have one explicit input extension: `access` accepts `['provider-network']` alongside the existing `['browser-session']`. Network providers implement the optional `connectionIdentity()` method; browser providers remain unchanged. For candidate-to-baseline assignments only, the checker projects that exact access union back to `['browser-session']` at `CommunicationProviderDeclaration.access` and `PluginBackendDefinition.communications[*].access`. Baseline-to-candidate assignments remain strict and unprojected. All other fields, exports and access values retain the ordinary bidirectional checks. The frozen baseline is unchanged; regression fixtures reject removed browser access, arbitrary additional access modes and unrelated signature changes. This extension does not imply that an older host supports network communication packages.
 
 Local Git adds the explicit `release-worktree` input with `path`, `expectedCommit` and `expectedBranch`. The checker projects only that exact arm out of candidate Local Git operations and their receipt/service/context return projections for candidate-to-baseline checks. Existing inputs remain strictly assignable to the candidate. Exported Local Git parser parameters are also projected to the old operation set when checking baseline parser assignability, while parser results retain the candidate return type. Unrelated operation, status and service changes still fail. Receipt recovery remains caller-scoped and never replays an unknown operation. Older packages that cannot interpret a retained release receipt must preserve it and block further operations until a compatible package handles it. Older hosts do not support this new action.
+
+The `helmsman/task-action@1` manifest permission is one explicit input extension. Candidate-to-baseline checks project only that exact requirement ID out of `PluginServiceRequirementV1` and its page/panel/manifest/discovery/context projections. All older inputs remain assignable to the candidate; removed permissions, unrelated new IDs, changed versions and unrelated metadata changes still fail. This does not grant write authority to existing read-only packages.
 
 Every distribution build runs this check against its freshly emitted SDK. Maintainers can also run:
 

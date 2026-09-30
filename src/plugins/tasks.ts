@@ -1,3 +1,5 @@
+import type { SourceRemoteActionInputV1, SourceRemoteActionPlanV1 } from './task-actions';
+import { parseTaskSourceRemoteActionsV1 } from './task-action-declaration';
 import type { SourceCommandTargetV1 } from './source-command';
 import type { TaskEditorContractV1, TaskEditorDocumentV1, TaskEditActionV1, TaskEditorPageV1 } from './task-edit';
 import { parseTaskEditorDeclarationV1 } from './task-editor-contract';
@@ -82,6 +84,7 @@ export interface SourceIdentityEvidenceV1 {
 }
 
 export interface TaskSourceProviderV1 {
+  prepareRemoteAction?(input: SourceRemoteActionInputV1, context: SourceCallContextV1): Promise<SourceRemoteActionPlanV1>;
   prepareEditorCommand?(input: { editor: TaskEditorContractV1; action: TaskEditActionV1; commandId: string; target: SourceCommandTargetV1 | null; destinationRepo: string | null; value: PluginJson }, context: SourceCallContextV1): Promise<LocalSourceCommandPlanV1>;
   readEditor?(input: { editor: TaskEditorContractV1; ref: WorkRefV1 | null }, context: SourceCallContextV1): Promise<TaskEditorDocumentV1 | null>;
   listEditableTasks?(input: { repo: string; editor: TaskEditorContractV1; filter: PluginJson; cursor: string | null; limit: number }, context: SourceCallContextV1): Promise<TaskEditorPageV1>;
@@ -462,6 +465,11 @@ export function parseSourceEffectResultV1(input: unknown): SourceEffectResultV1 
 }
 export function validateTaskSourceProvider(provider: unknown, declaration: TaskSourceDeclaration): asserts provider is TaskSourceProviderV1 {
   const value = object(provider);
+  if (declaration.remoteActions !== undefined) {
+    const actions = parseTaskSourceRemoteActionsV1(declaration.remoteActions, declaration);
+    if (actions.length && typeof value.prepareRemoteAction !== 'function') invalid('provider remote action');
+  }
+  if (value.prepareRemoteAction !== undefined && typeof value.prepareRemoteAction !== 'function') invalid('provider remote action');
   if (declaration.editorContracts !== undefined) {
     if (!Array.isArray(declaration.editorContracts) || declaration.editorContracts.length > 16) invalid('editor declarations');
     const editors = declaration.editorContracts.map(parseTaskEditorDeclarationV1);

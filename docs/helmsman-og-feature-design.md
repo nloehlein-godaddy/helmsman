@@ -1,6 +1,6 @@
 # Remaining feature design and delivery
 
-Status: Batches 1 and 2 implemented, reviewed and verified. The [delivery ledger](plugin-implementation-progress.md#og-feature-extensions--batch-1) records verification and remaining scope, including [Batch 2](plugin-implementation-progress.md#og-feature-extensions--batch-2). This document distinguishes planned behavior from shipped behavior. Baseline: `edd5a8a`; OG reference: `4ca712a`. See the [feature evaluation](helmsman-og-feature-evaluation-2026-09-21.md) for commit provenance.
+Status: Batches 1 and 2 implemented, reviewed and verified. Batch 3 assignment is implemented; current acceptance is recorded in the completion ledger. The [delivery ledger](plugin-implementation-progress.md#og-feature-extensions--batch-1) records verification and remaining scope, including [Batch 2](plugin-implementation-progress.md#og-feature-extensions--batch-2). This document distinguishes planned behavior from shipped behavior. Baseline: `edd5a8a`; OG reference: `4ca712a`. See the [feature evaluation](helmsman-og-feature-evaluation-2026-09-21.md) for commit provenance.
 
 ## Decisions
 
@@ -59,7 +59,7 @@ Preparation must use fetched object IDs/private refs rather than shared `FETCH_H
 |---|---|---|
 | 1 — Independent ports | Triage disclosure, severity badges; Firefox package; automatic own-PR guard | Three isolated worktrees. Focused regressions, independent review, integrated TypeScript/build/unit gate, affected browser and copied-package/distribution checks. Real Firefox evidence, including simultaneous selected/retained sockets, or an explicit remaining interoperability limit. |
 | 2 — Presentation and context | Bugs read extension, loading helper, Config note, log readiness; Underway canonical read service and navigation | Additive SDK compatibility and author build, visual and scope tests. No remote writes. |
-| 3 — Source action | Public remote-action declaration/service, journal, retained resolver, Jira assign-self, Triage action | Contract proof before provider/UI; duplicate/restart/stale identity and lost-PUT reconciliation tests. |
+| 3 — Source action — implemented | Public remote-action declaration/service, journal, retained resolver, Jira assign-self, Triage action | Contract proof before provider/UI; duplicate/restart/stale identity and lost-PUT reconciliation tests. |
 | 4 — Feedback | Tracker-neutral capability, disabled/configured selection, durable draft and command, GitHub Issues provider | Operation-ledger integration and retained artifact lifecycle; lost-response reconciliation, draft recovery and destination-authority tests. |
 | 5 — Parallel execution | Compatible schema rollout, collision ownership, policy/settings, all admission paths, cleanup/recovery | Migrate disposable legacy databases; same-task/branch/PR/workspace conflicts, independent branches, restart and unresolved-worker tests; controlled opt-in rollout. |
 
