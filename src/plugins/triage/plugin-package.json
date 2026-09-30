@@ -74,6 +74,10 @@
           {
             "id": "helmsman/run-command",
             "version": 1
+          },
+          {
+            "id": "helmsman/task-action",
+            "version": 1
           }
         ]
       }

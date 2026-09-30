@@ -1,8 +1,11 @@
-import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, TaskReadSourceV1, TaskTriageItemV1, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, TaskTriageGroupV1, TaskTriageReadSnapshotV1 } from '@helmsman/plugin-sdk';
+import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, TaskReadSourceV1, TaskTriageItemV1, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, TaskTriageGroupV1, TaskTriageReadSnapshotV1, SourceRemoteActionInputV1, SourceRemoteActionReceiptV1, SourceRemoteActionDiscoveryV1 } from '@helmsman/plugin-sdk';
 import { styles } from './styles.js';
 
 interface Selection { sourceId: string; instanceId: string; repo: string; }
 interface Section { source: TaskReadSourceV1; group: TaskTriageGroupV1; tasks: readonly TaskTriageItemV1[]; cursor: string | null; pages: number; error: string; loading: boolean; snapshots: TaskTriageReadSnapshotV1[]; }
+interface AssignmentState { input: SourceRemoteActionInputV1; requestId: string | null; receipt: SourceRemoteActionReceiptV1 | null; busy: boolean; message: string; }
+const assignmentKey = (input: SourceRemoteActionInputV1) => JSON.stringify([input.selection.repo, input.target.ref.sourceId, input.target.ref.externalId, input.action]);
+const actionSourceKey = (source: TaskReadSourceV1) => JSON.stringify([source.repo, source.sourceId, source.instanceId, source.instanceRevision]);
 interface Description { readonly status: 'loading' | 'loaded' | 'unavailable'; readonly text?: string; readonly truncated?: boolean; readonly message?: string; }
 const groups: readonly TaskTriageGroupV1[] = ['unassigned-backlog', 'unassigned-todo', 'mine-open'];
 const titles: Record<TaskTriageGroupV1, string> = { 'unassigned-backlog': 'Unassigned · Backlog', 'unassigned-todo': 'Unassigned · To Do', 'mine-open': 'Mine · Open' };
@@ -44,6 +47,12 @@ class TriagePanel implements PluginPanelInstance {
   private evidenceReady = false;
   private commandError = '';
   private commands = new Map<string, LaunchState>();
+  private assignments = new Map<string, AssignmentState>();
+  private assignmentReady = false;
+  private assignmentError = '';
+  private actionCapabilities = new Map<string, SourceRemoteActionDiscoveryV1>();
+  private actionController: AbortController | null = null;
+  private actionErrors = new Map<string, string>();
   private disposed = false;
   private controller: AbortController | null = null;
   private generation = 0;
@@ -60,15 +69,16 @@ class TriagePanel implements PluginPanelInstance {
   private abort = () => this.dispose();
   private suspend = () => { this.cancel(); };
   private cancelDescriptions() { for (const controller of this.descriptionControllers) controller.abort(); this.descriptionControllers.clear(); for (const [id, description] of this.descriptions) if (description.status === 'loading') this.descriptions.delete(id); }
-  private cancel() { ++this.generation; this.controller?.abort(); this.controller = null; this.cancelDescriptions(); this.pending = null; this.evidenceReady = false; for (const command of this.commands.values()) command.busy = false; }
+  private cancel() { ++this.generation; this.actionController?.abort(); this.actionController = null; this.assignmentReady = false; this.actionCapabilities.clear(); this.actionErrors.clear(); for (const assignment of this.assignments.values()) assignment.busy = false; this.controller?.abort(); this.controller = null; this.cancelDescriptions(); this.pending = null; this.evidenceReady = false; for (const command of this.commands.values()) command.busy = false; }
   private current(generation: number): boolean { return !this.disposed && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
   refresh(): Promise<void> {
     if (this.disposed || !this.state.activity.active || this.state.activity.signal.aborted || !this.state.visible) return Promise.resolve();
     if (this.pending) return this.pending;
+    this.actionController?.abort(); this.actionController = new AbortController(); for (const assignment of this.assignments.values()) assignment.busy = false; this.assignmentReady = false; this.actionCapabilities.clear(); this.actionErrors.clear();
     this.evidenceReady = false; this.cancelDescriptions(); this.descriptions.clear(); this.sections = []; this.until = new Date().toISOString();
     const generation = ++this.generation; const controller = new AbortController(); this.controller = controller;
     const promise = Promise.resolve().then(async () => {
-      await this.restoreCommands(generation);
+      await Promise.all([this.restoreCommands(generation), this.restoreAssignments(generation)]);
       if (!this.current(generation)) return;
       const discovery = await this.context.services.tasks!.discover(controller.signal);
       if (!this.current(generation)) return;
@@ -85,6 +95,7 @@ class TriagePanel implements PluginPanelInstance {
       if (this.chosen && !selected.length) this.messages.push('The selected source is unavailable in this scope. Your selection is kept.');
       if (selected.length > 50) this.messages.push('Showing the first 50 source views. Select a source to inspect another view.');
       this.sections = selected.slice(0, 50).filter(source => source.readViews?.includes('triage')).flatMap(source => groups.map(group => ({ source, group, tasks: [], cursor: null, pages: 0, snapshots: [], error: source.availability !== 'available' ? `Source ${source.availability}.` : '', loading: source.availability === 'available' })));
+      void this.discoverActions(selected.slice(0, 50), generation, this.actionController!.signal);
       this.draw(); let index = 0;
       await Promise.all(Array.from({ length: Math.min(4, this.sections.length) }, async () => {
         while (index < this.sections.length && this.current(generation)) {
@@ -288,6 +299,104 @@ class TriagePanel implements PluginPanelInstance {
     } catch { if (this.current(generation)) command.message = 'Could not update the saved request. Refresh to retry.'; }
     finally { if (this.current(generation)) { command.busy = false; await this.restoreCommands(generation); this.draw(); } }
   }
+  private async restoreAssignments(generation: number): Promise<void> {
+    const service = this.context.services.taskActions;
+    if (service?.version !== 1) { this.assignmentReady = false; this.assignments.clear(); return; }
+    try {
+      const entries = await service.pending();
+      if (!this.current(generation)) return;
+      if (!Array.isArray(entries)) throw new Error('Saved assignments unavailable');
+      const assignments = new Map<string, AssignmentState>();
+      for (const entry of entries) {
+        if (!entry?.command?.target?.ref || !entry.command.selection || entry.command.action !== 'assign-self'
+          || typeof entry.command.requestId !== 'string' || typeof entry.command.target.ref.externalId !== 'string') throw new Error('Invalid saved assignment');
+        if (this.state.repo !== null && entry.command.selection.repo !== this.state.repo) continue;
+        const { requestId, ...input } = entry.command; const id = assignmentKey(input); const previous = this.assignments.get(id);
+        assignments.set(id, { input, requestId, receipt: entry.receipt, busy: previous?.busy ?? false, message: previous?.message ?? '' });
+      }
+      for (const [id, value] of this.assignments) if (value.busy && !assignments.has(id)) assignments.set(id, value);
+      this.assignments = assignments; this.assignmentReady = true; this.assignmentError = '';
+    } catch { if (this.current(generation)) { this.assignmentReady = false; this.assignmentError = 'Saved assignments are unavailable. Assign to me is disabled until refresh succeeds.'; } }
+  }
+  private async discoverActions(sources: readonly TaskReadSourceV1[], generation: number, signal: AbortSignal): Promise<void> {
+    const service = this.context.services.taskActions; if (service?.version !== 1) return;
+    let index = 0;
+    await Promise.all(Array.from({ length: Math.min(4, sources.length) }, async () => {
+      while (index < sources.length && this.current(generation) && !signal.aborted) {
+        const source = sources[index++]!; if (source.availability !== 'available') continue;
+        try {
+          const result = await service.discover(source, signal);
+          if (!this.current(generation) || signal.aborted) return;
+          const selection = result?.status === 'available' ? result.value?.selection : null;
+          if (result?.status === 'available' && selection?.sourceId === source.sourceId && selection.instanceId === source.instanceId
+            && selection.instanceRevision === source.instanceRevision && selection.repo === source.repo && Number.isSafeInteger(result.value.sourceRevision)
+            && result.value.sourceRevision > 0 && Array.isArray(result.value.actions)) this.actionCapabilities.set(actionSourceKey(source), result.value);
+          else this.actionErrors.set(actionSourceKey(source), 'Assignment actions are unavailable. Refresh to retry.');
+        } catch { if (this.current(generation) && !signal.aborted) this.actionErrors.set(actionSourceKey(source), 'Assignment actions are unavailable. Refresh to retry.'); }
+        if (this.current(generation)) this.draw();
+      }
+    }));
+  }
+  private assignmentInput(section: Section, task: TaskTriageItemV1): SourceRemoteActionInputV1 | null {
+    const capability = this.actionCapabilities.get(actionSourceKey(section.source));
+    if (section.group === 'mine-open' || !capability?.actions.includes('assign-self')) return null;
+    const { sourceId, instanceId, instanceRevision, repo } = section.source;
+    return { version: 1, action: 'assign-self', selection: { version: 1, sourceId, instanceId, instanceRevision, repo },
+      sourceRevision: capability.sourceRevision, target: { ref: task.ref, repo, expectedRevision: task.revision } };
+  }
+  private async assign(section: Section, task: TaskTriageItemV1): Promise<void> {
+    const input = this.assignmentInput(section, task); const service = this.context.services.taskActions;
+    if (!input || !service || !this.assignmentReady || !this.descriptionCurrent(section, task, this.generation) || this.pending || section.loading || section.error) return;
+    const id = assignmentKey(input); if (this.assignments.has(id)) return;
+    const assignment: AssignmentState = { input, requestId: null, receipt: null, busy: true, message: '' }; this.assignments.set(id, assignment);
+    const generation = this.generation; this.draw();
+    try {
+      const result = await service.submit(input, AbortSignal.any([this.context.signal, this.state.activity.signal, this.actionController!.signal]));
+      if (!this.current(generation)) return;
+      if (result?.status === 'available') { assignment.requestId = result.value.requestId; assignment.receipt = result.value; }
+      else assignment.message = 'Assignment outcome is not confirmed. Check its saved receipt before trying again.';
+    } catch { if (this.current(generation)) assignment.message = 'Assignment outcome is not confirmed. Check its saved receipt before trying again.'; }
+    finally { if (this.current(generation)) { assignment.busy = false; await this.restoreAssignments(generation); this.draw(); } }
+  }
+  private async assignmentAction(assignment: AssignmentState, action: 'receipt' | 'retry' | 'dismiss'): Promise<void> {
+    const service = this.context.services.taskActions;
+    if (!service || !this.current(this.generation) || assignment.busy || !assignment.requestId) return;
+    const query = { repo: assignment.input.selection.repo, requestId: assignment.requestId }; const generation = this.generation;
+    assignment.busy = true; this.draw();
+    try {
+      if (action === 'dismiss') { await service.acknowledge(query); if (this.current(generation)) { this.assignments.delete(assignmentKey(assignment.input)); await this.refresh(); } return; }
+      if (action === 'retry' && assignment.receipt?.status === 'recovery-required') return;
+      const signal = AbortSignal.any([this.context.signal, this.state.activity.signal, this.actionController!.signal]);
+      const result = action === 'retry' ? await service.retry(query, signal) : await service.receipt(query, signal);
+      if (this.current(generation)) {
+        if (result?.status === 'available' && result.value) { assignment.receipt = result.value; assignment.message = ''; }
+        else assignment.message = 'No confirmed assignment receipt is available. The saved request remains protected.';
+      }
+    } catch { if (this.current(generation)) assignment.message = 'Could not update the saved assignment. Refresh to retry.'; }
+    finally { if (this.current(generation)) { assignment.busy = false; await this.restoreAssignments(generation); this.draw(); } }
+  }
+  private drawAssignments(page: HTMLElement): void {
+    if (this.assignmentError) { const error = element('p', this.assignmentError); error.setAttribute('role', 'status'); page.append(error); }
+    for (const [id, assignment] of this.assignments) {
+      const receipt = assignment.receipt; const box = element('section'); box.setAttribute('aria-label', 'Saved assignment');
+      box.append(element('h3', `${assignment.input.selection.repo} · ${assignment.input.target.ref.externalId}`));
+      const note = element('p', assignment.busy ? 'Updating assignment…' : receipt?.status === 'succeeded' ? 'Assigned to you.'
+        : receipt?.status === 'rejected' ? `Assignment rejected: ${receipt.reason ?? 'Refresh the task before trying again.'}`
+          : receipt?.status === 'recovery-required' ? 'Assignment requires Recovery. Its outcome is not confirmed.' : assignment.message || 'Assignment pending. Its outcome is not confirmed.');
+      note.setAttribute('role', 'status'); note.tabIndex = -1; note.dataset.triageFocus = `assignment-status:${id}`; box.append(note);
+      const terminal = receipt?.status === 'succeeded' || receipt?.status === 'rejected';
+      if (assignment.requestId) {
+        const actions: readonly ('receipt' | 'retry' | 'dismiss')[] = terminal ? ['dismiss'] : !receipt || receipt.status === 'pending' ? ['receipt', 'retry'] : ['receipt'];
+        for (const action of actions) {
+          const button = element('button', action === 'dismiss' ? 'Dismiss saved assignment' : action === 'retry' ? 'Retry assignment delivery' : 'Check assignment receipt');
+          button.type = 'button'; button.disabled = assignment.busy || !this.assignmentReady || !this.current(this.generation); button.dataset.triageFocus = `assignment:${id}:${action}`;
+          button.addEventListener('click', () => { void this.assignmentAction(assignment, action); }); box.append(button);
+        }
+      }
+      if (receipt?.status === 'recovery-required') { const recovery = element('a', 'Open Recovery'); recovery.href = `/recovery?${new URLSearchParams({ repo: assignment.input.selection.repo })}`; box.append(recovery); }
+      page.append(box);
+    }
+  }
   private draw(): void {
     if (this.disposed) return;
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.triageFocus : null;
@@ -300,7 +409,7 @@ class TriagePanel implements PluginPanelInstance {
     if (this.chosen && !this.sources.some(source => key(source) === key(this.chosen!))) { const option = element('option', `Unavailable source · ${this.chosen.repo}`); option.value = key(this.chosen); select.append(option); }
     select.value = this.invalidSelection ? 'unsupported' : this.chosen ? key(this.chosen) : ''; select.addEventListener('change', () => { void this.choose(select.value); }); toolbar.append(select);
     const refresh = element('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.triageFocus = 'refresh'; refresh.disabled = Boolean(this.pending); refresh.addEventListener('click', () => { void this.refresh(); }); toolbar.append(refresh); page.append(toolbar);
-    this.filters(page);
+    this.filters(page); this.drawAssignments(page);
     for (const message of [...this.messages, ...(this.saveError ? [this.saveError] : []), ...(this.commandError ? [this.commandError] : [])]) { const note = element('p', message); note.setAttribute('role', 'status'); page.append(note); }
     if (this.state.repo === null) page.append(element('p', this.state.pirateMode ? 'Select one galleon to launch work.' : 'Select one repository to launch work.'));
     for (const command of this.commands.values()) {
@@ -334,6 +443,7 @@ class TriagePanel implements PluginPanelInstance {
     const sections = element('div'); sections.className = 'triage-grid';
     for (const section of this.sections) {
       const view = element('section'); view.dataset.triageGroup = section.group; view.dataset.triageFocus = `group:${this.sectionKey(section)}`; view.tabIndex = -1; view.append(element('h3', `${section.source.label} · ${section.source.repo} · ${titles[section.group]}`));
+      if (section.group !== 'mine-open' && this.actionErrors.has(actionSourceKey(section.source))) { const note = element('p', this.actionErrors.get(actionSourceKey(section.source))); note.setAttribute('role', 'status'); view.append(note); }
       if (section.error) { const error = element('p', section.error); error.setAttribute('role', 'status'); view.append(error); }
       const collapse = element('button', this.isCollapsed(section) ? 'Expand group' : 'Collapse group'); collapse.type = 'button'; collapse.setAttribute('aria-label', `${collapse.textContent} ${titles[section.group]}`);
       collapse.dataset.triageFocus = `collapse:${this.sectionKey(section)}`;
@@ -349,6 +459,13 @@ class TriagePanel implements PluginPanelInstance {
         else row.append(element('span', `${task.displayKey}: ${task.title}`));
         row.append(element('small', `P${task.priority} · ${task.state} · Updated ${task.updatedAt}`)); list.append(row);
         row.append(this.description(section, task));
+        const assignment = this.assignmentInput(section, task);
+        if (assignment) {
+          const assign = element('button', 'Assign to me'); assign.type = 'button'; assign.setAttribute('aria-label', `Assign ${task.displayKey} to me`);
+          assign.dataset.triageFocus = `assign:${this.descriptionFocusKey(section, task)}`; assign.dataset.assignmentKey = assignmentKey(assignment);
+          assign.disabled = !this.assignmentReady || !this.current(this.generation) || Boolean(this.pending) || section.loading || Boolean(section.error) || this.assignments.has(assignmentKey(assignment));
+          assign.addEventListener('click', () => { assign.focus({ preventScroll: true }); void this.assign(section, task); }); row.append(assign);
+        }
         const related = snapshot?.relatedRuns.find(run => run.ref.sourceId === task.ref.sourceId && run.ref.externalId === task.ref.externalId);
         if (related) { const href = `/runs?${new URLSearchParams({ repo: related.repo, run: related.runId })}`; const link = element('a', this.state.pirateMode ? 'Open related voyage' : 'Open related run'); link.href = href; row.append(link); }
         if (this.state.repo !== null && task.state !== 'ready') row.append(element('small', 'Not ready for a new run.'));
@@ -373,7 +490,9 @@ class TriagePanel implements PluginPanelInstance {
     const target = routeTarget ?? focused;
     if (target) {
       const node = Array.from(this.container.querySelectorAll<HTMLElement>('[data-triage-focus]')).find(value => value.dataset.triageFocus === target);
-      node?.focus({ preventScroll: true }); if (routeTarget) node?.scrollIntoView?.({ block: 'nearest' });
+      const focusTarget = node instanceof HTMLButtonElement && node.disabled && node.dataset.assignmentKey
+        ? Array.from(this.container.querySelectorAll<HTMLElement>('[data-triage-focus]')).find(value => value.dataset.triageFocus === `assignment-status:${node.dataset.assignmentKey}`) : node;
+      focusTarget?.focus({ preventScroll: true }); if (routeTarget) node?.scrollIntoView?.({ block: 'nearest' });
     }
   }
   update(state: PluginPanelState): void {
@@ -382,7 +501,7 @@ class TriagePanel implements PluginPanelInstance {
     const selectionChanged = !this.selectionDirty && JSON.stringify(previous.savedState) !== JSON.stringify(state.savedState);
     if (selectionChanged) this.restoreSettings(state.savedState);
     if (previous.activity.signal !== state.activity.signal) { previous.activity.signal.removeEventListener('abort', this.suspend); state.activity.signal.addEventListener('abort', this.suspend, { once: true }); }
-    if (selectionChanged || previous.activity.epoch !== state.activity.epoch || previous.repo !== state.repo) { this.cancel(); this.sections = []; this.sources = []; this.messages = []; this.descriptions.clear(); this.commands.clear(); this.commandError = ''; }
+    if (selectionChanged || previous.activity.epoch !== state.activity.epoch || previous.repo !== state.repo) { this.cancel(); this.sections = []; this.sources = []; this.messages = []; this.descriptions.clear(); this.commands.clear(); this.commandError = ''; this.assignments.clear(); this.assignmentError = ''; }
     if (!state.activity.active || !state.visible) this.cancel();
     this.draw();
     if (state.activity.active && state.visible && (selectionChanged || previous.activity.epoch !== state.activity.epoch || !previous.activity.active || !previous.visible)) void this.refresh();

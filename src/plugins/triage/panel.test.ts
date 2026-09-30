@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { PluginPanelContext, PluginPanelState, TaskReadServiceV1, TaskReadSourceV1, TaskTriageItemV1, TaskViewsReadServiceV1, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, RunCommandServiceV1, TaskReadTaskV1 } from '@helmsman/plugin-sdk';
+import type { PluginPanelContext, PluginPanelState, TaskReadServiceV1, TaskReadSourceV1, TaskTriageItemV1, TaskViewsReadServiceV1, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, RunCommandServiceV1, TaskReadTaskV1, TaskActionServiceV1, SourceRemoteActionInputV1, SourceRemoteActionReceiptV1, SourceRemoteActionPendingV1 } from '@helmsman/plugin-sdk';
 import panel from './panel';
 const sourceId = '11111111-1111-4111-8111-111111111111'; const repo = 'owner/project';
 const source: TaskReadSourceV1 = { version: 1, sourceId, instanceId: 'source-one', instanceRevision: 2, repo, label: 'Tasks', availability: 'available', readViews: ['triage'] };
@@ -191,4 +191,87 @@ it.each(['missing-retry', 'removed-request', 'newer-request'] as const)('never a
     await vi.waitFor(() => expect(f.buttons('Retry delivery')).toHaveLength(next.length)); expect(await f.pending()).toEqual(next);
   }
   expect(f.submit).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled(); f.lifetime.abort();
+});
+
+function assignmentFixture() {
+  const f = fixture();
+  const selection = { version: 1 as const, sourceId, instanceId: source.instanceId, instanceRevision: source.instanceRevision, repo };
+  const input: SourceRemoteActionInputV1 = { version: 1, action: 'assign-self', selection, sourceRevision: 7, target: { ref: task.ref, repo, expectedRevision: task.revision } };
+  let entries: readonly SourceRemoteActionPendingV1[] = [];
+  const success: SourceRemoteActionReceiptV1 = { version: 1, requestId: sourceId, input, status: 'succeeded', reason: null,
+    result: { ref: task.ref, repo, revision: 'assigned', accountId: 'authenticated-actor' } };
+  const service: TaskActionServiceV1 = {
+    version: 1, discover: vi.fn<TaskActionServiceV1['discover']>(async () => ({ status: 'available', value: { version: 1, selection, sourceRevision: 7, actions: ['assign-self'] } })),
+    submit: vi.fn<TaskActionServiceV1['submit']>(async value => { const receipt = { ...success, input: value }; entries = [{ command: { ...value, requestId: sourceId }, receipt }]; return { status: 'available', value: receipt }; }),
+    pending: vi.fn(async () => entries),
+    receipt: vi.fn<TaskActionServiceV1['receipt']>(async () => ({ status: 'available', value: entries[0]?.receipt ?? null })),
+    retry: vi.fn<TaskActionServiceV1['retry']>(async () => ({ status: 'available', value: success })),
+    acknowledge: vi.fn(async () => { entries = []; }),
+  };
+  f.context = { ...f.context, services: { ...f.context.services, taskActions: service } };
+  return { ...f, service, input, success, setAssignments(value: readonly SourceRemoteActionPendingV1[]) { entries = value; } };
+}
+async function assignmentsReady(f: ReturnType<typeof assignmentFixture>) { await vi.waitFor(() => expect(f.buttons('Assign to me')[0]?.disabled).toBe(false)); }
+
+it('exposes assign-self only on unassigned groups and suppresses duplicates across groups', async () => {
+  const f = assignmentFixture(); await panel.mount(f.container, f.context); await assignmentsReady(f);
+  expect(f.buttons('Assign to me')).toHaveLength(2); expect(f.service.discover).toHaveBeenCalledTimes(1);
+  expect(f.container.querySelector('[data-triage-group="mine-open"]')?.textContent).not.toContain('Assign to me');
+  f.buttons('Assign to me')[0]!.click(); f.buttons('Assign to me')[1]!.click();
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Assigned to you.'));
+  expect(f.service.submit).toHaveBeenCalledExactlyOnceWith(f.input, expect.any(AbortSignal)); expect(f.buttons('Assign to me').every(button => button.disabled)).toBe(true);
+  expect(document.activeElement?.textContent).toBe('Assigned to you.');
+  f.lifetime.abort();
+});
+it('waits for retained assignment evidence and keeps reads available if the journal fails', async () => {
+  const f = assignmentFixture(); vi.mocked(f.service.pending).mockRejectedValue(new Error('Storage unavailable'));
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Assign to me')).toHaveLength(2));
+  expect(f.buttons('Assign to me').every(button => button.disabled)).toBe(true); expect(f.container.textContent).toContain('Saved assignments are unavailable');
+  expect(f.container.textContent).toContain(task.title); expect(f.buttons('Launch')[0]?.disabled).toBe(false); expect(f.service.submit).not.toHaveBeenCalled(); f.lifetime.abort();
+});
+it('restores unknown assignments after remount without sending or allowing a duplicate', async () => {
+  const f = assignmentFixture(); f.setAssignments([{ command: { ...f.input, requestId: sourceId }, receipt: null }]);
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Check assignment receipt')).toHaveLength(1));
+  expect(f.buttons('Assign to me').every(button => button.disabled)).toBe(true); expect(f.service.submit).not.toHaveBeenCalled(); expect(f.service.retry).not.toHaveBeenCalled(); expect(f.service.receipt).not.toHaveBeenCalled();
+  f.buttons('Retry assignment delivery')[0]!.click(); await vi.waitFor(() => expect(f.service.retry).toHaveBeenCalledExactlyOnceWith({ repo, requestId: sourceId }, expect.any(AbortSignal))); f.lifetime.abort();
+});
+it('retains recovery-required assignments without retry or dismiss controls', async () => {
+  const f = assignmentFixture(); f.setAssignments([{ command: { ...f.input, requestId: sourceId }, receipt: { ...f.success, status: 'recovery-required', result: null } }]);
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Assignment requires Recovery'));
+  expect(f.buttons('Retry assignment delivery')).toHaveLength(0); expect(f.buttons('Dismiss saved assignment')).toHaveLength(0); expect(f.container.querySelector('a[href^="/recovery?"]')).not.toBeNull(); f.lifetime.abort();
+});
+it('refreshes task revisions after terminal receipt dismissal before enabling another assignment', async () => {
+  const f = assignmentFixture(); f.setAssignments([{ command: { ...f.input, requestId: sourceId }, receipt: f.success }]);
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Dismiss saved assignment')).toHaveLength(1));
+  const initialReads = f.triage.mock.calls.length;
+  f.buttons('Dismiss saved assignment')[0]!.click(); await assignmentsReady(f);
+  expect(f.service.acknowledge).toHaveBeenCalledExactlyOnceWith({ repo, requestId: sourceId }); expect(f.triage.mock.calls.length).toBeGreaterThan(initialReads);
+  expect(f.buttons('Dismiss saved assignment')).toHaveLength(0); f.lifetime.abort();
+});
+it.each(['unsupported', 'different-source'] as const)('hides assignment when source declaration is %s', async scenario => {
+  const f = assignmentFixture(); vi.mocked(f.service.discover).mockResolvedValue({ status: 'available', value: { version: 1, selection: scenario === 'different-source' ? { ...f.input.selection, instanceRevision: 99 } : f.input.selection, sourceRevision: 7, actions: scenario === 'unsupported' ? [] : ['assign-self'] } });
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Launch')[0]?.disabled).toBe(false)); expect(f.buttons('Assign to me')).toHaveLength(0); f.lifetime.abort();
+});
+it('does not require an action-capable host to read Triage tasks', async () => {
+  const f = fixture(); await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Launch')[0]?.disabled).toBe(false)); expect(f.buttons('Assign to me')).toHaveLength(0); f.lifetime.abort();
+});
+it('aborts slow optional action discovery on refresh and ignores its stale capabilities', async () => {
+  const f = assignmentFixture(); let finish!: (result: Awaited<ReturnType<typeof f.service.discover>>) => void;
+  vi.mocked(f.service.discover).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Launch')[0]?.disabled).toBe(false));
+  const signal = vi.mocked(f.service.discover).mock.calls[0]?.[1];
+  vi.mocked(f.service.discover).mockResolvedValue({ status: 'available', value: { version: 1, selection: f.input.selection, sourceRevision: 7, actions: [] } });
+  await instance.refresh?.(); expect(signal?.aborted).toBe(true);
+  finish({ status: 'available', value: { version: 1, selection: f.input.selection, sourceRevision: 7, actions: ['assign-self'] } }); await Promise.resolve();
+  expect(f.buttons('Assign to me')).toHaveLength(0); f.lifetime.abort();
+});
+it('ignores a completed assignment from an older panel scope while retaining its durable request', async () => {
+  const f = assignmentFixture(); let finish!: (result: Awaited<ReturnType<typeof f.service.submit>>) => void;
+  vi.mocked(f.service.submit).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const instance = await panel.mount(f.container, f.context); await assignmentsReady(f); f.buttons('Assign to me')[0]!.click();
+  await vi.waitFor(() => expect(f.service.submit).toHaveBeenCalledOnce());
+  const signal = vi.mocked(f.service.submit).mock.calls[0]?.[1];
+  await instance.update({ ...f.state, repo: 'other/project', activity: { ...f.state.activity, repo: 'other/project', epoch: 2, signal: new AbortController().signal } });
+  finish({ status: 'available', value: f.success }); await Promise.resolve();
+  expect(signal?.aborted).toBe(true); expect(f.container.textContent).not.toContain('Assigned to you'); expect(f.service.acknowledge).not.toHaveBeenCalled(); f.lifetime.abort();
 });
