@@ -50,6 +50,38 @@ const command = {
   action: 'retry', assignedRunId: 'assigned-child', attempt: 1, targetRunId: 'original-voyage', targetAttempt: 2,
   status: 'recovery-required', message: 'Delivery requires reconciliation.', receiptHash: 'a'.repeat(64), actions: ['resolve-run-command'],
 };
+
+test('assignment recovery permits only non-application and restores other operation outcomes', async ({ page }) => {
+  const actions: unknown[] = [];
+  await page.route(url => url.pathname === '/recovery', route => route.fulfill({ contentType: 'text/html', body: recoveryPage() }));
+  await page.route('**/api/context', route => route.fulfill({ json: { repos: ['fleet/alpha'] } }));
+  await page.route('**/api/recovery?*', route => route.fulfill({ json: { ...snapshot([]), operations: [
+    { id: 'assignment-1', type: 'source-remote-action.assign-self', status: 'uncertain', providerId: 'example.jira/issues', actions: ['resolve-operation'] },
+    { id: 'review-1', type: 'github.review', status: 'uncertain', providerId: 'example.github/reviews', actions: ['resolve-operation'] },
+  ] } }));
+  await page.route('**/api/recovery/actions', async route => { actions.push(route.request().postDataJSON()); await route.fulfill({ json: { ok: true } }); });
+  await page.goto('/recovery?repo=fleet/alpha');
+  const assignment = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'assignment-1', exact: true }) });
+  const review = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'review-1', exact: true }) });
+  await assignment.getByRole('button', { name: 'Resolve operation' }).click();
+  await expect(page.locator('#outcome option')).toHaveCount(1);
+  await expect(page.locator('#outcome')).toHaveValue('definitely-not-applied');
+  await expect(page.locator('#outcome option[value="acknowledged"]')).toHaveCount(0);
+  await expect(page.locator('#action-help')).toContainText('requires provider reconciliation');
+  await page.getByLabel('Actor', { exact: true }).fill('operator');
+  await page.getByLabel('Reason', { exact: true }).fill('Confirmed no assignment');
+  await page.getByLabel('Evidence', { exact: true }).fill('Verified request was not applied');
+  await page.getByRole('button', { name: 'Record resolution' }).click();
+  await expect.poll(() => actions.length).toBe(1);
+  expect(actions[0]).toMatchObject({ id: 'assignment-1', outcome: 'definitely-not-applied' });
+  await review.getByRole('button', { name: 'Resolve operation' }).click();
+  await expect(page.locator('#outcome option')).toHaveCount(2);
+  await expect(page.locator('#outcome')).toHaveValue('acknowledged');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await assignment.getByRole('button', { name: 'Resolve operation' }).click();
+  await expect(page.locator('#outcome option')).toHaveCount(1);
+  await expect(page.locator('#outcome')).toHaveValue('definitely-not-applied');
+});
 function snapshot(commands: unknown[], readOnly = false) {
   return { version: 1, mode: readOnly ? 'safe-start' : 'normal', readOnly, errors: [], truncated: false, commands,
     runs: [], attempts: [], sourceClaims: [], admissions: [], reservations: [], pins: [], checkpoints: [], lifecycle: [], operations: [] };

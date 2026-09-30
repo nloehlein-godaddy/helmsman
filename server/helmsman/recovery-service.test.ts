@@ -140,6 +140,27 @@ it('does not offer mutation callbacks that the host has not provided', async () 
   await expect(f.service.act({ action: 'retry-attachment', runId: 'voyage1' })).rejects.toMatchObject({ status: 409 });
 });
 
+it('requires provider proof of assignment success while allowing manual non-application and other operation resolutions', async () => {
+  const resolveOperation = vi.fn(); const f = fixture({ resolveOperation });
+  const assignment = f.operations.enqueue({ version: 1, key: 'assign-self', kind: 'source-remote-action.assign-self',
+    origin: { kind: 'public-source-action', id: 'assignment-request', revision: '1', runId: null, attempt: null },
+    binding: { ...binding, role: 'effect' }, artifacts: [artifact], target: { repo: 'org/a' }, payload: {} });
+  const other = f.operation(null);
+  for (const operation of [assignment, other]) {
+    const lease = f.operations.lease(operation.id, 60_000)!;
+    f.operations.settle(lease, { status: 'unknown', reason: 'Response lost', evidence: {} });
+  }
+  const resolution = { action: 'resolve-operation', actor: 'operator', reason: 'Inspected remote evidence', evidence: { inspected: true } };
+  expect(await handleRecoveryRequest('POST', '/api/recovery/actions', new URLSearchParams(),
+    { ...resolution, id: assignment.id, outcome: 'acknowledged' }, f.service)).toMatchObject({ status: 409 });
+  expect(resolveOperation).not.toHaveBeenCalled();
+  expect(f.operations.get(assignment.id)?.status).toBe('uncertain');
+  await f.service.act({ ...resolution, id: assignment.id, outcome: 'definitely-not-applied' });
+  expect(resolveOperation).toHaveBeenNthCalledWith(1, assignment.id, { actor: resolution.actor, reason: resolution.reason, evidence: resolution.evidence, outcome: 'definitely-not-applied' });
+  await f.service.act({ ...resolution, id: other.id, outcome: 'acknowledged' });
+  expect(resolveOperation).toHaveBeenNthCalledWith(2, other.id, { actor: resolution.actor, reason: resolution.reason, evidence: resolution.evidence, outcome: 'acknowledged' });
+});
+
 it('opens safe-start metadata without migrations or modifying files and preserves partial diagnostics', () => {
   const f = fixture(); const attempt = f.prepare(); f.operation();
   const lease = f.executions.lease(attempt, 60_000)!;
