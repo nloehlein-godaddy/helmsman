@@ -215,7 +215,7 @@ export const jiraProvider: TaskSourceProviderV1 = {
   async prepareRemoteAction(input, context) {
     const selection = input?.selection; const target = input?.target;
     const { http, repo, project } = access(context, target?.repo);
-    if (input?.version !== 1 || input.action !== 'assign-self' || input.sourceRevision !== context.instance.revision
+    if (input?.version !== 1 || input.action !== 'assign-self'
       || selection?.version !== 1 || selection.sourceId !== context.instance.sourceId || selection.instanceId !== context.instance.id
       || selection.instanceRevision !== context.instance.revision || selection.repo !== repo || target?.repo !== repo
       || !jiraText(target?.expectedRevision, 128)) throw new Error('Jira action selection changed');

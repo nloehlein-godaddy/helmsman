@@ -93,7 +93,6 @@ describe('Jira Assign to me', () => {
   it('validates source, instance, repository, issue, project and revision before planning', async () => {
     const f = fixture(); const input = request(f);
     const invalid: SourceRemoteActionInputV1[] = [
-      { ...input, sourceRevision: 2 },
       { ...input, selection: { ...input.selection, instanceId: 'another-instance' } },
       { ...input, selection: { ...input.selection, instanceRevision: 2 } },
       { ...input, selection: { ...input.selection, sourceId: 'another-source' } },
@@ -108,6 +107,13 @@ describe('Jira Assign to me', () => {
     await expect(jiraProvider.prepareRemoteAction!(input, f.context)).rejects.toThrow('changed');
     f.issue = jiraIssue({ project: { key: 'OTHER' } });
     await expect(jiraProvider.prepareRemoteAction!(input, f.context)).rejects.toThrow('project');
+    expect(f.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+  it('accepts independently evolved source revisions while enforcing the instance selection revision', async () => {
+    const f = fixture(); const instance = { ...f.instance, revision: 3 };
+    const input = { ...request(f), sourceRevision: 9, selection: { ...request(f).selection, instanceRevision: 3 } };
+    expect(await jiraProvider.prepareRemoteAction!(input, { ...f.context, instance })).toMatchObject({ kind: 'effect', effectId: 'assign' });
+    await expect(jiraProvider.prepareRemoteAction!({ ...input, selection: { ...input.selection, instanceRevision: 2 } }, { ...f.context, instance })).rejects.toThrow('selection changed');
     expect(f.calls.every(call => call.method === 'GET')).toBe(true);
   });
   it('uses the mapped project during retained delivery', async () => {
