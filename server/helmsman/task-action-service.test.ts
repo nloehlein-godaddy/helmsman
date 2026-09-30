@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SourceEffectHandlerV1, TaskSourceProviderV1 } from '../../src/plugins/tasks';
 import type { SourceRemoteActionPlanV1, SourceRemoteActionCommandV1 } from '../../src/plugins/task-actions';
 import { openExecutionStore } from './execution-store';
+import { openAdmissionStore } from './admission-store';
+import { createRecoveryService } from './recovery-service';
 import { openOperationStore } from './operations';
 import { type Persistence } from './persistence';
 import { createTaskSourceRegistry } from './task-sources/registry';
@@ -18,7 +20,8 @@ afterEach(() => databases.splice(0).forEach(database => database.close()));
 const caller = 'example.tasks/triage';
 function fixture() {
   const f = sourceFixture(); databases.push(f.persistence);
-  const operations = openOperationStore(f.persistence, openExecutionStore(f.persistence));
+  const executions = openExecutionStore(f.persistence);
+  const operations = openOperationStore(f.persistence, executions);
   const registry = createTaskSourceRegistry({ eligible: () => true });
   const ref = { sourceId: f.source.id, externalId: '42' };
   const command: SourceRemoteActionCommandV1 = { version: 1, action: 'assign-self', requestId: '00000000-0000-4000-8000-000000000123',
@@ -40,7 +43,7 @@ function fixture() {
     actionArtifacts: () => [{ pluginId: binding.pluginId, artifactHash: binding.artifactHash, packageVersion: '1.0.0', requires: [] }], verifyArtifacts: vi.fn(async () => {}),
     actionHttp: (_instance, _signal, mutation, assert) => ({ get: async input => { assert(); return get(input); }, ...(mutation ? { send: async (input: Parameters<typeof send>[0]) => { assert(); return send(input); } } : {}) }) };
   const service = createTaskActionService(options);
-  return { ...f, options, operations, registry, sources, service, command, result, plan, prepare, invoke, reconcile, load, send, get, authorize,
+  return { ...f, options, executions, operations, registry, sources, service, command, result, plan, prepare, invoke, reconcile, load, send, get, authorize,
     query: { repo: command.selection.repo, requestId: command.requestId } };
 }
 describe('durable remote source actions', () => {
@@ -88,6 +91,30 @@ describe('durable remote source actions', () => {
     expect((await restarted.retry(caller, f.query, null)).status).toBe('succeeded');
     expect(f.reconcile.mock.calls[0]?.[1].instance.settings).toEqual(f.instance.settings);
     expect(f.send).toHaveBeenCalledTimes(1); expect(f.invoke).toHaveBeenCalledTimes(1);
+  });
+  it('exposes assignment failures in the core-owned repository Recovery scope', async () => {
+    const f = fixture();
+    const providerTarget = { sourceId: f.source.id, issueId: '42', repo: 'untrusted/project' };
+    f.prepare.mockResolvedValue({ ...f.plan, target: providerTarget });
+    f.send.mockRejectedValue(new Error('Reply lost'));
+    expect((await f.service.submit(caller, f.command, null)).status).toBe('recovery-required');
+    const operation = f.operations.list()[0]!;
+    expect(operation.target).toEqual({ repo: f.command.selection.repo, providerTarget });
+    expect(f.invoke.mock.calls[0]?.[0].target).toEqual(providerTarget);
+    const recovery = createRecoveryService({ db: { activeRuns: () => [], getRun: () => null }, executions: f.executions,
+      admissions: openAdmissionStore(f.persistence, f.executions), operations: f.operations, lifecycle: { list: () => [] },
+      callbacks: { reconcileOperation: async id => { await f.service.dispatch(id); } } });
+    const selected = recovery.snapshot(f.command.selection.repo);
+    expect(selected.errors).toEqual([]);
+    expect(selected.operations).toMatchObject([{ id: operation.id, status: 'uncertain', actions: ['reconcile-operation'] }]);
+    expect(selected.pins).toMatchObject([{ kind: 'operation', ownerId: operation.id }]);
+    expect(recovery.snapshot('other/project').operations).toEqual([]);
+    expect(recovery.snapshot('untrusted/project').operations).toEqual([]);
+    expect(recovery.snapshot('untrusted/project').pins).toEqual([]);
+    await recovery.act({ action: 'reconcile-operation', id: operation.id });
+    expect(f.reconcile.mock.calls[0]?.[0].target).toEqual(providerTarget);
+    expect(f.service.receipt(caller, f.query, null)?.status).toBe('succeeded');
+    expect(f.send).toHaveBeenCalledTimes(1);
   });
   it('keeps repeated unknown reconciliations from replaying a remote write', async () => {
     const f = fixture(); f.send.mockRejectedValue(new Error('Reply lost'));

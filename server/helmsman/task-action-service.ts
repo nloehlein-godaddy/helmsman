@@ -93,7 +93,7 @@ export function createTaskActionService(options: TaskActionServerOptions) {
     if (!operation || record.plan?.kind !== 'effect' || operation.key !== key(record.caller, record.command.requestId) || operation.kind !== kind
       || !same(operation.origin, { kind: origin, id: record.command.requestId, revision: persistenceHash({ caller: record.caller, command: record.command }), runId: null, attempt: null })
       || !same(operation.binding, binding(record.instance)) || !same(operation.artifacts, record.artifacts)
-      || !same(operation.target, record.plan.target) || !same(operation.payload, { caller: record.caller, command: record.command, instance: record.instance, plan: record.plan })) throw new PersistenceValidationError('Task action operation integrity failed');
+      || !same(operation.target, { repo: record.command.selection.repo, providerTarget: record.plan.target }) || !same(operation.payload, { caller: record.caller, command: record.command, instance: record.instance, plan: record.plan })) throw new PersistenceValidationError('Task action operation integrity failed');
     return operation;
   }
   function outcome(record: ActionRecord, value: unknown) {
@@ -215,7 +215,7 @@ export function createTaskActionService(options: TaskActionServerOptions) {
           parseSourceRemoteActionOutcomeV1({ ...expected, revision: command.target.expectedRevision }, command);
           const operation = operations.enqueue({ version: 1, key: key(caller, command.requestId), kind,
             origin: { kind: origin, id: command.requestId, revision: persistenceHash({ caller, command }), runId: null, attempt: null },
-            binding: binding(instance), artifacts: record.artifacts, target: plan.target, payload: persistedJson({ caller, command, instance, plan }) });
+            binding: binding(instance), artifacts: record.artifacts, target: { repo: command.selection.repo, providerTarget: plan.target }, payload: persistedJson({ caller, command, instance, plan }) });
           const queued = { ...prepared, operationId: operation.id }; save(queued); return queued;
         });
       } catch {
