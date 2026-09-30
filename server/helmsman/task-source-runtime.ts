@@ -304,6 +304,8 @@ export function createTaskSourceRuntime(options: {
   }
   return { store, registry, connections, local, service, coordinator, effects, todoApi, schedule, selection, canonical, reserve, prepare, abort,
     claimForRun, snapshotForClaim, prepareFinalization, finalize, drain, recoverAdmissions, retrySettlement,
+    actionHttp: http,
+    actionArtifacts: (instance: SourceInstanceV1) => options.artifacts(instance),
     sourceArtifacts: (claim: WorkClaimRecord) => options.artifacts(claim.instance, claim),
     jiraEnabled() { try { const { instance } = source(options.jiraSourceId); service.assertScope(instance, null, 'admission'); return true; } catch { return false; } },
     repos() { return [...new Set(store.instances().flatMap(instance => instance.allowedRepos))].sort(); },

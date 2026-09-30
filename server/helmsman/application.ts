@@ -1,3 +1,5 @@
+import { createApplicationTaskActions } from './task-action-application';
+import { handleTaskActionApi } from './task-action-routes';
 import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
 import { createCommunicationConnectionHandler } from './communication-connection-http';
 import { createRunLifetime } from './run-lifetime';
@@ -364,6 +366,9 @@ const taskViews = createTaskViewsReadService({ sources: taskSourceRuntime.servic
 } });
 const sourceCommands = createApplicationSourceCommands({ ...taskSourceRuntime, repos: applicationRepos,
   commands: openSourceCommandStore(persistence), catalog: () => pluginSnapshot.catalog });
+
+const taskActions = createApplicationTaskActions({ ...taskSourceRuntime, operations, repos: applicationRepos,
+  verifyArtifacts: verifyEffectArtifacts, catalog: () => pluginSnapshot.catalog });
 
 const scheduler: AutoClaimScheduler = new AutoClaimScheduler({
   canStart: (r: string) => pm.canStart(r).ok,
@@ -1525,6 +1530,7 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
   reconcileOperation: async id => {
     const operation = operations.get(id);
     if (operation?.kind === 'task-source.effect') { await dispatchOperation(operations, id, taskSourceRuntime.effects.resolve, { reconcile: operation.requiresReconciliation }); await taskSourceRuntime.drain(); return; }
+    if (operation?.origin.kind === 'public-source-action') { await taskActions.dispatch(id); return; }
     if (operation?.origin.kind === 'public-communication-review-request') { await communicationCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'public-pull-request-review') { await pullRequestCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'manual-review') { await manualReviewEffects.dispatch(id); return; }
@@ -1624,6 +1630,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (inspectController) {
       req.once('aborted', cancelInspect); res.once('close', cancelInspect);
       if (req.aborted || res.destroyed) cancelInspect();
+    }
+    const taskActionResult = await handleTaskActionApi({ method: req.method ?? 'GET', path: url.pathname, query: url.searchParams, body, service: taskActions,
+      caller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined });
+    if (taskActionResult) {
+      res.writeHead(taskActionResult.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      res.end(JSON.stringify(taskActionResult.json)); return;
     }
     const api = await handleApi(req.method ?? 'GET', url.pathname, url.searchParams, body, {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,

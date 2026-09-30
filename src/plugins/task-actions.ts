@@ -37,6 +37,7 @@ const same = (left: unknown, right: unknown) => JSON.stringify(sourceJson(left))
 export function parseSourceRemoteActionInputV1(input: unknown): SourceRemoteActionInputV1 {
   const value = sourceObject(sourceJson(input)); sourceFields(value, ['version', 'action', 'selection', 'sourceRevision', 'target']);
   if (value.version !== 1 || value.action !== 'assign-self') invalidSourceContract();
+  sourceFields(sourceObject(value.selection), ['version', 'sourceId', 'instanceId', 'instanceRevision', 'repo']);
   const selection = parseTaskReadSelectionV1(value.selection); const target = sourceObject(value.target); sourceFields(target, ['ref', 'repo', 'expectedRevision']);
   const ref = parseWorkRefV1(target.ref); const repo = parseTaskRepo(target.repo);
   if (ref.sourceId !== selection.sourceId || repo !== selection.repo) invalidSourceContract();
@@ -88,6 +89,7 @@ export function parseSourceRemoteActionReceiptV1(input: unknown, expected?: Sour
 export function parseSourceRemoteActionDiscoveryV1(input: unknown, expected?: TaskReadSelectionV1): SourceRemoteActionDiscoveryV1 {
   const value = sourceObject(input); sourceFields(value, ['version', 'selection', 'sourceRevision', 'actions']);
   if (value.version !== 1 || !Array.isArray(value.actions) || value.actions.length > 1 || value.actions.some(action => action !== 'assign-self')) invalidSourceContract();
+  sourceFields(sourceObject(value.selection), ['version', 'sourceId', 'instanceId', 'instanceRevision', 'repo']);
   const selection = parseTaskReadSelectionV1(value.selection); if (expected && !same(selection, parseTaskReadSelectionV1(expected))) invalidSourceContract();
   return Object.freeze({ version: 1, selection, sourceRevision: sourceInteger(value.sourceRevision), actions: Object.freeze([...value.actions]) as readonly 'assign-self'[] });
 }
