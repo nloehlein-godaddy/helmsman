@@ -124,7 +124,7 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
       if (protocol === 'codex-app-server') {
         const expectedTurnId = turnId;
         const response = record(await rpc('turn/steer', { threadId, expectedTurnId, clientUserMessageId: id,
-          input: [{ type: 'text', text }] }, true));
+          input: [{ type: 'text', text, text_elements: [] }] }, true));
         if (response?.turnId !== expectedTurnId) throw new InstructionDeliveryUnknownError('Agent returned an unexpected turn acknowledgment');
       } else {
         await request(id, { type: 'user', uuid: id, session_id: threadId, message: { role: 'user', content: text }, parent_tool_use_id: null }, true);
@@ -244,7 +244,7 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
       const thread = record(result?.thread);
       if (typeof thread?.id !== 'string') throw new Error('Agent returned no thread ID');
       threadId = thread.id;
-      const started = record(await rpc('turn/start', { threadId, input: [{ type: 'text', text: initialInput.prompt }], effort }));
+      const started = record(await rpc('turn/start', { threadId, input: [{ type: 'text', text: initialInput.prompt, text_elements: [] }], effort }));
       const turn = record(started?.turn);
       if (typeof turn?.id !== 'string') throw new Error('Agent returned no turn ID');
       turnId = turn.id;

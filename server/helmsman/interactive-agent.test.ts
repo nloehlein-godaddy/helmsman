@@ -65,6 +65,7 @@ function fakeCodex(mode = 'success') {
         if (message.params.approvalPolicy !== 'never' || message.params.sandbox !== 'danger-full-access') process.exit(9);
         send({ id: message.id, result: { thread: { id: 'thread-1' } } });
       }
+      if (['turn/start', 'turn/steer'].includes(message.method) && !Array.isArray(message.params.input[0].text_elements)) process.exit(10);
       if (message.method === 'turn/start') send({ id: message.id, result: { turn: { id: 'turn-1' } } });
       if (message.method === 'turn/steer') {
         if (message.params.expectedTurnId !== 'turn-1' || message.params.threadId !== 'thread-1' || !message.params.clientUserMessageId) process.exit(8);
