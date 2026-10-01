@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { syncBuiltinFrontend } from './plugins/builtin-modules';
 import type { CommunicationNotificationsV1 } from './plugins/communication';
+import { saveRepoScope } from './logic/prefs';
 
 let view: DashboardView | undefined;
 let snapshot: CommunicationNotificationsV1;
@@ -10,6 +11,7 @@ const entries = [{ id: 'helmsman.communication', version: '0.2.0', hash: 'a'.rep
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
   localStorage.clear(); window.history.replaceState(null, '', '/config');
+  saveRepoScope(null);
   syncBuiltinFrontend(entries, false); unavailable = false;
   snapshot = { version: 1, quality: 'complete', unread: 1, githubHealth: null,
     health: { enabled: false, status: 'disabled', channelName: '', intervalMs: 300_000, lastSuccessAt: null, error: null },

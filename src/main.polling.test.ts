@@ -99,7 +99,7 @@ describe('view-aware polling', () => {
   });
 
   it.each(['/config', '/runs', '/cmux'])('does not refresh external data while on %s', async (path) => {
-    const { count } = await setup(path);
+    const { count } = await setup(`${path}?repo=org/a`);
     expect(count('/api/context')).toBe(2);
     expect(count('/api/dashboard')).toBe(0);
     const initialConfig = count('/api/config');

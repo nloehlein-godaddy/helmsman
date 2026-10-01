@@ -28,7 +28,8 @@ const status = (repo: string, number: number) => ({
   url: `https://github.com/${repo}/pull/${number}`,
 });
 
-async function setup(path: string, extra: (url: URL) => Response | Promise<Response> | null = () => null, runs: RunSummary[] = []) {
+async function setup(path: string, extra: (url: URL) => Response | Promise<Response> | null = () => null, runs: RunSummary[] = [],
+  chooseScope?: (root: HTMLElement, requests: { url: URL; method: string }[]) => Promise<void>) {
   window.history.replaceState(null, '', path);
   const snapshot = await loadMockSnapshot();
   const requests: { url: URL; method: string }[] = [];
@@ -57,7 +58,9 @@ async function setup(path: string, extra: (url: URL) => Response | Promise<Respo
   const root = document.querySelector<HTMLElement>('#app')!;
   const view = new DashboardView(root);
   views.push(view);
-  await view.start();
+  const started = view.start();
+  if (chooseScope) await chooseScope(root, requests);
+  await started;
   return { root, view, requests };
 }
 
@@ -112,11 +115,17 @@ describe('URL navigation', () => {
   });
 
   it('drops malformed parameters before making PR requests or opening streams', async () => {
-    const { root, requests } = await setup('/runs?repo=../private&pr=-1&run=../../secret&pane=%22%5D&mode=launch');
+    const { root, requests } = await setup('/runs?repo=../private&pr=-1&run=../../secret&pane=%22%5D&mode=launch', () => null, [], async (root, requests) => {
+      await vi.waitFor(() => expect(root.querySelector('.startup-scope')).not.toBeNull());
+      expect(requests.map(({ url }) => url.pathname)).toEqual(['/api/context']);
+      expect(streams).toHaveLength(0);
+      const select = root.querySelector<HTMLSelectElement>('[name="startupRepo"]')!;
+      select.value = 'org/a'; select.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
     expect(root.querySelector('[data-plugin-page="helmsman.runs/page"]')).not.toBeNull();
-    expect(window.location.pathname + window.location.search).toBe('/runs');
+    expect(window.location.pathname + window.location.search).toBe('/runs?repo=org%2Fa');
     expect(requests.some(({ url }) => ['/api/pr', '/api/pr/diff', '/api/agents/launch'].includes(url.pathname))).toBe(false);
-    expect(requests.every(({ url, method }) => !url.searchParams.has('repo') && method === 'GET')).toBe(true);
+    expect(requests.every(({ url, method }) => (!url.searchParams.has('repo') || url.searchParams.get('repo') === 'org/a') && method === 'GET')).toBe(true);
     expect(streams).toHaveLength(0);
   });
 });
