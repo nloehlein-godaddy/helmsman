@@ -43,7 +43,9 @@ function retained(operation: DurableOperation) {
   if (typeof caller !== 'string' || !isContributionId(caller) || operation.kind !== kind || operation.origin.kind !== origin
     || operation.key !== key(caller, command.requestId) || operation.origin.id !== command.requestId || operation.origin.revision !== persistenceHash({ caller, command })
     || operation.origin.runId !== null || operation.origin.attempt !== null || operation.binding.capability !== 'helmsman/feedback-tracker') throw new PersistenceValidationError('Feedback operation integrity failed');
-  const prepared = plan(operation.target); const settings = clarificationObject(payload.settings) as Readonly<Record<string, PluginJson>>;
+  const target = clarificationObject(operation.target); clarificationFields(target, ['repo', 'providerTarget']);
+  if (target.repo !== command.context.repo) throw new PersistenceValidationError('Feedback recovery scope changed');
+  const prepared = plan(target.providerTarget); const settings = clarificationObject(payload.settings) as Readonly<Record<string, PluginJson>>;
   const destination = { ...prepared.destination, revision: persistenceHash({ binding: operation.binding, settings, destination: prepared.destination }) };
   if (!same(destination, command.expectedDestination)) throw new PersistenceValidationError('Feedback destination changed');
   return { caller, command, plan: prepared, settings };
@@ -125,7 +127,7 @@ export function createFeedbackCommandService(options: FeedbackCommandOptions) {
         if (prior) { if (!same(retained(prior).command, command)) throw new PersistenceConflictError('Feedback request content changed'); return prior; }
         return options.operations.enqueue({ version: 1, key: key(caller, command.requestId), kind,
           origin: { kind: origin, id: command.requestId, revision: persistenceHash({ caller, command }), runId: null, attempt: null },
-          binding: capture.binding, artifacts: capture.artifacts, target: persistedJson(prepared), payload: persistedJson({ caller, command, settings: capture.settings }) });
+          binding: capture.binding, artifacts: capture.artifacts, target: persistedJson({ repo: command.context.repo, providerTarget: prepared }), payload: persistedJson({ caller, command, settings: capture.settings }) });
       });
       return project(await dispatch(operation.id));
     },

@@ -140,10 +140,10 @@ it('does not offer mutation callbacks that the host has not provided', async () 
   await expect(f.service.act({ action: 'retry-attachment', runId: 'voyage1' })).rejects.toMatchObject({ status: 409 });
 });
 
-it('requires provider proof of assignment success while allowing manual non-application and other operation resolutions', async () => {
+it.each(['source-remote-action.assign-self', 'feedback.submit'])('requires provider proof of %s success while allowing manual non-application and other operation resolutions', async kind => {
   const resolveOperation = vi.fn(); const f = fixture({ resolveOperation });
-  const assignment = f.operations.enqueue({ version: 1, key: 'assign-self', kind: 'source-remote-action.assign-self',
-    origin: { kind: 'public-source-action', id: 'assignment-request', revision: '1', runId: null, attempt: null },
+  const assignment = f.operations.enqueue({ version: 1, key: 'provider-proof', kind,
+    origin: { kind: kind === 'feedback.submit' ? 'public-feedback' : 'public-source-action', id: 'assignment-request', revision: '1', runId: null, attempt: null },
     binding: { ...binding, role: 'effect' }, artifacts: [artifact], target: { repo: 'org/a' }, payload: {} });
   const other = f.operation(null);
   for (const operation of [assignment, other]) {

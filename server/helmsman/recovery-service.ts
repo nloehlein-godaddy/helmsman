@@ -318,8 +318,8 @@ export function createRecoveryService(options: {
       else if (action === 'retire-checkpoint') await callbacks.retireCheckpoint!(target, resolution!);
       else {
         if (value.outcome !== 'acknowledged' && value.outcome !== 'definitely-not-applied') throw new RecoveryActionError(400, 'Invalid operation resolution outcome.');
-        if (value.outcome === 'acknowledged' && 'type' in entry && entry.type === 'source-remote-action.assign-self')
-          throw new RecoveryActionError(409, 'Assignment success requires provider reconciliation. Only confirmed non-application can be resolved manually.');
+        if (value.outcome === 'acknowledged' && 'type' in entry && ['source-remote-action.assign-self', 'feedback.submit'].includes(entry.type))
+          throw new RecoveryActionError(409, 'Success requires provider reconciliation. Only confirmed non-application can be resolved manually.');
         await callbacks.resolveOperation!(target, { ...resolution!, outcome: value.outcome });
       }
     },

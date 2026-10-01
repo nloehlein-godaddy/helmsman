@@ -16,6 +16,8 @@ Unsent drafts persist in this browser per presentation contribution and selected
 
 A lost response keeps the original request in the browser journal and server ledger. **Check original submission** reconciles that same request. GitHub reconciliation requires an exact marker, title, body, author, destination, and canonical issue URL. Missing or ambiguous search results never cause another issue to be created. A definite rejection allows **Create revised submission**; successful submissions provide the issue link and an explicit **New feedback** action.
 
+Core Recovery shows retained submissions under their originating galleon; submissions made from All galleons appear in the unfiltered view. Only the retained tracker can confirm success with a canonical issue receipt. Manual resolution offers **Confirmed not applied**, requires evidence, and never substitutes an operator acknowledgment for that receipt.
+
 Settings saves use the displayed revision. After a lost save response, Refresh reads the durable configuration and retains the unsent settings draft. If another save changed that revision, **Review draft against latest settings** explicitly prepares the retained draft for review before a new save. Saving settings never submits feedback.
 
 ## Plugin contracts

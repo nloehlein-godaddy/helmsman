@@ -22,11 +22,11 @@ function choose(action,item){
   selected={action,...target(action,item)};
   if(action==='stop-execution'||action==='retry-attachment'||action==='reconcile-operation'||action==='retry-source-settlement'){void submit(selected);return}
   el('resolution').reset();
-  const assignment=action==='resolve-operation'&&item.type==='source-remote-action.assign-self';
-  el('outcome').replaceChildren(...(assignment?[['definitely-not-applied','Confirmed not applied']]:[['acknowledged','Acknowledged by the remote service'],['definitely-not-applied','Confirmed not applied']]).map(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;return option}));
+  const providerConfirmation=action==='resolve-operation'&&['source-remote-action.assign-self','feedback.submit'].includes(item.type);
+  el('outcome').replaceChildren(...(providerConfirmation?[['definitely-not-applied','Confirmed not applied']]:[['acknowledged','Acknowledged by the remote service'],['definitely-not-applied','Confirmed not applied']]).map(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;return option}));
   el('action-title').textContent=labels[action]+' · '+(selected.requestId??selected.runId??selected.id);
-  el('action-help').hidden=!assignment&&action!=='resolve-run-command'&&action!=='resolve-source-command';
-  el('action-help').textContent=assignment?'Assignment success requires provider reconciliation. Resolve manually only with evidence that the assignment was not applied.':action==='resolve-run-command'?'The server will verify that this command has no retained admission, execution or stop intent. This records an audited rejection; it does not stop or cancel existing work.':action==='resolve-source-command'?'The server will verify that this command has no retained mutation receipt. This records an audited rejection without editing or deleting any task.':'';
+  el('action-help').hidden=!providerConfirmation&&action!=='resolve-run-command'&&action!=='resolve-source-command';
+  el('action-help').textContent=providerConfirmation?'Success requires provider reconciliation. Resolve manually only with evidence that the operation was not applied.':action==='resolve-run-command'?'The server will verify that this command has no retained admission, execution or stop intent. This records an audited rejection; it does not stop or cancel existing work.':action==='resolve-source-command'?'The server will verify that this command has no retained mutation receipt. This records an audited rejection without editing or deleting any task.':'';
   el('outcome-label').hidden=action!=='resolve-operation';
   el('resolution').hidden=false;el('actor').focus();
 }

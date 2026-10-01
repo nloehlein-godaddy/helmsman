@@ -51,12 +51,12 @@ const command = {
   status: 'recovery-required', message: 'Delivery requires reconciliation.', receiptHash: 'a'.repeat(64), actions: ['resolve-run-command'],
 };
 
-test('assignment recovery permits only non-application and restores other operation outcomes', async ({ page }) => {
+for (const operationType of ['source-remote-action.assign-self', 'feedback.submit']) test(`${operationType} recovery permits only non-application and restores other operation outcomes`, async ({ page }) => {
   const actions: unknown[] = [];
   await page.route(url => url.pathname === '/recovery', route => route.fulfill({ contentType: 'text/html', body: recoveryPage() }));
   await page.route('**/api/context', route => route.fulfill({ json: { repos: ['fleet/alpha'] } }));
   await page.route('**/api/recovery?*', route => route.fulfill({ json: { ...snapshot([]), operations: [
-    { id: 'assignment-1', type: 'source-remote-action.assign-self', status: 'uncertain', providerId: 'example.jira/issues', actions: ['resolve-operation'] },
+    { id: 'assignment-1', type: operationType, status: 'uncertain', providerId: 'example.jira/issues', actions: ['resolve-operation'] },
     { id: 'review-1', type: 'github.review', status: 'uncertain', providerId: 'example.github/reviews', actions: ['resolve-operation'] },
   ] } }));
   await page.route('**/api/recovery/actions', async route => { actions.push(route.request().postDataJSON()); await route.fulfill({ json: { ok: true } }); });
