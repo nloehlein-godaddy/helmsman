@@ -178,3 +178,31 @@ describe('db', () => {
     db.close();
   });
 });
+
+it('reads only the latest bounded feedback outcome without resurrecting old success', () => {
+  db = openDb(':memory:'); db.insertRun(run());
+  const outcome = { state: 'completed', headSha: 'a'.repeat(40), summary: 'Feedback checked.' };
+  expect(db.latestFeedbackOutcome('r1')).toBeNull();
+  db.appendEvent('r1', 'feedback-outcome', JSON.stringify(outcome), '2026-09-20T00:00:00Z');
+  db.appendEvent('other', 'feedback-outcome', JSON.stringify({ ...outcome, state: 'changes_remaining' }), '2026-09-20T00:01:00Z');
+  db.appendEvent('r1', 'phase', 'Later unrelated event', '2026-09-20T00:02:00Z');
+  expect(db.latestFeedbackOutcome('r1')).toEqual(outcome);
+  db.appendEvent('r1', 'feedback-outcome', '{broken', '2026-09-19T00:00:00Z');
+  expect(db.latestFeedbackOutcome('r1')).toBeNull();
+  db.appendEvent('r1', 'feedback-outcome', JSON.stringify(outcome) + ' '.repeat(17000), '2026-09-20T00:03:00Z');
+  expect(db.latestFeedbackOutcome('r1')).toBeNull();
+});
+
+it('fences feedback outcomes to the current versioned attempt and channel', () => {
+  db = openDb(':memory:');
+  const channelId = '11111111-1111-4111-8111-111111111111';
+  db.insertRun(run({ attempt: 2, taskJson: JSON.stringify({ clarification: { version: 1, attempt: 2, channelId } }) }));
+  const outcome = { state: 'completed', headSha: 'a'.repeat(40), summary: 'Feedback checked.' };
+  for (const metadata of [{}, { attempt: 1, channelId }, { attempt: 2, channelId: 'stale' }]) {
+    db.appendEvent('r1', 'feedback-outcome', JSON.stringify({ ...outcome, ...metadata }), '2026-09-20T00:00:00Z');
+    expect(db.latestFeedbackOutcome('r1')).toBeNull();
+  }
+  db.appendEvent('r1', 'feedback-outcome', JSON.stringify({ ...outcome, attempt: 2, channelId }), '2026-09-20T00:00:00Z');
+  expect(db.latestFeedbackOutcome('r1')).toEqual(outcome);
+  db.updateRun('r1', { attempt: 3 }); expect(db.latestFeedbackOutcome('r1')).toBeNull();
+});

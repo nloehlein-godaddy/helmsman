@@ -221,7 +221,7 @@ export function stageEventEmitter(adapter: AgentAdapter | string, task: AgentTas
   };
 }
 
-async function retainedPrePrAdapters(task: AgentTask, legacyWriterId: 'codex' | 'claude-code' | undefined,
+export async function retainedPrePrAdapters(task: AgentTask, legacyWriterId: 'codex' | 'claude-code' | undefined,
   reviewerCount: number, signal: AbortSignal): Promise<{ writerId: string; reviewerIds: string[]; adapters: Map<string, AgentAdapter>;
     workflow: WorkflowProviderV1 | undefined; dispose(): Promise<void> }> {
   if (!task.agentSelection) {

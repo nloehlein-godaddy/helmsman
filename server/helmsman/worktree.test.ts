@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, realpath, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createReviewWorktree, createWorktreeFromBranch, sweepOrphanedWorktrees, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, type Worktree } from './worktree';
+import { detachRetainedFeedbackWorktree, createReviewWorktree, createWorktreeFromBranch, sweepOrphanedWorktrees, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, type Worktree } from './worktree';
 
 const execFileAsync = promisify(execFile);
 
@@ -13,6 +13,11 @@ const execFileAsync = promisify(execFile);
 // Windows git is slow enough to exceed the 5s default, and the work is I/O
 // bound, so a generous ceiling costs nothing when the tests pass.
 vi.setConfig({ testTimeout: 60_000 });
+
+async function fixtureOrigin(path: string, source: string, repo: string) {
+  await execFileAsync('git', ['-C', path, 'config', 'remote.origin.url', `https://github.com/${repo}.git`]);
+  await execFileAsync('git', ['-C', path, 'config', `url.${source}.insteadOf`, `https://github.com/${repo}.git`]);
+}
 
 describe('createReviewWorktree', () => {
   it('pins the classified commit through the PR ref while preserving existing branch worktrees', async () => {
@@ -27,6 +32,7 @@ describe('createReviewWorktree', () => {
       await execFileAsync('git', ['-C', sourceDir, 'commit', '-q', '--allow-empty', '-m', 'base']);
       const base = (await execFileAsync('git', ['-C', sourceDir, 'rev-parse', 'HEAD'])).stdout.trim();
       await execFileAsync('git', ['clone', '-q', sourceDir, repoDir]);
+      await fixtureOrigin(repoDir, sourceDir, 'org/repo');
       const existingPath = join(repoDir, '.worktrees', 'existing');
       await execFileAsync('git', ['-C', repoDir, 'worktree', 'add', '-b', 'fix/x', existingPath]);
       await execFileAsync('git', ['-C', sourceDir, 'commit', '-q', '--allow-empty', '-m', 'classified revision']);
@@ -55,7 +61,7 @@ describe('createReviewWorktree', () => {
     ['org/repo', 'review-one', 42, '--help'],
     ['org/repo', 'review-one', 42, 'a'.repeat(41)],
   ])('rejects invalid pinned checkout arguments %j %j %j %j', async (repo, runId, number, sha) => {
-    await expect(createReviewWorktree('/unused', repo as string, runId as string, number as number, sha as string)).rejects.toThrow('Invalid pinned PR review worktree parameters');
+    await expect(createReviewWorktree('/unused', repo as string, runId as string, number as number, sha as string)).rejects.toThrow(/Invalid (pinned PR review worktree parameters|managed worktree identity)/);
   });
 });
 
@@ -73,11 +79,12 @@ describe('createWorktreeFromBranch', () => {
 
       const repoDir: string = join(agentsRoot, 'repo');
       await execFileAsync('git', ['clone', '-q', sourceDir, repoDir]);
+      await fixtureOrigin(repoDir, sourceDir, 'o/repo');
 
       const result: Worktree = await createWorktreeFromBranch(agentsRoot, 'o/repo', 'run-1', 'fix/x');
 
       expect(result.branch).toBe('fix/x');
-      expect(result.path).toBe(join(repoDir, '.worktrees', 'run-1'));
+      expect(result.path).toBe(join(await realpath(repoDir), '.worktrees', 'run-1'));
       expect(existsSync(result.path)).toBe(true);
       const head = await execFileAsync('git', ['-C', result.path, 'rev-parse', '--abbrev-ref', 'HEAD']);
       expect(head.stdout.trim()).toBe('fix/x');
@@ -99,6 +106,7 @@ describe('createWorktreeFromBranch', () => {
 
       const repoDir: string = join(agentsRoot, 'repo');
       await execFileAsync('git', ['clone', '-q', sourceDir, repoDir]);
+      await fixtureOrigin(repoDir, sourceDir, 'o/repo');
 
       const first: Worktree = await createWorktreeFromBranch(agentsRoot, 'o/repo', 'run-1', 'fix/x');
       await execFileAsync('git', ['-C', repoDir, 'worktree', 'remove', '--force', first.path]);
@@ -128,6 +136,7 @@ describe('createWorktreeFromBranch', () => {
 
       const repoDir: string = join(agentsRoot, 'repo');
       await execFileAsync('git', ['clone', '-q', sourceDir, repoDir]);
+      await fixtureOrigin(repoDir, sourceDir, 'o/repo');
 
       const first: Worktree = await createWorktreeFromBranch(agentsRoot, 'o/repo', 'run-1', 'fix/x');
       expect(existsSync(first.path)).toBe(true);
@@ -283,6 +292,7 @@ it('rejects a moved rerun head before removing the original branch worktree', as
     await execFileAsync('git', ['-C', source, 'switch', '-qc', 'fix/pinned']);
     const original = (await execFileAsync('git', ['-C', source, 'rev-parse', 'HEAD'])).stdout.trim();
     await execFileAsync('git', ['clone', '-q', source, repo]);
+    await fixtureOrigin(repo, source, 'o/repo');
     await expect(createWorktreeFromBranch(agentsRoot, 'o/repo', 'checked-out', 'fix/pinned', original)).rejects.toThrow();
     expect((await execFileAsync('git', ['-C', repo, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(original);
     await execFileAsync('git', ['-C', repo, 'switch', '-q', 'main']);
@@ -309,6 +319,7 @@ it.each([true, false])('preserves an occupied dirty developer worktree with reta
     const head = (await execFileAsync('git', ['-C', source, 'rev-parse', 'HEAD'])).stdout.trim();
     await execFileAsync('git', ['-C', source, 'branch', 'fix/pr']);
     await execFileAsync('git', ['clone', '-q', source, repo]);
+    await fixtureOrigin(repo, source, 'org/repo');
     await execFileAsync('git', ['-C', repo, 'worktree', 'add', developer, 'fix/pr']);
     await writeFile(join(developer, 'tracked.txt'), 'unsaved tracked changes');
     await writeFile(join(developer, 'untracked.txt'), 'untracked work');
@@ -318,5 +329,44 @@ it.each([true, false])('preserves an occupied dirty developer worktree with reta
     expect(await readFile(join(developer, 'untracked.txt'), 'utf8')).toBe('untracked work');
     expect((await execFileAsync('git', ['-C', developer, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(head);
     expect(existsSync(join(repo, '.worktrees', 'rerun'))).toBe(false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it('detaches only an owned retained checkout, preserving staged, unstaged, untracked and unpublished work on retry', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'retained-feedback-'));
+  try {
+    const source = join(root, 'source'); const repo = join(root, 'repo');
+    await mkdir(source);
+    await execFileAsync('git', ['-C', source, 'init', '-q', '-b', 'main']);
+    await execFileAsync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
+    await execFileAsync('git', ['-C', source, 'config', 'user.name', 'Test']);
+    await writeFile(join(source, 'tracked.txt'), 'original');
+    await execFileAsync('git', ['-C', source, 'add', '.']);
+    await execFileAsync('git', ['-C', source, 'commit', '-qm', 'base']);
+    const published = (await execFileAsync('git', ['-C', source, 'rev-parse', 'HEAD'])).stdout.trim();
+    await execFileAsync('git', ['-C', source, 'branch', 'fix/pr']);
+    await execFileAsync('git', ['clone', '-q', source, repo]);
+    await fixtureOrigin(repo, source, 'org/repo');
+    await execFileAsync('git', ['-C', repo, 'config', 'user.email', 'test@example.com']);
+    await execFileAsync('git', ['-C', repo, 'config', 'user.name', 'Test']);
+    const previous = await createWorktreeFromBranch(root, 'org/repo', 'previous', 'fix/pr', published);
+    await execFileAsync('git', ['-C', previous.path, 'commit', '-q', '--allow-empty', '-m', 'unpublished']);
+    const unpublished = (await execFileAsync('git', ['-C', previous.path, 'rev-parse', 'HEAD'])).stdout.trim();
+    await writeFile(join(previous.path, 'tracked.txt'), 'staged');
+    await execFileAsync('git', ['-C', previous.path, 'add', '.']);
+    await writeFile(join(previous.path, 'tracked.txt'), 'unstaged');
+    await writeFile(join(previous.path, 'untracked.txt'), 'untracked');
+    const before = (await execFileAsync('git', ['-C', previous.path, 'status', '--porcelain=v1'])).stdout;
+    await expect(detachRetainedFeedbackWorktree(root, 'org/repo', 'other', previous.path, 'fix/pr')).rejects.toThrow('owned run path');
+    await expect(detachRetainedFeedbackWorktree(root, 'org/repo', 'previous', previous.path, 'wrong-branch')).rejects.toThrow('identity changed');
+    await detachRetainedFeedbackWorktree(root, 'org/repo', 'previous', previous.path, 'fix/pr');
+    await detachRetainedFeedbackWorktree(root, 'org/repo', 'previous', previous.path, 'fix/pr');
+    const next = await createWorktreeFromBranch(root, 'org/repo', 'next', 'fix/pr', published);
+    expect((await execFileAsync('git', ['-C', next.path, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(published);
+    expect((await execFileAsync('git', ['-C', previous.path, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(unpublished);
+    expect((await execFileAsync('git', ['-C', previous.path, 'status', '--porcelain=v1'])).stdout).toBe(before);
+    expect((await execFileAsync('git', ['-C', previous.path, 'show', ':tracked.txt'])).stdout).toBe('staged');
+    expect(await readFile(join(previous.path, 'tracked.txt'), 'utf8')).toBe('unstaged');
+    expect(await readFile(join(previous.path, 'untracked.txt'), 'utf8')).toBe('untracked');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

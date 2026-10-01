@@ -3,6 +3,14 @@
 All phases A–G in [the architecture plan](plugin-architecture-plan.md) are complete, with the shipped v1 scope and limitations documented below. Implementation, independent review, corrections and acceptance are complete through `553dff4`. Earlier entries preserve the evidence and status at each checkpoint.
 
 
+## Non-Slack parity integration — 2026-10-01
+
+The active rewrite branch integrates the completed feedback-completion, launcher diagnostics, presentation, live-instruction, product-feedback and parallel-execution branches. The new Underway Slack request action and OAuth link adjustment remain excluded. Existing Slack dispatch only adapts to the shared asynchronous admission contract; no new Slack workflow is enabled.
+
+Batches 4 and 5 are implemented. Product feedback remains disabled until a tracker is explicitly configured and the backend restarted. Same-galleon parallelism remains opt-in, defaults to one and preserves the global cap and durable collision ownership. Live instructions require a compatible retained local Codex/Claude provider. The SDK advances to 1.3.0 for the additive public contracts; app version stays 0.4.0.
+
+The production build and TypeScript passed. All 1,010 tests across the 64 changed unit-test files passed before the notification addition and review corrections. Final affected verification is recorded below after integration. Earlier combined-branch evidence is preserved in the [October parity audit](helmsman-og-integration-2026-10-01.md).
+
 ## OG feature extensions — batch 3: Assign to me
 
 Triage now offers authenticated Jira self-assignment through optional public `taskActions` and provider `remoteActions` contracts. SDK 1.2 adds an explicit `helmsman/task-action@1` requirement; read-only plugins receive no assignment authority. Sources without the optional action retain their existing reads. Jira and Triage packages release the changed behavior as 0.2.0; application version remains 0.4.0.

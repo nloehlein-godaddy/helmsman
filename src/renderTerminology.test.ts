@@ -60,6 +60,10 @@ describe('pirate interface wording', () => {
     expect(button?.title).toBe('Turn Pirate mode on');
     expect(button?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
     expect(button?.querySelector('svg')?.getAttribute('stroke')).toBe('currentColor');
-    expect(button?.previousElementSibling?.classList.contains('footer-meta')).toBe(true);
+    const metadata = element.querySelector('.footer-meta');
+    const controls = button?.closest('.footer-controls');
+    expect(controls?.parentElement).toBe(element.querySelector('.app-footer'));
+    expect(controls?.querySelector('[data-feedback-footer]')).not.toBeNull();
+    expect(metadata?.compareDocumentPosition(button!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 });

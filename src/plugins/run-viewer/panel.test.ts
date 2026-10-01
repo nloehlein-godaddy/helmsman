@@ -55,7 +55,7 @@ describe('authored run viewer lifecycle and commands', () => {
     await f.instance.refresh?.();
     await f.instance.update({ ...f.state, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'two' } });
     await vi.waitFor(() => expect(f.container.querySelectorAll('[role="tab"]')).toHaveLength(2));
-    await vi.waitFor(() => expect([...f.container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['TASK-1 · org/a · onerunning', 'TASK-1 · org/a · tworunning']));
+    await vi.waitFor(() => expect([...f.container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['TASK-1org/a · onerunning', 'TASK-1org/a · tworunning']));
     const tabs = [...f.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
     expect(tabs.map(tab => tab.getAttribute('aria-label'))).toEqual(['TASK-1 · org/a · one · Attempt 1 · running', 'TASK-1 · org/a · two · Attempt 1 · running']);
     tabs[0]!.click();
@@ -214,4 +214,40 @@ it('ignores a late inactive summary after the viewer becomes hidden', async () =
   late.resolve(available({ version: 1, repo: 'org/a', runId: 'one', run: { ...summary(), status: 'succeeded', review: { outcome: 'APPROVE', verdict: 'Late result' } } }));
   await Promise.resolve(); await Promise.resolve();
   expect(f.container.textContent).not.toContain('Approve');
+});
+
+it.each([
+  ['completed', 'succeeded', 'Feedback completed'], ['completed', 'running', 'running'],
+  ['completed', 'failed', 'Feedback remaining'], ['completed', 'stopped', 'Feedback remaining'],
+  ['awaiting_decision', 'running', 'Awaiting decision'], ['awaiting_decision', 'failed', 'Feedback remaining'],
+  ['changes_remaining', 'succeeded', 'Feedback remaining'],
+] as const)('shows %s feedback on %s without hiding worker state', async (state, status, label) => {
+  const f = await mount(); await ready(f.container);
+  f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId,
+    run: { ...summary(input.runId), status, feedbackOutcome: { state, headSha: 'a'.repeat(40), summary: '<img src=x onerror=alert(1)>' } } }));
+  await f.instance.refresh?.();
+  expect(f.container.querySelector('.run-tab-status')?.textContent).toBe(label);
+  expect(f.container.textContent).toContain(`Worker: ${status}`);
+  expect(f.container.querySelector('img')).toBeNull();
+  expect(f.container.querySelector('.run-feedback-outcome')?.textContent ?? null).toBe(label === 'running' ? null : label);
+});
+
+it.each([false, true])('hydrates a reopened review label and opens its canonical run without changing header scope (pirate=%s)', async pirateMode => {
+  const f = await mount({ state: { headerRepo: 'org/header', pirateMode } }); await ready(f.container);
+  f.container.querySelector<HTMLAnchorElement>('.run-tab-open')!.focus();
+  f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), displayKey: 'review', prNumber: 42 } }));
+  await f.instance.refresh?.();
+  expect(document.activeElement).toBe(f.container.querySelector('.run-tab-open'));
+  const label = `${pirateMode ? 'Inspection' : 'Review'} #42`;
+  expect(f.container.querySelector('[role=tab]')?.getAttribute('aria-label')).toContain(label);
+  const link = f.container.querySelector<HTMLAnchorElement>('.run-tab-open')!;
+  const url = new URL(link.href);
+  expect(url.pathname).toBe('/run-viewer');
+  expect(Object.fromEntries(url.searchParams)).toEqual({ repo: 'org/header', runRepo: 'org/a', run: 'one' });
+  expect(link.target).toBe('_blank'); expect(link.rel).toBe('noopener noreferrer');
+  expect(link.getAttribute('aria-label')).toContain(label);
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true }); link.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(false); expect(f.context.navigate).not.toHaveBeenCalled();
+  link.focus(); await f.instance.refresh?.();
+  expect(document.activeElement).toBe(f.container.querySelector('.run-tab-open'));
 });

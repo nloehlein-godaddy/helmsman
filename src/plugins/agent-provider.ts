@@ -20,6 +20,11 @@ export interface AgentCommandInputV1 {
   readonly task: { readonly ticketId: string; readonly repo: string; readonly title: string };
 }
 export interface AgentCommandV1 { readonly cmd: string; readonly args: readonly string[]; }
+export interface AgentInteractiveCommandV1 {
+  readonly command: AgentCommandV1;
+  readonly protocol: 'codex-app-server' | 'claude-stream-json';
+  readonly initialInput: { readonly prompt: string; readonly model: string | null; readonly effort: string | null };
+}
 export interface AgentUsageV1 { readonly inputTokens?: number; readonly cachedInputTokens?: number; readonly outputTokens?: number; readonly totalTokens?: number; }
 export interface AgentEventFieldsV1 {
   readonly text: string; readonly costUsd?: number; readonly prNumber?: number; readonly eventId?: string; readonly usage?: AgentUsageV1;
@@ -32,6 +37,7 @@ export type AgentEventV1 = AgentEventFieldsV1 & (
 export interface AgentProviderV1 {
   readonly metadata: AgentProviderMetadataV1;
   buildCommand(input: AgentCommandInputV1): AgentCommandV1;
+  buildInteractiveCommand?(input: AgentCommandInputV1): AgentInteractiveCommandV1;
   parseLine(line: string): AgentEventV1 | null;
 }
 export interface AgentDeclarationV1 { readonly access: readonly ['process-description']; }
@@ -80,6 +86,15 @@ export function parseAgentCommandV1(input: unknown): AgentCommandV1 {
   const value = sourceObject(sourceJson(input, AGENT_PROVIDER_LIMITS_V1.command)); sourceFields(value, ['cmd', 'args']);
   if (!Array.isArray(value.args) || value.args.length > AGENT_PROVIDER_LIMITS_V1.arguments) invalid();
   return Object.freeze({ cmd: sourceText(value.cmd, 4096), args: Object.freeze(value.args.map(value => text(value, AGENT_PROVIDER_LIMITS_V1.prompt, true))) });
+}
+export function parseAgentInteractiveCommandV1(input: unknown): AgentInteractiveCommandV1 {
+  const value = sourceObject(sourceJson(input, AGENT_PROVIDER_LIMITS_V1.command));
+  sourceFields(value, ['command', 'protocol', 'initialInput']);
+  if (value.protocol !== 'codex-app-server' && value.protocol !== 'claude-stream-json') invalid();
+  const initialInput = sourceObject(value.initialInput); sourceFields(initialInput, ['prompt', 'model', 'effort']);
+  return Object.freeze({ command: parseAgentCommandV1(value.command), protocol: value.protocol,
+    initialInput: Object.freeze({ prompt: text(initialInput.prompt, AGENT_PROVIDER_LIMITS_V1.prompt),
+      model: nullable(initialInput.model, 128), effort: nullable(initialInput.effort, 64) }) });
 }
 export function parseAgentEventV1(input: unknown): AgentEventV1 | null {
   if (input === null) return null;

@@ -1,3 +1,5 @@
+import { parseFeedbackSettingsSaveV1, parseFeedbackSettingsSnapshotV1, type FeedbackSettingsSnapshotV1 } from '../../../src/plugins/feedback-settings';
+import { persistenceHash, PersistenceConflictError } from '../persistence';
 import type { TriggerSelectionRoleV1 } from '../../../src/plugins/trigger';
 import { parseWorkflowModeV1, type WorkflowModeV1 } from '../../../src/plugins/workflow';
 import Database from 'better-sqlite3';
@@ -583,5 +585,56 @@ export function initializeTriggerSettings(root: string, pkg: PluginPackage, inpu
       if (!field) throw new Error('Unknown initial trigger setting'); validatePluginSetting(field, value);
     }
     for (const [name, value] of Object.entries(values)) sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO NOTHING').run(pkg.manifest.id, name, JSON.stringify(value));
+  }); } finally { sql.close(); }
+}
+
+export function readFeedbackTrackerProviderBinding(root: string): string | undefined {
+  const sql = database(root);
+  try {
+    const row = sql.prepare('SELECT provider FROM capability_bindings WHERE capability=?').get('helmsman/feedback-tracker') as { provider: unknown } | undefined;
+    if (row && !isContributionId(row.provider)) throw new Error('Feedback tracker provider binding is invalid.');
+    return row?.provider as string | undefined;
+  } finally { sql.close(); }
+}
+
+export function selectFeedbackTrackerProvider(root: string, provider: string | null): void {
+  if (provider !== null && !isContributionId(provider)) throw new Error('Invalid feedback tracker provider ID.');
+  const sql = database(root);
+  try {
+    sql.transaction(() => {
+      if (provider === null) sql.prepare('DELETE FROM capability_bindings WHERE capability=?').run('helmsman/feedback-tracker');
+      else sql.prepare('INSERT INTO capability_bindings VALUES(?,?) ON CONFLICT(capability) DO UPDATE SET provider=excluded.provider').run('helmsman/feedback-tracker', provider);
+    })();
+  } finally { sql.close(); }
+}
+
+function feedbackSettings(sql: Database.Database, packages: readonly PluginPackage[]): FeedbackSettingsSnapshotV1 {
+  const row = sql.prepare('SELECT provider FROM capability_bindings WHERE capability=?').get('helmsman/feedback-tracker') as { provider: string } | undefined;
+  const providers = packages.flatMap(pkg => (pkg.backend?.provides ?? []).filter(value => value.id === 'helmsman/feedback-tracker').map(value => ({
+    id: `${pkg.manifest.id}/${value.localId}`, label: `${pkg.manifest.id}/${value.localId}`, fields: pkg.backend?.settings ?? {}, values: settings(sql, pkg),
+  }))).sort((a, b) => a.id.localeCompare(b.id));
+  const snapshot = { version: 1, selected: row?.provider ?? null, providers };
+  return parseFeedbackSettingsSnapshotV1({ ...snapshot, revision: persistenceHash({ snapshot, packages }) });
+}
+export function readFeedbackSettings(root: string, packages: readonly PluginPackage[]): FeedbackSettingsSnapshotV1 {
+  const sql = database(root); try { return sql.transaction(() => feedbackSettings(sql, packages))(); } finally { sql.close(); }
+}
+export function writeFeedbackSettings(root: string, packages: readonly PluginPackage[], raw: unknown): FeedbackSettingsSnapshotV1 {
+  const input = parseFeedbackSettingsSaveV1(raw); const sql = database(root);
+  try { return immediateTransaction(sql, () => {
+    const current = feedbackSettings(sql, packages);
+    if (input.expectedRevision !== current.revision) throw new PersistenceConflictError('Feedback settings changed. Reload before saving.');
+    if (input.selected === null) {
+      if (Object.keys(input.values).length) throw new Error('Disabled feedback must not change tracker settings');
+      sql.prepare('DELETE FROM capability_bindings WHERE capability=?').run('helmsman/feedback-tracker');
+    } else {
+      const provider = current.providers.find(value => value.id === input.selected);
+      if (!provider || Object.keys(input.values).length !== Object.keys(provider.fields).length) throw new Error('Feedback tracker settings are unavailable');
+      for (const [key, value] of Object.entries(input.values)) { const field = Object.hasOwn(provider.fields, key) ? provider.fields[key] : undefined; if (!field) throw new Error('Unknown feedback tracker setting'); validatePluginSetting(field, value); }
+      const pluginId = provider.id.split('/')[0]!;
+      for (const [key, value] of Object.entries(input.values)) sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO UPDATE SET value=excluded.value').run(pluginId, key, JSON.stringify(value));
+      sql.prepare('INSERT INTO capability_bindings VALUES(?,?) ON CONFLICT(capability) DO UPDATE SET provider=excluded.provider').run('helmsman/feedback-tracker', input.selected);
+    }
+    return feedbackSettings(sql, packages);
   }); } finally { sql.close(); }
 }

@@ -20,7 +20,7 @@ export interface GithubReviewWatcherOptions {
   canLaunch: (repo: string) => boolean;
   getRun: (id: string) => unknown;
   isRunActive: (id: string) => boolean;
-  launch: (input: { repo: string; prNumber: number; mode: 'review'; runId: string; headSha: string; workflowRef?: string; trigger?: TriggerProvenanceV1 }) => string;
+  launch: (input: { repo: string; prNumber: number; mode: 'review'; runId: string; headSha: string; workflowRef?: string; trigger?: TriggerProvenanceV1 }) => string | Promise<string>;
   findExistingReview?: (repo: string, number: number, headSha: string) => string | null;
   now?: () => string;
   intervalMs?: number;
@@ -161,7 +161,7 @@ export function createGithubReviewWatcher(options: GithubReviewWatcherOptions): 
           }
           const runId = notification.runId;
           if (!runId) throw new Error('Missing persisted run ID');
-          const launched = options.launch({ repo, prNumber: notification.prNumber, mode: 'review', runId, headSha,
+          const launched = await options.launch({ repo, prNumber: notification.prNumber, mode: 'review', runId, headSha,
             ...(workflowRef ? { workflowRef } : {}), ...(trigger ? { trigger } : {}) });
           if (launched !== runId) throw new Error('Launcher returned an unexpected run ID');
           store.updateNotification(notification.id, 'launched', now());

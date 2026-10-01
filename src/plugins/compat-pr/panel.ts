@@ -105,7 +105,7 @@ class PrPanel implements PluginPanelInstance {
     this.paintSafety();
   };
   private keydown = (event: KeyboardEvent) => {
-    if (event.key === 'Enter' && event.target instanceof Element && event.target.matches('[data-pr-compat-lookup]')) { event.preventDefault(); event.stopPropagation(); void this.lookupTarget(); }
+    if (event.key === 'Enter' && !event.isComposing && !event.repeat && event.target instanceof Element && event.target.matches('[data-pr-compat-lookup]')) { event.preventDefault(); event.stopPropagation(); void this.lookupTarget(); }
   };
   private click = (event: MouseEvent) => {
     if (!(event.target instanceof Element)) return;

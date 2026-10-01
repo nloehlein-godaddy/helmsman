@@ -23,7 +23,7 @@ function text(input: unknown, label: string, limit: number): string {
 }
 
 export async function handleTaskSourceApi(input: { method: string; path: string; query: URLSearchParams; body: unknown;
-  service?: TaskSourceService; schedule?: TaskSourceSchedule; launch(body: LaunchIntent): string; signal?: AbortSignal }): Promise<ApiResult | null> {
+  service?: TaskSourceService; schedule?: TaskSourceSchedule; launch(body: LaunchIntent): string | Promise<string>; signal?: AbortSignal }): Promise<ApiResult | null> {
   if (input.path !== '/api/task-sources' && !input.path.startsWith('/api/task-sources/')) return null;
   if (!input.service) return { status: 503, json: { error: 'Task sources are unavailable.' } };
   const service = input.service;
@@ -98,7 +98,7 @@ export async function handleTaskSourceApi(input: { method: string; path: string;
         const ref = parseWorkRefV1(body.ref);
         service.assertLaunch({ instanceId, instanceRevision, repo, ref });
         signal.throwIfAborted();
-        return { status: 202, json: { runId: input.launch({ repo, mode: 'source', workRef: ref, sourceInstanceId: instanceId, sourceInstanceRevision: instanceRevision,
+        return { status: 202, json: { runId: await input.launch({ repo, mode: 'source', workRef: ref, sourceInstanceId: instanceId, sourceInstanceRevision: instanceRevision,
           ...(typeof body.model === 'string' ? { model: body.model } : {}), ...(typeof body.effort === 'string' ? { effort: body.effort } : {}) }) } };
       }
     }

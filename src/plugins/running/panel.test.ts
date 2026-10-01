@@ -6,10 +6,10 @@ import recent from '../recent/panel';
 const repo = 'owner/project';
 const run: RunReadSummaryV1 = { version: 1, id: 'run-one', repo, displayKey: 'TASK-2', status: 'running', attempt: 3, startedAt: '2026-09-20T12:00:00.000Z', endedAt: null, prNumber: null, costUsd: null, review: null, sourceSettlement: null };
 const receipt: RunCommandReceiptV1 = { version: 1, repo, requestId: '11111111-1111-4111-8111-111111111111', action: 'stop', status: 'pending', runId: run.id, attempt: run.attempt, message: null };
-function fixture(action: 'stop' | 'retry') {
+function fixture(action: 'stop' | 'retry', pirateMode = false) {
   const container = document.createElement('div'); document.body.append(container);
   const lifetime = new AbortController(); const activity = new AbortController();
-  const state: PluginPanelState = { repo, themeId: 'dark', pirateMode: false, visible: true, pane: null, instanceId: 'panel-one', activity: { repo, epoch: 1, active: true, signal: activity.signal }, savedState: null };
+  const state: PluginPanelState = { repo, themeId: 'dark', pirateMode, visible: true, pane: null, instanceId: 'panel-one', activity: { repo, epoch: 1, active: true, signal: activity.signal }, savedState: null };
   const item = { ...run, status: action === 'stop' ? 'running' as const : 'failed' as const };
   const listeners: Parameters<RunReadServiceV1['watchList']>[1][] = [];
   const cleanup = vi.fn();
@@ -166,4 +166,20 @@ describe('recent worker outcome', () => {
     expect(f.container.textContent).toContain('Worker: succeeded'); expect(f.container.textContent).toContain('Review recommendation: Request changes');
     expect(f.container.textContent).toContain('Source settlement: pending'); expect(f.button('Retry')).toBeUndefined(); f.lifetime.abort();
   });
+});
+
+it.each([false, true])('renders feedback states separately from worker status in running/recent panels (pirate=%s)', async pirateMode => {
+  const active = fixture('stop', pirateMode);
+  const activePanel = await running.mount(active.container, active.context);
+  const feedbackOutcome = { state: 'awaiting_decision' as const, headSha: 'a'.repeat(40), summary: '<img src=x onerror=alert(1)>' };
+  active.emit([{ ...run, feedbackOutcome }]);
+  expect(active.container.querySelector('.run-feedback-outcome')?.textContent).toBe('Awaiting decision');
+  expect(active.container.textContent).toContain(`Worker: ${pirateMode ? 'Underway' : 'running'}`);
+  expect(active.container.querySelector('img')).toBeNull(); activePanel.dispose();
+  const past = fixture('retry', pirateMode);
+  const recentPanel = await recent.mount(past.container, past.context);
+  past.emit([{ ...run, status: 'succeeded', feedbackOutcome: { ...feedbackOutcome, state: 'completed' } },
+    { ...run, id: 'failed', status: 'failed', feedbackOutcome: { ...feedbackOutcome, state: 'completed' } }]);
+  expect([...past.container.querySelectorAll('.run-feedback-outcome')].map(el => el.textContent)).toEqual(['Feedback completed', 'Feedback remaining']);
+  expect(past.container.textContent).toContain('Worker: failed'); recentPanel.dispose();
 });

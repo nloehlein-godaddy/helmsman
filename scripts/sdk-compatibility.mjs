@@ -74,8 +74,10 @@ type LegacyCommunicationAccess<T> = [T] extends [readonly ['browser-session'] | 
   ? Extract<T, readonly ['browser-session']> : T;
 type LegacyCommunicationDeclaration<T> = { [K in keyof T]: K extends 'access' ? LegacyCommunicationAccess<T[K]> : T[K] };
 type LegacyCommunicationDeclarations<T> = T extends undefined ? T : { [K in keyof T]: LegacyCommunicationDeclaration<T[K]> };
-type LegacyCommunicationManifest<T> = { [K in keyof T]: K extends 'communications' ? LegacyCommunicationDeclarations<T[K]> : T[K] };
-type LegacyTaskActionRequirement<T> = { [K in keyof T]: K extends 'id' ? Exclude<T[K], 'helmsman/task-action'> : T[K] };
+type LegacyFeedbackCapability<T> = { [K in keyof T]: K extends 'id' ? Exclude<T[K], 'helmsman/feedback-tracker'> : T[K] };
+type LegacyFeedbackCapabilities<T> = T extends readonly unknown[] ? { [K in keyof T]: LegacyFeedbackCapability<T[K]> } : T;
+type LegacyCommunicationManifest<T> = { [K in keyof T]: K extends 'communications' ? LegacyCommunicationDeclarations<T[K]> : K extends 'provides' ? LegacyFeedbackCapabilities<T[K]> : T[K] };
+type LegacyTaskActionRequirement<T> = { [K in keyof T]: K extends 'id' ? Exclude<T[K], 'helmsman/task-action' | 'helmsman/run-instructions' | 'helmsman/execution-policy' | 'helmsman/feedback-command' | 'helmsman/feedback-settings'> : T[K] };
 type LegacyTaskActionRequirements<T> = T extends readonly unknown[] ? { [K in keyof T]: LegacyTaskActionRequirement<T[K]> } : T;
 type LegacyTaskActionMetadata<T> = T extends readonly unknown[] ? { [K in keyof T]: LegacyTaskActionMetadata<T[K]> }
   : T extends object ? { [K in keyof T]: K extends 'requires' ? LegacyTaskActionRequirements<T[K]> : K extends 'pages' | 'panels' | 'page' ? LegacyTaskActionMetadata<T[K]> : T[K] } : T;

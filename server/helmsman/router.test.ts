@@ -11,6 +11,7 @@ const deps: RouterDeps = {
   db: {
     listRuns: () => [{ id: 'r1', ticketId: 'T-1', repo: 'o/r', adapter: 'claude-code', status: 'running', attempt: 1, prNumber: null, startedAt: 'x', endedAt: null, costUsd: null, worktreePath: null }],
     latestReviewVerdict: () => null,
+    latestFeedbackOutcome: () => null,
   } as unknown as RouterDeps['db'],
   canStart: (_repo: string) => ({ ok: true }),
   launch: (_body: { ticketId?: string; title?: string; repo: string; task?: string }) => 'run-0',

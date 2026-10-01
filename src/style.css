@@ -537,7 +537,7 @@ select { text-transform: none; }
 /* ---------- footer ---------- */
 .app-footer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
@@ -551,6 +551,7 @@ select { text-transform: none; }
 .footer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
 .app-footer .footer-attr { color: var(--text-dim); }
 .app-footer .footer-dot { color: var(--line-strong, var(--line)); }
+.footer-controls { display: flex; align-items: center; gap: .75rem; flex-shrink: 0; }
 .pirate-mode-toggle { display: inline-flex; align-items: center; justify-content: center; align-self: end; width: 44px; height: 44px; padding: 4px; border: 1px solid transparent; border-radius: var(--radius); color: var(--text); background: transparent; opacity: 1; cursor: pointer; }
 .pirate-mode-toggle svg { width: 30px; height: 34px; }
 .pirate-mode-toggle[aria-pressed="false"] { opacity: 0.3; }
@@ -589,22 +590,20 @@ select { text-transform: none; }
   .config-input { min-width: 0; width: 100%; }
 }
 
+@media (max-width: 640px) {
+  .app-footer { grid-template-columns: minmax(0, 1fr); }
+  .footer-controls { justify-self: end; justify-content: flex-end; flex-wrap: wrap; max-width: 100%; }
+}
+
 /* ---------- departure sequence ---------- */
 #boot {
-  --accent: #dfb778;
-  --accent-bright: #e9c993;
-  --accent-dim: rgba(223, 183, 120, 0.45);
-  --text: #f3ecdc;
-  --text-faint: #b7b6a5;
-  --line-faint: rgba(223, 183, 120, 0.16);
-  --live: #92cdb2;
-  --review: #8ecae6;
-  --lamp-idle: #2d4146;
-  --helm-wood: #a87448;
-  --helm-wood-rim: #bc8854;
-  --helm-brass: #dfb778;
-  --helm-hub: #2d241e;
-  --helm-needle: #f3ecdc;
+  --live: var(--good);
+  --lamp-idle: var(--panel-hi);
+  --helm-wood: var(--accent);
+  --helm-wood-rim: var(--accent-bright);
+  --helm-brass: var(--accent);
+  --helm-hub: var(--panel-2);
+  --helm-needle: var(--text);
   color: var(--accent);
   overflow: hidden;
 }
@@ -817,3 +816,10 @@ select { text-transform: none; }
 .source-schedule-option { display: block; }
 
 .source-config-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 1rem; }
+
+@media (height > 1500px) {
+  .plugin-auxiliary-slot:not([hidden]) {
+    position: sticky; bottom: 0; z-index: 2; margin-top: auto;
+    max-height: 45vh; overflow: auto; background: var(--face);
+  }
+}

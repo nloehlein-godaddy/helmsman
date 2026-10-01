@@ -61,9 +61,11 @@ async function codexEnvironment(environment: NodeJS.ProcessEnv, url: string, tok
 }
 
 export function codexCommand(command: Input['command'], url: string): Input['command'] {
-  if (basename(command.cmd) !== 'codex' || command.args[0] !== 'exec') return command;
-  if (command.args.length < 2) throw new Error('Codex routing requires an exec prompt');
-  for (let index = 1; index < command.args.length; index += 1) {
+  if (basename(command.cmd) !== 'codex') return command;
+  const interactive = command.args[0] !== 'exec' && command.args.includes('app-server');
+  if (command.args[0] !== 'exec' && !interactive) return command;
+  if (!interactive && command.args.length < 2) throw new Error('Codex routing requires an exec prompt');
+  for (let index = 0; index < command.args.length; index += 1) {
     const argument = command.args[index] ?? '';
     const setting = argument === '-c' ? command.args[index + 1] ?? '' : argument.startsWith('--config=') ? argument.slice('--config='.length) : '';
     if (argument === '--oss' || argument.startsWith('--oss=') || argument === '--profile' || argument.startsWith('--profile=') || argument === '--ignore-user-config' || argument === '--config' || argument === '--config-file'
@@ -78,7 +80,8 @@ export function codexCommand(command: Input['command'], url: string): Input['com
     'model_providers.helmsman.wire_api="responses"',
     'model_providers.helmsman.requires_openai_auth=false',
   ];
-  return { cmd: command.cmd, args: [...command.args.slice(0, -1), ...settings.flatMap(setting => ['-c', setting]), command.args.at(-1)!] };
+  const insert = interactive ? command.args.indexOf('app-server') : command.args.length - 1;
+  return { cmd: command.cmd, args: [...command.args.slice(0, insert), ...settings.flatMap(setting => ['-c', setting]), ...command.args.slice(insert)] };
 }
 
 export function claudeCommand(command: Input['command'], settingsPath: string): Input['command'] {
@@ -91,8 +94,8 @@ export function claudeCommand(command: Input['command'], settingsPath: string): 
   return { cmd: command.cmd, args: [...command.args, '--settings', settingsPath, '--setting-sources', 'project,local'] };
 }
 
-export async function runModelRoutingCli(raw = process.argv[2]): Promise<number> {
-  const routed = input(JSON.parse(raw ?? 'null'));
+export async function prepareModelRouting(value: unknown): Promise<{ command: Input['command']; environment: NodeJS.ProcessEnv; cleanup(): Promise<void> }> {
+  const routed = input(value);
   const token = routed.modelGateway.token;
   const environment = cleanedEnvironment();
   let cleanup: () => Promise<void> = async () => undefined;
@@ -117,13 +120,36 @@ export async function runModelRoutingCli(raw = process.argv[2]): Promise<number>
   }
   try {
     command = routed.transport === 'openai-responses' ? codexCommand(command, routed.modelGateway.url) : command;
+    return { command, environment, cleanup };
+  } catch (error) { await cleanup(); throw error; }
+}
+
+export async function runModelRoutingCli(raw = process.argv.slice(2).map(argument => argument.startsWith('--input=') ? argument.slice('--input='.length) : argument).join('')): Promise<number> {
+  const { command, environment, cleanup } = await prepareModelRouting(JSON.parse(raw || 'null'));
+  try {
     return await new Promise<number>((resolve, reject) => {
       const child = spawn(command.cmd, command.args, { env: environment, stdio: 'inherit' });
       const forward = (signal: NodeJS.Signals) => { try { child.kill(signal); } catch {} };
-      process.once('SIGTERM', () => forward('SIGTERM'));
-      process.once('SIGINT', () => forward('SIGINT'));
-      child.once('error', reject);
-      child.once('exit', (code, signal) => resolve(signal ? 1 : code ?? 1));
+      const terminate = () => forward('SIGTERM');
+      const interrupt = () => forward('SIGINT');
+      const detach = () => {
+        process.removeListener('SIGTERM', terminate);
+        process.removeListener('SIGINT', interrupt);
+      };
+      const diagnostic = (text: string) => { try { process.stderr.write(`model-routing: ${basename(command.cmd)} ${text}\n`); } catch {} };
+      process.once('SIGTERM', terminate);
+      process.once('SIGINT', interrupt);
+      child.once('error', (error: NodeJS.ErrnoException) => {
+        detach();
+        diagnostic(`could not start (${error.code ?? 'unknown error'})`);
+        reject(error);
+      });
+      child.once('exit', (code, signal) => {
+        detach();
+        if (signal) diagnostic(`terminated by signal ${signal}`);
+        else if (code !== 0) diagnostic(`exited with code ${code ?? 1}`);
+        resolve(signal ? 1 : code ?? 1);
+      });
     });
   } finally { await cleanup(); }
 }

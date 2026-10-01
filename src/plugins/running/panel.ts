@@ -5,6 +5,12 @@ import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, Plugin
 const presentation: { kind: 'running' | 'terminal'; action: 'stop' | 'retry'; limit: number; name: string } = { kind: 'running', action: 'stop', limit: 100, name: 'running' };
 interface CommandState { repo: string; runId: string; attempt: number; requestId: string | null; receipt: RunCommandReceiptV1 | null; busy: boolean; uncertain: boolean; message: string; }
 const key = (run: { repo: string; id: string; attempt: number }) => JSON.stringify([run.repo, run.id, run.attempt]);
+const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null => {
+  const state = run?.feedbackOutcome?.state;
+  if (state === 'completed') return run?.status === 'succeeded' ? 'Feedback completed' : run?.status === 'running' ? null : 'Feedback remaining';
+  if (state === 'awaiting_decision') return run?.status === 'running' ? 'Awaiting decision' : 'Feedback remaining';
+  return state === 'changes_remaining' ? 'Feedback remaining' : null;
+};
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 const styles = `.plugin-run-list{display:grid;gap:10px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:15px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:7px;padding:10px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
 
@@ -189,6 +195,8 @@ class RunListPanel implements PluginPanelInstance {
       const elapsed = Math.max(0, Math.floor((Date.now() - Date.parse(run.startedAt)) / 60_000));
       if (run.status === 'running' && Number.isFinite(elapsed)) row.append(node('small', `${elapsed < 60 ? `${elapsed}m` : `${Math.floor(elapsed / 60)}h ${elapsed % 60}m`} elapsed`));
       row.append(node('small', `${run.id} · Attempt ${run.attempt} · Started ${timestamp} · ${run.costUsd === null ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`}`));
+      const feedback = feedbackLabel(run);
+      if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = run.feedbackOutcome?.summary ?? ''; row.append(outcome); }
       if (run.review) row.append(node('p', `Review recommendation: ${{ APPROVE: 'Approve', REQUEST_CHANGES: 'Request changes', COMMENT: 'Comment' }[run.review.outcome]}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
       if (run.sourceSettlement) row.append(node('p', `Source settlement: ${{ pending: 'pending', settled: 'settled', 'operator-required': 'operator action required' }[run.sourceSettlement.state]}. Worker outcome is unchanged.`));
       const actions = node('div'); actions.className = 'run-actions';

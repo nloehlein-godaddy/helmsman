@@ -12,6 +12,7 @@ import { parseInlineReviewComments, type InlineReviewInput } from './inline-revi
 import { agentAttribution } from './agent-attribution';
 import { createClarificationChannel, parseClarificationChannel } from './clarification-protocol-store';
 import { buildRoutedAgentCommand } from './model-routing';
+import { hasVerifiedFeedbackCompletion } from './feedback-completion';
 
 export interface RunnerDeps {
   durable?: DurableRunnerCoordinator;
@@ -256,6 +257,10 @@ interface FinalizeParams {
 async function finalizeRun(p: FinalizeParams): Promise<void> {
   const { runId, task, deps, prNumber, totalCost, ok, worktreePath, onEvent } = p;
   const commit = p.commit ?? ((patch: Partial<RunRow>) => deps.db.updateRun(runId, patch));
+  if (ok && task.workflow?.metadata.feedbackCompletion === true && !hasVerifiedFeedbackCompletion(deps.db, runId, task)) {
+    onEvent({ kind: 'error', text: 'Current feedback completion evidence is missing; task cannot complete', stage: 'feedback-review' });
+    p.ok = false;
+  }
   if (ok && deps.hasRequiredUnanswered?.(runId, task.clarification?.attempt)) {
     onEvent({ kind: 'error', text: 'Required clarification has no answer; task cannot complete', stage: 'clarification' });
     p.ok = false;
@@ -360,7 +365,7 @@ export async function startRun(task: AgentTask, deps: RunnerDeps): Promise<strin
     const worktree: { path: string; branch: string } = pinnedReview
       ? await deps.createReviewWorktree!(task.repo, runId, task.prNumber!, pinnedReview)
       : task.prBranch
-        ? await deps.createWorktreeFromBranch!(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.pullRequestSource.target.headSha] as const : []))
+        ? await deps.createWorktreeFromBranch!(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.workflow?.metadata.feedbackCompletion === true ? task.prHeadSha ?? task.pullRequestSource.target.headSha : task.pullRequestSource.target.headSha] as const : []))
         : await deps.createWorktree(task.repo, runId);
     worktreePath = worktree.path;
     deps.db.updateRun(runId, { worktreePath: worktree.path });
@@ -436,6 +441,7 @@ export async function startRun(task: AgentTask, deps: RunnerDeps): Promise<strin
       if (typeof outcome === 'number') runningHost = null;
       ok = typeof outcome === 'number' && outcome === 0 && !providerFailed;
       if (ok) break;
+      if (typeof outcome === 'number' && outcome !== 0) onEvent({ kind: 'error', text: `Agent process exited with code ${outcome}` });
 
       if (outcome === 'stopped' || deps.isStopped?.()) {
         stopped = true;
@@ -515,6 +521,7 @@ export async function reattachRun(row: RunRow, deps: RunnerDeps): Promise<void |
       const logOffset = readLogLines(logPath, row.logOffset ?? 0, consume, true);
       deps.db.updateRun(runId, { logOffset });
       const ok: boolean = existingCode === 0 && !providerFailed;
+      if (existingCode !== 0) onEvent({ kind: 'error', text: `Agent process exited with code ${existingCode}` });
       prNumber = await resolvePrNumber(row.repo, branch, prNumber, ok, deps, onEvent);
       await finalizeRun({ runId, task, deps, prNumber, totalCost, stopped: false, ok, worktreePath: worktreePath ?? '', onEvent });
       return;
@@ -531,6 +538,7 @@ export async function reattachRun(row: RunRow, deps: RunnerDeps): Promise<void |
       });
       if (outcome === 'capped') await deps.host.stop(ref);
       const ok: boolean = typeof outcome === 'number' && outcome === 0 && !providerFailed;
+      if (typeof outcome === 'number' && outcome !== 0) onEvent({ kind: 'error', text: `Agent process exited with code ${outcome}` });
       const stopped: boolean = outcome === 'stopped' || (deps.isStopped?.() ?? false);
       prNumber = await resolvePrNumber(row.repo, branch, prNumber, ok, deps, onEvent);
       await finalizeRun({ runId, task, deps, prNumber, totalCost, stopped, ok, worktreePath: worktreePath ?? '', onEvent });
@@ -641,6 +649,7 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
         capped ||= reachedCostCap(events.cost(), deps.maxCostUsd);
         const failed = events.failed();
         session.terminal({ status: recordedStatus ?? (stopped ? 'stopped' : exit.exitCode === 0 && !failed ? 'succeeded' : 'failed'), exitCode: exit.exitCode, evidence: exit });
+        if (exit.exitCode !== 0 && recordedStatus === null) events.onEvent({ kind: 'error', text: `Agent process exited with code ${exit.exitCode}` });
         return { exitCode: exit.exitCode, stopped, capped, failed };
       }
       capped ||= reachedCostCap(events.cost(), deps.maxCostUsd);
@@ -725,7 +734,7 @@ async function startDurableRun(task: AgentTask, deps: RunnerDeps): Promise<strin
           worktree = await deps.createReviewWorktree(task.repo, runId, task.prNumber, task.prHeadSha);
         } else if (task.prBranch) {
           if (!deps.createWorktreeFromBranch) throw new Error('Pinned branch worktree is unavailable');
-          worktree = await deps.createWorktreeFromBranch(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.pullRequestSource.target.headSha] as const : []));
+          worktree = await deps.createWorktreeFromBranch(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.workflow?.metadata.feedbackCompletion === true ? task.prHeadSha ?? task.pullRequestSource.target.headSha : task.pullRequestSource.target.headSha] as const : []));
         } else worktree = await deps.createWorktree(task.repo, runId);
       }
       heartbeat.check();

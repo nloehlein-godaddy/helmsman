@@ -1,8 +1,15 @@
-import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PresentationLocatorV1,
+import { RunInstructions } from './instructions.js';
+import type { RunReadSummaryV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PresentationLocatorV1,
   RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptQueryV1, RunCommandReceiptV1, RunInspectLogPageV1, RunInspectTargetV1 } from '@helmsman/plugin-sdk';
 import { emptyState, mergeLog, newTab, readState, saveState, tabKey, type RunTab } from './state.js';
 import { styles } from './styles.js';
 
+const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null => {
+  const state = run?.feedbackOutcome?.state;
+  if (state === 'completed') return run?.status === 'succeeded' ? 'Feedback completed' : run?.status === 'running' ? null : 'Feedback remaining';
+  if (state === 'awaiting_decision') return run?.status === 'running' ? 'Awaiting decision' : 'Feedback remaining';
+  return state === 'changes_remaining' ? 'Feedback remaining' : null;
+};
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 const locatorKey = (locator: PresentationLocatorV1 | null | undefined) => !locator ? '' : locator.kind === 'run' ? JSON.stringify(['run', locator.repo, locator.runId])
   : locator.kind === 'legacy-run' ? JSON.stringify(['legacy-run', locator.runId]) : JSON.stringify(['pull-request', locator.repo, locator.number]);
@@ -11,6 +18,7 @@ const terminal = (receipt: RunCommandReceiptV1 | null | undefined) => receipt?.s
 const logText = (tab: RunTab) => tab.events.map(event => `[${event.at}] ${event.kind}: ${event.text}${event.truncated ? ' [preview clipped]' : ''}`).join('\n');
 
 class ViewerPanel implements PluginPanelInstance {
+  private readonly instructions: RunInstructions;
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
   private state: PluginPanelState;
@@ -42,6 +50,7 @@ class ViewerPanel implements PluginPanelInstance {
   private readonly downloads = new Set<AbortController>();
 
   constructor(container: HTMLElement, context: PluginPanelContext) {
+    this.instructions = new RunInstructions(context.services.runInstructions);
     this.container = container; this.context = context; this.state = context.state;
     const parsed = readState(this.state.savedState); this.unsupported = parsed === null; const saved = parsed ?? emptyState();
     this.tabs = saved.tabs.map(newTab); this.activeKey = saved.activeKey; this.results = saved.results;
@@ -67,7 +76,7 @@ class ViewerPanel implements PluginPanelInstance {
     this.busy = false; this.reading = false; this.summariesReading = false; this.summariesReadAt = 0; this.commandBusy = false; this.evidenceReady = false;
   };
   dispose = () => {
-    if (this.disposed) return; this.disposed = true; this.cancel();
+    if (this.disposed) return; this.disposed = true; this.cancel(); this.instructions.dispose();
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     this.context.signal.removeEventListener('abort', this.dispose); this.state.activity.signal.removeEventListener('abort', this.cancel); this.container.replaceChildren();
   };
@@ -303,20 +312,26 @@ class ViewerPanel implements PluginPanelInstance {
     const focus = focused?.dataset.focus;
     const root = node('section'); root.className = 'plugin-run-viewer'; root.append(node('style', styles));
     const header = node('div'); header.className = 'run-tools'; header.append(node('h2', this.state.pirateMode ? 'Voyage viewer' : 'Run viewer'), this.button('Refresh', () => { void this.refresh(); }, this.busy)); root.append(header);
-    const tabs = node('div'); tabs.className = 'run-tools'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Open runs');
+    const tabs = node('div'); tabs.className = 'run-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Open runs');
     const visibleTabs = this.tabs.filter(item => this.inScope(item.repo));
     for (const [index, tab] of visibleTabs.entries()) {
       const group = node('span'); group.className = 'run-tab'; group.dataset.runKey = tabKey(tab);
       const outcome = tab.summary?.status === 'succeeded' ? tab.summary.review?.outcome : null;
       const recommendation = outcome === 'APPROVE' ? 'Approve' : outcome === 'REQUEST_CHANGES' ? 'Request changes' : outcome === 'COMMENT' ? 'Comment only' : null;
-      const statusLabel = recommendation ?? tab.summary?.status ?? 'Status unavailable';
+      const feedback = feedbackLabel(tab.summary);
+      const statusLabel = feedback ?? recommendation ?? tab.summary?.status ?? 'Status unavailable';
       group.dataset.runStatus = tab.summary?.status ?? '';
-      const label = `${tab.summary?.displayKey ?? tab.runId} · ${tab.repo} · ${tab.runId}`;
-      const button = this.button(label, () => this.activate(tab), !this.context.selectPresentation); button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(this.activeKey === tabKey(tab)));
+      const displayKey = tab.summary?.displayKey === 'review' && tab.summary.prNumber
+        ? `${this.state.pirateMode ? 'Inspection' : 'Review'} #${tab.summary.prNumber}` : tab.summary?.displayKey ?? tab.runId;
+      const label = `${displayKey} · ${tab.repo} · ${tab.runId}`;
+      const button = this.button(displayKey, () => this.activate(tab), !this.context.selectPresentation); button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(this.activeKey === tabKey(tab)));
       button.setAttribute('aria-label', `${label}${tab.summary ? ` · Attempt ${tab.summary.attempt}` : ''} · ${statusLabel}`);
+      button.title = label;
+      const identity = node('small', `${tab.repo} · ${tab.runId}`); identity.className = 'run-tab-identity'; button.append(identity);
       const status = node('span', statusLabel); status.className = 'run-tab-status';
-      status.title = recommendation ? `Review recommendation: ${recommendation}` : statusLabel;
-      if (recommendation && outcome) status.dataset.reviewOutcome = outcome;
+      status.title = feedback ? tab.summary?.feedbackOutcome?.summary ?? feedback : recommendation ? `Review recommendation: ${recommendation}` : statusLabel;
+      if (feedback) status.dataset.feedbackOutcome = feedback === 'Feedback completed' ? 'completed' : feedback === 'Awaiting decision' ? 'awaiting_decision' : 'changes_remaining';
+      if (!feedback && recommendation && outcome) status.dataset.reviewOutcome = outcome;
       button.append(status);
       button.tabIndex = this.activeKey === tabKey(tab) || this.activeKey === null && index === 0 ? 0 : -1;
       button.addEventListener('keydown', event => {
@@ -325,7 +340,12 @@ class ViewerPanel implements PluginPanelInstance {
         if (!next) return; event.preventDefault(); this.activate(next);
         [...this.container.querySelectorAll<HTMLElement>('[role=tab]')].find(control => control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey === tabKey(next))?.focus({ preventScroll: true });
       });
-      const close = this.button('×', () => this.close(tab), !this.context.selectPresentation); close.setAttribute('aria-label', `Close run ${tab.runId}`); group.append(button, close); tabs.append(group);
+      const close = this.button('×', () => this.close(tab), !this.context.selectPresentation); close.setAttribute('aria-label', `Close run ${tab.runId}`);
+      const open = node('a', '↗'); open.className = 'run-tab-open';
+      const headerRepo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
+      open.href = `/run-viewer?${new URLSearchParams({ ...(headerRepo ? { repo: headerRepo } : {}), runRepo: tab.repo, run: tab.runId })}`;
+      open.target = '_blank'; open.rel = 'noopener noreferrer'; open.setAttribute('aria-label', `Open ${label} in a new browser tab`); open.title = 'Open in a new browser tab';
+      group.append(button, open, close); tabs.append(group);
     } root.append(tabs);
     for (const text of [this.error, this.saveError, this.commandError, this.unsupported ? 'Saved viewer state uses an unsupported version. It is preserved; request acknowledgment is unavailable.' : '']) if (text) { const error = node('p', text); error.setAttribute('role', 'alert'); root.append(error); }
     if (this.message) { const status = node('p', this.message); status.setAttribute('role', 'status'); root.append(status); }
@@ -335,6 +355,8 @@ class ViewerPanel implements PluginPanelInstance {
       root.append(node('small', `${tab.repo} · ${tab.runId}${tab.target ? ` · Attempt ${tab.target.expectedAttempt}` : ''}`));
       if (tab.summary) {
         root.append(node('p', `Worker: ${tab.summary.status} · ${tab.summary.costUsd === null ? 'Spend unknown' : `$${tab.summary.costUsd.toFixed(2)} observed spend`}`));
+        const feedback = feedbackLabel(tab.summary);
+        if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = tab.summary.feedbackOutcome?.summary ?? ''; root.append(outcome); }
         if (tab.summary.sourceSettlement) root.append(node('p', `Source settlement: ${tab.summary.sourceSettlement.state}`));
         if (tab.summary.review) root.append(node('p', `Review recommendation: ${tab.summary.review.outcome} — ${tab.summary.review.verdict}`));
       }
@@ -353,11 +375,14 @@ class ViewerPanel implements PluginPanelInstance {
       if (this.log.textContent !== text) this.log.textContent = text;
       this.logIdentity = tabKey(tab); root.append(this.log);
     }
+    this.instructions.update(this.state, tab?.summary ? { version: 1, repo: tab.repo, runId: tab.runId, expectedAttempt: tab.summary.attempt } : null);
+    root.append(this.instructions.element);
     this.drawRequests(root);
-    for (const control of root.querySelectorAll<HTMLElement>('button')) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey, control.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, control.getAttribute('role') === 'tab' ? 'select-tab' : control.getAttribute('aria-label') ?? control.textContent]);
+    for (const control of root.querySelectorAll<HTMLElement>('button, a')) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey, control.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, control.getAttribute('role') === 'tab' ? 'select-tab' : control.classList.contains('run-tab-open') ? 'open-tab' : control.getAttribute('aria-label') ?? control.textContent]);
     this.container.replaceChildren(root);
     if (tab) { this.log.scrollTop = tab.follow ? this.log.scrollHeight : tab.scrollTop; if (tab.follow) tab.scrollTop = this.log.scrollTop; }
     if (focused === this.log && this.log.isConnected) this.log.focus({ preventScroll: true });
+    else if (focused?.isConnected && this.instructions.element.contains(focused)) focused.focus({ preventScroll: true });
     else if (focus) [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });
   }
   private drawRequests(root: HTMLElement) {

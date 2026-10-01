@@ -1,3 +1,10 @@
+import { handleRunInstructionApi } from './run-instruction-routes';
+import type { createRunInstructionService } from './run-instruction-service';
+import { handleExecutionPolicyApi } from './execution-policy-routes';
+import type { ExecutionPolicyServerService } from './execution-policy-service';
+import { handleFeedbackSettingsApi, type FeedbackSettingsServerService } from './feedback-settings-routes';
+import { handleFeedbackCommandApi } from './feedback-command-routes';
+import type { FeedbackCommandServerService } from './feedback-command-service';
 import { handleProfileApi } from './profile-routes';
 import type { ProfileServerService } from './profile-service';
 import { handleIntegrationSettingsApi } from './integration-settings-routes';
@@ -96,12 +103,15 @@ function toRunSummary(row: RunRow, db: Db): RunSummary {
 
 export interface RouterDeps {
   publicClarifications?: ReturnType<typeof createApplicationClarifications>;
+  runInstructions?: ReturnType<typeof createRunInstructionService>;
   clarificationCaller?: string;
   runRead?: RunReadServerService;
   taskContext?: TaskContextServerService;
   taskContextSignal?: AbortSignal;
   runInspect?: RunInspectServerService;
   communication?: CommunicationReadServerService;
+  feedbackSettings?: FeedbackSettingsServerService;
+  feedbackCommands?: FeedbackCommandServerService;
   communicationCommands?: CommunicationCommandServerService;
   communicationCaller?: string;
   pullRequestCommands?: PullRequestCommandServerService;
@@ -123,11 +133,15 @@ export interface RouterDeps {
   usage?: UsageQueryService;
   pricing?: (snapshot: UsageSnapshot) => Promise<PricingEstimate | null>;
   clarificationGate?: (runId: string, query: URLSearchParams) => boolean;
+  feedbackClarifications?: (runId: string, query: URLSearchParams) => unknown;
+  feedbackSnapshot?: (runId: string, query: URLSearchParams) => Promise<unknown>;
   outcomes?: OutcomeService;
   publicCampaigns?: CampaignPublicService;
   campaignCaller?: string;
   clarifications?: ClarificationStore;
   resumeRun?: (runId: string) => Promise<void>;
+  executionPolicy?: ExecutionPolicyServerService;
+  executionPolicyCaller?: string;
   profile?: ProfileServerService;
   profileCaller?: string;
   profileSignal?: AbortSignal;
@@ -138,7 +152,7 @@ export interface RouterDeps {
   slack?: { snapshot: () => SlackState };
   db: Db;
   canStart: (repo: string) => { ok: boolean; reason?: string };
-  launch: (body: LaunchIntent & { retryOf?: string }) => string;
+  launch: (body: LaunchIntent & { retryOf?: string }) => string | Promise<string>;
   stop: (runId: string) => boolean;
   setAutoClaim: (repo: string, enabled: boolean) => void;
   autoClaimRepos: () => string[];
@@ -160,6 +174,8 @@ export async function handleApi(
   _body: unknown,
   deps: RouterDeps,
 ): Promise<ApiResult | null> {
+  const instructionsResult = await handleRunInstructionApi({ method, path, query, body: _body, caller: deps.clarificationCaller, service: deps.runInstructions });
+  if (instructionsResult) return instructionsResult;
   const clarificationResult = handleClarificationServiceApi({ method, path, query, body: _body, caller: deps.clarificationCaller, ...deps.publicClarifications });
   if (clarificationResult) return clarificationResult;
   const sourceAdminResult = await handleSourceAdminApi({ method, path, query, body: _body, caller: deps.sourceAdminCaller, service: deps.sourceAdmin });
@@ -176,6 +192,10 @@ export async function handleApi(
   if (commandResult) return commandResult;
   const communicationResult = handleCommunicationApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.communication });
   if (communicationResult) return communicationResult;
+  const feedbackSettingsResult = await handleFeedbackSettingsApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.feedbackSettings });
+  if (feedbackSettingsResult) return feedbackSettingsResult;
+  const feedbackCommandResult = await handleFeedbackCommandApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.feedbackCommands });
+  if (feedbackCommandResult) return feedbackCommandResult;
   const communicationCommandResult = await handleCommunicationCommandApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.communicationCommands });
   if (communicationCommandResult) return communicationCommandResult;
   const pullRequestCommandResult = await handlePullRequestCommandApi({ method, path, query, body: _body, caller: deps.pullRequestCommandCaller, service: deps.pullRequestCommands });
@@ -207,6 +227,13 @@ export async function handleApi(
       if (error instanceof CapabilityResolutionError) return { status: 503, json: { error: error.message, code: error.code } };
       throw error;
     }
+  }
+  const feedbackRead = path.match(/^\/api\/runs\/([a-z\d_-]{1,128})\/(feedback-snapshot|feedback-clarifications)$/i);
+  if (feedbackRead && method === 'GET') {
+    const read = feedbackRead[2] === 'feedback-snapshot' ? deps.feedbackSnapshot : deps.feedbackClarifications;
+    if (!read) return { status: 503, json: { error: 'Feedback evidence service is unavailable' } };
+    try { return { status: 200, json: await read(feedbackRead[1]!, query) }; }
+    catch { return { status: 409, json: { error: 'Current feedback evidence could not be verified' } }; }
   }
   const clarificationGate = path.match(/^\/api\/runs\/([a-z\d_-]{1,128})\/clarification-gate$/i);
   if (clarificationGate && method === 'GET') {
@@ -367,7 +394,7 @@ export async function handleApi(
       } else if (intent.mode === 'ticket' && deps.jiraEnabled?.() === false) {
         return { status: 409, json: { error: 'Enable Jira in Config before retrying a Jira voyage.' } };
       }
-      return { status: 200, json: { runId: deps.launch({ ...intent, retryOf: run.id }) } };
+      return { status: 200, json: { runId: await deps.launch({ ...intent, retryOf: run.id }) } };
     } catch (error) {
       if (error instanceof RetryError || error instanceof TodoConflictError || error instanceof TodoValidationError || error instanceof PersistenceConflictError) {
         return { status: 409, json: { error: error.message } };
@@ -393,7 +420,7 @@ export async function handleApi(
       const gate = deps.canStart(todo.repo);
       if (!gate.ok) return { status: 409, json: { error: gate.reason ?? 'cannot start' } };
       try {
-        const runId = deps.launch({ mode: 'todo', todoId: todo.id, repo: todo.repo, model: b.model, effort: b.effort });
+        const runId = await deps.launch({ mode: 'todo', todoId: todo.id, repo: todo.repo, model: b.model, effort: b.effort });
         return { status: 200, json: { runId } };
       } catch (error) {
         if (error instanceof TodoConflictError || error instanceof TodoValidationError) return { status: error instanceof TodoConflictError ? 409 : 400, json: { error: error.message } };
@@ -406,23 +433,23 @@ export async function handleApi(
     const tuning: { model?: string; effort?: string } = { model: b.model, effort: b.effort };
     if (b.mode === 'rerun') {
       if (typeof b.prNumber !== 'number' || !Number.isFinite(b.prNumber)) return { status: 400, json: { error: 'Galleon and PR number required' } };
-      const runId: string = deps.launch({ repo: b.repo, prNumber: b.prNumber, mode: 'rerun', feedback: b.feedback, ...tuning });
+      const runId: string = await deps.launch({ repo: b.repo, prNumber: b.prNumber, mode: 'rerun', feedback: b.feedback, ...tuning });
       return { status: 200, json: { runId } };
     }
     if (b.mode === 'review') {
       if (typeof b.prNumber !== 'number' || !Number.isFinite(b.prNumber)) return { status: 400, json: { error: 'Galleon and PR number required' } };
-      const runId: string = deps.launch({ repo: b.repo, prNumber: b.prNumber, mode: 'review', ...tuning });
+      const runId: string = await deps.launch({ repo: b.repo, prNumber: b.prNumber, mode: 'review', ...tuning });
       return { status: 200, json: { runId } };
     }
     if (b.mode === 'freeform') {
       if (!b.task) return { status: 400, json: { error: 'task required' } };
-      const runId = deps.launch({ repo: b.repo, task: b.task, ...tuning });
+      const runId = await deps.launch({ repo: b.repo, task: b.task, ...tuning });
       return { status: 200, json: { runId } };
     }
     if (b.mode !== 'ticket' && typeof b.ticketId === 'string' && /^TODO-[1-9]\d*$/.test(b.ticketId) && await deps.todos?.get(b.ticketId)) return { status: 409, json: { error: 'Local todos must be launched from Todos.' } };
     if (deps.jiraEnabled?.() === false) return { status: 409, json: { error: 'Jira is disabled. Start a voyage from Todos.' } };
     if (!b.ticketId) return { status: 400, json: { error: 'Ticket ID and galleon required' } };
-    const runId = deps.launch({ ticketId: b.ticketId, title: b.title, repo: b.repo, ...tuning });
+    const runId = await deps.launch({ ticketId: b.ticketId, title: b.title, repo: b.repo, ...tuning });
     return { status: 200, json: { runId } };
   }
   const stopMatch: RegExpMatchArray | null = path.match(/^\/api\/agents\/([^/]+)\/stop$/);
@@ -439,6 +466,8 @@ export async function handleApi(
     deps.setAutoClaim(repo, enabled);
     return { status: 200, json: { repo, enabled } };
   }
+  const executionPolicyResult = handleExecutionPolicyApi({ method, path, query, body: _body, caller: deps.executionPolicyCaller, service: deps.executionPolicy });
+  if (executionPolicyResult) return executionPolicyResult;
   const profileResult = await handleProfileApi({ method, path, query, caller: deps.profileCaller, service: deps.profile, signal: deps.profileSignal });
   if (profileResult) return profileResult;
   const settingsResult = await handleIntegrationSettingsApi({ method, path, query, body: _body, caller: deps.integrationSettingsCaller, service: deps.integrationSettings });

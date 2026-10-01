@@ -3,7 +3,7 @@
   "manifest": {
     "manifestVersion": 2,
     "id": "helmsman.run-viewer",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "sdkVersion": 1,
     "pages": [
       {
@@ -73,6 +73,10 @@
           },
           {
             "id": "helmsman/download",
+            "version": 1
+          },
+          {
+            "id": "helmsman/run-instructions",
             "version": 1
           }
         ]

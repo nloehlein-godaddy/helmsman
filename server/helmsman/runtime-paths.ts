@@ -16,7 +16,7 @@ export function runtimeNodeArguments(relative: string, moduleUrl: string): strin
 }
 
 export function isHostCoordinatorCommand(command: { cmd: string; args: readonly string[] }): boolean {
-  return [command.cmd, ...command.args].some(path => /(?:^|[\\/])(?:pre-pr-cli|docker-review-cli)\.[jt]s$/.test(path));
+  return [command.cmd, ...command.args].some(path => /(?:^|[\\/])(?:pre-pr-cli|docker-review-cli|feedback-update-cli)\.[jt]s$/.test(path));
 }
 
 export function retainedRuntimePath(value: string, originalRoot: string, retainedRoot: string): string {

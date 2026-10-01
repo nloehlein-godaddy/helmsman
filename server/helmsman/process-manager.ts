@@ -11,11 +11,13 @@ export class ProcessManager {
   private readonly maxConcurrency: number;
   private readonly entries: Map<string, Entry> = new Map();
   private readonly durable?: DurableReservations;
+  private readonly galleonMaximum: (repo: string) => number;
 
-  constructor(maxConcurrency: number, durable?: DurableReservations) {
+  constructor(maxConcurrency: number, durable?: DurableReservations, galleonMaximum: (repo: string) => number = () => 1) {
     if (!Number.isSafeInteger(maxConcurrency) || maxConcurrency < 1) throw new Error('Invalid maximum concurrency');
     this.maxConcurrency = maxConcurrency;
     this.durable = durable;
+    this.galleonMaximum = galleonMaximum;
   }
 
   private reserved(): Map<string, { repo: string }> {
@@ -30,8 +32,10 @@ export class ProcessManager {
   canStart(repo: string): { ok: true } | { ok: false; reason: string } {
     const reserved = this.reserved();
     if (reserved.size >= this.maxConcurrency) return { ok: false, reason: 'max concurrency reached' };
-    for (const entry of reserved.values()) {
-      if (entry.repo.toLowerCase() === repo.toLowerCase()) return { ok: false, reason: `a run is already active for ${repo}` };
+    const maximum = this.galleonMaximum(repo);
+    if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 20) throw new Error('Invalid galleon execution maximum');
+    if ([...reserved.values()].filter(entry => entry.repo.toLowerCase() === repo.toLowerCase()).length >= maximum) {
+      return { ok: false, reason: maximum === 1 ? `a run is already active for ${repo}` : `execution capacity is reserved for ${repo}` };
     }
     return { ok: true };
   }

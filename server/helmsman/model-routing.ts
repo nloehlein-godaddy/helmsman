@@ -1,4 +1,5 @@
 import { runtimeNodeArguments, isHostCoordinatorCommand } from './runtime-paths';
+import { interactiveAgentCommand } from './interactive-agent';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
 
 type Transport = 'openai-responses' | 'anthropic-messages';
@@ -24,14 +25,29 @@ function transport(adapter: AgentAdapter): Transport | null {
 }
 
 export function buildRoutedAgentCommand(adapter: AgentAdapter, task: AgentTask): { cmd: string; args: string[] } {
-  const command = adapter.buildCommand(task);
   const modelGateway = gateway(task);
+  if (task.instructions && !task.dockerExecution && !task.hostIsolation && adapter.buildInteractiveCommand) {
+    const interactive = adapter.buildInteractiveCommand(task);
+    return interactiveAgentCommand(task, adapter.id, interactive, transport(adapter));
+  }
+  const command = adapter.buildCommand(task);
   if (!modelGateway || isHostCoordinatorCommand(command)) return command;
   const route = transport(adapter);
   if (!route) throw new Error(`Agent provider ${adapter.id} does not declare a supported model transport for scoped routing`);
+  // Long individual script arguments can be killed before Node starts on macOS.
+  // Prefixes keep retained hosts from remapping payload fragments as runtime paths.
+  const chunks: string[] = [];
+  let chunk = '--input=';
+  for (const character of JSON.stringify({ version: 1, command, transport: route, modelGateway, skillsPath: task.skillsPath ?? null })) {
+    if (chunk.length + character.length > 256) {
+      chunks.push(chunk);
+      chunk = '--input=';
+    }
+    chunk += character;
+  }
+  chunks.push(chunk);
   return {
     cmd: process.execPath,
-    args: [...runtimeNodeArguments('./model-routing-cli.ts', import.meta.url), JSON.stringify({ version: 1, command, transport: route,
-      modelGateway, skillsPath: task.skillsPath ?? null })],
+    args: [...runtimeNodeArguments('./model-routing-cli.ts', import.meta.url), ...chunks],
   };
 }

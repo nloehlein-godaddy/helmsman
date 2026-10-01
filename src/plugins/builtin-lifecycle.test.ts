@@ -20,7 +20,11 @@ describe('shipped frontend plugin lifecycle', () => {
   it('activates task pages and both source-settings panels through the shared catalog lifecycle', async () => {
     const app = await setup();
     const taskIds = ['helmsman.todos-ui', 'helmsman.triage', 'helmsman.bugs', 'helmsman.source-settings'];
-    const metadata = taskIds.map(id => ({ id, version: '0.1.0', hash, enabled: true }));
+    const metadata = taskIds.map(id => {
+      const manifest = app.builtinFrontendManifests.find(manifest => manifest.id === id);
+      if (!manifest) throw new Error(`Missing builtin manifest: ${id}`);
+      return { id, version: manifest.version, hash, enabled: true };
+    });
     app.syncBuiltinFrontend(metadata, false);
     for (const [index, alias] of ['/todos', '/triage', '/bugs', '/source-settings'].entries()) {
       const id = taskIds[index]!;

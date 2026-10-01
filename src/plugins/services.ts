@@ -1,3 +1,7 @@
+import type { RunInstructionServiceV1 } from './run-instructions';
+import type { ExecutionPolicyServiceV1 } from './execution-policy';
+import type { FeedbackSettingsServiceV1 } from './feedback-settings';
+import type { FeedbackCommandServiceV1 } from './feedback-command';
 import type { TaskActionServiceV1 } from './task-actions';
 import type { ProfileServiceV1 } from './profile';
 import type { GithubSettingsServiceV1 } from './github-settings';
@@ -42,6 +46,7 @@ export interface PluginPageServices {
   readonly runInspect?: RunInspectServiceV1;
   readonly downloads?: DownloadServiceV1;
   readonly clarifications?: ClarificationReadServiceV1;
+  readonly runInstructions?: RunInstructionServiceV1;
   readonly clarificationCommands?: ClarificationCommandServiceV1;
   readonly suggestedContacts?: SuggestedContactAdminServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;
@@ -53,7 +58,10 @@ export interface PluginPageServices {
   readonly jiraSettings?: JiraSettingsServiceV1;
   readonly githubSettings?: GithubSettingsServiceV1;
   readonly profile?: ProfileServiceV1;
+  readonly executionPolicy?: ExecutionPolicyServiceV1;
   readonly localGit?: LocalGitServiceV1;
+  readonly feedbackSettings?: FeedbackSettingsServiceV1;
+  readonly feedbackCommands?: FeedbackCommandServiceV1;
   readonly communicationCommands?: CommunicationCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;

@@ -273,3 +273,19 @@ describe('campaign dispatcher', () => {
     expect(f.store.task(f.tasks[0]!.id)?.state).toBe('succeeded');
   });
 });
+
+it('does not expire a campaign claim while durable admission exists without a run row', async () => {
+  const f = setup(1); const admitted = new Set<string>();
+  const launch = vi.fn((task: CampaignLaunch) => { admitted.add(task.runId); return task.runId; });
+  const dispatcher = createCampaignDispatcher({ ...f.options, launch, hasAdmission: id => admitted.has(id) });
+  await dispatcher.poll(); f.advance(); await dispatcher.poll();
+  expect(launch).toHaveBeenCalledOnce(); expect(f.store.task(f.tasks[0]!.id)?.state).toBe('claiming');
+});
+
+it('requeues a certainly unadmitted capacity loser using the same campaign run identity', async () => {
+  const f = setup(1); const ids: string[] = [];
+  const launch = vi.fn((task: CampaignLaunch) => { ids.push(task.runId); throw new Error('Execution capacity is reserved'); });
+  const dispatcher = createCampaignDispatcher({ ...f.options, launch, hasAdmission: () => false });
+  await dispatcher.poll(); expect(f.store.task(f.tasks[0]!.id)?.state).toBe('queued');
+  await dispatcher.poll(); expect(ids.filter(id => id === f.tasks[0]!.runId)).toHaveLength(2);
+});

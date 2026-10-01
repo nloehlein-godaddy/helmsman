@@ -23,7 +23,7 @@ it('retains TypeScript helper execution for development', () => {
   expect(args[2]).toBe(fileURLToPath(new URL('./pre-pr-cli.ts', import.meta.url)));
 });
 
-it.each(['pre-pr-cli', 'docker-review-cli'].flatMap(name => ['ts', 'js'].flatMap(extension => [
+it.each(['pre-pr-cli', 'docker-review-cli', 'feedback-update-cli'].flatMap(name => ['ts', 'js'].flatMap(extension => [
   `/app/server/helmsman/${name}.${extension}`, `C:\\app\\server\\helmsman\\${name}.${extension}`,
   `${name}.${extension}`,
 ])))('routes host coordinator %s locally for source and compiled installations', path => {

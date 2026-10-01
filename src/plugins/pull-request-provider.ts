@@ -1,6 +1,7 @@
 import type { PullRequestInspectDetailQueryV1, PullRequestInspectDetailV1, PullRequestInspectDiffQueryV1, PullRequestInspectDiffV1 } from './pull-request-inspect';
 import type { PullRequestReadItemV1, PullRequestReadQualityV1, PullRequestReadQueryV1 } from './pull-request-read';
 import type { ProfileIdentityV1 } from './profile';
+import type { PullRequestFeedbackSnapshotV1 } from './pull-request-feedback';
 
 export interface PullRequestProviderBatchV1 {
   readonly items: readonly PullRequestReadItemV1[];
@@ -55,6 +56,7 @@ export interface PullRequestReviewOperationResultV1 {
 }
 
 export interface PullRequestProviderV1 {
+  feedbackSnapshot?(input: PullRequestInspectDetailQueryV1, context: PullRequestProviderContextV1): Promise<PullRequestFeedbackSnapshotV1>;
   profile?(context: PullRequestProviderContextV1): Promise<ProfileIdentityV1>;
   list(input: { readonly query: PullRequestReadQueryV1; readonly repos: readonly string[] }, context: PullRequestProviderContextV1): Promise<PullRequestProviderBatchV1>;
   detail(input: PullRequestInspectDetailQueryV1, context: PullRequestProviderContextV1): Promise<PullRequestInspectDetailV1>;

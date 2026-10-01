@@ -162,7 +162,7 @@ export function renderAppShell(opts: HelmHeadOpts, content: string): string {
         <span class="footer-dot" aria-hidden="true">&bull;</span><span data-footer-repos>${opts.repos.length} ${term(opts.repos.length === 1 ? 'repository' : 'repositories').toLowerCase()} tracked</span>
         <span class="footer-dot" aria-hidden="true">&bull;</span><span data-footer-running>${running} ${term('running').toLowerCase()}</span>
       </div>
-      <button class="pirate-mode-toggle" type="button" data-pirate-mode aria-label="Pirate mode" aria-pressed="${isPirateMode()}" title="Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}">${ICON_PIRATE_FLAG}</button>
+      <div class="footer-controls"><span data-feedback-footer></span><button class="pirate-mode-toggle" type="button" data-pirate-mode aria-label="Pirate mode" aria-pressed="${isPirateMode()}" title="Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}">${ICON_PIRATE_FLAG}</button></div>
     </footer>
   </div>`;
 }
@@ -221,7 +221,7 @@ export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): stri
   const customization = configCustomizationPanel(opts.themeId);
   const sources = `<section class="panel config-panel"><h2>Task sources</h2><p><a href="${esc(routeHref({ view: 'plugin', pluginSlot: SOURCE_SETTINGS_PAGE_SLOT, repo: opts.selectedRepo }))}">Source settings</a></p></section>`;
   const integrations = `<section class="panel config-panel"><h2>Integrations and workspace</h2><ul>${[
-    ['/jira-settings', 'Jira connection'], ['/github-settings', 'GitHub settings'],
+    ['/feedback-settings', 'Product feedback settings'], ['/jira-settings', 'Jira connection'], ['/github-settings', 'GitHub settings'],
     ['/communication', 'Notifications and Slack settings'], ['/local-git', 'Local branches and worktrees'],
   ].map(([path, label]) => `<li><a class="app-link" href="${path}${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">${label}</a></li>`).join('')}</ul></section>`;
   const intro = `<header class="page-intro"><h1>Config</h1><p>Configure work sources, integrations, and ${term('agent').toLowerCase()} defaults. Save each setting separately.</p><div class="operator-note">${ICON_LOCK}<span>${term('operatorNote')}</span></div></header>`;

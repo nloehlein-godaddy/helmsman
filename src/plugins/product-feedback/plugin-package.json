@@ -1,0 +1,71 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.product-feedback",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Product feedback",
+        "navigation": false,
+        "slots": [
+          "helmsman/product-feedback-page"
+        ],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/feedback-command",
+            "version": 1
+          }
+        ]
+      },
+      {
+        "id": "settings",
+        "title": "Feedback settings",
+        "navigation": false,
+        "slots": [
+          "helmsman/feedback-settings-page"
+        ],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/feedback-settings",
+            "version": 1
+          },
+          {
+            "id": "helmsman/feedback-command",
+            "version": 1
+          }
+        ]
+      },
+      {
+        "id": "footer",
+        "title": "Product feedback",
+        "navigation": false,
+        "slots": [
+          "helmsman/product-feedback-footer"
+        ],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/feedback-command",
+            "version": 1
+          }
+        ]
+      }
+    ],
+    "panels": []
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js",
+    "settings": "settings.js",
+    "footer": "footer.js"
+  },
+  "panelEntries": {}
+}

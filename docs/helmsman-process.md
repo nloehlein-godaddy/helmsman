@@ -8,7 +8,7 @@ Local development uses UI port `43872` → server/API port `43871`. The producti
 
 ## OG feature extensions
 
-The [remaining-feature design](helmsman-og-feature-design.md) extends completed phases A–G. The first batch adds scoped Triage description reads, accessible severity badges, an independently selected Firefox browser provider and authenticated ownership checks for incoming Slack reviews. Batch 2 adds Bugs descriptions, public loading wheels, the Config operator note and canonical Underway run/PR navigation. Batch 3 adds authenticated Jira Assign to me through durable plugin actions. Feedback, Underway Slack commands and opt-in same-galleon parallelism remain planned; the current one-run-per-galleon default is unchanged.
+The [remaining-feature design](helmsman-og-feature-design.md) extends completed phases A–G. The first batch adds scoped Triage description reads, accessible severity badges, an independently selected Firefox browser provider and authenticated ownership checks for incoming Slack reviews. Batch 2 adds Bugs descriptions, public loading wheels, the Config operator note and canonical Underway run/PR navigation. Batch 3 adds authenticated Jira Assign to me through durable plugin actions. Configured product feedback, live agent instructions, independent PR-feedback completion checks and opt-in same-galleon parallelism are implemented. The default remains one run per galleon. New Underway Slack commands are excluded from the October integration.
 
 ```mermaid
 flowchart TD
@@ -35,6 +35,32 @@ flowchart TD
 ```
 
 Slack uses the GoCaaS/OI Companion MCP provider by default; it requires no Firefox bridge. Firefox remains optional for general browser integrations and explicitly selected legacy Slack. Firefox selection does not change the terminal host or automatically replace the existing browser default. Terminal operations remain explicitly unsupported by Firefox. Operator setup and platform verification are recorded in its [README](../src/plugins/native-firefox/README.md).
+
+## Live instructions, feedback and parallel execution
+
+```mermaid
+flowchart TD
+    Launch[Launch request] --> Policy[Global cap and per-galleon policy<br/>Default one; explicit parallel opt-in]
+    Policy --> Ownership[Reserve task, branch, PR and workspace<br/>Unknown or legacy identity remains exclusive]
+    Ownership --> Worker[Retained execution host and providers]
+    Instruction[Viewer instruction draft] --> Journal[Persist original request and exact attempt/channel/target]
+    Journal --> Local[Supported local Codex or Claude session]
+    Local --> Receipt{Protocol acknowledges delivery?}
+    Receipt -->|Yes| Delivered[Delivered receipt]
+    Receipt -->|Unknown| Check[Check retained evidence<br/>Never blindly resend]
+    Worker --> Repair[Existing PR feedback repair]
+    Repair --> Audit[Independent audit of current published head<br/>Cover every feedback source and response]
+    Audit -->|Required decision| Human[Clarifications and retained answer evidence]
+    Human --> Repair
+    Audit -->|Remaining findings| Repair
+    Audit -->|Complete| Complete[Verified feedback outcome]
+    Form[Configured product feedback form] --> Destination[Explicit tracker and destination<br/>Disabled until configured]
+    Destination --> Effect[Persist draft and immutable operation before submission]
+    Effect -->|Acknowledged| Link[Canonical issue link]
+    Effect -->|Uncertain| Reconcile[Reconcile same submission<br/>No duplicate issue creation]
+```
+
+See [live instructions](run-instructions.md), [product feedback](product-feedback.md) and [execution settings](../src/plugins/execution-settings/README.md). Product feedback settings apply after restart. Parallel admission never increases the global cap or releases another run's ownership. Feedback completion requires audit evidence; a successful process exit alone is insufficient.
 
 ## Assign to me
 

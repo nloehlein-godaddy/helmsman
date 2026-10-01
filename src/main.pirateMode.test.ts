@@ -1,7 +1,8 @@
+import feedbackFooter from './plugins/product-feedback/footer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { loadDashboard } from './data/mock';
-import { appPages, PROFILE_HEADER_SLOT } from './plugins/builtins';
+import { appPages, PRODUCT_FEEDBACK_FOOTER_SLOT, PROFILE_HEADER_SLOT } from './plugins/builtins';
 import { appPageModules } from './plugins/builtin-modules';
 import profileHeader from './plugins/profile/header';
 
@@ -37,6 +38,7 @@ afterEach(() => {
   view?.destroy();
   view = undefined;
   appPages.select(PROFILE_HEADER_SLOT, null);
+  appPages.select(PRODUCT_FEEDBACK_FOOTER_SLOT, null);
   disposers.splice(0).reverse().forEach(dispose => dispose());
   vi.unstubAllGlobals();
   localStorage.clear();
@@ -119,4 +121,12 @@ describe('Pirate mode and greeting', () => {
     resolveProfile?.(json({ version:1,scope:'global',profile:{ displayName: null, login: 'captain-pat' } }));
     await vi.waitFor(() => expect(document.querySelector('.helm-greeting')?.textContent).toBe('Ahoy, captain-pat!'));
   });
+});
+
+it('retains the scoped feedback footer after replacing the Pirate mode controls', async () => {
+  disposers.push(appPages.register({ manifestVersion: 2, sdkVersion: 1, id: 'example.feedback', version: '1.0.0', panels: [], pages: [{ id: 'footer', title: 'Product feedback', slots: [PRODUCT_FEEDBACK_FOOTER_SLOT], panes: [], navigation: false, requires: [{ id: 'helmsman/feedback-command', version: 1 }] }] }));
+  disposers.push(appPageModules.register('example.feedback/footer', feedbackFooter)); appPages.select(PRODUCT_FEEDBACK_FOOTER_SLOT, 'example.feedback/footer');
+  await start();
+  const assertFooter = () => expect(document.querySelector('.footer-controls [data-product-feedback]')?.getAttribute('href')).toBe('/feedback-settings?repo=org%2Fapp');
+  await vi.waitFor(assertFooter); toggle(false); await vi.waitFor(assertFooter); toggle(true); await vi.waitFor(assertFooter);
 });

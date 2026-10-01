@@ -34,4 +34,9 @@ export function parseClaudeLine(line: string): AgentEventV1 | null {
 export const claudeAgentProvider: AgentProviderV1 = {
   metadata: { version: 1, label: 'Claude Code', defaults: { model: null, effort: null }, review: { low: { model: 'sonnet', effort: 'low' }, medium: { model: 'sonnet', effort: 'medium' }, high: { model: 'opus', effort: 'high' } }, reviewSkills: [], reviewDelegation: 'native-subagents', supportsPrePr: true, docker: 'anthropic-messages', costReporting: 'cumulative' },
   buildCommand(input) { return { cmd: 'claude', args: claudeArgs(input) }; }, parseLine: parseClaudeLine,
+  buildInteractiveCommand(input) {
+    return { command: { cmd: 'claude', args: ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--replay-user-messages',
+      '--verbose', '--dangerously-skip-permissions', ...(input.model ? ['--model', input.model] : []), ...(input.effort ? ['--effort', input.effort] : [])] },
+    protocol: 'claude-stream-json', initialInput: { prompt: input.prompt, model: input.model, effort: input.effort } };
+  },
 };

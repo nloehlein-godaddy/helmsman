@@ -11,7 +11,7 @@ export interface CreatedPrReviewsOptions {
   canLaunch: (repo: string) => boolean;
   fetchPr: (repo: string, number: number) => Promise<RequestedReviewPr | null>;
   findExistingReview?: (repo: string, number: number, headSha: string) => string | null;
-  launch: (input: { repo: string; prNumber: number; mode: 'review'; runId: string; headSha: string }) => string;
+  launch: (input: { repo: string; prNumber: number; mode: 'review'; runId: string; headSha: string }) => string | Promise<string>;
   now?: () => string;
   claimTtlMs?: number;
 }
@@ -122,7 +122,7 @@ export function createCreatedPrReviews(options: CreatedPrReviewsOptions): Create
             continue;
           }
           if (!options.canLaunch(notification.repo)) continue;
-          const launched = options.launch({ repo: notification.repo, prNumber: notification.prNumber, mode: 'review', runId: notification.runId, headSha: pr.headSha });
+          const launched = await options.launch({ repo: notification.repo, prNumber: notification.prNumber, mode: 'review', runId: notification.runId, headSha: pr.headSha });
           if (launched !== notification.runId) throw new Error('Launcher returned an unexpected run ID');
           update(notification, 'launched');
         } catch (error) {

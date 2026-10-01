@@ -21,8 +21,9 @@ Target: plugin Helmsman, starting at `bf0e81b`, retaining version 0.4.0 and `↻
 | `e6f509f` | Existing-PR feedback prompts inventory all findings, require individual GitHub dispositions and a coverage summary, and retain publication authorization boundaries. Read-only/pre-PR restrictions remain unchanged. |
 | `0bc78f8` | Bare PR numbers resolve against the header galleon; full URLs and qualified references keep explicit targets. No implicit choice when no galleon is selected. |
 
-Earlier planned assign-self, tracker feedback, and same-galleon parallelism remain
-separate future batches; they are not introduced by these newer commits.
+Assign-self was subsequently completed on the rewrite base. The remaining tracker
+feedback and same-galleon parallelism ports are tracked in the
+[2026-10-01 parity audit](helmsman-og-integration-2026-10-01.md).
 
 ## OAuth behavior and limits
 

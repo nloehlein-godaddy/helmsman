@@ -29,7 +29,7 @@ export function codexSettings(task: AgentSettings): { model: string; effort: str
 }
 
 export function agentAttribution(adapterId: string, task: AgentSettings, role: AgentAttribution['role']): AgentAttribution {
-  const providerId = adapterId.replace(/^pre-pr:/, '');
+  const providerId = adapterId.replace(/^(?:pre-pr|feedback):/, '');
   const selection = task?.agentSelection;
   const provider = selection ? [selection.writer, ...selection.reviewers].find(value => value.binding.providerId === providerId) : null;
   if (provider) return { role, model: task.model ?? provider.metadata.defaults.model ?? NOT_REPORTED, effort: task.effort ?? provider.metadata.defaults.effort ?? NOT_REPORTED };

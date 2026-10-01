@@ -1,3 +1,22 @@
+import { createRunInstructionService } from './run-instruction-service';
+import { instructionDirectory } from './instruction-channel';
+import { createExecutionPolicyService } from './execution-policy-service';
+import { executionPolicyContributionEnabled } from './execution-policy-runtime';
+import { openExecutionWorkspaceReceipts } from './execution-workspace-receipts';
+import { executionMigrationReadiness } from './execution-schema';
+import { openExecutionPolicy } from './execution-policy';
+import { openExecutionOwnership } from './execution-ownership';
+import { createExecutionCleanup } from './execution-cleanup';
+import { localExecutionFootprint } from './execution-local-footprint';
+import { mutateLocalGit } from '../local-git';
+import { isContributionId } from '../../src/plugins/manifest';
+import { readFeedbackSettings, writeFeedbackSettings } from './plugins/data';
+import { builtinFrontendManifests } from '../../src/plugins/frontend-manifests';
+import { builtinFeedbackTrackers } from './plugins/builtin-feedback-trackers';
+import { createFeedbackCommandService } from './feedback-command-service';
+import { resolveSelectedFeedbackTrackerProvider } from './feedback-tracker-providers';
+import { loadRetainedFeedbackTrackerProvider } from './feedback-tracker-retained-loader';
+import { createFeedbackTrackerProviderHttp } from './feedback-tracker-http';
 import { createApplicationTaskActions } from './task-action-application';
 import { handleTaskActionApi } from './task-action-routes';
 import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
@@ -40,7 +59,7 @@ import { createCommunicationReadService } from './communication-read-service';
 import { createCommunicationCommandService } from './communication-command-service';
 import { bootstrapCommunicationProviderSelection } from './communication-providers';
 import { builtinCommunications } from './plugins/builtin-communications';
-import { createApplicationClarifications } from './clarification-application';
+import { clarificationContributionEnabled, createApplicationClarifications } from './clarification-application';
 import { createApplicationSourceAdmin } from './source-admin-application';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isAppPagePath } from '../../src/logic/routes';
@@ -68,7 +87,7 @@ import { createTaskViewsReadService } from './task-views-read-service';
 import { createServerPageCatalog } from './plugins/page-catalog';
 import { handlePluginRequest } from './plugins/http';
 import { applicationRoot, retainedRuntimePath } from './runtime-paths';
-import { readFile, realpath, writeFile } from 'node:fs/promises';
+import { lstat, readFile, realpath, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -146,11 +165,15 @@ import { handleRunLog } from './run-log';
 import { startRun, reattachRun, type RunnerDeps } from './runner';
 import { resumeFailedPrePrRun, ResumeError } from './resume';
 import { cmuxHost, weztermHost, detachedHost, type RunHost } from './run-host';
+import { feedbackUpdateAdapter, isFeedbackUpdateAdapter } from './agents/feedback-update';
+import { createFeedbackClarificationService } from './feedback-clarifications';
+import { createFeedbackSnapshotService } from './feedback-snapshot-service';
+import { parsePullRequestFeedbackSnapshotV1, fingerprintPullRequestFeedbackSnapshotV1 } from '../../src/plugins/pull-request-feedback';
 import { isPrePrAdapter, prePrAdapter } from './agents/pre-pr';
 import { dockerReviewAdapter } from './agents/docker-review';
 import { restoreRunAdapter } from './agents/restore';
 import { readReviewArtifact } from './review-artifacts';
-import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, removeWorktree, repoBasename, sweepOrphanedWorktrees } from './worktree';
+import { captureManagedWorktreeIdentity, assertManagedWorktreeIdentity, verifyWorktreeDetached, type ManagedWorktreeIdentity, describeLocalCheckout, verifyWorktreeAbsent, withWorktreeMaintenance, createWorktree, createWorktreeFromBranch, detachRetainedFeedbackWorktree, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, removeWorktree, repoBasename, sweepOrphanedWorktrees } from './worktree';
 import { findPrNumberByBranch, fetchPrStatus } from '../github';
 import { openTodoStore } from './todos';
 import { reconcileTodoRuns } from './todo-source';
@@ -184,7 +207,13 @@ const persistence = openPersistence(dbPath);
 const applicationStartup = claimApplicationStartup(persistence);
 process.once('exit', applicationStartup.close);
 const db = openDb(persistence.sql);
-const executions = openExecutionStore(persistence);
+const executions = openExecutionStore(persistence, Date.now, { preferSchema: 2 });
+const executionPolicies = openExecutionPolicy(persistence);
+const executionOwnership = executionMigrationReadiness(persistence.sql).currentVersion === 2 ? openExecutionOwnership(persistence) : null;
+const executionWorkspaceReceipts = openExecutionWorkspaceReceipts(persistence);
+const executionCleanup = executionOwnership ? createExecutionCleanup({ persistence, executions, withMaintenance: withWorktreeMaintenance,
+  verifyAbsent: async (repo, workspace) => { if (!await verifyWorktreeAbsent(repo, workspace)) throw new Error('Execution workspace removal is unconfirmed'); } }) : null;
+const galleonMaximum = (repo: string) => executionOwnership ? executionPolicies.read(repo).maxConcurrentRuns : 1;
 const executionControls = openExecutionControls(persistence);
 const legacyExecutions = openLegacyExecutionAdoption({ persistence, executions });
 legacyExecutions.audit(db.listRuns(-1));
@@ -203,7 +232,7 @@ const pm: ProcessManager = new ProcessManager(maxConcurrency, { reservations: ()
   const reservations = new Map(executions.reservations().map(row => [row.runId, row]));
   for (const row of db.activeRuns()) if (!reservations.has(row.id)) reservations.set(row.id, { runId: row.id, repo: row.repo, reason: 'unresolved' });
   return [...reservations.values()];
-} });
+} }, galleonMaximum);
 const bus: RunBus = new RunBus();
 const AGENTS_ROOT: string = process.env.AGENTS_ROOT ?? process.cwd();
 const RUNS_DIR: string = resolve(process.env.RUNS_DIR ?? join(AGENTS_ROOT, '.helmsman-runs'));
@@ -268,7 +297,7 @@ for (const plugin of builtinTriggers) {
     : plugin.package.manifest.id === 'helmsman.trigger-github-webhook' ? { enabled: Boolean(configStore.webhookCredential() && env.HELMSMAN_WEBHOOK_ROUTES), routesJson: env.HELMSMAN_WEBHOOK_ROUTES ?? '[]' } : {};
   initializeTriggerSettings(pluginDirectory(), plugin.package, values);
 }
-const builtinBackends = [...builtinTriggers, ...builtinWorkflows, ...builtinNativeTerminals, ...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
+const builtinBackends = [...builtinTriggers, ...builtinWorkflows, ...builtinNativeTerminals, ...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications, ...builtinFeedbackTrackers];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -313,6 +342,7 @@ function clarificationReady(runId: string, attempt?: number, channelId?: string)
   return !clarificationRuntime.hasUnanswered(runId, attempt, channelId);
 }
 const clarificationGate = createClarificationGate({ resolve: clarificationBinding, ready: clarificationReady });
+const feedbackClarifications = createFeedbackClarificationService({ resolve: clarificationBinding, store: clarifications, poll: clarificationRuntime.poll });
 clarifications.cleanupOrphans();
 const outcomes = createOutcomeService({ db, store: outcomeStore, sourceIdentity: () => {
   try { const source = captureTriggerPullRequest(AbortSignal.timeout(3000)); return persistenceHash({ revision: source.revision, repos: source.repos }); } catch { return null; }
@@ -388,6 +418,19 @@ const taskContext = createTaskContextService({ sources: taskSourceRuntime.servic
 const runInspect = createRunInspectService({ db, repos: applicationRepos, settlement: runSettlement });
 const publicClarifications = createApplicationClarifications({ persistence, clarifications, executions, controls: executionControls,
   repos: applicationRepos, catalog: () => pluginSnapshot.catalog });
+const runInstructions = createRunInstructionService({ persistence, runsDir: RUNS_DIR, repos: applicationRepos,
+  authorize(caller) { if (!clarificationContributionEnabled(pluginSnapshot.catalog, caller, 'run-instructions')) throw new ClarificationServiceError(403, 'forbidden'); },
+  resolve(runId) {
+    const run = db.getRun(runId); if (!run) return null;
+    const bound = clarificationBinding(runId);
+    const snapshot = executionSnapshot(run);
+    const task = snapshot.task as unknown as AgentTask;
+    return { repo: run.repo, attempt: run.attempt, channelId: bound?.channel?.channelId ?? null,
+      active: bound?.active === true, supported: Boolean(task.instructions && bound?.channel && !task.dockerExecution && !task.hostIsolation
+        && task.instructions.runId === runId && task.instructions.attempt === run.attempt && task.instructions.channelId === bound.channel.channelId
+        && task.instructions.directory === instructionDirectory(RUNS_DIR, runId, run.attempt, bound.channel.channelId)) };
+  },
+});
 const runCommands = createApplicationRunCommands({ store: openRunCommandStore(persistence), db, admissions, executions, controls: executionControls,
   catalog: () => pluginSnapshot.catalog, repos: applicationRepos, todos: sourceTodos, jiraEnabled: () => taskSourceRuntime.jiraEnabled(),
   canStart: repo => pm.canStart(repo), launch: input => launch(input), stop: runId => pm.stop(runId) });
@@ -456,13 +499,38 @@ const integrationSettings = createIntegrationSettingsService({ persistence,
     if (!enabled) throw new ClarificationServiceError(403, 'forbidden');
   },
 });
+const executionPolicy = createExecutionPolicyService({ persistence, repos: applicationRepos,
+  safetyReady: () => true,
+  limits: repo => ({ globalMaxConcurrentRuns: maxConcurrency, perRunCostCapUsd: configStore.current().maxCostUsd,
+    activeRuns: executions.reservations().filter(row => row.repo.toLowerCase() === repo.toLowerCase()).length }),
+  authorize: caller => { if (!executionPolicyContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden'); },
+});
+function protectedExecutionBranches(repo: string): string[] {
+  return executionOwnership?.held().filter(owner => owner.footprint.repo === repo.toLowerCase()).flatMap(owner => owner.footprint.completeness === 'exclusive' ? ['*']
+    : owner.footprint.resources.filter(resource => resource.kind === 'branch' && resource.namespace === `github.com/${repo.toLowerCase()}`).map(resource => resource.identity.replace(/^refs\/heads\//, ''))) ?? [];
+}
 const publicLocalGit = createLocalGitService({ persistence, agentsRoot: AGENTS_ROOT, repos: applicationRepos,
-  activeWorktreePaths: () => db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
+  mutate: (root, repo, repos, action, options) => withWorktreeMaintenance(describeLocalCheckout(root, repo, 'local-git').path, () => mutateLocalGit(root, repo, repos, action, options)),
+  activeWorktreePaths: () => [...db.listRuns(-1).flatMap(run => run.worktreePath && (run.status === 'running' || !executions.cleanupEligibility(run.id).allowed) ? [run.worktreePath] : []),
+    ...(executionOwnership?.held().filter(owner => !executions.cleanupEligibility(owner.footprint.runId).allowed).flatMap(owner => owner.footprint.resources.filter(resource => resource.kind === 'workspace').map(resource => resource.identity)) ?? [])],
+  protectedBranches: protectedExecutionBranches,
+  protectOperation: (repo, operation) => {
+    const branches = operation.action === 'delete-branch' ? [operation.branch] : operation.action === 'delete-untracked-branches' ? operation.branches.map(item => item.branch) : [];
+    const protectedBranches = protectedExecutionBranches(repo);
+    if (branches.some(branch => protectedBranches.includes('*') || protectedBranches.includes(branch))) throw new Error('Branch remains owned by an execution');
+  },
+  mutateWorktree: async (repo, path, operation, effect) => {
+    const row = db.listRuns(-1).find(run => run.repo.toLowerCase() === repo.toLowerCase() && run.worktreePath === path);
+    const owner = row ? executionOwnership?.get(row.id) : executionOwnership?.held().find(item => item.footprint.resources.some(resource => resource.kind === 'workspace' && resource.identity === path));
+    if (!owner || owner.state === 'released') { await effect(); return; }
+    if (operation === 'release') { await detachOwnedWorkspace(owner.footprint.runId, repo, path, effect); return; }
+    await cleanupWorkspace(owner.footprint.runId, repo, path, effect);
+  },
   authorize: caller => {
     if (!localGitContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden');
   },
 });
-const campaignsStore = openCampaignStore(persistence.sql);
+const campaignsStore = openCampaignStore(persistence.sql, { galleonMaximum });
 const publicCampaigns = createCampaignPublicService({ persistence, store: campaignsStore, repos: applicationRepos,
   workflowAvailable: providerId => { try { resolveWorkflowSelection({ root: pluginDirectory(), registry: backendPlugins.workflows, mode: 'coding', providerId }); return true; } catch { return false; } },
   workflows: () => backendPlugins.workflows.list().filter(value => value.record.metadata.modes.includes('coding')).map(value => ({ ref: `${value.record.binding.providerId}@1`, name: value.record.metadata.label })),
@@ -548,10 +616,16 @@ async function standaloneWorkspace(context: RunHostContext, repo: string, runId:
   create: () => Promise<{ path: string; branch: string }>, headSha?: string): Promise<{ path: string; branch: string }> {
   const source = await create();
   if (context.workspace !== 'clone') return source;
+  const checkout = describeLocalCheckout(AGENTS_ROOT, repo, runId);
+  const stagingIdentity = await captureManagedWorktreeIdentity(checkout.path, source.path);
+  executionWorkspaceReceipts.record(runId, source.path, stagingIdentity);
   try {
     return await createDockerWorkspace({ source: source.path, root: DOCKER_WORKSPACES, runId, mode,
       branch: source.branch, ...(headSha ? { headSha } : {}) });
-  } finally { await removeWorktree(AGENTS_ROOT, repo, source.path); }
+  } finally {
+    await assertManagedWorktreeIdentity(checkout.path, source.path, stagingIdentity);
+    await removeWorktree(AGENTS_ROOT, repo, source.path);
+  }
 }
 
 try { process.stdout.write(`execution host: ${selectExecutionHost().record.binding.providerId}\n`); }
@@ -649,6 +723,24 @@ function pullRequestContext(binding: ProviderBinding, signal: AbortSignal, mutat
     },
   }) };
 }
+function feedbackTrackerContext(binding: ProviderBinding, signal: AbortSignal, mutation: boolean) {
+  const requireConnection = () => {
+    const github = configStore.current().github;
+    const connection = pullRequestConnection();
+    if (!github?.token || !connection || connection.connectionId !== binding.connectionId || connection.credentialHandle !== binding.credentialHandle) throw new Error('Pinned GitHub feedback tracker connection is unavailable.');
+    return github;
+  };
+  const github = requireConnection();
+  return { signal, configuredAuthor: github.author, http: createFeedbackTrackerProviderHttp({
+    connection: { id: binding.connectionId!, credentialHandle: binding.credentialHandle!, origin: 'https://api.github.com', subject: github.author }, signal, mutation,
+    authorize: () => { requireConnection(); },
+    resolve: async () => {
+      const current = requireConnection();
+      return { id: binding.connectionId!, credentialHandle: binding.credentialHandle!, origin: 'https://api.github.com', subject: current.author,
+        headers: { Authorization: `Bearer ${current.token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' } };
+    },
+  }) };
+}
 function pullRequestReadContext(binding: ProviderBinding, signal: AbortSignal) {
   const initial = configStore.current().github;
   if (!initial?.token || typeof initial.author !== 'string' || !initial.author.trim()) throw pullRequestSelectionChanged();
@@ -733,6 +825,23 @@ const pullRequestProviderEffects = createPullRequestProviderEffects({
   },
   assertAdmission: assertPullRequestAdmission,
 });
+const feedbackSnapshot = createFeedbackSnapshotService({
+  resolve: clarificationBinding,
+  task(runId) {
+    const row = db.getRun(runId);
+    if (!row?.taskJson) throw new Error('Feedback task is unavailable');
+    const task = JSON.parse(row.taskJson) as AgentTask;
+    verifyPullRequestExecution(task, executionSnapshot(row));
+    verifyWorkflowExecution(task, executionSnapshot(row));
+    return task;
+  },
+  async source(record, signal) {
+    await verifyEffectArtifacts(record.artifacts);
+    const registration = pullRequestRegistration(record.binding, 'obligation');
+    if (persistenceHash(registration.settings ?? {}) !== persistenceHash(record.settings)) throw new Error('Retained PR source settings changed');
+    return { provider: registration.provider, context: pullRequestContext(record.binding, signal, false) };
+  },
+});
 const pullRequestInspect = createPullRequestInspectService({ repos: applicationRepos, provider: {
   async detail(query, signal) {
     const binding = selectedPullRequestProvider();
@@ -800,6 +909,51 @@ async function assertCommunicationReviewable(repo: string, number: number, sourc
   const pr = github ? await fetchPrStatus(github, repo, number) : null;
   if (!pr || pr.isOwnPr !== true || pr.state !== 'open' || pr.merged) throw new ClarificationServiceError(409, 'conflict');
 }
+function selectedFeedbackTrackerProvider(): ProviderBinding | null {
+  return resolveSelectedFeedbackTrackerProvider({ root: pluginDirectory(), registry: backendPlugins.feedbackTrackers, connection: pullRequestConnection });
+}
+function authorizeFeedback(caller: string, capability: string) {
+    if (!isContributionId(caller)) throw new ClarificationServiceError(403, 'forbidden');
+    const catalog = pluginSnapshot.catalog; const [pluginId, localId] = caller.split('/');
+    const manifest = catalog.plugins.find(plugin => plugin.package.manifest.id === pluginId)?.package.manifest
+      ?? builtinFrontendManifests.find(manifest => manifest.id === pluginId && catalog.builtins?.some(entry => entry.id === pluginId && entry.enabled && entry.version === manifest.version));
+    const contribution = manifest?.pages.find(page => page.id === localId)
+      ?? (manifest?.manifestVersion === 2 ? manifest.panels.find(panel => panel.id === localId) : undefined);
+    if (catalog.safeMode || !contribution?.requires?.some(requirement => requirement.id === capability && requirement.version === 1)) throw new ClarificationServiceError(403, 'forbidden');
+}
+const feedbackSettingsPackages = () => [...builtinFeedbackTrackers.map(value => value.package), ...pluginSnapshot.catalog.plugins.map(value => value.package).filter(pkg => pkg.backend?.feedbackTrackers)];
+const feedbackSettings = {
+  snapshot(caller: string) { authorizeFeedback(caller, 'helmsman/feedback-settings'); return readFeedbackSettings(pluginDirectory(), feedbackSettingsPackages()); },
+  save(caller: string, input: unknown) { authorizeFeedback(caller, 'helmsman/feedback-settings'); return writeFeedbackSettings(pluginDirectory(), feedbackSettingsPackages(), input); },
+};
+const feedbackCommands = createFeedbackCommandService({ persistence, operations, repos: applicationRepos,
+  authorize: caller => authorizeFeedback(caller, 'helmsman/feedback-command'),
+  capture() {
+    const binding = selectedFeedbackTrackerProvider(); if (!binding) return null;
+    const key = { providerId: binding.contributionId, pluginId: binding.pluginId, artifactHash: binding.artifactHash, contractVersion: 1 as const, connectionId: null, credentialHandle: null };
+    const registration = backendPlugins.feedbackTrackers.resolve(key, 'admission'); const settings = registration.settings ?? {};
+    return { binding, artifacts: providerArtifacts(binding), settings, provider: registration.provider, assertCurrent() {
+      if (!samePullRequestBinding(binding, selectedFeedbackTrackerProvider()) || backendPlugins.feedbackTrackers.resolve(key, 'admission') !== registration) throw new Error('Feedback tracker selection changed');
+    } };
+  },
+  async verifyArtifacts(artifacts) {
+    for (const artifact of artifacts) {
+      if (artifact.pluginId.startsWith('helmsman.')) { if (!await verifyLegacyRuntime(runtimeArtifactsRoot, artifact.artifactHash)) throw new Error('Retained feedback runtime is unavailable'); }
+      else { const archive = await readPluginArtifact(pluginDirectory(), artifact.artifactHash); if (archive.package.manifest.id !== artifact.pluginId || archive.package.manifest.version !== artifact.packageVersion) throw new Error('Retained feedback artifact is unavailable'); }
+    }
+  },
+  http: (binding, signal, mutation) => feedbackTrackerContext(binding, signal, mutation).http,
+  retained: (operation, settings, signal) => loadRetainedFeedbackTrackerProvider({ pluginsRoot: pluginDirectory(), runtimeArtifactsRoot, artifacts: operation.artifacts, signal,
+    record: { origin: operation.binding.pluginId.startsWith('helmsman.') ? 'builtin' : 'plugin', settings,
+      binding: { providerId: operation.binding.contributionId, pluginId: operation.binding.pluginId, artifactHash: operation.binding.artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null } } }),
+  async authorizeDelivery(operation, context) {
+    const live = operations.get(operation.id);
+    if (!live || live.contentHash !== operation.contentHash || live.generation !== context.generation || live.status !== 'leased'
+      || !live.leaseExpiresAt || Date.parse(live.leaseExpiresAt) <= Date.now()) return { allowed: false, reason: 'The feedback operation lease is no longer current.' };
+    try { feedbackTrackerContext(operation.binding, context.signal, false); return { allowed: true }; }
+    catch (error) { return { allowed: false, reason: error instanceof Error ? error.message : 'Pinned feedback connection is unavailable.' }; }
+  },
+});
 const communicationCommands = createCommunicationCommandService({ persistence, operations, repos: applicationRepos,
   authorize: caller => {
     if (!communicationContributionEnabled(pluginSnapshot.catalog, caller, true)) throw new ClarificationServiceError(403, 'forbidden');
@@ -879,7 +1033,7 @@ function runnerDurability(cfg: AppConfig) {
     finalize: (row, snapshot) => { taskSourceRuntime.finalize(row); effectsFor(row.id).prepareFinalization(row, snapshot); },
     snapshot: (run, task) => {
       const hostKind = task.executionHost ? 'plugin' as const : retainedLegacyHostKind(run, executionSnapshot(db.getRun(run.id) ?? run));
-      const input = { run, task, artifact: currentRuntime.artifact, host: hostKind, config: cfg };
+      const input = { run, task, artifact: currentRuntime.artifact, host: hostKind, config: cfg, executionSchemaMaximum: 2 as const };
       if (!task.source) return legacyExecutionSnapshot(input);
       const claim = sourceStore.claim(task.source.claimId);
       const source = sourceStore.taskSnapshot(task.source.taskSnapshotHash);
@@ -893,6 +1047,12 @@ function runnerDurability(cfg: AppConfig) {
       const savedRun = db.getRun(snapshot.runId);
       if (!savedRun?.taskJson || persistenceHash(nonsecretExecutionTask(JSON.parse(savedRun.taskJson) as AgentTask)) !== persistenceHash(snapshot.task)) throw new Error('Saved task differs from the immutable execution snapshot');
       const savedTask = JSON.parse(savedRun.taskJson) as AgentTask;
+      if (executionOwnership && savedRun.worktreePath && !savedTask.hostIsolation) {
+        const checkout = describeLocalCheckout(AGENTS_ROOT, savedRun.repo, savedRun.id);
+        const receipt = executionWorkspaceReceipts.get(savedRun.id, savedRun.worktreePath);
+        if (!receipt) throw new Error('Retained workspace has no allocation identity');
+        await assertManagedWorktreeIdentity(checkout.path, savedRun.worktreePath, receipt as ManagedWorktreeIdentity);
+      }
       if (savedTask.executionHost) verifyHostExecution(savedTask, snapshot);
       else retainedLegacyHostKind(savedRun, snapshot);
       await verifyEffectArtifacts(snapshot.artifacts);
@@ -904,6 +1064,82 @@ function runnerDurability(cfg: AppConfig) {
       if (snapshot.workflowSnapshotId && !workflows.resolveSnapshot(snapshot.workflowSnapshotId)) throw new Error('Retained workflow snapshot is unavailable');
     },
   });
+}
+
+async function guardedWorkspace(repo: string, runId: string, mode: 'coding' | 'branch' | 'review', resource: string | number | undefined,
+  create: () => Promise<{ path: string; branch: string }>): Promise<{ path: string; branch: string }> {
+  const checkout = describeLocalCheckout(AGENTS_ROOT, repo, runId);
+  return withWorktreeMaintenance(checkout.path, async () => {
+    if (executionOwnership) {
+      const owner = executionOwnership.get(runId);
+      if (owner?.state !== 'held' || owner.footprint.repo !== repo.toLowerCase()) throw new Error('Execution workspace has no current ownership');
+      if (owner.footprint.checkout && (owner.footprint.checkout.path !== checkout.path || owner.footprint.checkout.commonDirectory !== checkout.commonDirectory)) throw new Error('Execution checkout differs from admission');
+      if (owner.footprint.completeness === 'verified') {
+        const kind = mode === 'review' ? 'pull-request' : 'branch';
+        const identity = mode === 'review' ? String(resource) : `refs/heads/${mode === 'coding' ? `agent/${runId}` : resource}`;
+        if (!owner.footprint.resources.some(item => item.kind === kind && item.identity === identity)) throw new Error('Execution workspace resource differs from admission');
+      }
+    }
+    const created = await create();
+    if (executionWorkspaceReceipts) {
+      if (created.path === checkout.workspacePath) executionWorkspaceReceipts.record(runId, created.path, await captureManagedWorktreeIdentity(checkout.path, created.path));
+      else {
+        const info = await lstat(created.path, { bigint: true });
+        if (info.isSymbolicLink() || await realpath(created.path) !== join(await realpath(DOCKER_WORKSPACES), runId)) throw new Error('Isolated allocation identity differs from the owned run');
+        executionWorkspaceReceipts.record(runId, created.path, { kind: 'isolated', path: created.path, canonicalPath: await realpath(created.path), dev: info.dev.toString(), ino: info.ino.toString(), birthtime: info.birthtimeNs.toString() });
+      }
+    }
+    if (executionOwnership?.get(runId)?.footprint.completeness === 'verified' && created.path !== checkout.workspacePath) throw new Error('Execution workspace allocation differs from admission');
+    return created;
+  });
+}
+async function detachOwnedWorkspace(runId: string, repo: string, path: string, detach: () => Promise<void>): Promise<void> {
+  const owner = executionOwnership?.get(runId);
+  if (!executionOwnership || !owner || owner.state === 'released') { await detach(); return; }
+  const checkout = describeLocalCheckout(AGENTS_ROOT, repo, runId);
+  if (path !== checkout.workspacePath) throw new Error('Detached workspace differs from the owned run');
+  const eligible = () => executions.cleanupEligibility(runId).allowed;
+  const token = executionOwnership.beginCleanup(runId, eligible);
+  await withWorktreeMaintenance(checkout.path, async () => {
+    const current = executionOwnership.get(runId);
+    if (current?.cleanupToken !== token || !eligible()) throw new Error('Detached execution owner changed');
+    try { await lstat(join(resolve(DOCKER_WORKSPACES), runId)); throw new Error('Isolated allocation must be reconciled before branch release'); }
+    catch (error) { if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error; }
+    const receipt = executionWorkspaceReceipts?.get(runId, path);
+    if (!receipt) throw new Error('Retained workspace requires allocation identity reconciliation before detachment');
+    await assertManagedWorktreeIdentity(checkout.path, path, receipt as ManagedWorktreeIdentity);
+    await detach();
+    await assertManagedWorktreeIdentity(checkout.path, path, receipt as ManagedWorktreeIdentity);
+    if (!await verifyWorktreeDetached(checkout.path, path)) throw new Error('Worktree detachment was not confirmed');
+    executionOwnership.completeDetach(runId, token, { version: 1, runId, repo: repo.toLowerCase(), completeness: 'verified',
+      checkout: { path: checkout.path, commonDirectory: checkout.commonDirectory }, resources: [{ kind: 'workspace', namespace: 'filesystem', identity: path }] }, eligible);
+  });
+}
+async function cleanupWorkspace(runId: string, repo: string, path: string, remove: () => Promise<void>): Promise<void> {
+  if (!executionCleanup || !executionOwnership?.get(runId)) { await remove(); return; }
+  const checkout = describeLocalCheckout(AGENTS_ROOT, repo, runId);
+  const isolatedPath = join(resolve(DOCKER_WORKSPACES), runId);
+  if (path !== checkout.workspacePath && path !== isolatedPath) throw new Error('Cleanup path differs from the owned run workspace');
+  await executionCleanup.remove({ runId, repoDirectory: checkout.path, commonDirectory: checkout.commonDirectory, workspace: checkout.workspacePath,
+    remove: async () => {
+      if (path === isolatedPath) {
+        const receipt = executionWorkspaceReceipts?.get(runId, path) as { kind?: string; path?: string; canonicalPath?: string; dev?: string; ino?: string; birthtime?: string } | null;
+        const present = await lstat(path, { bigint: true }).catch(error => { if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null; throw error; });
+        if (present && (!receipt || receipt.kind !== 'isolated' || receipt.path !== path || receipt.canonicalPath !== await realpath(path) || receipt.dev !== present.dev.toString() || receipt.ino !== present.ino.toString() || receipt.birthtime !== present.birthtimeNs.toString() || present.isSymbolicLink())) throw new Error('Isolated workspace allocation changed before cleanup');
+        await remove();
+        try { await lstat(isolatedPath); throw new Error('Isolated workspace remains present'); }
+        catch (error) { if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error; }
+      } else if (!await verifyWorktreeAbsent(checkout.path, path)) {
+        const receipt = executionWorkspaceReceipts?.get(runId, path);
+        if (!receipt) throw new Error('Execution workspace has no retained allocation identity');
+        await assertManagedWorktreeIdentity(checkout.path, path, receipt as ManagedWorktreeIdentity);
+        await remove();
+      }
+      if (path !== isolatedPath) {
+        try { await lstat(isolatedPath); throw new Error('Unreconciled isolated allocation retains execution ownership'); }
+        catch (error) { if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error; }
+      }
+    } });
 }
 
 function baseRunnerDeps(cfg: AppConfig, runId: string, context: RunHostContext): Omit<RunnerDeps, 'adapter' | 'genId' | 'onLaunch' | 'isStopped'> {
@@ -920,10 +1156,10 @@ function baseRunnerDeps(cfg: AppConfig, runId: string, context: RunHostContext):
       try { runTelemetry.complete(run); clarificationRuntime.complete(run.id, run.attempt); }
       finally { gateway.revokeRun(run.id); if (context.isolated && context.host.kind !== 'plugin') void stopLegacyDockerStages(run.id); }
     },
-    createWorktree: (repo: string, id: string) => standaloneWorkspace(context, repo, id, 'fresh', () => createWorktree(AGENTS_ROOT, repo, id)),
-    createWorktreeFromBranch: (repo: string, id: string, branch: string, expectedHeadSha?: string) => standaloneWorkspace(context, repo, id, 'branch', () => createWorktreeFromBranch(AGENTS_ROOT, repo, id, branch, expectedHeadSha)),
-    createReviewWorktree: (repo, id, number, headSha) => standaloneWorkspace(context, repo, id, 'review', () => createReviewWorktree(AGENTS_ROOT, repo, id, number, headSha), headSha),
-    removeWorktree: (repo: string, path: string) => path.startsWith(`${DOCKER_WORKSPACES}${sep}`) ? removeDockerWorkspace(DOCKER_WORKSPACES, path) : removeWorktree(AGENTS_ROOT, repo, path),
+    createWorktree: (repo: string, id: string) => guardedWorkspace(repo, id, 'coding', undefined, () => standaloneWorkspace(context, repo, id, 'fresh', () => createWorktree(AGENTS_ROOT, repo, id))),
+    createWorktreeFromBranch: (repo: string, id: string, branch: string, expectedHeadSha?: string) => guardedWorkspace(repo, id, 'branch', branch, () => standaloneWorkspace(context, repo, id, 'branch', () => createWorktreeFromBranch(AGENTS_ROOT, repo, id, branch, expectedHeadSha, db.getRun(id)?.attempt ?? 1))),
+    createReviewWorktree: (repo, id, number, headSha) => guardedWorkspace(repo, id, 'review', number, () => standaloneWorkspace(context, repo, id, 'review', () => createReviewWorktree(AGENTS_ROOT, repo, id, number, headSha, db.getRun(id)?.attempt ?? 1), headSha)),
+    removeWorktree: (repo: string, path: string) => cleanupWorkspace(runId, repo, path, () => path.startsWith(`${DOCKER_WORKSPACES}${sep}`) ? removeDockerWorkspace(DOCKER_WORKSPACES, path) : removeWorktree(AGENTS_ROOT, repo, path)),
     now: () => new Date().toISOString(),
     jira: cfg.jira ? effectsFor(runId).jira : null,
     prepareFinalization: async row => { await taskSourceRuntime.prepareFinalization(row); await effectsFor(runId).prepareFinalizationLookups(row, executionSnapshot(row)); },
@@ -979,6 +1215,7 @@ function drainEffects(): Promise<void> {
       try { await communicationRuntime.refreshConnection(AbortSignal.timeout(30_000)); } catch {}
     }
     await communicationCommands.drainPending();
+    await feedbackCommands.drainPending();
     await taskSourceRuntime.drain();
   })().catch(error => { process.stderr.write(`Operation recovery failed: ${String(error)}\n`); }).finally(() => { drainingEffects = null; });
   return drainingEffects;
@@ -1018,7 +1255,7 @@ async function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: 
   const deps: RunnerDeps = {
     ...baseRunnerDeps(cfg, row.id, hosting.context),
     adapter,
-    preserveWorktreeOnFailure: isPrePrAdapter(row.adapter),
+    preserveWorktreeOnFailure: isPrePrAdapter(row.adapter) || isFeedbackUpdateAdapter(row.adapter),
     genId: () => row.id,
     onLaunch: (_runId: string, stop: () => Promise<void>) => {
       control.stop = stop;
@@ -1056,6 +1293,12 @@ async function resumeVoyage(runId: string): Promise<void> {
   if (sourceClaim && (!task?.source || task.source.claimId !== sourceClaim.id || task.source.taskSnapshotHash !== sourceClaim.taskSnapshotHash
     || task.source.instanceId !== sourceClaim.instance.id)) throw new ResumeError('The saved task no longer matches its retained source claim.');
   if (!task?.task && !task?.todoId && !cfg.jira) throw new ResumeError('Configure Jira before continuing this Jira voyage.');
+  if (executionOwnership && row.worktreePath && !task?.hostIsolation) {
+    const checkout = describeLocalCheckout(AGENTS_ROOT, row.repo, row.id);
+    const receipt = executionWorkspaceReceipts.get(row.id, row.worktreePath);
+    if (!receipt) throw new ResumeError('Retained workspace has no allocation identity');
+    await assertManagedWorktreeIdentity(checkout.path, row.worktreePath, receipt as ManagedWorktreeIdentity);
+  }
   const retained = await retainedRunAgents(row);
   await retained?.dispose();
   const hosting = await retainedRunHost(row);
@@ -1071,7 +1314,8 @@ async function resumeVoyage(runId: string): Promise<void> {
         }
         task.modelGateway = { url: `http://127.0.0.1:${gatewayPort}`, token: gateway.issue(runId, 86_400_000).token };
         task.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: row.attempt + 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
-        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^pre-pr:/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort, allowPromptUpgrade: true });
+        task.instructions = { directory: instructionDirectory(RUNS_DIR, runId, task.clarification.attempt!, task.clarification.channelId!), runId, attempt: task.clarification.attempt!, channelId: task.clarification.channelId! };
+        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^(?:pre-pr|feedback):/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort, allowPromptUpgrade: true });
         if (prepared.task.hostIsolation) {
           if (!hosting.context.isolated) throw new ResumeError('The retained host cannot continue an isolated voyage.');
           prepared.task.hostIsolation = { ...prepared.task.hostIsolation, capability: gateway.issue(runId, 86_400_000).token };
@@ -1091,6 +1335,23 @@ async function resumeVoyage(runId: string): Promise<void> {
 
 const reattachIds: string[] = db.reattachableRuns().map((r: RunRow) => r.id);
 
+for (const owner of executionOwnership?.held() ?? []) {
+  const { runId, repo } = owner.footprint;
+  if (!executions.cleanupEligibility(runId).allowed) continue;
+  try {
+    const checkout = describeLocalCheckout(AGENTS_ROOT, repo, runId);
+    const row = db.getRun(runId);
+    if (row?.worktreePath && row.worktreePath !== checkout.workspacePath) continue;
+    if (!await verifyWorktreeAbsent(checkout.path, checkout.workspacePath)) {
+      if (owner.state === 'cleanup-pending' && await verifyWorktreeDetached(checkout.path, checkout.workspacePath)) {
+        await detachOwnedWorkspace(runId, repo, checkout.workspacePath, async () => undefined);
+      }
+      continue;
+    }
+    await cleanupWorkspace(runId, repo, checkout.workspacePath, async () => undefined);
+  } catch (error) { process.stderr.write(`Execution cleanup reconciliation blocked for ${runId}: ${String(error)}\n`); }
+}
+
 try {
   const repos: string[] = [...Object.keys(startupCfg.repoProjectMap), ...(startupCfg.github?.repo ? [startupCfg.github.repo] : [])];
   const configuredDirs: string[] = repos.map((repo: string) => join(AGENTS_ROOT, repoBasename(repo)));
@@ -1099,16 +1360,20 @@ try {
   if (repoDirs.length > 0) {
     const removed: string[] = await sweepOrphanedWorktrees({
       listAgentWorktrees,
-      remove: removeCleanWorktreeAt,
+      remove: async (repoDirectory, path) => {
+        const row = db.listRuns(-1).find(run => run.worktreePath === path);
+        if (!row) throw new Error('Worktree has no retained execution owner');
+        await cleanupWorkspace(row.id, row.repo, path, () => removeCleanWorktreeAt(repoDirectory, path));
+      },
       isActiveRunId: (id: string) => {
         if (pm.hasRun(id) || reattachIds.includes(id) || !executions.cleanupEligibility(id).allowed) return true;
         const row = db.getRun(id);
-        return Boolean(row && isPrePrAdapter(row.adapter) && row.status !== 'succeeded');
+        return Boolean(row && (isPrePrAdapter(row.adapter) || isFeedbackUpdateAdapter(row.adapter)) && row.status !== 'succeeded');
       },
       isEligibleWorktree: async (repoDir: string, path: string, runId: string): Promise<boolean> => {
         const row = db.getRun(runId);
         if (!row?.worktreePath || !['succeeded', 'failed', 'stopped'].includes(row.status) || !executions.cleanupEligibility(runId).allowed
-          || isPrePrAdapter(row.adapter) && row.status !== 'succeeded') return false;
+          || (isPrePrAdapter(row.adapter) || isFeedbackUpdateAdapter(row.adapter)) && row.status !== 'succeeded') return false;
         try {
           const [workspace, recordedWorkspace, galleon, recordedGalleon] = await Promise.all([
             realpath(path), realpath(row.worktreePath), realpath(repoDir), realpath(join(AGENTS_ROOT, repoBasename(row.repo))),
@@ -1138,14 +1403,14 @@ void runRecovery.initial.catch(() => {});
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json' };
 
-function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf?: string; workflowRef?: string; trigger?: TriggerProvenanceV1; commandBinding?: RunCommandAdmissionBinding }): string {
+async function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf?: string; workflowRef?: string; trigger?: TriggerProvenanceV1; commandBinding?: RunCommandAdmissionBinding }): Promise<string> {
   const runId: string = body.runId ?? randomUUID();
   if (db.getRun(runId) || pm.hasRun(runId) || admissions.get(runId)) return runId;
   const capacity = pm.canStart(body.repo);
   if (!capacity.ok) throw new Error(capacity.reason ?? 'Cannot launch while another voyage is active');
   const cfg: AppConfig = configStore.current();
   const priorRun = body.retryOf ? db.getRun(body.retryOf) : null;
-  const adapterId = priorRun?.adapter.replace(/^pre-pr:/, '') ?? body.adapter;
+  const adapterId = priorRun?.adapter.replace(/^(?:pre-pr|feedback):/, '') ?? body.adapter;
   const priorTask = priorRun?.taskJson ? JSON.parse(priorRun.taskJson) as AgentTask | null : null;
   if (priorRun && !priorTask?.agentSelection) throw new RetryError('Legacy agent bindings cannot be migrated by retry. Continue the original retained voyage or start a new voyage.');
   if (priorRun && !priorTask?.executionHost) throw new RetryError('Legacy execution hosts cannot be migrated by retry. Continue the retained voyage or start a new voyage.');
@@ -1168,7 +1433,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const selectedExecutionHost = priorTask?.executionHost
     ? { revision: readExecutionHostProviderSelection(pluginDirectory()).revision, record: parseExecutionHostRetainedProviderV1(priorTask.executionHost) }
     : selectExecutionHost();
-  assertExecutionHostCoordinatorSupport(selectedExecutionHost.record.metadata, selectedWorkflow.record.metadata.execution === 'staged'
+  assertExecutionHostCoordinatorSupport(selectedExecutionHost.record.metadata, (selectedWorkflow.record.metadata.execution === 'staged' || selectedWorkflow.record.metadata.feedbackCompletion === true)
     || workflowMode === 'review' && selectedExecutionHost.record.metadata.stageExecution === 'isolated');
   if (selectedExecutionHost.record.metadata.stageExecution === 'isolated' && !gatewayAllowsIsolation) throw new Error('Restart Helmsman after selecting an isolated execution host so its scoped gateway is reachable.');
   if (priorTask && priorRun) verifyHostExecution(priorTask, executionSnapshot(priorRun));
@@ -1178,7 +1443,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const selectedAgents = priorTask?.agentSelection
     ? { selection: parseAgentSelectionV1(priorTask.agentSelection), revision: readAgentProviderSelection(pluginDirectory()).revision }
     : resolveAgentSelection({ ...agentOptions, ...(adapterId ? { writer: canonicalAgentId(adapterId) } : {}),
-      reviewerCount: selectedWorkflow.record.metadata.execution === 'direct' ? 0 : readAgentProviderSelection(pluginDirectory()).reviewers?.length ?? agentDefaults.reviewers.length, defaults: agentDefaults });
+      reviewerCount: selectedWorkflow.record.metadata.execution === 'direct' && !selectedWorkflow.record.metadata.feedbackCompletion ? 0 : readAgentProviderSelection(pluginDirectory()).reviewers?.length ?? agentDefaults.reviewers.length, defaults: agentDefaults });
   if (priorTask && priorRun) verifyAgentExecution(priorTask, executionSnapshot(priorRun));
   const agentArtifacts = priorTask?.agentRuntime?.artifacts ?? mergeExecutionArtifacts(...[selectedAgents.selection.writer, ...selectedAgents.selection.reviewers].map(record => providerArtifacts(record.binding)));
   const agentRuntime = { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: agentArtifacts };
@@ -1188,8 +1453,36 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   goCaas.assertReady();
   const selectedWriterId = selectedAgents.selection.writer.binding.providerId;
   let sourceSelection = taskSourceRuntime.selection(body, body.retryOf);
+  if (sourceSelection && !sourceSelection.ref && sourceSelection.displayKey) {
+    const ref = await taskSourceRuntime.service.lookup({ instanceId: sourceSelection.instance.id, instanceRevision: sourceSelection.instance.revision,
+      repo: body.repo, displayKey: sourceSelection.displayKey }, AbortSignal.timeout(30_000));
+    if (!ref) throw new Error('Task was not found');
+    sourceSelection = { ...sourceSelection, ref, displayKey: null };
+  }
   if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
   let launchJson = launchIntentJson(body);
+  let detachedRetry = false;
+  if (priorRun && priorTask?.prBranch && isFeedbackUpdateAdapter(priorRun.adapter) && priorRun.worktreePath && existsSync(priorRun.worktreePath)) {
+    if (priorRun.status === 'running' || pm.hasRun(priorRun.id) || !executions.cleanupEligibility(priorRun.id).allowed) throw new RetryError('Previous feedback execution is still protected');
+    const source = priorTask.pullRequestSource;
+    if (!source) throw new RetryError('Retained feedback source is unavailable');
+    await verifyEffectArtifacts(source.artifacts);
+    const registration = pullRequestRegistration(source.binding, 'obligation');
+    if (!registration.provider.feedbackSnapshot || persistenceHash(registration.settings ?? {}) !== persistenceHash(source.settings)) throw new RetryError('Retained feedback source changed');
+    const query = { version: 1 as const, repo: body.repo, number: priorTask.prNumber! };
+    const feedback = parsePullRequestFeedbackSnapshotV1(await registration.provider.feedbackSnapshot(query, pullRequestContext(source.binding, AbortSignal.timeout(30_000), false)), query);
+    if (feedback.state !== 'OPEN' || feedback.headBranch !== priorTask.prBranch || feedback.fingerprint !== await fingerprintPullRequestFeedbackSnapshotV1(feedback)) throw new RetryError('Current feedback branch could not be verified');
+    await detachOwnedWorkspace(priorRun.id, body.repo, priorRun.worktreePath, () => detachRetainedFeedbackWorktree(AGENTS_ROOT, body.repo, priorRun.id, priorRun.worktreePath!, priorTask.prBranch!));
+    detachedRetry = true;
+  }
+  if (db.getRun(runId) || pm.hasRun(runId) || admissions.get(runId)) return runId;
+  const checkout = describeLocalCheckout(AGENTS_ROOT, body.repo, runId);
+  const hostBinding = selectedExecutionHost.record.binding;
+  const footprint = localExecutionFootprint({ runId, repo: body.repo, checkout, mode: workflowMode,
+    trustedLocalHost: hostBinding.pluginId === 'helmsman.host-local' && hostBinding.artifactHash === currentRuntime.artifact.artifactHash
+      && selectedExecutionHost.record.metadata.workspace === 'worktree' && selectedExecutionHost.record.metadata.stageExecution === 'local',
+    source: sourceSelection?.ref ?? null, unknownTask: Boolean(sourceSelection && !sourceSelection.ref),
+    pullRequestNumber: body.prNumber, retry: Boolean(priorRun) && !detachedRetry, ...(detachedRetry ? { branch: priorTask?.prBranch } : {}) });
   const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, hostArtifacts, workflowArtifacts, trigger?.artifacts ?? [], pullRequestSource?.artifacts ?? priorTask?.pullRequestSource?.artifacts ?? priorTask?.triggerReviewSource?.artifacts ?? [], sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
   persistence.transaction(() => {
     assertAgentSelectionCurrent(agentOptions, selectedAgents);
@@ -1205,8 +1498,9 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
       }
     }
     pullRequestSource?.assertCurrent();
+    if (persistenceHash(describeLocalCheckout(AGENTS_ROOT, body.repo, runId)) !== persistenceHash(checkout)) throw new Error('Checkout identity changed before admission');
     const scheduling = taskSourceRuntime.schedule.assertAdmission(body);
-    const admit = () => { admissions.admit({ runId, repo: body.repo, request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, host: selectedExecutionHost.record, workflow: selectedWorkflow.record, ...(scheduling ? { scheduling } : {}), ...(trigger ? { trigger } : {}), ...(pullRequestSource ? { pullRequestSource: { binding: pullRequestSource.binding, revision: pullRequestSource.revision, settings: pullRequestSource.settings } } : preparedPullRequestSource ? { pullRequestSource: preparedPullRequestSource } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
+    const admit = () => { admissions.admit({ runId, repo: body.repo, ...(executionOwnership ? { footprint } : {}), request: persistedJson({ ...JSON.parse(launchJson), agents: selectedAgents.selection, host: selectedExecutionHost.record, workflow: selectedWorkflow.record, ...(scheduling ? { scheduling } : {}), ...(trigger ? { trigger } : {}), ...(pullRequestSource ? { pullRequestSource: { binding: pullRequestSource.binding, revision: pullRequestSource.revision, settings: pullRequestSource.settings } } : preparedPullRequestSource ? { pullRequestSource: preparedPullRequestSource } : {}), ...(body.commandBinding ? { commandBinding: body.commandBinding } : {}) }),
       settings: sourceSelection ? sourceExecutionSettings(cfg, true, true) : legacyExecutionSettings(cfg, true, true), artifacts: admissionArtifacts }, maxConcurrency); };
     if (sourceSelection) taskSourceRuntime.reserve(runId, body.repo, sourceSelection, admit, body.retryOf);
     else admit();
@@ -1292,11 +1586,34 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         taskObj.hostIsolation = { gatewayUrl, capability: capability.token, runId };
         taskObj.dockerExecution = undefined;
       }
+      if (selectedWorkflow.record.metadata.feedbackCompletion === true) {
+        if (!taskObj.pullRequestSource || !pullRequestRegistration(taskObj.pullRequestSource.binding, 'obligation').provider.feedbackSnapshot) {
+          throw new Error('Retained PR source does not provide complete feedback snapshots');
+        }
+        if (priorRun) {
+          const source = taskObj.pullRequestSource;
+          await verifyEffectArtifacts(source.artifacts);
+          const registration = pullRequestRegistration(source.binding, 'obligation');
+          if (persistenceHash(registration.settings ?? {}) !== persistenceHash(source.settings)) throw new Error('Retained PR source settings changed');
+          const query = { version: 1 as const, repo: taskObj.repo, number: taskObj.prNumber! };
+          const snapshot = parsePullRequestFeedbackSnapshotV1(await registration.provider.feedbackSnapshot!(query, pullRequestContext(source.binding, lifetime.admissionSignal, false)), query);
+          if (snapshot.state !== 'OPEN' || snapshot.headBranch !== taskObj.prBranch || snapshot.fingerprint !== await fingerprintPullRequestFeedbackSnapshotV1(snapshot)) {
+            throw new Error('Current PR feedback revision could not be verified for retry');
+          }
+          taskObj.prHeadSha = snapshot.headSha;
+          if (priorRun.worktreePath && existsSync(priorRun.worktreePath)) {
+            if (!isFeedbackUpdateAdapter(priorRun.adapter) || priorRun.status === 'running' || pm.hasRun(priorRun.id)
+              || !runnerDurability(cfg).cleanupEligibility(priorRun.id).allowed) throw new Error('Previous feedback worktree is still protected by an execution');
+            await detachOwnedWorkspace(priorRun.id, taskObj.repo, priorRun.worktreePath, () => detachRetainedFeedbackWorktree(AGENTS_ROOT, taskObj.repo, priorRun.id, priorRun.worktreePath!, taskObj.prBranch!));
+          }
+        }
+      }
       taskObj.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
+      taskObj.instructions = { directory: instructionDirectory(RUNS_DIR, runId, taskObj.clarification.attempt!, taskObj.clarification.channelId!), runId, attempt: taskObj.clarification.attempt!, channelId: taskObj.clarification.channelId! };
       const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task: taskObj,
         provider: adapter.id, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort });
       taskObj = prepared.task;
-      const runAdapter = selectedWorkflow.record.metadata.execution === 'staged' ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.hostIsolation ? dockerReviewAdapter(adapter) : adapter;
+      const runAdapter = selectedWorkflow.record.metadata.execution === 'staged' ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : selectedWorkflow.record.metadata.feedbackCompletion === true ? feedbackUpdateAdapter(adapter, RUNS_DIR) : taskObj.review && taskObj.hostIsolation ? dockerReviewAdapter(adapter) : adapter;
       lifetime.admissionSignal.throwIfAborted();
       pullRequestSource?.assertCurrent();
       lifetime.startExecution();
@@ -1304,7 +1621,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         ...baseRunnerDeps(cfg, runId, hosting),
         launchJson,
         adapter: runAdapter,
-        ...(isPrePrAdapter(runAdapter.id) ? { maxAttempts: 1, preserveWorktreeOnFailure: true } : {}),
+        ...((isPrePrAdapter(runAdapter.id) || isFeedbackUpdateAdapter(runAdapter.id)) ? { maxAttempts: 1, preserveWorktreeOnFailure: true } : {}),
         genId: () => runId,
         onLaunch: (_runId: string, stop: () => Promise<void>) => {
           control.stop = stop;
@@ -1479,7 +1796,7 @@ void pollSlack();
 void pollGithubReviews();
 
 const campaignDispatcher = createCampaignDispatcher({ store: campaignsStore, canStart: repo => applicationRepos().some(allowed => allowed.toLowerCase() === repo.toLowerCase()) && pm.canStart(repo).ok,
-  getRun: triggerRun, stop: id => pm.stop(id),
+  getRun: triggerRun, hasAdmission: id => Boolean(admissions.get(id)), stop: id => pm.stop(id),
   captureTrigger: () => captureTrigger<CampaignTriggerProviderV1>('campaign'), retainPins: executions.retainPins, releaseTriggerPins: executions.releaseTriggerPins,
   launch: input => launch({ repo: input.repo, mode: input.mode, runId: input.runId, workflowRef: input.workflowRef, trigger: input.trigger,
     ...(input.task === null ? {} : { task: input.task }), ...(input.ticketId === null ? {} : { ticketId: input.ticketId }),
@@ -1531,6 +1848,7 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
     const operation = operations.get(id);
     if (operation?.kind === 'task-source.effect') { await dispatchOperation(operations, id, taskSourceRuntime.effects.resolve, { reconcile: operation.requiresReconciliation }); await taskSourceRuntime.drain(); return; }
     if (operation?.origin.kind === 'public-source-action') { await taskActions.recover(id); return; }
+    if (operation?.origin.kind === 'public-feedback') { await feedbackCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'public-communication-review-request') { await communicationCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'public-pull-request-review') { await pullRequestCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'manual-review') { await manualReviewEffects.dispatch(id); return; }
@@ -1642,11 +1960,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, taskContext, taskContextSignal: inspectController?.signal, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       integrationSettings, integrationSettingsCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      executionPolicy, executionPolicyCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       publicLocalGit, localGitCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      feedbackSettings, feedbackCommands, communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      clarificationGate, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, runInstructions, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,
       sourceSchedule: taskSourceRuntime.schedule,

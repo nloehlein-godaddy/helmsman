@@ -2,8 +2,8 @@
 
 A control plane for coding agents working from Jira and local task sources. Launch a CLI agent against a
 task, watch it work live (explore → implement → test → open a PR), and keep a human
-approval gate before anything merges — running multiple agents across repos, one at a
-time per repo. The dashboard (backlog queue, current run, Ship’s log, shipped PRs)
+approval gate before anything merges — running multiple agents across repos, with one
+run per repo by default and explicit opt-in for independent parallel work. The dashboard (backlog queue, current run, Ship’s log, shipped PRs)
 is the view; the **Helmsman server** behind it spawns and supervises the agents.
 
 The **Helm** dashboard defaults to Quarterdeck: sea-blue panels, wood-brown trim, brass
@@ -30,7 +30,7 @@ Triage offers **Assign to me** for supported unassigned Jira tasks. It uses the 
 
 Phases A–G are complete. Optional features use public plugin contracts, obsolete new-work routes are retired, and the stable SDK includes independent-author examples and compatibility guidance. Initial acceptance passed, including the manual draft-review correction. The [second adversarial review](docs/adversarial-review-2026-09-21-round-2.md) subsequently found seven issues, including two P1s; the [second fix ledger](docs/adversarial-fixes-2026-09-21-round-2.md) records their corrections and validation. The [helmsman-og comparison](docs/helmsman-og-feature-evaluation-2026-09-21.md) identifies compatible feature updates. The [remaining-feature design](docs/helmsman-og-feature-design.md) defines the implementation batches, retained command boundaries and opt-in concurrency rollout. See the [implementation ledger](docs/plugin-implementation-progress.md) for accepted evidence and the [adversarial fix ledger](docs/adversarial-fixes-2026-09-21.md) for subsequent hardening, validation and platform limits.
 
-The OG presentation ports add scoped Triage and Bugs descriptions, canonical Underway links to recorded runs and PRs, and accessible loading wheels in Running and Recent. The operator disclosure is in Config; Recovery and Pirate controls remain in the footer. Durable assign-self is implemented. Configured feedback and opt-in same-galleon parallelism remain planned.
+The OG presentation ports add scoped Triage and Bugs descriptions, canonical Underway links to recorded runs and PRs, and accessible loading wheels in Running and Recent. The operator disclosure is in Config; Recovery and Pirate controls remain in the footer. Durable assign-self, [configured product feedback](docs/product-feedback.md), [live agent instructions](docs/run-instructions.md) and [opt-in same-galleon parallelism](src/plugins/execution-settings/README.md) are implemented. The [October integration ledger](docs/helmsman-og-integration-2026-10-01.md) records feedback completion audits, launcher fixes and presentation updates. New Underway Slack actions are excluded from this integration.
 
 Start with the [independent plugin quickstart](docs/plugin-quickstart.md), [package installation](docs/plugin-packages.md), [compatibility policy](docs/plugin-compatibility.md) and [retired routes](docs/plugin-legacy-retirement.md). The [voyage flow diagrams](docs/helmsman-process.md) describe current presentation, execution and recovery boundaries. Runs, history, the shared viewer and clarification panels are authored packages; `/runs` and `/prs` select compositions using public PR panels and the same auxiliary viewer.
 
@@ -243,8 +243,9 @@ Click **Launch** on a backlog ticket (or `POST /api/agents/launch {ticketId,titl
 Helmsman creates a git worktree under `AGENTS_ROOT`, spawns the configured agent
 (default: Codex) in it, streams the agent's events to a live log
 drawer over SSE (`GET /api/agents/:id/log`), records the run in SQLite, and removes the
-worktree when it finishes. `POST /api/agents/:id/stop` SIGTERMs a run. One run per repo at
-a time; global concurrency is capped by `AGENT_MAX_CONCURRENCY`. The agent opens a PR and
+worktree when it finishes. `POST /api/agents/:id/stop` SIGTERMs a run. One run per repo by
+default; Execution settings can opt into independent parallel runs. Global concurrency
+is capped by `AGENT_MAX_CONCURRENCY`, and task/branch/PR/workspace collisions remain blocked. The agent opens a PR and
 never merges — the human review gate is real.
 
 ### New voyage (any ticket / free-form)
@@ -382,6 +383,16 @@ PR provider, retaining its connection, settings, artifact and exact head. A miss
 or changed selection blocks admission. Publication remains a guarded server-side
 operation; credentials never reach the browser. **There is no Merge button** —
 merge stays a deliberate action on GitHub, and the agent never merges.
+
+The built-in branch workflow independently checks the published head and complete
+discussion after each repair. Every source must be accounted for, with published
+response evidence for each finding. Edited comments, review summaries, or owner
+answers invalidate an earlier audit. Required decisions appear in Clarifications;
+answered decisions must still be implemented and reviewed. Running and Recent show
+**Feedback completed**, **Feedback remaining**, or **Awaiting decision** separately
+from worker status. Successful process exit alone cannot complete feedback work.
+The workflow retains its selected PR source, author, reviewers, and policy. Feedback
+publication currently requires a trusted local execution host.
 
 ### Direct links
 
@@ -579,8 +590,9 @@ See [execution host authoring](docs/execution-host-authoring.md).
 
 ### Caps
 
-`AGENT_MAX_ATTEMPTS` bounds retries for existing-PR voyages; new coding voyages use
-one gated workflow with the bounded review loop above. `AGENT_MAX_COST_USD` (opt-in)
+`AGENT_MAX_ATTEMPTS` bounds retries for direct existing-PR voyages. New coding voyages
+and built-in feedback updates use one coordinator attempt with bounded review rounds
+from the retained workflow settings. `AGENT_MAX_COST_USD` (opt-in)
 stops work once reported cost reaches the cap. Pre-PR voyages aggregate reported
 cost across author and reviewer sessions; Codex sessions currently provide no cost
 data, so the cap cannot bound their spend. Both, and the live attempt/cost of
@@ -590,7 +602,10 @@ each run, show on the running-agent rows (`×attempt/max`, `$cost/$cap`).
 
 On startup Helmsman reattaches to surviving run hosts and marks interrupted runs
 failed when their host is gone. It sweeps orphaned agent worktrees under each repo's
-`.worktrees/`, except failed or stopped pre-PR voyages retained for recovery. These
+`.worktrees/`, except failed or stopped pre-PR and feedback voyages retained for recovery.
+Retrying a failed feedback voyage starts from the current published PR head and
+detaches its inactive retained checkout, preserving unpublished commits and staged,
+unstaged, and untracked files for inspection. These
 checks are fail-soft: a failure is logged and never blocks the server from listening.
 
 ## Configuration
@@ -774,7 +789,7 @@ Recovery. See [Communication authoring](docs/communication-authoring.md).
 | `PRE_PR_REVIEWER_COUNT` | `2` | Legacy count seeds the explicit ordered agent reviewer list once, preserving an existing explicit list. Subsequently use `plugins select-agent-reviewers ID[,ID...]`; `default` resets to shipped defaults without reimporting the old count. | Bootstrap only |
 | `PRE_PR_MAX_ROUNDS` | `3` | One-time seed for `helmsman.workflow-coding` setting `maxRounds` (1–5). Afterwards configure the package; explicit settings and resets are preserved. | Bootstrap only |
 | `PRE_PR_STAGE_TIMEOUT_MINUTES` | `45` | One-time seed for `helmsman.workflow-coding` setting `stageTimeoutMinutes` (5–180). Afterwards configure the package; explicit settings and resets are preserved. | Bootstrap only |
-| `AGENT_MAX_CONCURRENCY` | `3` | Maximum simultaneous runs across repositories. The separate one-run-per-repository limit still applies. | Restart |
+| `AGENT_MAX_CONCURRENCY` | `3` | Maximum simultaneous runs across repositories. Each galleon defaults to one run; Execution settings can explicitly raise its limit within this global cap. | Restart |
 | `AUTO_CLAIM_INTERVAL_MS` | `60000` | One-time migration seed for the shipped scheduling plugin’s `intervalMs`. Does not enable automatic starts or control PR watchers. | Bootstrap only; then configure plugin settings |
 | `AGENTS_ROOT` | Server working directory | Parent directory of target repo checkouts, e.g. `/absolute/path/to/agent-repos`; not the path to a single checkout. | Restart |
 | `RUNS_DIR` | `<AGENTS_ROOT>/.helmsman-runs` | Directory for detached-run specifications, logs, and exit records. Created on startup; use a writable absolute path. | Restart |

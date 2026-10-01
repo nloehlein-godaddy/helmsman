@@ -1,3 +1,5 @@
+import executionSettingsPackage from './execution-settings/plugin-package.json' with { type: 'json' };
+import productFeedbackPackage from './product-feedback/plugin-package.json' with { type: 'json' };
 import profilePackage from './profile/plugin-package.json' with { type: 'json' };
 import githubSettingsPackage from './github-settings/plugin-package.json' with { type: 'json' };
 import jiraSettingsPackage from './jira-settings/plugin-package.json' with { type: 'json' };
@@ -64,7 +66,7 @@ export const recentManifest: PluginManifest = {
 export const underwayManifest: PluginManifest = {
   manifestVersion: 2, id: 'helmsman.underway', version: '0.1.0', sdkVersion: 1, pages: [],
   panels: [{ id: 'panel', title: 'Underway', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/task-read', version: 1 }, { id: 'helmsman/run-command', version: 1 }] }],
+    requires: [{ id: 'helmsman/task-read', version: 1 }, { id: 'helmsman/run-command', version: 1 }, { id: 'helmsman/pull-request-read', version: 1 }, { id: 'helmsman/communication', version: 1 }, { id: 'helmsman/communication-command', version: 1 }] }],
 };
 export const newRunManifest: PluginManifest = {
   manifestVersion: 2, id: 'helmsman.newrun', version: '0.1.0', sdkVersion: 1, pages: [],
@@ -106,10 +108,11 @@ export const compatibilityPrManifest = compatibilityPrPackage.manifest as Plugin
 
 export const jiraSettingsManifest = jiraSettingsPackage.manifest as PluginManifest;
 export const profileManifest = profilePackage.manifest as PluginManifest;
+export const executionSettingsManifest = executionSettingsPackage.manifest as PluginManifest;
 export const githubSettingsManifest = githubSettingsPackage.manifest as PluginManifest;
 export const localGitManifest = localGitPackage.manifest as PluginManifest;
 export const campaignsManifest = campaignsPackage.manifest as PluginManifest;
 export const terminalManifest = terminalPackage.manifest as PluginManifest;
 export const communicationManifest = communicationPackage.manifest as PluginManifest;
 
-export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([profileManifest, githubSettingsManifest, jiraSettingsManifest, localGitManifest, campaignsManifest, terminalManifest, communicationManifest, runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);
+export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([productFeedbackPackage.manifest as PluginManifest, profileManifest, executionSettingsManifest, githubSettingsManifest, jiraSettingsManifest, localGitManifest, campaignsManifest, terminalManifest, communicationManifest, runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);

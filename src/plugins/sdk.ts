@@ -38,6 +38,7 @@ export * from './communication';
 export * from './communication-connection';
 export * from './communication-command';
 export * from './pull-request-provider';
+export * from './pull-request-feedback';
 export * from './communication-provider';
 export * from './activity-read';
 export * from './run-command';
@@ -134,3 +135,10 @@ export * from './workflow';
 export * from './trigger';
 
 export * from './task-actions';
+
+export * from './run-instructions';
+export * from './execution-policy';
+export * from './feedback-command';
+export * from './feedback-tracker';
+
+export * from './feedback-settings';

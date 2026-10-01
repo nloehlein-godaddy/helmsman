@@ -6,6 +6,7 @@ import { parseTaskRepo } from './tasks';
 export type WorkflowModeV1 = 'coding' | 'review' | 'branch';
 export interface WorkflowMetadataV1 {
   readonly version: 1; readonly label: string; readonly modes: readonly WorkflowModeV1[]; readonly execution: 'staged' | 'direct';
+  readonly feedbackCompletion?: true;
   readonly requiredSkills: readonly string[]; readonly maxRounds: number; readonly stageTimeoutMinutes: number;
 }
 export interface WorkflowStageV1 {
@@ -23,7 +24,19 @@ export interface WorkflowPromptInputV1 {
     readonly prHeadSha?: string; readonly skillsPath?: string; readonly reviewOutputPaths?: { readonly markdown: string; readonly comments: string };
   };
   readonly stage: WorkflowStageV1 | null;
+  readonly feedback?: WorkflowFeedbackStageV1;
 }
+export interface WorkflowFeedbackStageV1 {
+  readonly stage: 'author' | 'audit'; readonly round: number; readonly snapshotPath: string;
+  readonly snapshot: { readonly repo: string; readonly prNumber: number; readonly headSha: string; readonly baseSha: string; readonly fingerprint: string };
+  readonly feedbackPath?: string; readonly reportPath?: string;
+  readonly decisions?: { readonly path: string; readonly fingerprint: string };
+}
+export interface WorkflowFeedbackStepInputV1 {
+  readonly version: 1; readonly repairAttempts: number; readonly decisionRounds: number; readonly evidenceChanged: boolean;
+  readonly outcomes: readonly ('completed' | 'changes_remaining' | 'awaiting_decision')[];
+}
+export type WorkflowFeedbackActionV1 = { readonly kind: 'complete' | 'repair' | 'decide' } | { readonly kind: 'stop'; readonly reason: string };
 export interface WorkflowFindingV1 { readonly title: string; readonly body: string; readonly path?: string; readonly line?: number; }
 export interface WorkflowReviewReportV1 {
   readonly baseSha: string; readonly headSha: string; readonly verdict: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
@@ -40,6 +53,7 @@ export interface WorkflowProviderV1 {
   readonly metadata: WorkflowMetadataV1;
   renderPrompt(input: WorkflowPromptInputV1): string;
   next(input: WorkflowStepInputV1): WorkflowActionV1;
+  nextFeedback?(input: WorkflowFeedbackStepInputV1): WorkflowFeedbackActionV1;
 }
 export interface WorkflowDeclarationV1 { readonly access: readonly ['workflow-policy']; }
 export interface WorkflowBackendContextV1 {
@@ -67,13 +81,16 @@ export function parseWorkflowModeV1(value: unknown): WorkflowModeV1 {
   if (value !== 'coding' && value !== 'review' && value !== 'branch') invalid(); return value;
 }
 export function parseWorkflowMetadataV1(input: unknown): WorkflowMetadataV1 {
-  const value = sourceObject(sourceJson(input)); sourceFields(value, ['version', 'label', 'modes', 'execution', 'requiredSkills', 'maxRounds', 'stageTimeoutMinutes']);
+  const value = sourceObject(sourceJson(input)); sourceFields(value, ['version', 'label', 'modes', 'execution', 'requiredSkills', 'maxRounds', 'stageTimeoutMinutes'], ['feedbackCompletion']);
   if (value.version !== 1 || !Array.isArray(value.modes) || !value.modes.length || value.modes.length > 3 || new Set(value.modes).size !== value.modes.length
     || value.execution !== 'staged' && value.execution !== 'direct' || !Array.isArray(value.requiredSkills) || value.requiredSkills.length > WORKFLOW_LIMITS_V1.skills
     || value.requiredSkills.some(skill => typeof skill !== 'string' || !/^[a-z][a-z\d-]{0,63}$/.test(skill)) || new Set(value.requiredSkills).size !== value.requiredSkills.length) invalid();
   const modes = value.modes.map(parseWorkflowModeV1);
   if (modes.some(mode => (mode === 'coding') !== (value.execution === 'staged'))) throw new TypeError('Workflow execution does not match its declared modes');
+  if (Object.hasOwn(value, 'feedbackCompletion') && (value.feedbackCompletion !== true || value.execution !== 'direct'
+    || modes.length !== 1 || modes[0] !== 'branch')) throw new TypeError('Feedback completion requires a direct branch workflow');
   return Object.freeze({ version: 1, label: sourceText(value.label, 128), modes: Object.freeze(modes), execution: value.execution,
+    ...(value.feedbackCompletion === true ? { feedbackCompletion: true as const } : {}),
     requiredSkills: value.requiredSkills as readonly string[], maxRounds: integer(value.maxRounds, 1, 5), stageTimeoutMinutes: integer(value.stageTimeoutMinutes, 5, 180) });
 }
 export function parseWorkflowStageV1(input: unknown): WorkflowStageV1 {
@@ -97,7 +114,7 @@ export function parseWorkflowStageV1(input: unknown): WorkflowStageV1 {
   return value as unknown as WorkflowStageV1;
 }
 export function parseWorkflowPromptInputV1(input: unknown): WorkflowPromptInputV1 {
-  const value = sourceObject(sourceJson(input, WORKFLOW_LIMITS_V1.input)); sourceFields(value, ['version', 'runtime', 'byline', 'clarificationInstructions', 'task', 'stage']);
+  const value = sourceObject(sourceJson(input, WORKFLOW_LIMITS_V1.input)); sourceFields(value, ['version', 'runtime', 'byline', 'clarificationInstructions', 'task', 'stage'], ['feedback']);
   if (value.version !== 1) invalid();
   const runtime = sourceObject(value.runtime); sourceFields(runtime, ['providerId', 'model', 'effort', 'reviewDelegation']);
   providerId(runtime.providerId); if (runtime.model !== null) sourceText(runtime.model, 128); if (runtime.effort !== null) sourceText(runtime.effort, 64);
@@ -118,7 +135,44 @@ export function parseWorkflowPromptInputV1(input: unknown): WorkflowPromptInputV
   if (Object.hasOwn(task, 'skillsPath')) path(task.skillsPath);
   if (Object.hasOwn(task, 'reviewOutputPaths')) { const paths = sourceObject(task.reviewOutputPaths); sourceFields(paths, ['markdown', 'comments']); path(paths.markdown); path(paths.comments); }
   if (value.stage !== null) parseWorkflowStageV1(value.stage);
+  if (Object.hasOwn(value, 'feedback')) {
+    const feedback = parseWorkflowFeedbackStageV1(value.feedback);
+    if (value.stage !== null || feedback.snapshot.repo !== task.repo || feedback.snapshot.prNumber !== task.prNumber || !task.prBranch) invalid();
+  }
   return value as unknown as WorkflowPromptInputV1;
+}
+export function parseWorkflowFeedbackStageV1(input: unknown): WorkflowFeedbackStageV1 {
+  const value = sourceObject(sourceJson(input, WORKFLOW_LIMITS_V1.input));
+  sourceFields(value, ['stage', 'round', 'snapshotPath', 'snapshot'], ['feedbackPath', 'reportPath', 'decisions']);
+  if (value.stage !== 'author' && value.stage !== 'audit') invalid();
+  integer(value.round, 1, 10); path(value.snapshotPath);
+  const snapshot = sourceObject(value.snapshot); sourceFields(snapshot, ['repo', 'prNumber', 'headSha', 'baseSha', 'fingerprint']);
+  parseTaskRepo(snapshot.repo); integer(snapshot.prNumber, 1, Number.MAX_SAFE_INTEGER); sha(snapshot.headSha); sha(snapshot.baseSha);
+  if (typeof snapshot.fingerprint !== 'string' || !/^[a-f\d]{64}$/.test(snapshot.fingerprint)) invalid();
+  const paths = [value.snapshotPath];
+  for (const key of ['feedbackPath', 'reportPath'] as const) if (Object.hasOwn(value, key)) { path(value[key]); paths.push(value[key]); }
+  if (value.stage === 'audit' && (!Object.hasOwn(value, 'reportPath') || Object.hasOwn(value, 'feedbackPath'))
+    || value.stage === 'author' && (!Object.hasOwn(value, 'feedbackPath') || Object.hasOwn(value, 'reportPath'))) invalid();
+  if (Object.hasOwn(value, 'decisions')) {
+    const decisions = sourceObject(value.decisions); sourceFields(decisions, ['path', 'fingerprint']); path(decisions.path); paths.push(decisions.path);
+    if (typeof decisions.fingerprint !== 'string' || !/^[a-f\d]{64}$/.test(decisions.fingerprint)) invalid();
+  }
+  if (new Set(paths).size !== paths.length) invalid();
+  return value as unknown as WorkflowFeedbackStageV1;
+}
+export function parseWorkflowFeedbackStepInputV1(input: unknown): WorkflowFeedbackStepInputV1 {
+  const value = sourceObject(sourceJson(input, 8192)); sourceFields(value, ['version', 'repairAttempts', 'decisionRounds', 'evidenceChanged', 'outcomes']);
+  if (value.version !== 1 || typeof value.evidenceChanged !== 'boolean' || !Array.isArray(value.outcomes)
+    || !value.outcomes.length || value.outcomes.length > WORKFLOW_LIMITS_V1.reviewers
+    || value.outcomes.some(outcome => !['completed', 'changes_remaining', 'awaiting_decision'].includes(String(outcome)))) invalid();
+  integer(value.repairAttempts, 0, 5); integer(value.decisionRounds, 0, 5);
+  return value as unknown as WorkflowFeedbackStepInputV1;
+}
+export function parseWorkflowFeedbackActionV1(input: unknown): WorkflowFeedbackActionV1 {
+  const value = sourceObject(sourceJson(input, 8192));
+  if (value.kind === 'stop') { sourceFields(value, ['kind', 'reason']); text(value.reason, 4096); }
+  else { sourceFields(value, ['kind']); if (!['complete', 'repair', 'decide'].includes(String(value.kind))) invalid(); }
+  return value as unknown as WorkflowFeedbackActionV1;
 }
 export function parseWorkflowPromptV1(value: unknown): string { return text(value, WORKFLOW_LIMITS_V1.prompt); }
 export function parseWorkflowReviewReportV1(input: unknown): WorkflowReviewReportV1 {

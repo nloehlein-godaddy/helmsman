@@ -236,6 +236,7 @@ describe('startRun', () => {
     const db: Db = openDb(':memory:');
     const id = await startRun(task, deps(db, jsonAdapter(), singleAttemptHost([], false), freshRunsDir()));
     expect(db.getRun(id)?.status).toBe('failed');
+    expect(db.listEvents(id)).toContainEqual(expect.objectContaining({ kind: 'error', text: 'Agent process exited with code 1' }));
     db.close();
   });
 
@@ -245,6 +246,7 @@ describe('startRun', () => {
       const id = await startRun(task, deps(db, jsonAdapter(), singleAttemptHost([{ kind: 'result', outcome: 'failure', text: 'provider failed' }], true), freshRunsDir()));
       expect(db.getRun(id)?.status).toBe('failed');
       expect(db.listEvents(id)).toContainEqual(expect.objectContaining({ kind: 'agent-result-failure:1', text: 'provider failed' }));
+      expect(db.listEvents(id).some(event => event.text === 'Agent process exited with code 0')).toBe(false);
     } finally { db.close(); }
   });
 
@@ -1071,6 +1073,21 @@ describe('reattachRun', () => {
     db.close();
   });
 
+  it.each([true, false])('reports recovered process failure with an existing exit file: %s', async existing => {
+    const db = openDb(':memory:');
+    try {
+      const runsDir = freshRunsDir(); const row = baseRow(runsDir);
+      writeFileSync(row.logPath!, '');
+      db.insertRun(row);
+      const host = { ...singleAttemptHost([], false), isAlive: async () => true };
+      if (existing) writeFileSync(row.exitPath!, '23');
+      else setTimeout(() => writeFileSync(row.exitPath!, '23'), 20);
+      await reattachRun(row, deps(db, jsonAdapter(), host, runsDir));
+      expect(db.getRun(row.id)?.status).toBe('failed');
+      expect(db.listEvents(row.id)).toContainEqual(expect.objectContaining({ kind: 'error', text: 'Agent process exited with code 23' }));
+    } finally { db.close(); }
+  });
+
   it('retains a journaled provider failure when recovery starts after its log offset', async () => {
     const db = openDb(':memory:');
     try {
@@ -1282,4 +1299,30 @@ it('stops the host if a required clarification times out during execution', asyn
   expect(db.getRun('run-1')?.status).toBe('failed');
   expect(host.stop).toHaveBeenCalledOnce();
   db.close();
+});
+
+describe('feedback completion gate', () => {
+  const channelId = '11111111-1111-4111-8111-111111111111';
+  const feedbackTask: AgentTask = { ...task, prBranch: 'fix/feedback', prNumber: 42,
+    workflow: { metadata: { execution: 'direct', feedbackCompletion: true } } as AgentTask['workflow'],
+    clarification: { version: 1, runId: 'run-1', attempt: 1, channelId, questionsPath: '/unused/questions', answersPath: '/unused/answers' } };
+  it.each([
+    { state: 'completed', attempt: 1, channelId, expected: 'succeeded' },
+    { state: 'completed', attempt: 2, channelId, expected: 'failed' },
+    { state: 'completed', attempt: 1, channelId: '22222222-2222-4222-8222-222222222222', expected: 'failed' },
+    { state: 'changes_remaining', attempt: 1, channelId, expected: 'failed' },
+    { state: 'awaiting_decision', attempt: 1, channelId, expected: 'failed' },
+    { state: 'completed', attempt: undefined, channelId: undefined, expected: 'failed' },
+    { state: undefined, attempt: undefined, channelId: undefined, expected: 'failed' },
+  ])('requires current scoped completion despite exit zero: %j', async ({ state, attempt, channelId: emittedChannel, expected }) => {
+    const db = openDb(':memory:');
+    try {
+      const events: AgentEvent[] = state ? [{ kind: 'feedback-outcome', text: JSON.stringify({ state, headSha: 'a'.repeat(40), summary: 'Verified.', attempt, channelId: emittedChannel }) }] : [];
+      const runnerDeps = { ...deps(db, jsonAdapter('feedback:example.agent/writer'), singleAttemptHost(events, true, 42), freshRunsDir()),
+        createWorktreeFromBranch: vi.fn(async () => ({ path: '/tmp/wt', branch: 'fix/feedback' })), preserveWorktreeOnFailure: true };
+      await startRun(feedbackTask, runnerDeps);
+      expect(db.getRun('run-1')?.status).toBe(expected);
+      expect(runnerDeps.removeWorktree).toHaveBeenCalledTimes(expected === 'succeeded' ? 1 : 0);
+    } finally { db.close(); }
+  });
 });
