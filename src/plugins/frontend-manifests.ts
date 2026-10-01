@@ -64,7 +64,7 @@ export const recentManifest: PluginManifest = {
 export const underwayManifest: PluginManifest = {
   manifestVersion: 2, id: 'helmsman.underway', version: '0.1.0', sdkVersion: 1, pages: [],
   panels: [{ id: 'panel', title: 'Underway', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/task-read', version: 1 }, { id: 'helmsman/run-command', version: 1 }] }],
+    requires: [{ id: 'helmsman/task-read', version: 1 }, { id: 'helmsman/run-command', version: 1 }, { id: 'helmsman/pull-request-read', version: 1 }, { id: 'helmsman/communication', version: 1 }, { id: 'helmsman/communication-command', version: 1 }] }],
 };
 export const newRunManifest: PluginManifest = {
   manifestVersion: 2, id: 'helmsman.newrun', version: '0.1.0', sdkVersion: 1, pages: [],
