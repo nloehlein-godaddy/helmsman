@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { builtinFrontendManifests } from '../../src/plugins/frontend-manifests';
 
 for (const width of [1440, 390]) for (const pirateMode of [false, true]) {
   test(`feedback outcomes remain distinct and readable at ${width}px (pirate=${pirateMode})`, async ({ page }, testInfo) => {
@@ -16,7 +17,7 @@ for (const width of [1440, 390]) for (const pirateMode of [false, true]) {
       if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
       if (!url.pathname.startsWith('/api/')) return route.continue();
       let body: unknown = {};
-      if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: enabled.map(id => ({ id, version: '0.1.0', hash: 'a'.repeat(64), enabled: true })) };
+      if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinFrontendManifests.filter(manifest => enabled.includes(manifest.id)).map(({ id, version }) => ({ id, version, hash: 'a'.repeat(64), enabled: true })) };
       if (url.pathname === '/api/context') body = { repos: ['org/a'], jiraEnabled: false, jiraBaseUrl: null };
       if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } };
       if (url.pathname === '/api/config') body = { config: {}, overridden: [] };
