@@ -77,6 +77,14 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <p class="section-intro">Slack now defaults to GoCaaS/OI Companion MCP without a browser bridge. Firefox remains optional for general browser support and the explicit legacy Slack provider. Firefox does not change the terminal host or automatically replace the browser default; terminal operations are explicitly unsupported. See the <a href="../src/plugins/native-firefox/README.md">Firefox README</a> for setup and verification.</p>
 </section>
+<section aria-labelledby="question-attention-heading">
+<h2 class="section-heading" id="question-attention-heading">Agent Questions attention</h2>
+<div class="intake-sources">
+<article class="flow-step"><h3>Observe</h3><p>Read pending unanswered questions in the header galleon scope. Answered, cancelled and timed-out questions do not alert.</p></article>
+<article class="flow-step"><h3>Draw attention</h3><p>While another tab is active, pulse Agent Questions. Reduced-motion mode uses a steady highlight. Chime for new pending questions after browser audio is unlocked by a user interaction.</p></article>
+<article class="flow-step"><h3>Settle</h3><p>Opening Agent Questions suppresses the alert. Polling does not repeat sound for the same questions. Scope changes, answers and disposal cancel stale alerts.</p></article>
+</div>
+</section>
 <section aria-labelledby="notification-clear-heading">
 <h2 class="section-heading" id="notification-clear-heading">Clear notification history</h2>
 <div class="intake-sources">

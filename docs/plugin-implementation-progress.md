@@ -3,6 +3,16 @@
 All phases A–G in [the architecture plan](plugin-architecture-plan.md) are complete, with the shipped v1 scope and limitations documented below. Implementation, independent review, corrections and acceptance are complete through `553dff4`. Earlier entries preserve the evidence and status at each checkpoint.
 
 
+## Agent Questions attention — 2026-10-01
+
+Both versions highlight Agent Questions while pending, unanswered, unexpired questions exist in the header galleon scope and another application tab is active. New question identities trigger a short chime after browser interaction unlocks audio. Visiting Questions suppresses both signals; leaving restores the highlight without replaying heard questions. Reduced motion uses a steady highlight. Scope changes and disposal cancel stale observations and sound.
+
+The rewrite adds an optional public page `attention(context)` hook in SDK 1.4.0. Only the selected Questions contribution supplies observations, using its declared public read authority. The shipped Questions package advances to 0.2.0; application version remains 0.4.0. Replacement pages can implement the hook without private routes or imports. Missing hooks and failed reads do not fall back to the built-in page.
+
+Independent review corrected gesture-triggered polling restarts and premature audio deduplication. Polling continues during delayed audio resume, and stale playback checks the current scope, page and observation. Correction-only review confirms those findings are closed. README, author/compatibility guidance and both process-flow formats describe the behavior.
+
+Validation passed 88 rewrite and 79 pre-rewrite focused tests, TypeScript and production builds, and desktop/mobile browser scenarios for audio unlock, new questions, navigation, scope and reduced motion. The rewrite includes replacement-page alias/canonical-route and disablement coverage. Desktop/mobile UI and offline flowcharts were visually inspected. The final rewrite distribution build passed its frozen SDK compatibility gate and all eleven distribution checks passed, including independent SDK compilation and documentation link closure.
+
 ## Non-Slack parity integration — 2026-10-01
 
 The active rewrite branch integrates the completed feedback-completion, launcher diagnostics, presentation, live-instruction, product-feedback and parallel-execution branches. The new Underway Slack request action and OAuth link adjustment remain excluded. Existing Slack dispatch only adapts to the shared asynchronous admission contract; no new Slack workflow is enabled.

@@ -36,6 +36,26 @@ flowchart TD
 
 Slack uses the GoCaaS/OI Companion MCP provider by default; it requires no Firefox bridge. Firefox remains optional for general browser integrations and explicitly selected legacy Slack. Firefox selection does not change the terminal host or automatically replace the existing browser default. Terminal operations remain explicitly unsupported by Firefox. Operator setup and platform verification are recorded in its [README](../src/plugins/native-firefox/README.md).
 
+## Agent Questions attention
+
+```mermaid
+flowchart TD
+    Scope[Selected header galleon] --> Read[Observe pending unanswered questions]
+    Read --> Active{Agent Questions is active?}
+    Active -->|Yes| Quiet[Stop highlight and suppress sound]
+    Active -->|No pending questions| Quiet
+    Active -->|No, questions pending| Highlight[Pulse the Agent Questions tab<br/>Steady highlight for reduced motion]
+    Highlight --> New{New pending question identities?}
+    New -->|No| Wait[Keep visual attention without repeating sound]
+    New -->|Yes| Ready[Wait for browser audio unlock]
+    Ready --> Recheck[Recheck current scope, pending state and active tab]
+    Recheck -->|Changed| Quiet
+    Recheck -->|Still pending and off tab| Sound[Play short chime]
+    Sound --> Wait
+```
+
+The alert follows the header galleon, including All. Answered, cancelled and timed-out questions do not alert. Opening Agent Questions suppresses the chime and highlight; leaving with unanswered questions restores the visual highlight without repeated sounds for the same questions. Browser audio requires a user interaction, and an unavailable sound device never prevents navigation or answering.
+
 ## Clear notification history
 
 ```mermaid
