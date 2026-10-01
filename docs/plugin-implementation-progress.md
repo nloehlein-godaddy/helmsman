@@ -3,6 +3,16 @@
 All phases A–G in [the architecture plan](plugin-architecture-plan.md) are complete, with the shipped v1 scope and limitations documented below. Implementation, independent review, corrections and acceptance are complete through `553dff4`. Earlier entries preserve the evidence and status at each checkpoint.
 
 
+## Run visibility and initial galleon scope — 2026-10-01
+
+The shared viewer now occupies a persistent collapsible drawer below scrolling page content, including Config. Saved tabs remain reachable without a selected run. Explicit run selection opens it, including selecting the same run after collapse; ordinary refresh respects collapse. Collapse and browser visibility suspend log activity. Recent/running links preserve header scope and use `runRepo` for the selected run. Independent review found and corrected same-run reopening and Config selection/visibility propagation.
+
+Voyage History identifies reviewed PR numbers and galleons, links through the selected PR page without changing header scope, and displays retained titles when present. SDK 1.5 adds optional summary `title`; future reviews retain the PR title already fetched during preparation. History does not enrich old rows through remote reads, so missing historical titles remain unavailable. The history package is 0.2.0; viewer, running and recent packages receive patch releases for their fixes. App version remains 0.4.0.
+
+Startup honors explicit URL scope, then a valid saved selection, and otherwise requires a galleon choice before page loading. Explicit All remains available and is remembered separately from no saved choice. No existing user settings or history were rewritten.
+
+Validation includes 89 history/backend contract tests, 43 running/recent tests, 89 viewer/shell integration tests, the focused startup tests and desktop/mobile chooser flows. Initial shell checks exposed seven fixtures that depended on implicit All; the fixtures now choose scope explicitly, and the final shell run passes all 117 tests across 17 files. TypeScript, the production/distribution build, frozen SDK compatibility and all eleven distribution checks pass. Live desktop/mobile browsing verified retained history PR identities, drawer reopening and logs without horizontal overflow or page errors; a browser-only title fixture verified subject rendering. README, author guidance and both flowchart formats describe these changes. The post-rewrite server was restarted after confirming zero active runs.
+
 ## Agent Questions attention — 2026-10-01
 
 Both versions highlight Agent Questions while pending, unanswered, unexpired questions exist in the header galleon scope and another application tab is active. New question identities trigger a short chime after browser interaction unlocks audio. Visiting Questions suppresses both signals; leaving restores the highlight without replaying heard questions. Reduced motion uses a steady highlight. Scope changes and disposal cancel stale observations and sound.

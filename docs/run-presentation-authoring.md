@@ -1,5 +1,9 @@
 # Run viewer and history authoring
 
+The shell keeps a collapsible log drawer below the page's scrolling content, including Config. The selected viewer's saved tabs remain reachable without a run URL. Selecting or following a run opens the drawer, including when reselecting the same run; periodic refresh respects a manual collapse. Collapsing the drawer or hiding the browser tab suspends viewer activity while retaining the session. The standalone viewer uses that same session without a second drawer.
+
+History shows the reviewed PR number and galleon, plus the optional retained `RunReadSummaryV1.title`. It links through the selected PR page using `prRepo` without changing header scope. Older rows without a retained title still identify the PR; listing history does not fetch remote titles. New reviews retain the title already observed during preparation.
+
 E4 introduces separate authored viewer and history packages. Standalone and auxiliary viewer surfaces share one retained session. `/runs` selects an independently buildable composition of history and the public PR panel; its selected run opens in that same auxiliary viewer. Public presentation locators and services are the package boundary; a copied package compiles against the distributed SDK using only type imports. Runtime imports stay inside the package.
 
 | Package | Page slot and composition | Panel contract | Panel services |

@@ -218,6 +218,11 @@ Runs composes the authored history panel and public PR panel; the shared viewer 
 ```mermaid
 flowchart TD
     Runs[Runs alias: selected composition] --> History[Authored history panel]
+    Startup[Startup] --> Choice{Explicit URL or valid saved galleon?}
+    Choice -->|Yes| Runs
+    Choice -->|No| Pick[Require a galleon selection before loading pages]
+    Pick --> Runs
+    History --> Subject[Reviewed PR number, galleon and retained title]
     Runs --> CanonicalPR
     History --> Selection
     Selection[Active plugin page or panel selects typed run identity] --> Scope[Capture effective galleon scope<br/>Header stays unchanged]
@@ -229,6 +234,8 @@ flowchart TD
     Exact -->|Available| Auxiliary
     Slot -->|Available| Auxiliary[Reuse shared standalone and auxiliary composition session]
     Auxiliary --> Viewer[Authored viewer owns tabs, log window,<br/>command journals and download controls]
+    Auxiliary --> Drawer[Persistent bottom log drawer<br/>Explicit run selection opens it]
+    Drawer -->|Collapsed| Hidden
     Auxiliary --> Move[Rehome same DOM session<br/>Restore focus and text selection]
     Move --> Transfer[Synchronous transfer retains active reads and requests]
     Auxiliary --> Hidden[Hidden or detached<br/>Abort scoped work; retain session]
