@@ -35,6 +35,11 @@ for (const width of [1440, 390]) test(`feedback configuration, retained drafts a
   await page.getByRole('button', { name: 'Submit feedback' }).click(); await expect(page.getByRole('button', { name: 'Check original submission' })).toBeVisible(); expect(sends).toBe(1);
   enabled = false; await page.reload(); await expect(page.getByText('Original body', { exact: true })).toHaveCount(0); await expect(page.getByText('My original steps', { exact: true })).toBeVisible(); await expect(page.getByRole('button', { name: 'Submit feedback' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Check original submission' }).click(); await expect(page.getByRole('link', { name: 'Open submitted feedback' })).toBeVisible(); expect(sends).toBe(1); expect(retries).toBe(1); await expect(page.locator('img[src=x]')).toHaveCount(0);
+  if (width <= 640) {
+    const metadata = await page.locator('.footer-meta').boundingBox(); const controls = await page.locator('.footer-controls').boundingBox();
+    expect(metadata).not.toBeNull(); expect(controls).not.toBeNull(); expect(controls!.y).toBeGreaterThanOrEqual(metadata!.y + metadata!.height);
+    expect(metadata!.width).toBeGreaterThan(width * 0.75);
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); expect(errors).toEqual([]);
   await testInfo.attach('feedback-receipt', { body: await page.screenshot({ path: testInfo.outputPath('feedback-receipt.png'), fullPage: true }), contentType: 'image/png' });
 });
