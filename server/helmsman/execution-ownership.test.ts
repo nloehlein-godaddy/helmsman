@@ -137,3 +137,11 @@ it('retires branch and task claims only after fenced detachment while preserving
   const replacedWorkspace = footprint('replacement'); replacedWorkspace.resources = replacedWorkspace.resources.map(resource => resource.kind === 'workspace' ? { ...resource, identity: '/tmp/repo/.worktrees/one' } : resource);
   expect(() => ownership!.acquire(replacedWorkspace)).toThrow('owned by one');
 });
+
+it('protects terminal legacy checkpoints discovered after migration even without active capacity', () => {
+  const { persistence, execution, policy } = setup();
+  policy.set({ caller: 'config', requestId: 'enable', repo: 'org/repo', expectedRevision: 0, maxConcurrentRuns: 2 });
+  persistence.sql.exec("CREATE TABLE legacy_execution_obligations(runId TEXT PRIMARY KEY,repo TEXT,status TEXT,state TEXT,protected INTEGER); INSERT INTO legacy_execution_obligations VALUES('legacy-checkpoint','org/repo','failed','blocked',1)");
+  expect(execution.reservations()).toEqual([]);
+  expect(() => execution.reserveAdmission({ runId: 'one', repo: 'org/repo', maxConcurrency: 3, evidence: {}, footprint: footprint('one') })).toThrow('exclusive');
+});

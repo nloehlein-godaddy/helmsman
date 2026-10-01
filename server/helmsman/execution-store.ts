@@ -327,7 +327,8 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
     const current = ownership.get(runId);
     const footprint = input ? parseExecutionFootprint(input) : current?.footprint ?? exclusiveExecutionFootprint(runId, repo);
     if (footprint.runId !== runId || footprint.repo !== repo.toLowerCase()) throw new PersistenceConflictError('Execution footprint identity differs from admission');
-    for (const reservation of store.reservations()) {
+    const obligations = [...store.reservations(), ...legacyObligations()];
+    for (const reservation of obligations) {
       if (reservation.runId !== runId && !ownership.get(reservation.runId)
         && executionFootprintsConflict(footprint, exclusiveExecutionFootprint(reservation.runId, reservation.repo))) {
         throw new PersistenceConflictError('Legacy execution reserves exclusive galleon ownership');
