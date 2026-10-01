@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { buildMeta } from './build-meta';
+import { themeBootstrapPlugin } from './build-theme';
 import { DEFAULT_SERVER_PORT, DEFAULT_UI_PORT } from './server/helmsman/ports';
 
 export default defineConfig(({ mode }) => {
@@ -9,6 +10,7 @@ export default defineConfig(({ mode }) => {
   const uiPort = Number(env.HELMSMAN_UI_PORT ?? DEFAULT_UI_PORT);
   const meta = buildMeta();
   return {
+    plugins: [themeBootstrapPlugin()],
     resolve: {
       alias: {
         '@helmsman/plugin-sdk/node': fileURLToPath(new URL('./src/plugins/execution-host-node.ts', import.meta.url)),

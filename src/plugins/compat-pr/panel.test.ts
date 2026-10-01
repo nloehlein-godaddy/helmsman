@@ -184,3 +184,13 @@ it('leaves external links independent from PR selection', async () => {
   const click = new MouseEvent('click', { bubbles: true, cancelable: true }); link.dispatchEvent(click);
   expect(click.defaultPrevented).toBe(false); expect(f.context.navigate).not.toHaveBeenCalled(); expect(f.context.setScope).not.toHaveBeenCalled();
 });
+
+it.each([{ isComposing: true }, { repeat: true }])('ignores Enter during composition or repeat: %j', async init => {
+  const f = await fixture(); await ready(f); fill(f.container, '[data-pr-compat-lookup]', 'org/c#9');
+  const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init });
+  f.container.querySelector('[data-pr-compat-lookup]')!.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(false); expect(f.context.navigate).not.toHaveBeenCalled();
+  f.container.querySelector('[data-pr-compat-lookup]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await vi.waitFor(() => expect(f.context.navigate).toHaveBeenCalled());
+  expect(f.context.navigate).toHaveBeenCalledTimes(1);
+});
