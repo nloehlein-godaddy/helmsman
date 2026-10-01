@@ -1,3 +1,5 @@
+import { PageAttentionHost } from './plugins/page-attention-host';
+import { CLARIFICATIONS_PAGE_SLOT } from './plugins/page-slots';
 import { AuxiliaryPageHost } from './plugins/auxiliary-page-host';
 import { scopedPresentationLocatorV1, type PresentationLocatorV1 } from './plugins/presentation';
 import { applyBootTerminology } from './logic/bootTerminology';
@@ -31,6 +33,8 @@ export class DashboardView {
   private readonly profileContribution: AuxiliaryPageHost;
   private readonly headerContribution: AuxiliaryPageHost;
   private readonly auxiliary: AuxiliaryPageHost;
+  private readonly questionsAttention: PageAttentionHost;
+  private questionsNeedAttention = false;
   private presentationSelection: { locator: Exclude<PresentationLocatorV1, { kind: 'pull-request' }>; scopeRepo: string | null } | null = null;
   private destroyed = false;
   private contentView: PageView | null = null;
@@ -72,6 +76,7 @@ export class DashboardView {
 
   constructor(root: HTMLElement) {
     this.root = root;
+    this.questionsAttention = new PageAttentionHost(attention => { this.questionsNeedAttention = attention; this.paintQuestionsAttention(); });
     applyTheme(this.themeId);
     this.root.addEventListener('click', (event: MouseEvent): void => this.handleClick(event), { signal: this.rootEvents.signal });
     this.root.addEventListener('keydown', (event: KeyboardEvent): void => {
@@ -152,7 +157,9 @@ export class DashboardView {
       } else this.syncShell();
     });
     this.unsubscribePageModules ??= appPageModules.subscribe(() => {
-      if (!this.destroyed && this.isPluginPage()) this.paintPluginPage();
+      if (this.destroyed) return;
+      this.syncQuestionsAttention();
+      if (this.isPluginPage()) this.paintPluginPage();
     });
     window.addEventListener('popstate', this.onPopState);
     window.addEventListener('resize', this.onResize);
@@ -236,6 +243,7 @@ export class DashboardView {
     this.profileContribution.dispose();
     this.feedbackContribution.dispose();
     this.compositions.dispose();
+    this.questionsAttention.dispose();
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     if (this.refreshTimer !== null) clearInterval(this.refreshTimer);
@@ -273,6 +281,7 @@ export class DashboardView {
     saveRepoScope(scope);
     this.view = route.view;
     this.updateAddress(route, history);
+    this.syncQuestionsAttention();
     if (route.pane) this.collapsed.delete(`${route.view}:${route.pane === 'tabs' ? 'list' : route.pane === 'screen' ? 'detail' : route.pane}`);
     if (!route.run) this.presentationSelection = null;
     this.paint();
@@ -516,6 +525,23 @@ export class DashboardView {
     this.syncShell();
   }
 
+  private syncQuestionsAttention(): void {
+    const selected = appPages.selected(CLARIFICATIONS_PAGE_SLOT);
+    const id = selected.page?.contributionId;
+    const module = id ? appPageModules.get(id) : null;
+    this.questionsAttention.update(id && module ? { id, module, repo: this.selectedRepo,
+      selected: this.route.pluginSlot === CLARIFICATIONS_PAGE_SLOT || this.route.pluginPage === id } : null);
+    this.paintQuestionsAttention();
+  }
+
+  private paintQuestionsAttention(): void {
+    const tab = this.root.querySelector<HTMLAnchorElement>('#page-tab-clarifications');
+    if (!tab) return;
+    tab.classList.toggle('needs-attention', this.questionsNeedAttention);
+    if (this.questionsNeedAttention) tab.setAttribute('aria-label', `${tab.textContent ?? term('clarifications')}: ${term('unansweredQuestions')}`);
+    else tab.removeAttribute('aria-label');
+  }
+
   private syncShell(): void {
     const shell = this.root.querySelector<HTMLElement>('.helm');
     if (!shell) return;
@@ -548,6 +574,7 @@ export class DashboardView {
       }
       if (!shell.querySelector('.page-tabs')?.contains(document.activeElement)) tab.tabIndex = next.tabIndex;
     }
+    this.syncQuestionsAttention();
     const menu = shell.querySelector<HTMLDetailsElement>('[data-pages-menu]');
     const items = menu?.querySelector('[data-pages-menu-items]');
     const nextItems = template.content.querySelector('[data-pages-menu-items]');

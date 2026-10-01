@@ -19,6 +19,7 @@
     "state.ts",
     "styles.ts",
     "page.ts",
+    "attention.ts",
     "saved-state.ts"
   ]
 }

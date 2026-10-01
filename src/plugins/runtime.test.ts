@@ -359,3 +359,12 @@ describe('external plugin catalog loading', () => {
     expect(modules.get('example.costs/page')).toBeNull();
   });
 });
+
+it('forwards lazy optional attention only while the selected module lifetime is active', async () => {
+  const { registry, modules } = setup(); const imported = deferred<unknown>();
+  const runtime = await loadPluginCatalog(registry, modules, { fetch: fetchCatalog(catalog()), importModule: () => imported.promise });
+  const controller = new AbortController(); const attention = vi.fn(() => ({ version: 1, keys: ['question'] }));
+  const pending = modules.get('example.costs/page')!.attention!({ contributionId: 'example.costs/page', repo: null, signal: controller.signal, services: {} as import('./sdk').PluginPageServices });
+  controller.abort(); imported.resolve({ default: { mount: vi.fn(lifecycle), attention } });
+  expect(await pending).toBeNull(); expect(attention).not.toHaveBeenCalled(); runtime.dispose();
+});

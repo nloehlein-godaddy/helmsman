@@ -4,7 +4,7 @@ The `/clarifications` alias selects the authored question composition through `h
 
 | Package/contribution | Public boundary | Required services |
 | --- | --- | --- |
-| `helmsman.clarifications/page` | Composition `helmsman/clarifications-page@1`, alias `/clarifications` and canonical route | composition |
+| `helmsman.clarifications/page` | Composition `helmsman/clarifications-page@1`, alias `/clarifications` and canonical route | composition, clarification-read |
 | `helmsman.clarifications/panel` | `helmsman/clarifications-panel@1` | clarification-read, clarification-command |
 | `helmsman.suggested-contacts/panel` | `helmsman/suggested-contacts-panel@1`, global settings | suggested-contact-admin |
 
@@ -62,3 +62,13 @@ Alias selection, installation and disablement do not change compatibility record
 Package unit and copied-SDK browser gates cover bounded reads, typed selection, independent services, revision-fenced commands, response loss, explicit receipt recovery, conditional saves, unsupported/quota failures and cancellation. Production source-denied installation tests additionally verify old-caller recovery, missing/disabled contacts, restart, multi-tab state conflicts, alias selection/disablement, retained empty or missing-panel layouts and preservation of oversized or unknown compatibility evidence. Current acceptance evidence belongs in the [implementation ledger](plugin-implementation-progress.md). See [public clarification contracts](clarification-authoring.md), [backend admission](clarification-backend.md) and [panel lifecycle](panel-authoring.md).
 
 _Helmsman · not reported - not reported_
+
+## Question-tab attention
+
+The page's optional `attention(context)` hook reads `services.clarifications.list` for pending, unanswered questions in the header galleon scope. Expired deadlines are excluded even if the backend state has not yet caught up. Unresolved read-only questions still signal operator attention. Reads follow newest-first pagination, bounded to ten pages of 100 questions; the alert does not present an exact count.
+
+`PluginPageAttentionContext` provides the selected contribution ID, header `repo`, cancellation `signal`, and existing public page `services`. Return `{ version: 1, keys }` with at most 1,000 unique, nonempty strings of at most 512 characters, or `null` when attention cannot be observed. Use stable item identities, not changing revisions. The shipped page keys questions by galleon, run and question ID. Hooks are read-only observations, must honor cancellation, and must declare their public read capabilities in the page manifest.
+
+Core polls only the selected questions-slot contribution every five seconds, independently of mounting its page. Custom selected pages can implement the same optional hook; an absent hook, unavailable contribution or failed observation does not fall back to the built-in page. Visiting either its alias or selected canonical page suppresses the alert. Scope, module replacement, disablement and disposal abort stale reads and sound. Attention keys are bounded, validated, and kept only for the current browser session, with a 10,000-identity heard/visited cache.
+
+While another application tab is active, pending questions highlight the Agent Questions tab. Normal motion adds a gentle pulse; reduced motion keeps a static highlight. A short chime sounds once per newly observed pending batch after browser interaction enables audio. Returning to another tab with the same unanswered questions restores the highlight without repeating the chime. Initially pending questions are revalidated before deferred playback; resolving them, visiting Questions or replacing the scope cancels stale deferred sound. Read errors clear the current alert and defer playback until a fresh valid observation. Browser visibility does not itself suppress an already unlocked chime, although background timer/audio throttling remains browser-controlled.

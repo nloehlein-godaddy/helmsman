@@ -1,7 +1,8 @@
 import type { CompositionLayoutV1, ManagedPanelInstanceV1, PluginPageModule } from '@helmsman/plugin-sdk';
 import { styles } from './styles.js';
+import { attention } from './attention.js';
 
-const page: PluginPageModule = { mount(container, context) {
+const page: PluginPageModule = { attention, mount(container, context) {
   const composition = context.composition;
   if (composition?.version !== 1 || composition.compositionId !== 'helmsman/clarifications-page') throw new Error('Agent questions requires its composition service');
   let state = context.state;

@@ -3,7 +3,7 @@
   "manifest": {
     "manifestVersion": 2,
     "id": "helmsman.clarifications",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "sdkVersion": 1,
     "pages": [
       {
@@ -58,6 +58,10 @@
         "requires": [
           {
             "id": "helmsman/composition",
+            "version": 1
+          },
+          {
+            "id": "helmsman/clarification-read",
             "version": 1
           }
         ]

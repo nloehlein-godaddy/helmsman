@@ -117,3 +117,11 @@ describe('plugin page modules', () => {
     expect(() => new PluginPageModules().subscribe(null as unknown as () => void)).toThrow(PluginManifestError);
   });
 });
+
+it('preserves optional attention with its receiver and accepts an explicitly undefined hook', async () => {
+  const registry = new PluginPageModules(); const snapshot = { version: 1 as const, keys: ['question'] };
+  const input = { mount: vi.fn(), snapshot, attention() { return this.snapshot; } };
+  registry.register('example.questions/page', input); input.attention = () => ({ version: 1, keys: [] });
+  expect(await registry.get('example.questions/page')?.attention?.({} as import('./sdk').PluginPageAttentionContext)).toBe(snapshot);
+  registry.register('example.old/page', { mount: vi.fn(), attention: undefined }); expect(registry.get('example.old/page')?.attention).toBeUndefined();
+});

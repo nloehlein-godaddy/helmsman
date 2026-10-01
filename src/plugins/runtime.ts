@@ -113,17 +113,26 @@ const retiredInstance = (): PluginPageInstance => ({ update() {}, dispose() {} }
 
 function lazyModule(href: string, importModule: (href: string) => Promise<unknown>, active: () => boolean): PluginPageModule {
   let pending: Promise<PluginPageModule> | null = null;
+  const load = () => {
+    pending ??= importModule(href).then(value => {
+      const module = value && typeof value === 'object' ? (value as { default?: unknown }).default : null;
+      if (!module || typeof module !== 'object' || typeof (module as Partial<PluginPageModule>).mount !== 'function') {
+        throw new TypeError('Plugin page entry must default-export a page module.');
+      }
+      return module as PluginPageModule;
+    });
+    return pending;
+  };
   return {
+    async attention(context) {
+      if (!active() || context.signal.aborted) return null;
+      const module = await load();
+      if (!active() || context.signal.aborted) return null;
+      return typeof module.attention === 'function' ? module.attention(context) : null;
+    },
     async mount(container, context) {
       if (!active() || context.signal.aborted) return retiredInstance();
-      pending ??= importModule(href).then(value => {
-        const module = value && typeof value === 'object' ? (value as { default?: unknown }).default : null;
-        if (!module || typeof module !== 'object' || typeof (module as Partial<PluginPageModule>).mount !== 'function') {
-          throw new TypeError('Plugin page entry must default-export a page module.');
-        }
-        return module as PluginPageModule;
-      });
-      const module = await pending;
+      const module = await load();
       if (!active() || context.signal.aborted) return retiredInstance();
       return module.mount(container, context);
     },

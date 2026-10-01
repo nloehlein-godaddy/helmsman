@@ -118,7 +118,20 @@ export interface PluginPageInstance {
   dispose(): void | Promise<void>;
 }
 
+export interface PluginPageAttentionContext {
+  readonly contributionId: string;
+  readonly repo: string | null;
+  readonly signal: AbortSignal;
+  readonly services: PluginPageServices;
+}
+
+export interface PluginPageAttentionV1 {
+  readonly version: 1;
+  readonly keys: readonly string[];
+}
+
 export interface PluginPageModule {
+  attention?(context: PluginPageAttentionContext): PluginPageAttentionV1 | null | Promise<PluginPageAttentionV1 | null>;
   mount(container: HTMLElement, context: PluginPageContext): PluginPageInstance | Promise<PluginPageInstance>;
 }
 

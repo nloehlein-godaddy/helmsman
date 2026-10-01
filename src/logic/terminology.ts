@@ -1,4 +1,5 @@
 export const TERMINOLOGY = {
+  unansweredQuestions: { plain: 'unanswered questions', pirate: 'unanswered questions' },
   feedbackCompleted: { plain: 'Feedback completed', pirate: 'Feedback completed' },
   feedbackRemaining: { plain: 'Feedback remaining', pirate: 'Feedback remaining' },
   awaitingDecision: { plain: 'Awaiting decision', pirate: 'Awaiting decision' },
