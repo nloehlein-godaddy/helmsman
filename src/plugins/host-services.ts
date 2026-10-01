@@ -1,5 +1,7 @@
 import { createHostRunInstructionService } from './run-instruction-service';
 import { createHostExecutionPolicyService } from './execution-policy-service';
+import { createHostFeedbackSettingsService } from './feedback-settings-service';
+import { createHostFeedbackCommandService } from './feedback-command-service';
 import { createHostTaskActionService } from './task-action-service';
 import { createHostProfileService } from './profile-service';
 import { createHostGithubSettingsService } from './github-settings-service';
@@ -129,6 +131,8 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
         localGit: createHostLocalGitService(lifetime, { scope, caller }),
         communication: createHostCommunicationService(lifetime, { scope, caller }),
         communicationCommands: createHostCommunicationCommandService(lifetime, { scope, caller }),
+        feedbackCommands: createHostFeedbackCommandService(lifetime, { scope, caller }),
+        feedbackSettings: createHostFeedbackSettingsService(lifetime, { scope, caller }),
         suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope, caller }),
         sourceAdmin: createHostSourceAdminService(lifetime, { scope, caller }),
         taskActions: createHostTaskActionService(lifetime, { scope, caller }),

@@ -60,11 +60,16 @@ export const PROFILE_HEADER_SLOT = 'helmsman/profile-header';
 
 export const NOTIFICATION_HEADER_SLOT = 'helmsman/notification-header';
 
+export const PRODUCT_FEEDBACK_FOOTER_SLOT = 'helmsman/product-feedback-footer';
+
 interface BuiltinPageSlot extends PageSlot {
   readonly panelContract?: string;
 }
 
 export const builtinPageSlots: readonly BuiltinPageSlot[] = Object.freeze([
+  Object.freeze({ id: PRODUCT_FEEDBACK_FOOTER_SLOT, alias: '/feedback-entry', defaultContributionId: 'helmsman.product-feedback/footer' }),
+  Object.freeze({ id: 'helmsman/product-feedback-page', alias: '/product-feedback', defaultContributionId: 'helmsman.product-feedback/page' }),
+  Object.freeze({ id: 'helmsman/feedback-settings-page', alias: '/feedback-settings', defaultContributionId: 'helmsman.product-feedback/settings' }),
   Object.freeze({ id: PROFILE_HEADER_SLOT, alias: '/profile', defaultContributionId: 'helmsman.profile/header' }),
   Object.freeze({ id: 'helmsman/execution-settings-page', alias: '/execution-settings', defaultContributionId: 'helmsman.execution-settings/page', panelContract: 'helmsman/execution-settings-panel' }),
   Object.freeze({ id: GITHUB_SETTINGS_PAGE_SLOT, alias: '/github-settings', defaultContributionId: GITHUB_SETTINGS_PAGE_ID, panelContract: 'helmsman/github-settings-panel' }),

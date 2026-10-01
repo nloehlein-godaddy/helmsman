@@ -6,7 +6,7 @@ import { getContext } from './data/context';
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
-import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, NOTIFICATION_HEADER_SLOT, PROFILE_HEADER_SLOT, PR_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUNS_PAGE_SLOT } from './plugins/builtins';
+import { appPages, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, PRODUCT_FEEDBACK_FOOTER_SLOT, NOTIFICATION_HEADER_SLOT, PROFILE_HEADER_SLOT, PR_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUNS_PAGE_SLOT } from './plugins/builtins';
 import { appPageModules, disableBuiltinPageModules, syncBuiltinFrontend } from './plugins/builtin-modules';
 import { AppCompositionFactory } from './plugins/app-composition';
 import { loadPluginCatalog } from './plugins/runtime';
@@ -27,6 +27,7 @@ import {
 export class DashboardView {
   private readonly root: HTMLElement;
   private readonly rootEvents = new window.AbortController();
+  private readonly feedbackContribution: AuxiliaryPageHost;
   private readonly profileContribution: AuxiliaryPageHost;
   private readonly headerContribution: AuxiliaryPageHost;
   private readonly auxiliary: AuxiliaryPageHost;
@@ -109,6 +110,11 @@ export class DashboardView {
       }
     }, { capture: true, signal: this.rootEvents.signal });
 
+    this.feedbackContribution = new AuxiliaryPageHost(this.pluginPresentationState(), {
+      slotId: PRODUCT_FEEDBACK_FOOTER_SLOT, registry: appPages, modules: appPageModules,
+      navigate: href => this.navigatePluginHref(href),
+      loadingMessage: () => '', errorMessage: () => '', unavailableMessage: () => '',
+    });
     this.profileContribution = new AuxiliaryPageHost({ ...this.pluginPresentationState(), repo: null }, {
       slotId: PROFILE_HEADER_SLOT, registry: appPages, modules: appPageModules,
       navigate: href => this.navigatePluginHref(href),
@@ -225,6 +231,7 @@ export class DashboardView {
     this.auxiliary.dispose();
     this.headerContribution.dispose();
     this.profileContribution.dispose();
+    this.feedbackContribution.dispose();
     this.compositions.dispose();
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -327,7 +334,7 @@ export class DashboardView {
       this.uiConfig.config.JIRA_ENABLED = String(this.jiraEnabled);
     }
     this.syncShell();
-    if (force) { void this.profileContribution.refresh(); await this.headerContribution.refresh(); }
+    if (force) { void this.feedbackContribution.refresh(); void this.profileContribution.refresh(); await this.headerContribution.refresh(); }
     if (this.view === 'config' && force) {
       this.paintConfig();
     } else if (this.isPluginPage() && localDue) {
@@ -587,6 +594,8 @@ export class DashboardView {
   }
 
   private paintHeaderContribution(): void {
+    this.feedbackContribution.update({ ...this.pluginPresentationState(), presentation: null });
+    this.feedbackContribution.rehome(this.root.querySelector<HTMLElement>('[data-feedback-footer]'));
     this.profileContribution.update({ ...this.pluginPresentationState(), repo: null, presentation: null });
     this.profileContribution.rehome(this.root.querySelector<HTMLElement>('[data-profile-header]'));
     this.headerContribution.update({ ...this.pluginPresentationState(), presentation: null });

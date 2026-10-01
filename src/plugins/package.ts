@@ -1,3 +1,4 @@
+import type { FeedbackTrackerDeclarationV1 } from './feedback-tracker';
 import { parseTaskSourceRemoteActionsV1 } from './task-action-declaration';
 import type { TriggerDeclarationV1 } from './trigger';
 import type { WorkflowDeclarationV1 } from './workflow';
@@ -72,6 +73,7 @@ function record(value: unknown, fields: readonly string[], label: string): Recor
 
 function parseBackend(value: unknown): PluginBackendDefinition {
   const hasSources = value !== null && typeof value === 'object' && Object.hasOwn(value, 'taskSources');
+  const hasFeedbackTrackers = value !== null && typeof value === 'object' && Object.hasOwn(value, 'feedbackTrackers');
   const hasPullRequests = value !== null && typeof value === 'object' && Object.hasOwn(value, 'pullRequests');
   const hasTriggers = value !== null && typeof value === 'object' && Object.hasOwn(value, 'triggers');
   const hasWorkflows = value !== null && typeof value === 'object' && Object.hasOwn(value, 'workflows');
@@ -80,17 +82,19 @@ function parseBackend(value: unknown): PluginBackendDefinition {
   const hasAgents = value !== null && typeof value === 'object' && Object.hasOwn(value, 'agents');
   const hasScheduling = value !== null && typeof value === 'object' && Object.hasOwn(value, 'scheduling');
   const hasCommunications = value !== null && typeof value === 'object' && Object.hasOwn(value, 'communications');
-  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : []), ...(hasCommunications ? ['communications'] : []), ...(hasScheduling ? ['scheduling'] : []), ...(hasAgents ? ['agents'] : []), ...(hasExecutionHosts ? ['executionHosts'] : []), ...(hasNativeTerminals ? ['nativeTerminals'] : []), ...(hasWorkflows ? ['workflows'] : []), ...(hasTriggers ? ['triggers'] : [])], 'Backend');
+  const input = record(value, ['entry', 'provides', 'settings', 'storageVersion', ...(hasFeedbackTrackers ? ['feedbackTrackers'] : []), ...(hasSources ? ['taskSources'] : []), ...(hasPullRequests ? ['pullRequests'] : []), ...(hasCommunications ? ['communications'] : []), ...(hasScheduling ? ['scheduling'] : []), ...(hasAgents ? ['agents'] : []), ...(hasExecutionHosts ? ['executionHosts'] : []), ...(hasNativeTerminals ? ['nativeTerminals'] : []), ...(hasWorkflows ? ['workflows'] : []), ...(hasTriggers ? ['triggers'] : [])], 'Backend');
   if (!isPluginAssetPath(input.entry) || !/\.m?js$/.test(input.entry) || input.storageVersion !== 1) throw new PluginPackageError('Invalid backend entry or storage version.');
   if (!Array.isArray(input.provides) || input.provides.length > 16) throw new PluginPackageError('Invalid backend capabilities.');
   const provides = input.provides.map(value => {
     const item = record(value, ['id', 'version', 'localId'], 'Capability');
-    if (!['helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request', 'helmsman/communication', 'helmsman/scheduling', 'helmsman/agent', 'helmsman/execution-host', 'helmsman/native-terminal', 'helmsman/workflow', 'helmsman/trigger'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
-    return Object.freeze({ id: item.id as 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent' | 'helmsman/execution-host' | 'helmsman/native-terminal' | 'helmsman/workflow' | 'helmsman/trigger', version: 1 as const, localId: item.localId });
+    if (!['helmsman/feedback-tracker', 'helmsman/pricing', 'helmsman/task-source', 'helmsman/pull-request', 'helmsman/communication', 'helmsman/scheduling', 'helmsman/agent', 'helmsman/execution-host', 'helmsman/native-terminal', 'helmsman/workflow', 'helmsman/trigger'].includes(String(item.id)) || item.version !== 1 || !isLocalId(item.localId)) throw new PluginPackageError('Unsupported backend capability.');
+    return Object.freeze({ id: item.id as 'helmsman/feedback-tracker' | 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent' | 'helmsman/execution-host' | 'helmsman/native-terminal' | 'helmsman/workflow' | 'helmsman/trigger', version: 1 as const, localId: item.localId });
   });
   if (new Set(provides.map(item => item.localId)).size !== provides.length) throw new PluginPackageError('Duplicate backend capability.');
   const sourceIds = provides.filter(item => item.id === 'helmsman/task-source').map(item => item.localId);
   if (hasSources !== (sourceIds.length > 0)) throw new PluginPackageError('Task sources require matching access declarations.');
+  const feedbackTrackerIds = provides.filter(item => item.id === 'helmsman/feedback-tracker').map(item => item.localId);
+  if (hasFeedbackTrackers !== (feedbackTrackerIds.length > 0)) throw new PluginPackageError('Feedback trackers require matching access declarations.');
   const pullRequestIds = provides.filter(item => item.id === 'helmsman/pull-request').map(item => item.localId);
   if (hasPullRequests !== (pullRequestIds.length > 0)) throw new PluginPackageError('Pull request providers require matching access declarations.');
   const communicationIds = provides.filter(item => item.id === 'helmsman/communication').map(item => item.localId);
@@ -200,6 +204,18 @@ function parseBackend(value: unknown): PluginBackendDefinition {
       taskSources[localId] = Object.freeze({ ...(remoteActions ? { remoteActions } : {}), ...(settingsFields ? { settingsFields } : {}), ...(editorContracts ? { editorContracts } : {}), identityFormats, effectIds, commandIds, access, ...(readViews ? { readViews } : {}) });
     }
   }
+  const feedbackTrackers: Record<string, FeedbackTrackerDeclarationV1> = Object.create(null) as Record<string, FeedbackTrackerDeclarationV1>;
+  if (hasFeedbackTrackers) {
+    if (provides.some(value => value.id !== 'helmsman/feedback-tracker')) throw new PluginPackageError('Feedback trackers require a dedicated backend package.');
+    const declarations = record(input.feedbackTrackers, feedbackTrackerIds, 'Feedback tracker providers');
+    for (const localId of feedbackTrackerIds) {
+      const declaration = record(declarations[localId], ['access'], 'Feedback tracker declaration');
+      if (!Array.isArray(declaration.access) || declaration.access.length !== 1 || declaration.access[0] !== 'connection-http') {
+        throw new PluginPackageError('Feedback tracker providers require core HTTP access.');
+      }
+      feedbackTrackers[localId] = Object.freeze({ access: Object.freeze(['connection-http']) as unknown as readonly ['connection-http'] });
+    }
+  }
   const pullRequests: Record<string, PullRequestDeclaration> = Object.create(null) as Record<string, PullRequestDeclaration>;
   if (hasPullRequests) {
     const declarations = record(input.pullRequests, pullRequestIds, 'Pull request providers');
@@ -246,6 +262,7 @@ function parseBackend(value: unknown): PluginBackendDefinition {
     ...(hasAgents ? { agents: Object.freeze(agents) } : {}),
     ...(hasScheduling ? { scheduling: Object.freeze(scheduling) } : {}),
     ...(hasSources ? { taskSources: Object.freeze(taskSources) } : {}),
+    ...(hasFeedbackTrackers ? { feedbackTrackers: Object.freeze(feedbackTrackers) } : {}),
     ...(hasPullRequests ? { pullRequests: Object.freeze(pullRequests) } : {}),
     ...(hasCommunications ? { communications: Object.freeze(communications) } : {}) });
 }

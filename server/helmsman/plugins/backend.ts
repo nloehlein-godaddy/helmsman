@@ -1,3 +1,5 @@
+import type { FeedbackTrackerBackendContextV1, FeedbackTrackerProviderV1 } from '../../../src/plugins/feedback-tracker';
+import { createFeedbackTrackerProviderRegistry, type FeedbackTrackerProviderRegistry } from '../feedback-tracker-providers';
 import { createPluginCleanup } from './cleanup';
 import type { TriggerBackendContextV1, TriggerProviderV1 } from '../../../src/plugins/trigger';
 import { boundedTriggerProvider, createTriggerProviderRegistry } from '../trigger-providers';
@@ -41,6 +43,7 @@ export interface BuiltinBackendPlugin { package: PluginPackage; module: PluginBa
 export interface BackendRuntime {
   readonly errors: readonly string[];
   readonly taskSources: TaskSourceRegistry;
+  readonly feedbackTrackers: FeedbackTrackerProviderRegistry;
   readonly pullRequests: PullRequestProviderRegistry;
   readonly communications: CommunicationProviderRegistry;
   readonly scheduling: ReturnType<typeof createSchedulingProviderRegistry>;
@@ -109,6 +112,16 @@ export async function activateBackendPlugins(options: {
     if (options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) return true;
     const state = options.coordinator.state(binding.pluginId);
     return purpose === 'obligation' && state?.artifactHash === binding.artifactHash && state.obligationsOnly;
+  } });
+  const feedbackTrackerSettings = new Map<string, () => boolean>();
+  const feedbackTrackers = createFeedbackTrackerProviderRegistry({ eligible(binding, purpose) {
+    if (disposed || !activeIds.has(binding.pluginId) || purpose === 'admission' && draining.has(binding.pluginId)) return false;
+    if (options.coordinator && !options.coordinator.canActivate(binding.pluginId, binding.artifactHash)) {
+      const state = options.coordinator.state(binding.pluginId);
+      if (purpose !== 'obligation' || !state?.obligationsOnly || state.artifactHash !== binding.artifactHash) return false;
+    }
+    if (purpose === 'obligation') return true;
+    try { return feedbackTrackerSettings.get(binding.pluginId)?.() === true; } catch { return false; }
   } });
   const pullRequestSettings = new Map<string, () => boolean>();
   const pullRequests = createPullRequestProviderRegistry({ eligible(binding, purpose) {
@@ -201,12 +214,12 @@ export async function activateBackendPlugins(options: {
     const canServeOrdinary = () => !options.coordinator || options.coordinator.canActivate(id, artifactHash);
     const canServeObligations = () => {
       const state = options.coordinator?.state(id);
-      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows || pkg.backend?.triggers);
+      return state?.obligationsOnly === true && state.artifactHash === artifactHash && Boolean(pkg.backend?.feedbackTrackers || pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows || pkg.backend?.triggers);
     };
     if (options.coordinator) {
       const state = options.coordinator.state(id);
       if (!options.coordinator.canActivate(id, artifactHash)
-        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows || pkg.backend?.triggers))) return;
+        && !(state?.obligationsOnly && state.artifactHash === artifactHash && (pkg.backend?.feedbackTrackers || pkg.backend?.taskSources || pkg.backend?.pullRequests || pkg.backend?.communications || pkg.backend?.agents || pkg.backend?.executionHosts || pkg.backend?.nativeTerminals || pkg.backend?.workflows || pkg.backend?.triggers))) return;
     }
     let data: ReturnType<typeof openPluginData> | undefined;
     const abort = new AbortController();
@@ -214,6 +227,7 @@ export async function activateBackendPlugins(options: {
     const staged = new Map<string, PluginJson | undefined>();
     const pending = new Map<string, PricingProvider>();
     const pendingSources = new Map<string, TaskSourceProviderV1>();
+    const pendingFeedbackTrackers = new Map<string, FeedbackTrackerProviderV1>();
     const pendingPullRequests = new Map<string, PullRequestProviderV1>();
     const pendingCommunications = new Map<string, CommunicationProviderV1>();
     const pendingTriggers = new Map<string, TriggerProviderV1>();
@@ -223,6 +237,7 @@ export async function activateBackendPlugins(options: {
     const pendingAgents = new Map<string, AgentProviderV1>();
     const pendingScheduling = new Map<string, SchedulingProviderV1>();
     let publishedSources = false;
+    let publishedFeedbackTrackers = false;
     let publishedPullRequests = false;
     let publishedCommunications = false;
     let phase: 'activating' | 'active' | 'disposed' = 'activating';
@@ -240,6 +255,8 @@ export async function activateBackendPlugins(options: {
       if (phase === 'active') activeIds.delete(id);
       phase = 'disposed';
       if (publishedSources) taskSources.removePlugin(id);
+      if (publishedFeedbackTrackers) feedbackTrackers.removePlugin(id);
+      feedbackTrackerSettings.delete(id);
       if (publishedPullRequests) pullRequests.removePlugin(id);
       pullRequestSettings.delete(id);
       if (publishedCommunications) communications.removePlugin(id);
@@ -284,6 +301,12 @@ export async function activateBackendPlugins(options: {
           validateTaskSourceProvider(provider, declaration);
           if (pendingSources.has(localId)) throw new Error('Duplicate task source registration.');
           pendingSources.set(localId, provider);
+        },
+        registerFeedbackTracker: (localId: string, provider: FeedbackTrackerProviderV1) => {
+          const declaration = pkg.backend?.feedbackTrackers?.[localId];
+          if (phase !== 'activating' || !declaration || !pkg.backend?.provides.some(item => item.id === 'helmsman/feedback-tracker' && item.localId === localId)) throw new Error('Undeclared feedback tracker provider registration.');
+          if (pendingFeedbackTrackers.has(localId)) throw new Error('Duplicate feedback tracker provider registration.');
+          pendingFeedbackTrackers.set(localId, provider);
         },
         registerPullRequest: (localId: string, provider: PullRequestProviderV1) => {
           const declaration = pkg.backend?.pullRequests?.[localId];
@@ -337,13 +360,13 @@ export async function activateBackendPlugins(options: {
         }
         const module = imported && typeof imported === 'object' && 'default' in imported ? imported.default : null;
         if (!module || typeof module !== 'object' || !('activate' in module) || typeof module.activate !== 'function') throw new Error('Backend entry must default-export an activate module.');
-        const activationContext = pkg.backend?.triggers ? Object.freeze<TriggerBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerTrigger: context.registerTrigger, onDispose: context.onDispose }) : pkg.backend?.workflows ? Object.freeze<WorkflowBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerWorkflow: context.registerWorkflow, onDispose: context.onDispose }) : pkg.backend?.nativeTerminals ? Object.freeze<NativeTerminalBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerNativeTerminal: context.registerNativeTerminal, onDispose: context.onDispose }) : pkg.backend?.executionHosts ? Object.freeze<ExecutionHostBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerExecutionHost: context.registerExecutionHost, onDispose: context.onDispose }) : pkg.backend?.agents ? Object.freeze<AgentBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerAgent: context.registerAgent, onDispose: context.onDispose }) : context;
+        const activationContext = pkg.backend?.feedbackTrackers ? Object.freeze<FeedbackTrackerBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerFeedbackTracker: context.registerFeedbackTracker, onDispose: context.onDispose }) : pkg.backend?.triggers ? Object.freeze<TriggerBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerTrigger: context.registerTrigger, onDispose: context.onDispose }) : pkg.backend?.workflows ? Object.freeze<WorkflowBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerWorkflow: context.registerWorkflow, onDispose: context.onDispose }) : pkg.backend?.nativeTerminals ? Object.freeze<NativeTerminalBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerNativeTerminal: context.registerNativeTerminal, onDispose: context.onDispose }) : pkg.backend?.executionHosts ? Object.freeze<ExecutionHostBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerExecutionHost: context.registerExecutionHost, onDispose: context.onDispose }) : pkg.backend?.agents ? Object.freeze<AgentBackendContextV1>({ pluginId: id, signal: abort.signal, settings: data!.settings, registerAgent: context.registerAgent, onDispose: context.onDispose }) : context;
         await module.activate(activationContext);
       })();
       await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Backend activation timed out.')), timeoutMs); })]);
-      if (pending.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size + pendingAgents.size + pendingExecutionHosts.size + pendingNativeTerminals.size + pendingWorkflows.size + pendingTriggers.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
+      if (pending.size + pendingFeedbackTrackers.size + pendingSources.size + pendingPullRequests.size + pendingCommunications.size + pendingScheduling.size + pendingAgents.size + pendingExecutionHosts.size + pendingNativeTerminals.size + pendingWorkflows.size + pendingTriggers.size !== pkg.backend?.provides.length) throw new Error('Backend did not register all declared providers.');
       const ordinary = canServeOrdinary();
-      if (!ordinary && (!(pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size || pendingTriggers.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
+      if (!ordinary && (!(pendingFeedbackTrackers.size || pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size || pendingTriggers.size) || !canServeObligations())) throw new CapabilityResolutionError('inactive', 'Plugin was disabled during activation.');
       const sourceRegistrations = [...pendingSources].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Task source registration requires an exact artifact.');
         return taskSources.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, pkg.backend!.taskSources![localId]!, provider);
@@ -351,6 +374,13 @@ export async function activateBackendPlugins(options: {
       taskSources.publish(sourceRegistrations);
       publishedSources = sourceRegistrations.length > 0;
       const settingsHash = persistenceHash(data.settings);
+      const feedbackTrackerRegistrations = [...pendingFeedbackTrackers].map(([localId, provider]) => {
+        if (!artifactHash) throw new Error('Pull request registration requires an exact artifact.');
+        return feedbackTrackers.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider, data!.settings);
+      });
+      feedbackTrackerSettings.set(id, () => persistenceHash(readPluginSettings(options.root, pkg)) === settingsHash);
+      feedbackTrackers.publish(feedbackTrackerRegistrations);
+      publishedFeedbackTrackers = feedbackTrackerRegistrations.length > 0;
       const pullRequestRegistrations = [...pendingPullRequests].map(([localId, provider]) => {
         if (!artifactHash) throw new Error('Pull request registration requires an exact artifact.');
         return pullRequests.stage({ providerId: `${id}/${localId}`, pluginId: id, artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider, data!.settings);
@@ -405,7 +435,7 @@ export async function activateBackendPlugins(options: {
       staged.clear();
       for (const [providerId, provider] of pending) providers.set(providerId, provider);
       phase = 'active'; activeIds.add(id); owners.push(cleanup); pluginCleanups.set(id, cleanup);
-      if (pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size || pendingTriggers.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
+      if (pendingFeedbackTrackers.size || pendingSources.size || pendingPullRequests.size || pendingCommunications.size || pendingAgents.size || pendingExecutionHosts.size || pendingNativeTerminals.size || pendingWorkflows.size || pendingTriggers.size) pluginDrains.set(id, () => { draining.add(id); abort.abort(); for (const provider of pending.keys()) providers.delete(provider); });
       if (options.coordinator && artifactHash) options.coordinator.lifecycle.recordHealth(id, artifactHash, 'active', null);
       if (options.coordinator?.state(id)?.obligationsOnly) pluginDrains.get(id)?.();
     } catch (error) {
@@ -447,6 +477,7 @@ export async function activateBackendPlugins(options: {
   return {
     errors,
     taskSources,
+    feedbackTrackers,
     pullRequests,
     communications,
     scheduling,

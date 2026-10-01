@@ -1,3 +1,4 @@
+import type { FeedbackTrackerProviderV1, FeedbackTrackerDeclarationV1 } from './feedback-tracker';
 import type { TriggerDeclarationV1, TriggerProviderV1 } from './trigger';
 import type { WorkflowDeclarationV1, WorkflowProviderV1 } from './workflow';
 import type { NativeTerminalDeclarationV1, NativeTerminalProviderV1 } from './native-terminal';
@@ -38,8 +39,9 @@ export interface CommunicationDeclaration {
 
 export interface PluginBackendDefinition {
   readonly entry: string;
-  readonly provides: readonly { readonly id: 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent' | 'helmsman/execution-host' | 'helmsman/native-terminal' | 'helmsman/workflow' | 'helmsman/trigger'; readonly version: 1; readonly localId: string }[];
+  readonly provides: readonly { readonly id: 'helmsman/feedback-tracker' | 'helmsman/pricing' | 'helmsman/task-source' | 'helmsman/pull-request' | 'helmsman/communication' | 'helmsman/scheduling' | 'helmsman/agent' | 'helmsman/execution-host' | 'helmsman/native-terminal' | 'helmsman/workflow' | 'helmsman/trigger'; readonly version: 1; readonly localId: string }[];
   readonly taskSources?: Readonly<Record<string, TaskSourceDeclaration>>;
+  readonly feedbackTrackers?: Readonly<Record<string, FeedbackTrackerDeclarationV1>>;
   readonly pullRequests?: Readonly<Record<string, PullRequestDeclaration>>;
   readonly triggers?: Readonly<Record<string, TriggerDeclarationV1>>;
   readonly workflows?: Readonly<Record<string, WorkflowDeclarationV1>>;
@@ -71,6 +73,7 @@ export interface PluginBackendContext {
   onDispose(cleanup: () => void | Promise<void>): void;
   registerPricing(localId: string, provider: PricingProvider): void;
   registerTaskSource(localId: string, provider: TaskSourceProviderV1): void;
+  registerFeedbackTracker?(localId: string, provider: FeedbackTrackerProviderV1): void;
   registerPullRequest(localId: string, provider: PullRequestProviderV1): void;
   registerTrigger(localId: string, provider: TriggerProviderV1): void;
   registerWorkflow(localId: string, provider: WorkflowProviderV1): void;

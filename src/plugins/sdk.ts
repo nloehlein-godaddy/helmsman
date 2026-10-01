@@ -138,3 +138,7 @@ export * from './task-actions';
 
 export * from './run-instructions';
 export * from './execution-policy';
+export * from './feedback-command';
+export * from './feedback-tracker';
+
+export * from './feedback-settings';

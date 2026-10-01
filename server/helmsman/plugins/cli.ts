@@ -8,13 +8,13 @@ import { join, resolve } from 'node:path';
 import { packPluginDirectory, readPluginArchiveFile } from './artifacts';
 import { validatePluginImports } from './imports';
 import { configurePlugin, createPluginCoordinator, installPlugin, pluginDirectory, readPluginState, resetPluginSettings, selectPluginPage, setPluginEnabled, type PluginCoordinator } from './store';
-import { selectTriggerProvider, selectWorkflowProvider, selectNativeTerminalProvider, selectExecutionHostProvider, selectAgentProvider, selectAgentReviewers, selectCommunicationProvider, selectPricingProvider, selectPullRequestProvider, selectSchedulingProvider } from './data';
+import { selectFeedbackTrackerProvider, selectTriggerProvider, selectWorkflowProvider, selectNativeTerminalProvider, selectExecutionHostProvider, selectAgentProvider, selectAgentReviewers, selectCommunicationProvider, selectPricingProvider, selectPullRequestProvider, selectSchedulingProvider } from './data';
 import { openPersistence, registerPersistenceWriter, type Persistence } from '../persistence';
 import { openExecutionStore } from '../execution-store';
 import { openPluginLifecycle } from './lifecycle';
 import { backupPersistenceSet } from '../persistence-backup';
 
-const usage = 'Usage: plugins [--dir STORE] [--db DATABASE] pack DIRECTORY ARCHIVE | install ARCHIVE | enable ID | disable ID | uninstall ID | collect HASH | backup DESTINATION | select SLOT ID|default | configure ID JSON | reset-settings ID [KEY] | select-pricing ID|default | select-pull-request ID|default | select-communication ID|default | select-scheduling ID|default | select-trigger campaign|slack-review|github-review|github-webhook ID|default|disabled | select-workflow coding|review|branch ID|default | select-native-terminal ID|default | select-browser-host ID|default | select-execution-host ID|default | select-agent ID|default | select-agent-reviewers ID[,ID...]|default | list';
+const usage = 'Usage: plugins [--dir STORE] [--db DATABASE] pack DIRECTORY ARCHIVE | install ARCHIVE | enable ID | disable ID | uninstall ID | collect HASH | backup DESTINATION | select SLOT ID|default | configure ID JSON | reset-settings ID [KEY] | select-pricing ID|default | select-pull-request ID|default | select-feedback ID|disabled | select-communication ID|default | select-scheduling ID|default | select-trigger campaign|slack-review|github-review|github-webhook ID|default|disabled | select-workflow coding|review|branch ID|default | select-native-terminal ID|default | select-browser-host ID|default | select-execution-host ID|default | select-agent ID|default | select-agent-reviewers ID[,ID...]|default | list';
 
 export async function pluginCommand(args: string[], options: { coordinate?: boolean; dbPath?: string } = {}): Promise<string> {
   const rest = [...args];
@@ -39,7 +39,7 @@ export async function pluginCommand(args: string[], options: { coordinate?: bool
   let persistence: Persistence | undefined;
   let coordinator: PluginCoordinator | undefined;
   let releaseWriter: (() => void) | undefined;
-  if ((options.coordinate !== false || args.includes('--db') || command === 'uninstall' || command === 'collect') && command && ['install', 'enable', 'disable', 'uninstall', 'collect', 'select', 'configure', 'reset-settings', 'select-pricing', 'select-pull-request', 'select-communication', 'select-scheduling', 'select-agent', 'select-agent-reviewers', 'select-execution-host', 'select-native-terminal', 'select-browser-host', 'select-workflow', 'select-trigger'].includes(command)) {
+  if ((options.coordinate !== false || args.includes('--db') || command === 'uninstall' || command === 'collect') && command && ['install', 'enable', 'disable', 'uninstall', 'collect', 'select', 'configure', 'reset-settings', 'select-pricing', 'select-pull-request', 'select-communication', 'select-feedback', 'select-scheduling', 'select-agent', 'select-agent-reviewers', 'select-execution-host', 'select-native-terminal', 'select-browser-host', 'select-workflow', 'select-trigger'].includes(command)) {
     persistence = openPersistence(dbPath);
     try {
       const executions = openExecutionStore(persistence);
@@ -92,6 +92,7 @@ export async function pluginCommand(args: string[], options: { coordinate?: bool
     selectPullRequestProvider(root, first === 'default' ? null : first);
     return 'Pull request provider selection saved.';
   }
+  if (command === 'select-feedback' && first && rest.length === 2) { selectFeedbackTrackerProvider(root, first === 'disabled' ? null : first); return 'Feedback tracker selection saved.'; }
   if (command === 'select-communication' && first && rest.length === 2) {
     selectCommunicationProvider(root, first === 'default' ? null : first);
     return 'Communication provider selection saved.';

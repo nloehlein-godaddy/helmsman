@@ -1,5 +1,8 @@
 import executionSettingsPage from './execution-settings/page';
 import executionSettingsPanel from './execution-settings/panel';
+import productFeedbackFooter from './product-feedback/footer';
+import productFeedbackPage from './product-feedback/page';
+import feedbackSettingsPage from './product-feedback/settings';
 import profileHeader from './profile/header';
 import githubSettingsPage from './github-settings/page';
 import githubSettingsPanel from './github-settings/panel';
@@ -71,6 +74,7 @@ export function syncBuiltinFrontend(entries: readonly BuiltinFrontendCatalogEntr
     if (current && (!enabled || current.hash !== entry?.hash)) { current.dispose(); activeBuiltins.delete(manifest.id); }
     if (!enabled || !entry || activeBuiltins.has(manifest.id)) continue;
     const cleanups: (() => void)[] = [];
+    if (manifest.id === 'helmsman.product-feedback') { cleanups.push(appPageModules.register('helmsman.product-feedback/footer', productFeedbackFooter)); cleanups.push(appPageModules.register('helmsman.product-feedback/page', productFeedbackPage)); cleanups.push(appPageModules.register('helmsman.product-feedback/settings', feedbackSettingsPage)); }
     if (manifest.id === 'helmsman.profile') cleanups.push(appPageModules.register('helmsman.profile/header', profileHeader));
     if (manifest.id === 'helmsman.costs') cleanups.push(appPageModules.register(COSTS_PAGE_ID, costsPage));
     if (manifest.id === 'helmsman.helm') cleanups.push(appPageModules.register(HELM_PAGE_ID, helmPage));
