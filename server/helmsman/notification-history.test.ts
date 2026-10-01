@@ -20,7 +20,7 @@ function fixture(path = ':memory:') {
   const persistence = openPersistence(path); cleanup.push(() => persistence.close());
   const db = openDb(persistence.sql); const reviews = openSlackStore(persistence.sql); const voyages = openVoyageNotifications(persistence.sql);
   const history = openNotificationHistory(persistence.sql, function* () { yield* reviews.notificationIdentities(); yield* voyages.notificationIdentities(); });
-  const snapshot = () => ({ health, notifications: [...reviews.listNotifications().map(({ sourceKey: _sourceKey, proposal: _proposal, trigger: _trigger, policy: _policy, ...notification }) => notification), ...voyages.listNotifications()] });
+  const snapshot = (repo: string | null = null) => ({ health, notifications: [...reviews.listNotifications(100, repo).map(({ sourceKey: _sourceKey, proposal: _proposal, trigger: _trigger, policy: _policy, ...notification }) => notification), ...voyages.listNotifications(100, repo)] });
   const service = createCommunicationReadService({ persistence, repos: () => ['org/a', 'org/b'], authorize: id => { if (id !== caller) throw new Error('forbidden'); },
     notificationHistory: history, snapshot, markRead: (id, when) => reviews.markRead(id, when), values: () => ({ enabled: false, watchEnabled: false, clientId: '', channelId: '', channelName: '', browserSurface: '', reviewChannel: '', reviewMention: '' }), destination: () => null, write() {} });
   const read = (repo: string | null = null) => service.notifications(caller, { version: 1, repo, limit: 256 }, repo);
@@ -74,4 +74,16 @@ it('enforces HTTP scope and token validation, and limits All to configured galle
   expect(f.read().notifications).toHaveLength(2);
   expect(request({ version: 1, repo: null, scopeRepo: null, clearToken })?.json).toMatchObject({ version: 1, cleared: 2, repo: null, clearToken });
   expect(f.reviews.listNotifications().map(item => item.repo)).toEqual(['other/private']);
+});
+
+it('applies galleon scope before history limits so busy neighbors cannot hide clearable entries', () => {
+  const f = fixture();
+  f.reviews.insertNotification('source', review('older-own')); f.db.insertRun(run('older-own-run'));
+  for (let index = 0; index < 120; index++) {
+    f.reviews.insertNotification('source', { ...review(`newer-${index}`, 'org/b'), updatedAt: '2026-09-21T12:00:00Z' });
+    f.db.insertRun({ ...run(`newer-run-${index}`, 'org/b'), endedAt: '2026-09-21T12:00:00Z' });
+  }
+  const snapshot = f.read('org/a'); expect(snapshot.notifications).toHaveLength(2); expect(snapshot.unread).toBe(2);
+  expect(f.clear('org/a', snapshot.clearToken!).cleared).toBe(2); expect(f.read('org/a').notifications).toHaveLength(0);
+  expect(f.read('org/b').notifications).toHaveLength(200);
 });

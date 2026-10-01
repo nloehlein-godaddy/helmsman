@@ -11,7 +11,7 @@ export interface CommunicationReadServerOptions {
   readonly persistence: Persistence;
   repos(): readonly string[];
   authorize(caller: string): void;
-  snapshot(): SlackState;
+  snapshot(repo?: string | null): SlackState;
   readonly notificationHistory?: ReturnType<typeof openNotificationHistory>;
   markRead(id: string, now: string): boolean;
   values(): CommunicationSettingsValuesV1;
@@ -35,8 +35,9 @@ export function createCommunicationReadService(options: CommunicationReadServerO
       if (input?.version !== 1 || !Number.isSafeInteger(input?.limit) || input.limit < 1 || input.limit > COMMUNICATION_LIMITS.notifications)
         throw new ClarificationServiceError(400, 'invalid-response');
       const allowed = scope(caller, scopeRepo, input.repo === null ? null : parseTaskRepo(input.repo));
-      const captured = options.notificationHistory?.capture(options.snapshot);
-      const snapshot = captured?.value ?? options.snapshot();
+      const read = () => options.snapshot(input.repo ?? scopeRepo);
+      const captured = options.notificationHistory?.capture(read);
+      const snapshot = captured?.value ?? read();
       const notifications = snapshot.notifications.filter(item => item && allowed.some(repo => repo.toLowerCase() === item.repo?.toLowerCase()));
       const selected = notifications.slice(0, input.limit);
       return parseCommunicationNotificationsV1({ version: 1, ...(captured ? { clearToken: captured.clearToken } : {}), quality: selected.length < notifications.length ? 'partial' : 'complete',
@@ -61,7 +62,7 @@ export function createCommunicationReadService(options: CommunicationReadServerO
     markRead(caller: string, input: { repo: string; id: string }, scopeRepo: string | null) {
       const repo = parseTaskRepo(input?.repo); scope(caller, scopeRepo, repo);
       if (typeof input?.id !== 'string' || !/^[a-z\d_-]{1,128}$/i.test(input.id)) throw new ClarificationServiceError(400, 'invalid-response');
-      const notification = options.snapshot().notifications.find(item => item.id === input.id && item.repo.toLowerCase() === repo.toLowerCase());
+      const notification = options.snapshot(repo).notifications.find(item => item.id === input.id && item.repo.toLowerCase() === repo.toLowerCase());
       if (!notification) throw new ClarificationServiceError(404, 'not-found');
       const readAt = notification.readAt ?? (options.now?.() ?? new Date().toISOString());
       if (!notification.readAt && !options.markRead(input.id, readAt)) throw new ClarificationServiceError(404, 'not-found');

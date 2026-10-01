@@ -75,7 +75,7 @@ export interface SlackStore {
   updateNotification(id: string, status: SlackNotification['status'], now: string, error?: string | null): void;
   setNotificationRunId(id: string, runId: string): void;
   getNotification(id: string): SlackNotification | null;
-  listNotifications(limit?: number): SlackNotification[];
+  listNotifications(limit?: number, repo?: string | null): SlackNotification[];
   notificationIdentities(): Iterable<NotificationIdentity>;
   markRead(id: string, now: string): boolean;
   claimDispatch(id: string, token: string, now: string): boolean;
@@ -193,10 +193,10 @@ export function openSlackStore(path: string | Database.Database): SlackStore {
       for (const row of sql.prepare('SELECT id,repo FROM slack_notifications').iterate() as Iterable<{ id: string; repo: string }>)
         yield { kind: 'review' as const, id: row.id, repo: row.repo };
     },
-    listNotifications(limit = 100) {
+    listNotifications(limit = 100, repo: string | null = null) {
       const count = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 100;
-      return (sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications WHERE NOT EXISTS (SELECT 1 FROM notification_history history WHERE history.kind='review' AND history.id=slack_notifications.id AND history.dismissed=1) ORDER BY updatedAt DESC, id DESC LIMIT ?`)
-        .all(count) as NotificationRow[]).map(decode);
+      return (sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications WHERE (? IS NULL OR repo = ? COLLATE NOCASE) AND NOT EXISTS (SELECT 1 FROM notification_history history WHERE history.kind='review' AND history.id=slack_notifications.id AND history.dismissed=1) ORDER BY updatedAt DESC, id DESC LIMIT ?`)
+        .all(repo, repo, count) as NotificationRow[]).map(decode);
     },
     markRead(id, now) {
       return sql.prepare('UPDATE slack_notifications SET readAt = COALESCE(readAt, ?) WHERE id = ?').run(now, id).changes > 0;
