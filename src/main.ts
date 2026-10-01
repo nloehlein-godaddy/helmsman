@@ -60,6 +60,7 @@ export class DashboardView {
   private readonly onVisibilityChange = (): void => {
     this.paintHeaderContribution();
     if (this.isPluginPage()) this.paintPluginPage();
+    else this.rehomeRunViewer();
     if (!document.hidden) {
       void this.refresh(false);
     }
@@ -297,6 +298,7 @@ export class DashboardView {
     saveRepoScope(scope);
     this.view = route.view;
     this.updateAddress(route, history);
+    if (route.run) this.expandRunViewer();
     this.syncQuestionsAttention();
     if (route.pane) this.collapsed.delete(`${route.view}:${route.pane === 'tabs' ? 'list' : route.pane === 'screen' ? 'detail' : route.pane}`);
     if (!route.run) this.presentationSelection = null;
@@ -436,8 +438,10 @@ export class DashboardView {
     if (locator?.kind === 'pull-request') { void this.enterPrView(locator.repo, locator.number); return; }
     const reveal = locator !== null && !this.auxiliary.element.contains(document.activeElement);
     this.presentationSelection = locator ? { locator, scopeRepo } : null;
+    if (locator) this.expandRunViewer();
     this.updateAddress({ ...this.route, run: locator?.runId ?? null, runRepo: locator?.kind === 'run' ? locator.repo : null });
-    this.paintPluginPage();
+    if (this.isPluginPage()) this.paintPluginPage();
+    else this.rehomeRunViewer();
     if (reveal && !this.isRunViewerPage()) queueMicrotask(() => {
       if (this.destroyed || !this.auxiliary.element.isConnected || this.route.run !== locator?.runId) return;
       this.auxiliary.element.tabIndex = -1;
@@ -769,6 +773,11 @@ export class DashboardView {
 
   private async enterPrView(repo?: string, number?: number): Promise<void> {
     await this.navigate(parseRoute(new URL(routeHref({ view: 'prs', repo: this.selectedRepo, prRepo: repo ?? null, pr: number ?? null, pane: number ? 'lookup' : null }), window.location.origin)));
+  }
+
+  private expandRunViewer(): void {
+    const drawer = this.root.querySelector<HTMLDetailsElement>('.plugin-auxiliary-slot');
+    if (drawer) drawer.open = true;
   }
 
   private rehomeRunViewer(): void {

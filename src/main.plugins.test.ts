@@ -233,6 +233,17 @@ describe('registered plugin page integration', () => {
     drawer.open = false; drawer.dispatchEvent(new Event('toggle'));
     await view?.refresh(); expect(drawer.open).toBe(false); expect(viewer.mount).toHaveBeenCalledOnce();
     expect(viewer.dispose).not.toHaveBeenCalled();
+    plugin.contexts[0]?.selectPresentation?.({ version: 1, kind: 'run', repo: 'org/a', runId: 'run-1' });
+    expect(drawer.open).toBe(true);
+    plugin.contexts[0]?.navigate('/config?repo=org/a');
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/config'));
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true); document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(viewer.states.at(-1)?.visible).toBe(false));
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(viewer.states.at(-1)?.visible).toBe(true));
+    viewer.contexts[0]?.selectPresentation?.({ version: 1, kind: 'run', repo: 'org/a', runId: 'run-2' });
+    await vi.waitFor(() => expect(viewer.states.at(-1)?.presentation).toMatchObject({ runId: 'run-2' }));
+    expect(new URL(window.location.href).searchParams.get('run')).toBe('run-2');
   });
 
   it('mounts an independent module and updates header scope, terminology, and visibility without remounting', async () => {
