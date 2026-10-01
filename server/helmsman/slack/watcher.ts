@@ -16,7 +16,7 @@ export interface SlackWatcherOptions {
   canLaunch: (repo: string) => boolean;
   getRun: (runId: string) => unknown;
   isRunActive: (runId: string) => boolean;
-  launch: (input: { repo: string; prNumber: number; mode: 'review'; runId: string; headSha?: string; workflowRef?: string; trigger?: TriggerProvenanceV1 }) => string;
+  launch: (input: { repo: string; prNumber: number; mode: 'review'; runId: string; headSha?: string; workflowRef?: string; trigger?: TriggerProvenanceV1 }) => string | Promise<string>;
   now?: () => string;
   intervalMs?: number;
   captureTrigger: (signal: AbortSignal) => SelectedTriggerCapture<CommunicationReviewTriggerProviderV1> | null;
@@ -147,7 +147,7 @@ export function createSlackWatcher(options: SlackWatcherOptions): SlackWatcher {
         if (!transition('queued', null)) continue;
         assertCurrent();
         attemptedLaunch = true;
-        const launchedId = options.launch({ repo, prNumber: notification.prNumber, mode: 'review', runId,
+        const launchedId = await options.launch({ repo, prNumber: notification.prNumber, mode: 'review', runId,
           headSha: notification.proposal.headSha, workflowRef: notification.proposal.workflowRef, trigger });
         if (launchedId !== runId) throw new Error('Launcher returned an unexpected run ID');
         transition('launched', null, () => {});

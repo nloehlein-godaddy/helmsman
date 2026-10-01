@@ -329,7 +329,7 @@ describe('page-owned composition', () => {
     let context!: PluginPanelContext;
     const f = setup({ mount(_element, supplied) { context = supplied; return { update() {}, dispose() {} }; } });
     await f.host.service.mount('first', f.first);
-    expect(Object.keys(context.services).sort()).toEqual(['activity', 'campaigns', 'clarificationCommands', 'clarifications', 'communication', 'communicationCommands', 'downloads', 'githubSettings', 'jiraSettings', 'localGit', 'profile', 'pullRequestCommands', 'pullRequestInspect', 'pullRequests', 'runCommands', 'runInspect', 'runs', 'sourceAdmin', 'sourceCommands', 'suggestedContacts', 'taskActions', 'taskContext', 'taskEdit', 'taskViews', 'tasks', 'terminal', 'todoLegacyRecovery', 'version']);
+    expect(Object.keys(context.services).sort()).toEqual(['activity', 'campaigns', 'clarificationCommands', 'clarifications', 'communication', 'communicationCommands', 'downloads', 'executionPolicy', 'githubSettings', 'jiraSettings', 'localGit', 'profile', 'pullRequestCommands', 'pullRequestInspect', 'pullRequests', 'runCommands', 'runInspect', 'runs', 'sourceAdmin', 'sourceCommands', 'suggestedContacts', 'taskActions', 'taskContext', 'taskEdit', 'taskViews', 'tasks', 'terminal', 'todoLegacyRecovery', 'version']);
     f.host.update({ ...page, visible: false });
     await expect(context.services.tasks?.discover()).rejects.toMatchObject({ name: 'AbortError' });
     await expect(context.services.taskEdit?.discover()).rejects.toMatchObject({ name: 'AbortError' });

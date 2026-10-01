@@ -26,6 +26,8 @@ export interface OtherRequirement { readonly id: 'helmsman/task-read'; readonly 
     const extended = contract.replace("id: 'helmsman/task-read';", "id: 'helmsman/task-read' | 'helmsman/task-action';");
     await writeFile(join(candidate, 'index.d.ts'), extended);
     assert.equal(checkSdkCompatibility(baseline, candidate), 8);
+    await writeFile(join(candidate, 'index.d.ts'), extended.replace("'helmsman/task-action'", "'helmsman/task-action' | 'helmsman/execution-policy'"));
+    assert.equal(checkSdkCompatibility(baseline, candidate), 8);
     for (const broken of [
       extended.replace("'helmsman/task-read' | ", ''),
       extended.replace("'helmsman/task-action'", "'helmsman/arbitrary-action'"),

@@ -1,0 +1,80 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.execution-settings",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Execution settings",
+        "slots": [
+          "helmsman/execution-settings-page"
+        ],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ],
+        "composition": {
+          "id": "helmsman/execution-settings-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/execution-settings-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "execution-settings",
+                "contributionId": "helmsman.execution-settings/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "execution-settings"
+                  ],
+                  "activeInstanceId": "execution-settings",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Execution settings",
+        "contract": {
+          "id": "helmsman/execution-settings-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/execution-policy",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}

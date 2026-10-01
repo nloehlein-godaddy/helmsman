@@ -18,13 +18,14 @@ export interface BacklogItem {
 export interface SchedulerDeps {
   canStart: (repo: string) => boolean;
   fetchTopBacklog: (repo: string) => Promise<BacklogItem | null>;
-  launch: (body: BacklogItem & { repo: string }) => void;
+  launch: (body: BacklogItem & { repo: string }) => void | string | Promise<void | string>;
   onLog?: (msg: string) => void;
 }
 
 export class AutoClaimScheduler {
   private readonly deps: SchedulerDeps;
   private readonly enabledRepoSet: Set<string> = new Set();
+  private nextGalleon = 0;
   private readonly runtimeEpoch = randomUUID();
   private readonly runtimeRevisions = new Map<string, number>();
 
@@ -63,7 +64,10 @@ export class AutoClaimScheduler {
   }
 
   async tick(): Promise<void> {
-    const reposSnapshot: string[] = Array.from(this.enabledRepoSet);
+    const enabled = Array.from(this.enabledRepoSet);
+    const offset = enabled.length ? this.nextGalleon % enabled.length : 0;
+    const reposSnapshot = [...enabled.slice(offset), ...enabled.slice(0, offset)];
+    this.nextGalleon = offset + 1;
 
     for (const repo of reposSnapshot) {
       try {
@@ -81,7 +85,7 @@ export class AutoClaimScheduler {
           continue;
         }
 
-        this.deps.launch({
+        await this.deps.launch({
           ...ticket,
           repo,
         });

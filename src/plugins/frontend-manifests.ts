@@ -1,3 +1,4 @@
+import executionSettingsPackage from './execution-settings/plugin-package.json' with { type: 'json' };
 import profilePackage from './profile/plugin-package.json' with { type: 'json' };
 import githubSettingsPackage from './github-settings/plugin-package.json' with { type: 'json' };
 import jiraSettingsPackage from './jira-settings/plugin-package.json' with { type: 'json' };
@@ -106,10 +107,11 @@ export const compatibilityPrManifest = compatibilityPrPackage.manifest as Plugin
 
 export const jiraSettingsManifest = jiraSettingsPackage.manifest as PluginManifest;
 export const profileManifest = profilePackage.manifest as PluginManifest;
+export const executionSettingsManifest = executionSettingsPackage.manifest as PluginManifest;
 export const githubSettingsManifest = githubSettingsPackage.manifest as PluginManifest;
 export const localGitManifest = localGitPackage.manifest as PluginManifest;
 export const campaignsManifest = campaignsPackage.manifest as PluginManifest;
 export const terminalManifest = terminalPackage.manifest as PluginManifest;
 export const communicationManifest = communicationPackage.manifest as PluginManifest;
 
-export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([profileManifest, githubSettingsManifest, jiraSettingsManifest, localGitManifest, campaignsManifest, terminalManifest, communicationManifest, runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);
+export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([profileManifest, executionSettingsManifest, githubSettingsManifest, jiraSettingsManifest, localGitManifest, campaignsManifest, terminalManifest, communicationManifest, runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);

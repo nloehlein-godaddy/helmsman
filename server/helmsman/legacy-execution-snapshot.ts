@@ -62,7 +62,7 @@ export function legacyExecutionSettings(config: AppConfig, boundAgents = false, 
 }
 
 export function legacyExecutionSnapshot(input: {
-  run: RunRow; task: AgentTask; artifact: ArtifactBinding; host: HostRef['kind']; config: AppConfig;
+  run: RunRow; task: AgentTask; artifact: ArtifactBinding; host: HostRef['kind']; config: AppConfig; executionSchemaMaximum?: 1 | 2;
 }): ExecutionSnapshotInput {
   const { run, task, artifact, config } = input;
   const source = task.todoId ? 'todos' : task.review ? 'github-review' : task.task ? 'freeform' : 'jira';
@@ -81,6 +81,6 @@ export function legacyExecutionSnapshot(input: {
     logicalWork: { source, instance: source === 'jira' ? jiraIdentity ?? 'unconfigured' : source === 'github-review' ? githubIdentity ?? 'unconfigured' : 'local', taskId: task.todoId ?? task.ticketId },
     task: nonsecretExecutionTask(task), workflowSnapshotId: task.workflowSnapshotId ?? null,
     artifacts: [artifact], bindings, settings: { execution: legacyExecutionSettings(config, Boolean(task.agentSelection), Boolean(task.workflow)) },
-    schemas: [{ owner: 'core.runs', minimum: 1, maximum: 1 }, { owner: 'core.execution', minimum: 1, maximum: 1 }],
+    schemas: [{ owner: 'core.runs', minimum: 1, maximum: 1 }, { owner: 'core.execution', minimum: 1, maximum: input.executionSchemaMaximum ?? 1 }],
     provenance: { kind: 'admission', evidence: { runtimeHash: artifact.artifactHash } } }, task), task), task), task), task);
 }

@@ -38,7 +38,7 @@ export interface RunCommandCoordinatorOptions<Prepared> {
   authorizeWrite(caller: string, command: RunCommandV1): void;
   validateTarget(command: TargetRunCommand): void;
   prepareLaunch(command: LaunchRunCommand): Promise<Prepared>;
-  launch(prepared: Prepared, record: StoredRunCommand): { runId: string; attempt: number };
+  launch(prepared: Prepared, record: StoredRunCommand): { runId: string; attempt: number } | Promise<{ runId: string; attempt: number }>;
   recordStop(command: TargetRunCommand): void;
   signalStop(command: TargetRunCommand): void | Promise<void>;
   inspect(record: StoredRunCommand): RunCommandEvidence;
@@ -100,7 +100,7 @@ export function createRunCommandCoordinator<Prepared>(options: RunCommandCoordin
       if (command.action === 'retry') options.validateTarget(command);
       const reconciled = reconcile(current(record));
       if (reconciled) return reconciled;
-      const launched = options.launch(prepared, record);
+      const launched = await options.launch(prepared, record);
       if (!launched || launched.runId !== record.assignedRunId || launched.attempt !== 1) throw new Error('Launch callback changed command identity');
       return finish(record, 'accepted', null, true);
     } catch (error) {

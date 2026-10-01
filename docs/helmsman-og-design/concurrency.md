@@ -162,3 +162,13 @@ Acceptance gates, before opt-in is exposed:
 Primary affected paths: `server/helmsman/{execution-store,admission-store,process-manager,runner-durability,runner,application,worktree,scheduler,task-source-schedule,campaigns,campaign-dispatcher,migrations,legacy-execution-snapshot,recovery-service,local-git-runtime}.ts`; source admission/settlement callers; publication/gateway ownership assertions; new policy/footprint services and their public capability wiring. Retain SDK v1 host/discovery behavior; any future provider isolation extension must be explicit and default missing support to exclusive operation.
 
 _Helmsman · not reported - not reported_
+
+## Implemented compatibility and cleanup boundary
+
+The application requests execution schema 2, but opens schema 1 when retained consumers require it. Schema 1 continues to admit one voyage per galleon. The policy service reports the exact retained snapshot/artifact identities blocking migration; changing the maximum above one requires schema 2. Historical snapshots and artifact pins are preserved. A still-present worktree belonging to a version-1-only snapshot also keeps that reader active, even after its execution pins settle. Settle its existing checkpoint/workspace through the compatible runtime and restart before opting in.
+
+New workspaces record filesystem allocation receipts under `core.execution-workspaces@1`, including directory/device/inode/birthtime and Git administration identity. Recording works while the execution store still uses schema 1. A missing workspace can be reconciled only after both directory absence and Git deregistration are proved. An existing migrated workspace without a receipt is retained for explicit reconciliation; automatic cleanup does not adopt its current contents as proof of original ownership.
+
+Local Git branch release and feedback retry use a durable detachment transition. The old owner enters cleanup-pending, retains every claim while Git detaches under the maintenance lock, then retains a workspace-only claim after identity and detached-HEAD verification. The next feedback run can acquire the known branch/task independently; the old dirty inspection workspace remains protected from reuse. Checkpoint continuation keeps the original run/workspace and reacquires capacity under its retained footprint. It does not recreate the workspace.
+
+The Git maintenance lock never expires or automatically steals a stale owner. A crash leaves a recovery-required lock directory and recorded owner; an operator must verify that the previous Git work has stopped before recovering that lock. No timeout or missing process attachment releases execution resources.

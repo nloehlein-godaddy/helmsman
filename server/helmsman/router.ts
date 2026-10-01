@@ -1,3 +1,5 @@
+import { handleExecutionPolicyApi } from './execution-policy-routes';
+import type { ExecutionPolicyServerService } from './execution-policy-service';
 import { handleProfileApi } from './profile-routes';
 import type { ProfileServerService } from './profile-service';
 import { handleIntegrationSettingsApi } from './integration-settings-routes';
@@ -130,6 +132,8 @@ export interface RouterDeps {
   campaignCaller?: string;
   clarifications?: ClarificationStore;
   resumeRun?: (runId: string) => Promise<void>;
+  executionPolicy?: ExecutionPolicyServerService;
+  executionPolicyCaller?: string;
   profile?: ProfileServerService;
   profileCaller?: string;
   profileSignal?: AbortSignal;
@@ -140,7 +144,7 @@ export interface RouterDeps {
   slack?: { snapshot: () => SlackState };
   db: Db;
   canStart: (repo: string) => { ok: boolean; reason?: string };
-  launch: (body: LaunchIntent & { retryOf?: string }) => string;
+  launch: (body: LaunchIntent & { retryOf?: string }) => string | Promise<string>;
   stop: (runId: string) => boolean;
   setAutoClaim: (repo: string, enabled: boolean) => void;
   autoClaimRepos: () => string[];
@@ -376,7 +380,7 @@ export async function handleApi(
       } else if (intent.mode === 'ticket' && deps.jiraEnabled?.() === false) {
         return { status: 409, json: { error: 'Enable Jira in Config before retrying a Jira voyage.' } };
       }
-      return { status: 200, json: { runId: deps.launch({ ...intent, retryOf: run.id }) } };
+      return { status: 200, json: { runId: await deps.launch({ ...intent, retryOf: run.id }) } };
     } catch (error) {
       if (error instanceof RetryError || error instanceof TodoConflictError || error instanceof TodoValidationError || error instanceof PersistenceConflictError) {
         return { status: 409, json: { error: error.message } };
@@ -402,7 +406,7 @@ export async function handleApi(
       const gate = deps.canStart(todo.repo);
       if (!gate.ok) return { status: 409, json: { error: gate.reason ?? 'cannot start' } };
       try {
-        const runId = deps.launch({ mode: 'todo', todoId: todo.id, repo: todo.repo, model: b.model, effort: b.effort });
+        const runId = await deps.launch({ mode: 'todo', todoId: todo.id, repo: todo.repo, model: b.model, effort: b.effort });
         return { status: 200, json: { runId } };
       } catch (error) {
         if (error instanceof TodoConflictError || error instanceof TodoValidationError) return { status: error instanceof TodoConflictError ? 409 : 400, json: { error: error.message } };
@@ -415,23 +419,23 @@ export async function handleApi(
     const tuning: { model?: string; effort?: string } = { model: b.model, effort: b.effort };
     if (b.mode === 'rerun') {
       if (typeof b.prNumber !== 'number' || !Number.isFinite(b.prNumber)) return { status: 400, json: { error: 'Galleon and PR number required' } };
-      const runId: string = deps.launch({ repo: b.repo, prNumber: b.prNumber, mode: 'rerun', feedback: b.feedback, ...tuning });
+      const runId: string = await deps.launch({ repo: b.repo, prNumber: b.prNumber, mode: 'rerun', feedback: b.feedback, ...tuning });
       return { status: 200, json: { runId } };
     }
     if (b.mode === 'review') {
       if (typeof b.prNumber !== 'number' || !Number.isFinite(b.prNumber)) return { status: 400, json: { error: 'Galleon and PR number required' } };
-      const runId: string = deps.launch({ repo: b.repo, prNumber: b.prNumber, mode: 'review', ...tuning });
+      const runId: string = await deps.launch({ repo: b.repo, prNumber: b.prNumber, mode: 'review', ...tuning });
       return { status: 200, json: { runId } };
     }
     if (b.mode === 'freeform') {
       if (!b.task) return { status: 400, json: { error: 'task required' } };
-      const runId = deps.launch({ repo: b.repo, task: b.task, ...tuning });
+      const runId = await deps.launch({ repo: b.repo, task: b.task, ...tuning });
       return { status: 200, json: { runId } };
     }
     if (b.mode !== 'ticket' && typeof b.ticketId === 'string' && /^TODO-[1-9]\d*$/.test(b.ticketId) && await deps.todos?.get(b.ticketId)) return { status: 409, json: { error: 'Local todos must be launched from Todos.' } };
     if (deps.jiraEnabled?.() === false) return { status: 409, json: { error: 'Jira is disabled. Start a voyage from Todos.' } };
     if (!b.ticketId) return { status: 400, json: { error: 'Ticket ID and galleon required' } };
-    const runId = deps.launch({ ticketId: b.ticketId, title: b.title, repo: b.repo, ...tuning });
+    const runId = await deps.launch({ ticketId: b.ticketId, title: b.title, repo: b.repo, ...tuning });
     return { status: 200, json: { runId } };
   }
   const stopMatch: RegExpMatchArray | null = path.match(/^\/api\/agents\/([^/]+)\/stop$/);
@@ -448,6 +452,8 @@ export async function handleApi(
     deps.setAutoClaim(repo, enabled);
     return { status: 200, json: { repo, enabled } };
   }
+  const executionPolicyResult = handleExecutionPolicyApi({ method, path, query, body: _body, caller: deps.executionPolicyCaller, service: deps.executionPolicy });
+  if (executionPolicyResult) return executionPolicyResult;
   const profileResult = await handleProfileApi({ method, path, query, caller: deps.profileCaller, service: deps.profile, signal: deps.profileSignal });
   if (profileResult) return profileResult;
   const settingsResult = await handleIntegrationSettingsApi({ method, path, query, body: _body, caller: deps.integrationSettingsCaller, service: deps.integrationSettings });

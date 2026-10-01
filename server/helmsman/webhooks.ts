@@ -24,7 +24,7 @@ export function openWebhookIntake(path: string | Database.Database, deps: {
   canStart(repo: string): boolean;
   getRun(id: string): { status: string } | null;
   isRunActive(id: string): boolean;
-  launch(input: WebhookLaunch): string;
+  launch(input: WebhookLaunch): string | Promise<string>;
   now?: () => number;
 }) {
   const connection = storeConnection(path);
@@ -81,7 +81,7 @@ export function openWebhookIntake(path: string | Database.Database, deps: {
         capture?.assertCurrent();
         const claimed = sql.prepare("UPDATE webhook_deliveries SET state = 'dispatching', claimedAt = ? WHERE delivery = ? AND (state = 'pending' OR (state = 'dispatching' AND claimedAt <= ?))").run(now(), item.delivery, now() - 60000);
         if (!claimed.changes) continue;
-        if (deps.launch({ ...input, ...(trigger ? { trigger } : {}) }) !== item.runId) throw new Error('Webhook launcher returned a different run ID');
+        if (await deps.launch({ ...input, ...(trigger ? { trigger } : {}) }) !== item.runId) throw new Error('Webhook launcher returned a different run ID');
         if (deps.getRun(item.runId)) { sql.prepare("UPDATE webhook_deliveries SET state = 'launched', error = NULL WHERE delivery = ?").run(item.delivery); release(item.delivery); }
       } catch (error) {
         sql.prepare('UPDATE webhook_deliveries SET error = ? WHERE delivery = ?').run(String(error).slice(0, 2000), item.delivery);

@@ -3,7 +3,11 @@ import { randomUUID } from 'node:crypto';
 import type { PluginJson } from '../../src/plugins/backend';
 import type { RunStatus } from './db';
 import type { HostRef } from './run-host';
-import { migrateOwned, validateTableColumns, type SchemaRange } from './migrations';
+import type { SchemaRange } from './migrations';
+import { openExecutionSchema } from './execution-schema';
+import { executionFootprintsConflict, exclusiveExecutionFootprint, parseExecutionFootprint, type ExecutionFootprint } from './execution-footprint';
+import { openExecutionOwnership } from './execution-ownership';
+import { openExecutionPolicy } from './execution-policy';
 import { persistedJson, persistenceHash, PersistenceConflictError, PersistenceValidationError, stableJson, type Persistence } from './persistence';
 
 export interface ArtifactBinding { pluginId: string; artifactHash: string; packageVersion: string; requires: readonly string[] }
@@ -57,9 +61,9 @@ export interface ExecutionCheckpoint {
   format: string; formatVersion: number; artifacts: PluginJson; state: 'resumable' | 'retired';
 }
 export interface ExecutionStore {
-  reserveAdmission(input: { runId: string; repo: string; maxConcurrency: number; evidence: PluginJson }): void;
+  reserveAdmission(input: { runId: string; repo: string; maxConcurrency: number; evidence: PluginJson; footprint?: ExecutionFootprint }): void;
   abandonAdmission(runId: string, evidence: PluginJson): void;
-  prepare(input: { snapshot: ExecutionSnapshotInput; launchId: string; paths: ExecutionAttempt['paths']; maxConcurrency: number }): ExecutionAttempt;
+  prepare(input: { snapshot: ExecutionSnapshotInput; launchId: string; paths: ExecutionAttempt['paths']; maxConcurrency: number; footprint?: ExecutionFootprint }): ExecutionAttempt;
   snapshot(id: string): ExecutionSnapshot | null;
   attempt(key: AttemptKey): ExecutionAttempt | null;
   recoverable(): readonly ExecutionAttempt[];
@@ -256,12 +260,18 @@ const TABLES = {
   execution_evidence: ['id', 'runId', 'attempt', 'kind', 'payload', 'createdAt'],
 };
 
-export function openExecutionStore(persistence: Persistence, now: () => number = Date.now): ExecutionStore {
+export function openExecutionStore(persistence: Persistence, now: () => number = Date.now, options: { preferSchema?: 1 | 2 } = {}): ExecutionStore {
   const sql = persistence.sql;
-  migrateOwned(sql, { owner: 'core.execution', version: 1, checksum: persistenceHash(DDL), tables: Object.keys(TABLES),
-    validateLegacy: () => null, apply: () => sql.exec(DDL),
-    validateCurrent: () => { for (const [table, columns] of Object.entries(TABLES)) validateTableColumns(sql, table, columns); },
-  });
+  const schemaVersion = openExecutionSchema(persistence, { ddl: DDL, tables: TABLES, validateEvidence() {
+    for (const row of sql.prepare('SELECT * FROM execution_snapshots').all() as SnapshotRow[]) decodeSnapshot(row);
+    for (const row of sql.prepare('SELECT * FROM execution_attempts').all() as AttemptRow[]) {
+      const attempt = decodeAttempt(row);
+      const retained = sql.prepare('SELECT * FROM execution_snapshots WHERE id=?').get(attempt.snapshotId) as SnapshotRow | undefined;
+      if (!retained || retained.runId !== attempt.runId || retained.attempt !== attempt.attempt) throw new PersistenceValidationError('Missing or conflicting execution migration snapshot');
+    }
+  } }, options.preferSchema ?? 1);
+  const ownership = schemaVersion === 2 ? openExecutionOwnership(persistence) : null;
+  const policies = openExecutionPolicy(persistence);
   const transaction = persistence.transaction;
   function legacyObligations(): Array<{ runId: string; repo: string; status: string; state: string; protected: number }> {
     if (!sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_execution_obligations'").get()) return [];
@@ -312,6 +322,31 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
       || !['resumable', 'retired'].includes(String(item.state)) || !('artifacts' in item)) throw new PersistenceValidationError('Checkpoint integrity check failed');
     return item as unknown as ExecutionCheckpoint;
   }
+  function acquireResources(runId: string, repo: string, input?: ExecutionFootprint): void {
+    if (!ownership) return;
+    const current = ownership.get(runId);
+    const footprint = input ? parseExecutionFootprint(input) : current?.footprint ?? exclusiveExecutionFootprint(runId, repo);
+    if (footprint.runId !== runId || footprint.repo !== repo.toLowerCase()) throw new PersistenceConflictError('Execution footprint identity differs from admission');
+    for (const reservation of store.reservations()) {
+      if (reservation.runId !== runId && !ownership.get(reservation.runId)
+        && executionFootprintsConflict(footprint, exclusiveExecutionFootprint(reservation.runId, reservation.repo))) {
+        throw new PersistenceConflictError('Legacy execution reserves exclusive galleon ownership');
+      }
+    }
+    ownership.acquire(footprint);
+  }
+  function assertCapacity(runId: string, repo: string, maximum: number, preparing = false): void {
+    const reservations = store.reservations();
+    const existing = reservations.find(item => item.runId === runId);
+    if (existing) {
+      if (existing.repo.toLowerCase() !== repo.toLowerCase()) throw new PersistenceConflictError('Admission already reserves another galleon');
+      return;
+    }
+    const limit = schemaVersion === 2 ? policies.read(repo).maxConcurrentRuns : 1;
+    if (reservations.length >= maximum || reservations.filter(item => item.repo.toLowerCase() === repo.toLowerCase()).length >= limit) {
+      throw new PersistenceConflictError(preparing ? 'A voyage already reserves this galleon or maximum concurrency is reached' : 'Execution capacity is reserved');
+    }
+  }
   const store: ExecutionStore = {
     hasRunEvidence(runId) {
       if (!identity(runId)) throw new PersistenceValidationError('Invalid execution identity');
@@ -329,16 +364,12 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
       if (!identity(input?.runId) || !nonempty(input.repo) || !Number.isSafeInteger(input.maxConcurrency) || input.maxConcurrency < 1 || input.evidence === null) throw new PersistenceValidationError('Invalid admission reservation');
       transaction(() => {
         rejectUnadoptedLegacy(input.runId);
-        const reservations = store.reservations();
-        const existing = reservations.find(item => item.runId === input.runId);
-        if (existing) {
-          if (existing.repo.toLowerCase() !== input.repo.toLowerCase()) throw new PersistenceConflictError('Admission already reserves another galleon');
-          return;
-        }
-        if (reservations.length >= input.maxConcurrency || reservations.some(item => item.repo.toLowerCase() === input.repo.toLowerCase())) throw new PersistenceConflictError('Execution capacity is reserved');
+        assertCapacity(input.runId, input.repo, input.maxConcurrency);
+        acquireResources(input.runId, input.repo, input.footprint);
+        if (sql.prepare('SELECT runId FROM execution_reservations WHERE runId=?').get(input.runId)) return;
         if (sql.prepare('SELECT runId FROM execution_attempts WHERE runId=?').get(input.runId)) throw new PersistenceConflictError('Admission already has an execution attempt');
         sql.prepare("INSERT INTO execution_reservations VALUES (?,?,'prepared')").run(input.runId, input.repo);
-        evidence({ runId: input.runId, attempt: 0 }, 'admission-reserved', input.evidence);
+        evidence({ runId: input.runId, attempt: 0 }, 'admission-reserved', { admission: input.evidence, policy: policies.read(input.repo), footprint: ownership?.get(input.runId)?.footprint ?? null });
       });
     },
     abandonAdmission(runId, abandonmentEvidence) {
@@ -346,6 +377,7 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
       transaction(() => {
         rejectUnadoptedLegacy(runId);
         if (sql.prepare('SELECT runId FROM execution_attempts WHERE runId=?').get(runId)) throw new PersistenceConflictError('Attempted execution cannot be abandoned as an admission');
+        ownership?.abandon(runId);
         evidence({ runId, attempt: 0 }, 'admission-abandoned', abandonmentEvidence);
         sql.prepare('DELETE FROM execution_reservations WHERE runId=?').run(runId);
       });
@@ -361,23 +393,26 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
           const attempt = decodeAttempt(previous);
           const expectedPaths = paths.worktree === null ? { ...paths, worktree: attempt.paths.worktree } : paths;
           if (attempt.snapshotId !== persistenceHash(value) || attempt.launchId !== input.launchId || stableJson(attempt.paths) !== stableJson(expectedPaths)) throw new PersistenceConflictError('Execution attempt already has different preparation');
+          if (!attempt.outcome) acquireResources(value.runId, value.repo, input.footprint);
+          else if (input.footprint && persistenceHash(ownership?.get(value.runId)?.footprint) !== persistenceHash(parseExecutionFootprint(input.footprint))) throw new PersistenceConflictError('Execution footprint cannot change during replay');
           return attempt;
         }
         const attempts = (sql.prepare('SELECT * FROM execution_attempts WHERE runId = ?').all(value.runId) as AttemptRow[]).map(decodeAttempt);
         if (attempts.some(attempt => !attempt.outcome)) throw new PersistenceConflictError('Prior execution attempt is unresolved');
         if (attempts.some(attempt => attempt.attempt >= value.attempt)) throw new PersistenceConflictError('Execution attempts must advance monotonically');
         if (sql.prepare('SELECT launchId FROM execution_attempts WHERE launchId=?').get(input.launchId)) throw new PersistenceConflictError('Launch identity belongs to another execution attempt');
-        const reservation = sql.prepare('SELECT * FROM execution_reservations WHERE runId = ?').get(value.runId) as ExecutionReservation | undefined;
-        const reservations = store.reservations();
-        if (reservation && reservation.repo.toLowerCase() !== value.repo.toLowerCase() || reservations.some(item => item.runId !== value.runId && item.repo.toLowerCase() === value.repo.toLowerCase())) throw new PersistenceConflictError('A voyage already reserves this galleon');
-        if (!reservation && reservations.length >= input.maxConcurrency) throw new PersistenceConflictError('Maximum execution concurrency reached');
+        assertCapacity(value.runId, value.repo, input.maxConcurrency, true);
+        acquireResources(value.runId, value.repo, input.footprint);
+        const retained = ownership?.get(value.runId);
+        if (retained?.footprint.completeness === 'verified' && paths.worktree !== null
+          && !retained.footprint.resources.some(resource => resource.kind === 'workspace' && resource.identity === paths.worktree)) throw new PersistenceConflictError('Prepared worktree differs from admitted ownership');
         const saved = createExecutionSnapshot(persistence, value);
         const attempt: ExecutionAttempt = { runId: value.runId, attempt: value.attempt, snapshotId: saved.id, launchId: input.launchId,
           preparation: 'prepared', attachment: 'pending', hostRef: null, paths, outcome: null, diagnostic: null };
         sql.prepare('INSERT INTO execution_attempts(runId,attempt,snapshotId,launchId,json) VALUES(@runId,@attempt,@snapshotId,@launchId,@json)').run({ ...attempt, json: stableJson(attempt) });
         sql.prepare("INSERT INTO execution_reservations VALUES (?,?,'prepared') ON CONFLICT(runId) DO UPDATE SET reason='prepared'").run(value.runId, value.repo);
         addPins(saved.artifacts.map(artifact => ({ kind: 'execution', ownerId: saved.id, pluginId: artifact.pluginId, artifactHash: artifact.artifactHash })));
-        evidence(attempt, 'prepared', { snapshotId: saved.id, launchId: attempt.launchId });
+        evidence(attempt, 'prepared', { snapshotId: saved.id, launchId: attempt.launchId, policy: policies.read(value.repo), footprint: ownership?.get(value.runId)?.footprint ?? null });
         return attempt;
       });
     },
@@ -395,6 +430,13 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
       const rows = sql.prepare('SELECT * FROM execution_reservations ORDER BY runId').all() as ExecutionReservation[];
       for (const item of legacyObligations()) {
         if (item.status === 'running' && !rows.some(row => row.runId === item.runId)) rows.push({ runId: item.runId, repo: item.repo, reason: 'unresolved' });
+      }
+      if (sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs'").get()) {
+        for (const row of sql.prepare("SELECT id,repo FROM runs WHERE status='running'").all() as { id: string; repo: string }[]) {
+          const existing = rows.find(item => item.runId === row.id);
+          if (existing && existing.repo.toLowerCase() !== row.repo.toLowerCase()) throw new PersistenceValidationError('Execution reservation galleon differs from active run');
+          if (!existing) rows.push({ runId: row.id, repo: row.repo, reason: 'unresolved' });
+        }
       }
       if (rows.some(row => !identity(row.runId) || !nonempty(row.repo) || !['prepared', 'executing', 'unresolved'].includes(row.reason))) throw new PersistenceValidationError('Invalid durable execution reservation');
       return rows;
@@ -427,6 +469,8 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
       transaction(() => {
         const item = owned(lease);
         if (item.outcome || !['prepared', 'ready'].includes(item.preparation) || item.paths.worktree !== null && item.paths.worktree !== path) throw new PersistenceConflictError('Prepared worktree identity cannot change');
+        const retained = ownership?.get(item.runId);
+        if (retained && (retained.state !== 'held' || retained.footprint.completeness === 'verified' && !retained.footprint.resources.some(resource => resource.kind === 'workspace' && resource.identity === path))) throw new PersistenceConflictError('Worktree differs from admitted ownership');
         save({ ...item, paths: { ...item.paths, worktree: path } });
         evidence(item, 'worktree-prepared', { path });
       });
@@ -560,6 +604,8 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
     },
     cleanupEligibility(runId) {
       const reasons: string[] = [];
+      if (sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs'").get()
+        && sql.prepare("SELECT id FROM runs WHERE id=? AND status='running'").get(runId)) reasons.push('Run is still active');
       if (legacyObligations().some(item => item.runId === runId)) reasons.push('Legacy execution or checkpoint requires verified adoption');
       const hasAdmissions = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='execution_admissions'").get();
       if (hasAdmissions && sql.prepare("SELECT runId FROM execution_admissions WHERE runId=? AND state IN ('pending','blocked')").get(runId)) reasons.push('Execution admission remains unresolved');
