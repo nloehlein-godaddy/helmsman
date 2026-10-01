@@ -1,5 +1,6 @@
 import type { AgentEvent } from './agents/adapter';
 import { runFeedbackUpdateRuntime } from './feedback-update-runtime';
+import { acknowledgeCoordinatorSettlement } from './coordinator-settlement';
 
 const emit = (event: AgentEvent) => process.stdout.write(`${JSON.stringify({ __helmsmanPrePr: 1, ...event })}\n`);
 try {
@@ -13,3 +14,5 @@ try {
   emit({ kind: 'error', text: error instanceof Error ? error.message : String(error) });
   process.exitCode = 1;
 }
+
+await acknowledgeCoordinatorSettlement();

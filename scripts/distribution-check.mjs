@@ -85,7 +85,7 @@ test('compiled workflow preparation finds its prompts and helpers outside the or
 });
 
 test('compiled coordinators and run wrapper execute without a TypeScript loader', async () => {
-  for (const [name, message] of [['pre-pr-cli.js', 'Pre-PR worker input is required'], ['docker-review-cli.js', 'Invalid isolated review task']]) {
+  for (const [name, message] of [['pre-pr-cli.js', 'Pre-PR worker input is required'], ['docker-review-cli.js', 'Invalid isolated review task'], ['feedback-update-cli.js', 'Feedback worker input is required']]) {
     await assert.rejects(isolated([join(installation, 'server', 'helmsman', name)]), error => {
       assert.equal(error.code, 1);
       assert.equal(JSON.parse(error.stdout).text, message);

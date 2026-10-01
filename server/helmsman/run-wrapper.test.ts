@@ -1,12 +1,41 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const WRAPPER = join(__dirname, 'run-wrapper.mjs');
 
 describe.skipIf(process.platform === 'win32')('run-wrapper', () => {
+  it.each([true, undefined])('records feedback CLI failure after settled IPC (explicit coordinator: %s)', coordinator => {
+    const dir = mkdtempSync(join(tmpdir(), 'wrap-feedback-'));
+    try {
+      const specPath = join(dir, 'spec.json'); const logPath = join(dir, 'run.log'); const exitPath = join(dir, 'run.exit');
+      const identity = { runId: 'feedback-run', launchId: 'feedback-launch', attempt: 1 };
+      writeFileSync(specPath, JSON.stringify({ ...identity, cmd: process.execPath,
+        args: ['--import', import.meta.resolve('tsx'), join(__dirname, 'feedback-update-cli.ts')], cwd: dir, logPath, exitPath,
+        receiptPath: join(dir, 'receipt.json'), ...(coordinator ? { coordinator } : {}) }));
+      const wrapper = spawnSync(process.execPath, [WRAPPER, specPath], { encoding: 'utf8', timeout: 15_000 });
+      expect(wrapper.error).toBeUndefined(); expect(wrapper.status).toBe(0);
+      expect(readFileSync(logPath, 'utf8')).toContain('Feedback worker input is required');
+      expect(JSON.parse(readFileSync(exitPath, 'utf8'))).toMatchObject({ ...identity, exitCode: 1 });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('requires inferred feedback coordinators to acknowledge their child stages before writing a receipt', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wrap-feedback-unsettled-'));
+    try {
+      const worker = join(dir, 'feedback-update-cli.js'); const specPath = join(dir, 'spec.json');
+      const logPath = join(dir, 'run.log'); const exitPath = join(dir, 'run.exit');
+      writeFileSync(worker, 'process.exit(0);');
+      writeFileSync(specPath, JSON.stringify({ cmd: process.execPath, args: [worker], cwd: dir, logPath, exitPath }));
+      const wrapper = spawnSync(process.execPath, [WRAPPER, specPath], { encoding: 'utf8', timeout: 15_000 });
+      expect(wrapper.error).toBeUndefined(); expect(wrapper.status).toBe(1);
+      expect(existsSync(exitPath)).toBe(false);
+      expect(readFileSync(logPath, 'utf8')).toContain('coordinator stage settlement is unknown');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it('captures stdout+stderr to the log and the exit code to the sentinel', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wrap-'));
     const specPath = join(dir, 'spec.json');

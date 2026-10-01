@@ -15,6 +15,15 @@ Direct `review` and `branch` workflows render the run prompt but do not control 
 - `{ kind: 'publish' }`
 - `{ kind: 'stop', reason }`
 
+Direct `branch` metadata may opt into feedback verification with `feedbackCompletion: true`.
+Such providers implement `nextFeedback(input)` and render the typed `feedback` author
+and audit contexts. The synchronous policy returns `repair`, `decide`, `complete`, or
+`stop` with a reason. Core owns source collection, the retained reviewer set, detached
+audit checkouts, clarification handoff, evidence validation, and round limits. A
+provider cannot complete a run with stale evidence, unresolved findings, or missing
+responses. Repair pushes and replies precede the audit; this gate controls run
+completion. Existing direct branch providers without the flag retain their behavior.
+
 ## Pure transition policies
 
 `next` must be synchronous, deterministic, and free of mutable provider state. Derive every action from `WorkflowStepInputV1`. Do not perform file, network, Git, process, publication, clock, random, or host-runtime operations. Helmsman may call the retained policy again after restart with a reconstructed completed-review checkpoint.

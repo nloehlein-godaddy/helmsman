@@ -383,6 +383,16 @@ or changed selection blocks admission. Publication remains a guarded server-side
 operation; credentials never reach the browser. **There is no Merge button** —
 merge stays a deliberate action on GitHub, and the agent never merges.
 
+The built-in branch workflow independently checks the published head and complete
+discussion after each repair. Every source must be accounted for, with published
+response evidence for each finding. Edited comments, review summaries, or owner
+answers invalidate an earlier audit. Required decisions appear in Clarifications;
+answered decisions must still be implemented and reviewed. Running and Recent show
+**Feedback completed**, **Feedback remaining**, or **Awaiting decision** separately
+from worker status. Successful process exit alone cannot complete feedback work.
+The workflow retains its selected PR source, author, reviewers, and policy. Feedback
+publication currently requires a trusted local execution host.
+
 ### Direct links
 
 Each tab has a page URL: `/helm`, `/triage`, `/todos`, `/terminal`, `/bugs`, `/prs`, `/config`, and
@@ -579,8 +589,9 @@ See [execution host authoring](docs/execution-host-authoring.md).
 
 ### Caps
 
-`AGENT_MAX_ATTEMPTS` bounds retries for existing-PR voyages; new coding voyages use
-one gated workflow with the bounded review loop above. `AGENT_MAX_COST_USD` (opt-in)
+`AGENT_MAX_ATTEMPTS` bounds retries for direct existing-PR voyages. New coding voyages
+and built-in feedback updates use one coordinator attempt with bounded review rounds
+from the retained workflow settings. `AGENT_MAX_COST_USD` (opt-in)
 stops work once reported cost reaches the cap. Pre-PR voyages aggregate reported
 cost across author and reviewer sessions; Codex sessions currently provide no cost
 data, so the cap cannot bound their spend. Both, and the live attempt/cost of
@@ -590,7 +601,10 @@ each run, show on the running-agent rows (`×attempt/max`, `$cost/$cap`).
 
 On startup Helmsman reattaches to surviving run hosts and marks interrupted runs
 failed when their host is gone. It sweeps orphaned agent worktrees under each repo's
-`.worktrees/`, except failed or stopped pre-PR voyages retained for recovery. These
+`.worktrees/`, except failed or stopped pre-PR and feedback voyages retained for recovery.
+Retrying a failed feedback voyage starts from the current published PR head and
+detaches its inactive retained checkout, preserving unpublished commits and staged,
+unstaged, and untracked files for inspection. These
 checks are fail-soft: a failure is logged and never blocks the server from listening.
 
 ## Configuration

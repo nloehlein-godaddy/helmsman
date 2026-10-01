@@ -5,7 +5,7 @@ import { openSync, readFileSync, writeFileSync, linkSync, unlinkSync, renameSync
 const specPath = process.argv[2];
 const spec = JSON.parse(readFileSync(specPath, 'utf8'));
 const coordinator = spec.coordinator === true || [spec.cmd, ...(spec.args ?? [])].some(value =>
-  typeof value === 'string' && /(?:^|[\\/])(?:pre-pr-cli|docker-review-cli)\.[jt]s$/.test(value));
+  typeof value === 'string' && /(?:^|[\\/])(?:pre-pr-cli|docker-review-cli|feedback-update-cli)\.[jt]s$/.test(value));
 if (process.argv[3] === '--supervise') {
   supervise();
 } else {
