@@ -63,7 +63,8 @@ test('copied SDK-only packages select, retain a paused window and render bounded
     const context = { state, signal: lifetime.signal, activity: state.activity, services, saveState: async () => {}, onDispose: () => {}, navigate: () => {},
       selectPresentation: (presentation: PluginPanelState['presentation']) => { state = { ...state, presentation }; void viewer.update(state); } };
     viewer = await viewerModule.mount(document.querySelector('#viewer'), context); await historyModule.mount(document.querySelector('#history'), { ...context, state: { ...state, instanceId: 'history' } });
-    (window as typeof window & { presentationProbe: { suspend(): void; resume(): void } }).presentationProbe = {
+    (window as typeof window & { presentationProbe: { suspend(): void; resume(): void; redraw(): void } }).presentationProbe = {
+      redraw() { void viewer.update(state); },
       suspend() { activity.abort(); state = { ...state, visible: false, activity: { ...state.activity, active: false } }; void viewer.update(state); },
       resume() { activity = new AbortController(); state = { ...state, visible: true, activity: { epoch: state.activity.epoch + 1, repo: 'org/a', active: true, signal: activity.signal } }; void viewer.update(state); },
     };
@@ -73,10 +74,12 @@ test('copied SDK-only packages select, retain a paused window and render bounded
   await expect(page.locator('#history')).toContainText('101 matching runs observed'); await expect(page.locator('#viewer')).toContainText('4,000 characters per event');
   await page.getByRole('button', { name: 'Earlier logs', exact: true }).click(); await expect(page.locator('#viewer pre')).toContainText('Earlier run-wide event');
   await expect(page.getByRole('button', { name: 'Stop run', exact: true })).toBeEnabled();
-  await page.evaluate(() => { const probe = (window as typeof window & { presentationProbe: { suspend(): void; resume(): void } }).presentationProbe; probe.suspend(); probe.resume(); });
+  await page.evaluate(() => { const probe = (window as typeof window & { presentationProbe: { suspend(): void; resume(): void; redraw(): void } }).presentationProbe; probe.suspend(); probe.resume(); });
   await expect(page.getByRole('button', { name: 'Stop run', exact: true })).toBeEnabled(); await expect(page.locator('#viewer pre')).toContainText('Earlier run-wide event');
   await expect(page.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: 'Instruction for active agent' }).fill('Preserve the public API while fixing the bug.');
+  await page.evaluate(() => { (window as typeof window & { presentationProbe: { redraw(): void } }).presentationProbe.redraw(); });
+  await expect(page.getByRole('textbox', { name: 'Instruction for active agent' })).toBeFocused();
   await page.getByRole('button', { name: 'Send instruction', exact: true }).click();
   await expect(page.locator('[data-instruction-request]')).toContainText('Attempt 2 · delivered');
   await expect(page.getByRole('button', { name: 'Send instruction', exact: true })).toBeDisabled();

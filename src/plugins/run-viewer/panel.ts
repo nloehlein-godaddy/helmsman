@@ -373,6 +373,7 @@ class ViewerPanel implements PluginPanelInstance {
     this.container.replaceChildren(root);
     if (tab) { this.log.scrollTop = tab.follow ? this.log.scrollHeight : tab.scrollTop; if (tab.follow) tab.scrollTop = this.log.scrollTop; }
     if (focused === this.log && this.log.isConnected) this.log.focus({ preventScroll: true });
+    else if (focused?.isConnected && this.instructions.element.contains(focused)) focused.focus({ preventScroll: true });
     else if (focus) [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });
   }
   private drawRequests(root: HTMLElement) {
