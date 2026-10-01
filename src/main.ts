@@ -206,7 +206,10 @@ export class DashboardView {
     const template = document.createElement('template');
     template.innerHTML = renderAppShell(this.shellOptions(), '');
     const footer = template.content.querySelector('.app-footer');
-    if (footer) this.root.querySelector('.app-footer')?.replaceWith(footer);
+    if (footer) {
+      this.root.querySelector('.app-footer')?.replaceWith(footer);
+      this.feedbackContribution.rehome(this.root.querySelector<HTMLElement>('[data-feedback-footer]'));
+    }
     for (const [key, control] of controls()) {
       const previous = savedControls.get(key);
       if (!previous) continue;
