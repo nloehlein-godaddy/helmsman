@@ -215,3 +215,19 @@ it('ignores a late inactive summary after the viewer becomes hidden', async () =
   await Promise.resolve(); await Promise.resolve();
   expect(f.container.textContent).not.toContain('Approve');
 });
+
+it.each([
+  ['completed', 'succeeded', 'Feedback completed'], ['completed', 'running', 'running'],
+  ['completed', 'failed', 'Feedback remaining'], ['completed', 'stopped', 'Feedback remaining'],
+  ['awaiting_decision', 'running', 'Awaiting decision'], ['awaiting_decision', 'failed', 'Feedback remaining'],
+  ['changes_remaining', 'succeeded', 'Feedback remaining'],
+] as const)('shows %s feedback on %s without hiding worker state', async (state, status, label) => {
+  const f = await mount(); await ready(f.container);
+  f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId,
+    run: { ...summary(input.runId), status, feedbackOutcome: { state, headSha: 'a'.repeat(40), summary: '<img src=x onerror=alert(1)>' } } }));
+  await f.instance.refresh?.();
+  expect(f.container.querySelector('.run-tab-status')?.textContent).toBe(label);
+  expect(f.container.textContent).toContain(`Worker: ${status}`);
+  expect(f.container.querySelector('img')).toBeNull();
+  expect(f.container.querySelector('.run-feedback-outcome')?.textContent ?? null).toBe(label === 'running' ? null : label);
+});

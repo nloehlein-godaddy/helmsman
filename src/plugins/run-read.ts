@@ -1,3 +1,4 @@
+import { normalizeFeedbackOutcomeForStatus, parseFeedbackOutcome, type FeedbackOutcome } from './feedback-outcome';
 import { parseTaskRepo } from './tasks';
 
 export type RunReadStatusV1 = 'running' | 'succeeded' | 'failed' | 'stopped';
@@ -19,6 +20,7 @@ export interface RunReadSummaryV1 {
   readonly review: { readonly outcome: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'; readonly verdict: string } | null;
   /** Null while work is running or no source settlement applies; never changes the worker status. */
   readonly sourceSettlement: RunReadSettlementV1 | null;
+  readonly feedbackOutcome?: Readonly<FeedbackOutcome>;
 }
 export interface RunReadListQueryV1 {
   readonly version: 1;
@@ -107,9 +109,11 @@ export function parseRunReadSummaryV1(input: unknown): RunReadSummaryV1 {
     const data = record(value.sourceSettlement); if (workerStatus === 'running' || typeof data.state !== 'string' || !['pending', 'settled', 'operator-required'].includes(data.state)) invalid();
     sourceSettlement = Object.freeze({ state: data.state as RunReadSettlementV1['state'] });
   }
+  const feedbackOutcome = normalizeFeedbackOutcomeForStatus(parseFeedbackOutcome(value.feedbackOutcome), workerStatus);
+  const visibleFeedback = feedbackOutcome && (feedbackOutcome.state !== 'completed' || workerStatus === 'succeeded') ? Object.freeze(feedbackOutcome) : null;
   return Object.freeze({ version: 1, id: runId(value.id), repo: parseTaskRepo(value.repo), displayKey: text(value.displayKey, 512), status: workerStatus,
     attempt: integer(value.attempt, 1), startedAt: date(value.startedAt), endedAt: value.endedAt === null ? null : date(value.endedAt),
-    prNumber: value.prNumber === null ? null : integer(value.prNumber, 1), costUsd: value.costUsd as number | null, review, sourceSettlement });
+    prNumber: value.prNumber === null ? null : integer(value.prNumber, 1), costUsd: value.costUsd as number | null, review, sourceSettlement, ...(visibleFeedback ? { feedbackOutcome: visibleFeedback } : {}) });
 }
 export function parseRunReadPageV1(input: unknown, query: RunReadListQueryV1, repos: readonly string[]): RunReadPageV1 {
   const value = record(input); if (value.version !== 1 || value.repo !== query.repo) invalid();

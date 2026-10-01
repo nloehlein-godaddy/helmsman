@@ -33,4 +33,10 @@ describe('pull request provider registry', () => {
     expect(() => registry.stage(binding, { ...provider, profile: async () => ({ displayName: null, login: null }) })).not.toThrow();
     expect(() => registry.stage(binding, { ...provider, profile: null } as unknown as PullRequestProviderV1)).toThrow('Invalid pull request provider');
   });
+  it('preserves existing providers while validating an optional feedback snapshot hook', () => {
+    const registry = createPullRequestProviderRegistry({ eligible: () => true });
+    expect(() => registry.stage(binding, provider)).not.toThrow();
+    expect(() => registry.stage(binding, { ...provider, feedbackSnapshot: async () => { throw new Error('unused'); } })).not.toThrow();
+    expect(() => registry.stage(binding, { ...provider, feedbackSnapshot: null } as unknown as PullRequestProviderV1)).toThrow('Invalid pull request provider');
+  });
 });

@@ -12,6 +12,7 @@ import { parseInlineReviewComments, type InlineReviewInput } from './inline-revi
 import { agentAttribution } from './agent-attribution';
 import { createClarificationChannel, parseClarificationChannel } from './clarification-protocol-store';
 import { buildRoutedAgentCommand } from './model-routing';
+import { hasVerifiedFeedbackCompletion } from './feedback-completion';
 
 export interface RunnerDeps {
   durable?: DurableRunnerCoordinator;
@@ -256,6 +257,10 @@ interface FinalizeParams {
 async function finalizeRun(p: FinalizeParams): Promise<void> {
   const { runId, task, deps, prNumber, totalCost, ok, worktreePath, onEvent } = p;
   const commit = p.commit ?? ((patch: Partial<RunRow>) => deps.db.updateRun(runId, patch));
+  if (ok && task.workflow?.metadata.feedbackCompletion === true && !hasVerifiedFeedbackCompletion(deps.db, runId, task)) {
+    onEvent({ kind: 'error', text: 'Current feedback completion evidence is missing; task cannot complete', stage: 'feedback-review' });
+    p.ok = false;
+  }
   if (ok && deps.hasRequiredUnanswered?.(runId, task.clarification?.attempt)) {
     onEvent({ kind: 'error', text: 'Required clarification has no answer; task cannot complete', stage: 'clarification' });
     p.ok = false;
@@ -360,7 +365,7 @@ export async function startRun(task: AgentTask, deps: RunnerDeps): Promise<strin
     const worktree: { path: string; branch: string } = pinnedReview
       ? await deps.createReviewWorktree!(task.repo, runId, task.prNumber!, pinnedReview)
       : task.prBranch
-        ? await deps.createWorktreeFromBranch!(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.pullRequestSource.target.headSha] as const : []))
+        ? await deps.createWorktreeFromBranch!(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.workflow?.metadata.feedbackCompletion === true ? task.prHeadSha ?? task.pullRequestSource.target.headSha : task.pullRequestSource.target.headSha] as const : []))
         : await deps.createWorktree(task.repo, runId);
     worktreePath = worktree.path;
     deps.db.updateRun(runId, { worktreePath: worktree.path });
@@ -725,7 +730,7 @@ async function startDurableRun(task: AgentTask, deps: RunnerDeps): Promise<strin
           worktree = await deps.createReviewWorktree(task.repo, runId, task.prNumber, task.prHeadSha);
         } else if (task.prBranch) {
           if (!deps.createWorktreeFromBranch) throw new Error('Pinned branch worktree is unavailable');
-          worktree = await deps.createWorktreeFromBranch(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.pullRequestSource.target.headSha] as const : []));
+          worktree = await deps.createWorktreeFromBranch(task.repo, runId, task.prBranch, ...(task.pullRequestSource ? [task.workflow?.metadata.feedbackCompletion === true ? task.prHeadSha ?? task.pullRequestSource.target.headSha : task.pullRequestSource.target.headSha] as const : []));
         } else worktree = await deps.createWorktree(task.repo, runId);
       }
       heartbeat.check();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowPromptInputV1, WorkflowReviewReportV1, WorkflowStepInputV1 } from '../workflow';
-import { codingNext, codingWorkflowProvider, branchWorkflowProvider } from './provider';
+import { codingNext, codingWorkflowProvider, branchWorkflowProvider, feedbackNext } from './provider';
 import { renderBranchPrompt, renderCodingPrompt } from './prompt';
 
 const baseSha = 'a'.repeat(40);
@@ -59,9 +59,9 @@ describe('coding workflow policy', () => {
     expect(codingNext(step({ ...implemented, reviews: [{ reviewer: writerId, report: changes }, { reviewer: alternateId, report: approved }] }))).toEqual({ kind: 'stop', reason: 'Unresolved material findings after 3 review rounds' });
   });
 
-  it('declares retained staged and direct metadata', () => {
+  it('declares retained staged and feedback metadata', () => {
     expect(codingWorkflowProvider({ maxRounds: 4, stageTimeoutMinutes: 60 }).metadata).toEqual({ version: 1, label: 'Coding', modes: ['coding'], execution: 'staged', requiredSkills: [], maxRounds: 4, stageTimeoutMinutes: 60 });
-    expect(branchWorkflowProvider({ stageTimeoutMinutes: 30 }).metadata).toEqual({ version: 1, label: 'Branch update', modes: ['branch'], execution: 'direct', requiredSkills: [], maxRounds: 1, stageTimeoutMinutes: 30 });
+    expect(branchWorkflowProvider({ maxRounds: 4, stageTimeoutMinutes: 30 }).metadata).toEqual({ version: 1, label: 'Branch update', modes: ['branch'], execution: 'direct', feedbackCompletion: true, requiredSkills: [], maxRounds: 4, stageTimeoutMinutes: 30 });
   });
 });
 
@@ -95,9 +95,40 @@ describe('coding workflow prompts', () => {
 
   it('keeps branch work on the same pull-request branch', () => {
     const input = prompt(null);
-    const value = renderBranchPrompt({ ...input, task: { ...input.task, task: 'Resolve feedback', prBranch: 'feature/test', prNumber: 42 } });
+    const value = renderBranchPrompt({ ...input, task: { ...input.task, task: 'Resolve feedback', prBranch: 'feature/test', prNumber: 42 },
+      feedback: { stage: 'author', round: 1, snapshotPath: '/tmp/snapshot.json', feedbackPath: '/tmp/feedback.txt',
+        snapshot: { repo: input.task.repo, prNumber: 42, baseSha, headSha, fingerprint: 'c'.repeat(64) } } });
     expect(value).toContain('Same branch only');
     expect(value).toContain('do NOT open a new pull request');
+    expect(value).toContain('every actionable finding');
+    expect(value).toContain('Do not claim the voyage is complete');
+    expect(value).toContain('actual authorized decision evidence');
+  });
+});
+
+describe('feedback completion policy', () => {
+  const input = { version: 1 as const, repairAttempts: 0, decisionRounds: 0, evidenceChanged: false, outcomes: ['completed' as const] };
+  it('accepts only current completed audits and bounds repairs on changed evidence or findings', () => {
+    expect(feedbackNext(input, 3)).toEqual({ kind: 'complete' });
+    expect(feedbackNext({ ...input, evidenceChanged: true }, 3)).toEqual({ kind: 'repair' });
+    expect(feedbackNext({ ...input, evidenceChanged: true, repairAttempts: 2 }, 3).kind).toBe('stop');
+    expect(feedbackNext({ ...input, outcomes: ['completed', 'changes_remaining'] }, 3)).toEqual({ kind: 'repair' });
+    expect(feedbackNext({ ...input, outcomes: ['changes_remaining'], repairAttempts: 2 }, 3).kind).toBe('stop');
+  });
+  it('gives final-round decisions an application opportunity while bounding repeated handoffs', () => {
+    const pending = { ...input, outcomes: ['changes_remaining', 'awaiting_decision'] as const, repairAttempts: 2 };
+    expect(feedbackNext(pending, 3)).toEqual({ kind: 'decide' });
+    expect(feedbackNext({ ...pending, decisionRounds: 3 }, 3).kind).toBe('stop');
+  });
+  it('keeps audit coverage, owner evidence and immutable published revision requirements', () => {
+    const input = prompt(null);
+    const value = renderBranchPrompt({ ...input, task: { ...input.task, prBranch: 'feature/test', prNumber: 42 },
+      feedback: { stage: 'audit', round: 2, snapshotPath: '/tmp/snapshot.json', reportPath: '/tmp/report.json',
+        decisions: { path: '/tmp/decisions.txt', fingerprint: 'd'.repeat(64) },
+        snapshot: { repo: input.task.repo, prNumber: 42, baseSha, headSha, fingerprint: 'c'.repeat(64) } } });
+    for (const required of [`${baseSha}...${headSha}`, 'EVERY snapshot source id', 'EVERY original source', 'responseUrl', 'decisionFingerprint',
+      'security-owner', 'Do not edit the worktree', 'do not ask the same resolved question again', 'top-level findings', '/tmp/decisions.txt']) expect(value).toContain(required);
+    expect(value).not.toContain('Run the tests, commit, and push');
   });
 });
 

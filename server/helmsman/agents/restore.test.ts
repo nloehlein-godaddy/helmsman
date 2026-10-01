@@ -16,6 +16,7 @@ describe('restored run adapters', () => {
     const retained = { ...codexAdapter, id: row.adapter };
     expect(restoreRunAdapter(row, { runsDir: '/runs', retained })).toBe(retained);
     expect(restoreRunAdapter({ ...row, adapter: `pre-pr:${row.adapter}` }, { runsDir: '/runs', retained }).id).toBe(`pre-pr:${row.adapter}`);
+    expect(restoreRunAdapter({ ...row, adapter: `feedback:${row.adapter}` }, { runsDir: '/runs', retained }).id).toBe(`feedback:${row.adapter}`);
   });
   it.each(['codex', 'claude-code'])('restores structured Docker review events for persisted %s runs', adapter => {
     const restored = restoreRunAdapter({ adapter, taskJson: JSON.stringify(task) }, { runsDir: '/runs' });

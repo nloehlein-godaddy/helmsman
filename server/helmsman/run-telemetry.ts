@@ -19,11 +19,11 @@ export interface RunTelemetry {
 }
 
 function providerId(run: RunRow, event: AgentEvent): string {
-  return event.provider ?? run.adapter.replace(/^(?:pre-pr:|docker-review:)/, '');
+  return event.provider ?? run.adapter.replace(/^(?:pre-pr:|docker-review:|feedback:)/, '');
 }
 
 function costReporting(run: RunRow, task: AgentTask): 'delta' | 'cumulative' {
-  if (run.adapter.startsWith('pre-pr:') || run.adapter.startsWith('docker-review:') || task.review && usesIsolatedExecution(task)) return 'delta';
+  if (run.adapter.startsWith('pre-pr:') || run.adapter.startsWith('feedback:') || run.adapter.startsWith('docker-review:') || task.review && usesIsolatedExecution(task)) return 'delta';
   if (!task.agentSelection) return 'delta';
   const provider = run.adapter;
   const selection = parseAgentSelectionV1(task.agentSelection);

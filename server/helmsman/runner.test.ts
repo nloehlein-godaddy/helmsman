@@ -1283,3 +1283,29 @@ it('stops the host if a required clarification times out during execution', asyn
   expect(host.stop).toHaveBeenCalledOnce();
   db.close();
 });
+
+describe('feedback completion gate', () => {
+  const channelId = '11111111-1111-4111-8111-111111111111';
+  const feedbackTask: AgentTask = { ...task, prBranch: 'fix/feedback', prNumber: 42,
+    workflow: { metadata: { execution: 'direct', feedbackCompletion: true } } as AgentTask['workflow'],
+    clarification: { version: 1, runId: 'run-1', attempt: 1, channelId, questionsPath: '/unused/questions', answersPath: '/unused/answers' } };
+  it.each([
+    { state: 'completed', attempt: 1, channelId, expected: 'succeeded' },
+    { state: 'completed', attempt: 2, channelId, expected: 'failed' },
+    { state: 'completed', attempt: 1, channelId: '22222222-2222-4222-8222-222222222222', expected: 'failed' },
+    { state: 'changes_remaining', attempt: 1, channelId, expected: 'failed' },
+    { state: 'awaiting_decision', attempt: 1, channelId, expected: 'failed' },
+    { state: 'completed', attempt: undefined, channelId: undefined, expected: 'failed' },
+    { state: undefined, attempt: undefined, channelId: undefined, expected: 'failed' },
+  ])('requires current scoped completion despite exit zero: %j', async ({ state, attempt, channelId: emittedChannel, expected }) => {
+    const db = openDb(':memory:');
+    try {
+      const events: AgentEvent[] = state ? [{ kind: 'feedback-outcome', text: JSON.stringify({ state, headSha: 'a'.repeat(40), summary: 'Verified.', attempt, channelId: emittedChannel }) }] : [];
+      const runnerDeps = { ...deps(db, jsonAdapter('feedback:example.agent/writer'), singleAttemptHost(events, true, 42), freshRunsDir()),
+        createWorktreeFromBranch: vi.fn(async () => ({ path: '/tmp/wt', branch: 'fix/feedback' })), preserveWorktreeOnFailure: true };
+      await startRun(feedbackTask, runnerDeps);
+      expect(db.getRun('run-1')?.status).toBe(expected);
+      expect(runnerDeps.removeWorktree).toHaveBeenCalledTimes(expected === 'succeeded' ? 1 : 0);
+    } finally { db.close(); }
+  });
+});

@@ -17,7 +17,7 @@ export function agentProviderAdapter(record: AgentRetainedProviderV1, input: Age
       const prompt = renderPrompt ? renderPrompt(prepared) : buildPrompt(prepared, record.binding.providerId);
       const command = provider.buildCommand(parseAgentCommandInputV1({ version: 1,
         prompt,
-        model, effort, stage: task.prePr?.stage ?? (task.review ? 'review' : 'direct'), summaryCorrection: Boolean(task.prePr?.summaryCorrection),
+        model, effort, stage: task.feedbackStage?.stage === 'audit' ? 'review' : task.prePr?.stage ?? (task.review ? 'review' : 'direct'), summaryCorrection: Boolean(task.prePr?.summaryCorrection),
         task: { ticketId: task.ticketId, repo: task.repo, title: task.title },
       }));
       return { cmd: command.cmd, args: [...command.args] };

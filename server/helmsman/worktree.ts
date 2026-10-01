@@ -56,6 +56,28 @@ export async function createReviewWorktree(agentsRoot: string, repo: string, run
   return { path, branch: headSha };
 }
 
+export async function detachRetainedFeedbackWorktree(agentsRoot: string, repo: string, runId: string, path: string, branch: string): Promise<void> {
+  if (!isGithubRepo(repo) || !/^[a-z\d_-]{1,128}$/i.test(runId)) throw new Error('Invalid retained feedback workspace');
+  const repoDir = await realpath(join(agentsRoot, repoBasename(repo)));
+  const retainedPath = await realpath(path);
+  if (retainedPath !== join(repoDir, '.worktrees', runId)) throw new Error('Retained feedback workspace is outside the owned run path');
+  await run('git', ['check-ref-format', `refs/heads/${branch}`]);
+  const [repoCommon, worktreeCommon, registered, ref, head] = await Promise.all([
+    run('git', ['-C', repoDir, 'rev-parse', '--path-format=absolute', '--git-common-dir']),
+    run('git', ['-C', retainedPath, 'rev-parse', '--path-format=absolute', '--git-common-dir']),
+    run('git', ['-C', repoDir, 'worktree', 'list', '--porcelain', '-z']),
+    run('git', ['-C', retainedPath, 'symbolic-ref', '-q', 'HEAD']).catch(error => {
+      if ((error as { code?: unknown })?.code === 1) return { stdout: '' };
+      throw error;
+    }),
+    run('git', ['-C', retainedPath, 'rev-parse', '--verify', 'HEAD^{commit}']),
+  ]);
+  if (await realpath(repoCommon.stdout.trim()) !== await realpath(worktreeCommon.stdout.trim())
+    || !registered.stdout.split('\0').includes(`worktree ${retainedPath}`) || ref.stdout.trim() && ref.stdout.trim() !== `refs/heads/${branch}`
+    || !/^[a-f\d]{40,64}$/.test(head.stdout.trim())) throw new Error('Retained feedback workspace identity changed');
+  if (ref.stdout.trim()) await run('git', ['-C', retainedPath, 'update-ref', '--no-deref', 'HEAD', head.stdout.trim(), head.stdout.trim()]);
+}
+
 export async function removeWorktreeAt(repoDir: string, worktreePath: string): Promise<void> {
   await run('git', ['-C', repoDir, 'worktree', 'remove', '--force', worktreePath]);
 }

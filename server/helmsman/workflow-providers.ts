@@ -1,5 +1,5 @@
 import type { PluginJson } from '../../src/plugins/backend';
-import { parseWorkflowActionV1, parseWorkflowMetadataV1, parseWorkflowPromptInputV1, parseWorkflowPromptV1, parseWorkflowStepInputV1, type WorkflowMetadataV1, type WorkflowProviderV1 } from '../../src/plugins/workflow';
+import { parseWorkflowActionV1, parseWorkflowMetadataV1, parseWorkflowPromptInputV1, parseWorkflowPromptV1, parseWorkflowStepInputV1, parseWorkflowFeedbackStepInputV1, parseWorkflowFeedbackActionV1, type WorkflowMetadataV1, type WorkflowProviderV1 } from '../../src/plugins/workflow';
 import { isContributionId, isPluginId } from '../../src/plugins/manifest';
 import type { PluginPackage } from '../../src/plugins/package';
 import { sourceFields, sourceJson, sourceObject } from '../../src/plugins/source-contract-validation';
@@ -34,6 +34,8 @@ export function parseWorkflowRetainedProviderV1(input: unknown): WorkflowRetaine
 export function validateWorkflowProvider(provider: WorkflowProviderV1): void {
   if (!provider || typeof provider !== 'object' || typeof provider.renderPrompt !== 'function' || typeof provider.next !== 'function') throw new TypeError('Invalid workflow provider registration');
   parseWorkflowMetadataV1(provider.metadata);
+  if (provider.metadata.feedbackCompletion === true && typeof provider.nextFeedback !== 'function'
+    || provider.nextFeedback !== undefined && typeof provider.nextFeedback !== 'function') throw new TypeError('Invalid feedback workflow policy');
 }
 export function boundedWorkflowProvider(provider: WorkflowProviderV1, signal?: AbortSignal): WorkflowProviderV1 {
   validateWorkflowProvider(provider);
@@ -46,6 +48,10 @@ export function boundedWorkflowProvider(provider: WorkflowProviderV1, signal?: A
       signal?.throwIfAborted(); const parsed = parseWorkflowStepInputV1(input);
       const result = parseWorkflowActionV1(provider.next(parsed)); signal?.throwIfAborted(); return result;
     },
+    ...(provider.nextFeedback ? { nextFeedback: (input: Parameters<NonNullable<WorkflowProviderV1['nextFeedback']>>[0]) => {
+      signal?.throwIfAborted(); const parsed = parseWorkflowFeedbackStepInputV1(input);
+      const result = parseWorkflowFeedbackActionV1(provider.nextFeedback!(parsed)); signal?.throwIfAborted(); return result;
+    } } : {}),
   });
 }
 export function createWorkflowProviderRegistry(options: { eligible(binding: WorkflowProviderBindingV1, purpose: WorkflowProviderPurpose): boolean }) {

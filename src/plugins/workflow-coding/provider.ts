@@ -1,4 +1,4 @@
-import type { WorkflowActionV1, WorkflowProviderV1, WorkflowStepInputV1 } from '@helmsman/plugin-sdk';
+import type { WorkflowActionV1, WorkflowProviderV1, WorkflowStepInputV1, WorkflowFeedbackStepInputV1, WorkflowFeedbackActionV1 } from '@helmsman/plugin-sdk';
 import { renderBranchPrompt, renderCodingPrompt } from './prompt.js';
 
 export interface CodingWorkflowSettings {
@@ -29,10 +29,23 @@ export function codingWorkflowProvider(settings: CodingWorkflowSettings): Workfl
   };
 }
 
-export function branchWorkflowProvider(settings: { readonly stageTimeoutMinutes: number }): WorkflowProviderV1 {
+export function feedbackNext(input: WorkflowFeedbackStepInputV1, maxRounds: number): WorkflowFeedbackActionV1 {
+  if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5) throw new Error('Invalid feedback round limit');
+  if (!input.outcomes.length) return { kind: 'stop', reason: 'Independent feedback audit is incomplete' };
+  if (input.evidenceChanged) return input.repairAttempts + 1 >= maxRounds
+    ? { kind: 'stop', reason: 'Feedback evidence kept changing through the final review round' } : { kind: 'repair' };
+  if (input.outcomes.every(outcome => outcome === 'completed')) return { kind: 'complete' };
+  if (input.outcomes.includes('awaiting_decision')) return input.decisionRounds >= maxRounds
+    ? { kind: 'stop', reason: 'Required feedback decisions remain unresolved after clarification' } : { kind: 'decide' };
+  return input.repairAttempts + 1 >= maxRounds
+    ? { kind: 'stop', reason: `Unresolved feedback after ${maxRounds} repair rounds` } : { kind: 'repair' };
+}
+
+export function branchWorkflowProvider(settings: CodingWorkflowSettings): WorkflowProviderV1 {
   return {
-    metadata: { version: 1, label: 'Branch update', modes: ['branch'], execution: 'direct', requiredSkills: [], maxRounds: 1, stageTimeoutMinutes: settings.stageTimeoutMinutes },
+    metadata: { version: 1, label: 'Branch update', modes: ['branch'], execution: 'direct', feedbackCompletion: true, requiredSkills: [], maxRounds: settings.maxRounds, stageTimeoutMinutes: settings.stageTimeoutMinutes },
     renderPrompt: renderBranchPrompt,
-    next: () => ({ kind: 'stop', reason: 'Direct branch workflows do not execute guarded stages' }),
+    next: () => ({ kind: 'stop', reason: 'Branch feedback requires the feedback completion policy' }),
+    nextFeedback: input => feedbackNext(input, settings.maxRounds),
   };
 }

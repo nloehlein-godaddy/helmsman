@@ -12,6 +12,18 @@ function fixture(overrides: Partial<Parameters<typeof createPullRequestProviderH
 }
 
 describe('pull request provider HTTP', () => {
+  it('permits paginated comment reads without permitting comment writes or unrelated issue APIs', async () => {
+    const f = fixture({ mutation: true });
+    for (const path of ['/repos/owner/repo/issues/12/comments', '/repos/owner/repo/pulls/12/comments']) {
+      await expect(f.http.request({ method: 'GET', path, query: { page: '2', per_page: '100' }, body: null })).resolves.toMatchObject({ status: 200 });
+      await expect(f.http.request({ method: 'POST', path, query: {}, body: { body: 'unauthorized' } })).rejects.toThrow('not permitted');
+    }
+    for (const path of ['/repos/owner/repo/issues/12', '/repos/owner/repo/issues/comments', '/repos/owner/repo/pulls/comments',
+      '/repos/owner/repo/issues/12/comments/7', '/repos/owner/repo/issues/../comments', '/repos/owner/repo/pulls/12/comments?token=secret']) {
+      await expect(f.http.request({ method: 'GET', path, query: {}, body: null })).rejects.toThrow();
+    }
+    expect(f.fetcher).toHaveBeenCalledTimes(2);
+  });
   it('pins the HTTPS origin and permits only bounded read paths during preparation or reconciliation', async () => {
     const f = fixture();
     await expect(f.http.request({ method: 'GET', path: '/repos/owner/repo/pulls/12', query: {}, body: null })).resolves.toEqual({ status: 200, body: { ok: true } });

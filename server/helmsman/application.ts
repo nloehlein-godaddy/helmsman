@@ -146,11 +146,15 @@ import { handleRunLog } from './run-log';
 import { startRun, reattachRun, type RunnerDeps } from './runner';
 import { resumeFailedPrePrRun, ResumeError } from './resume';
 import { cmuxHost, weztermHost, detachedHost, type RunHost } from './run-host';
+import { feedbackUpdateAdapter, isFeedbackUpdateAdapter } from './agents/feedback-update';
+import { createFeedbackClarificationService } from './feedback-clarifications';
+import { createFeedbackSnapshotService } from './feedback-snapshot-service';
+import { parsePullRequestFeedbackSnapshotV1, fingerprintPullRequestFeedbackSnapshotV1 } from '../../src/plugins/pull-request-feedback';
 import { isPrePrAdapter, prePrAdapter } from './agents/pre-pr';
 import { dockerReviewAdapter } from './agents/docker-review';
 import { restoreRunAdapter } from './agents/restore';
 import { readReviewArtifact } from './review-artifacts';
-import { createWorktree, createWorktreeFromBranch, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, removeWorktree, repoBasename, sweepOrphanedWorktrees } from './worktree';
+import { createWorktree, createWorktreeFromBranch, detachRetainedFeedbackWorktree, createReviewWorktree, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, removeWorktree, repoBasename, sweepOrphanedWorktrees } from './worktree';
 import { findPrNumberByBranch, fetchPrStatus } from '../github';
 import { openTodoStore } from './todos';
 import { reconcileTodoRuns } from './todo-source';
@@ -313,6 +317,7 @@ function clarificationReady(runId: string, attempt?: number, channelId?: string)
   return !clarificationRuntime.hasUnanswered(runId, attempt, channelId);
 }
 const clarificationGate = createClarificationGate({ resolve: clarificationBinding, ready: clarificationReady });
+const feedbackClarifications = createFeedbackClarificationService({ resolve: clarificationBinding, store: clarifications, poll: clarificationRuntime.poll });
 clarifications.cleanupOrphans();
 const outcomes = createOutcomeService({ db, store: outcomeStore, sourceIdentity: () => {
   try { const source = captureTriggerPullRequest(AbortSignal.timeout(3000)); return persistenceHash({ revision: source.revision, repos: source.repos }); } catch { return null; }
@@ -733,6 +738,23 @@ const pullRequestProviderEffects = createPullRequestProviderEffects({
   },
   assertAdmission: assertPullRequestAdmission,
 });
+const feedbackSnapshot = createFeedbackSnapshotService({
+  resolve: clarificationBinding,
+  task(runId) {
+    const row = db.getRun(runId);
+    if (!row?.taskJson) throw new Error('Feedback task is unavailable');
+    const task = JSON.parse(row.taskJson) as AgentTask;
+    verifyPullRequestExecution(task, executionSnapshot(row));
+    verifyWorkflowExecution(task, executionSnapshot(row));
+    return task;
+  },
+  async source(record, signal) {
+    await verifyEffectArtifacts(record.artifacts);
+    const registration = pullRequestRegistration(record.binding, 'obligation');
+    if (persistenceHash(registration.settings ?? {}) !== persistenceHash(record.settings)) throw new Error('Retained PR source settings changed');
+    return { provider: registration.provider, context: pullRequestContext(record.binding, signal, false) };
+  },
+});
 const pullRequestInspect = createPullRequestInspectService({ repos: applicationRepos, provider: {
   async detail(query, signal) {
     const binding = selectedPullRequestProvider();
@@ -1018,7 +1040,7 @@ async function dispatchReattach(row: RunRow, control: { stopped: boolean; stop: 
   const deps: RunnerDeps = {
     ...baseRunnerDeps(cfg, row.id, hosting.context),
     adapter,
-    preserveWorktreeOnFailure: isPrePrAdapter(row.adapter),
+    preserveWorktreeOnFailure: isPrePrAdapter(row.adapter) || isFeedbackUpdateAdapter(row.adapter),
     genId: () => row.id,
     onLaunch: (_runId: string, stop: () => Promise<void>) => {
       control.stop = stop;
@@ -1071,7 +1093,7 @@ async function resumeVoyage(runId: string): Promise<void> {
         }
         task.modelGateway = { url: `http://127.0.0.1:${gatewayPort}`, token: gateway.issue(runId, 86_400_000).token };
         task.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: row.attempt + 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
-        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^pre-pr:/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort, allowPromptUpgrade: true });
+        const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^(?:pre-pr|feedback):/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort, allowPromptUpgrade: true });
         if (prepared.task.hostIsolation) {
           if (!hosting.context.isolated) throw new ResumeError('The retained host cannot continue an isolated voyage.');
           prepared.task.hostIsolation = { ...prepared.task.hostIsolation, capability: gateway.issue(runId, 86_400_000).token };
@@ -1103,12 +1125,12 @@ try {
       isActiveRunId: (id: string) => {
         if (pm.hasRun(id) || reattachIds.includes(id) || !executions.cleanupEligibility(id).allowed) return true;
         const row = db.getRun(id);
-        return Boolean(row && isPrePrAdapter(row.adapter) && row.status !== 'succeeded');
+        return Boolean(row && (isPrePrAdapter(row.adapter) || isFeedbackUpdateAdapter(row.adapter)) && row.status !== 'succeeded');
       },
       isEligibleWorktree: async (repoDir: string, path: string, runId: string): Promise<boolean> => {
         const row = db.getRun(runId);
         if (!row?.worktreePath || !['succeeded', 'failed', 'stopped'].includes(row.status) || !executions.cleanupEligibility(runId).allowed
-          || isPrePrAdapter(row.adapter) && row.status !== 'succeeded') return false;
+          || (isPrePrAdapter(row.adapter) || isFeedbackUpdateAdapter(row.adapter)) && row.status !== 'succeeded') return false;
         try {
           const [workspace, recordedWorkspace, galleon, recordedGalleon] = await Promise.all([
             realpath(path), realpath(row.worktreePath), realpath(repoDir), realpath(join(AGENTS_ROOT, repoBasename(row.repo))),
@@ -1145,7 +1167,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   if (!capacity.ok) throw new Error(capacity.reason ?? 'Cannot launch while another voyage is active');
   const cfg: AppConfig = configStore.current();
   const priorRun = body.retryOf ? db.getRun(body.retryOf) : null;
-  const adapterId = priorRun?.adapter.replace(/^pre-pr:/, '') ?? body.adapter;
+  const adapterId = priorRun?.adapter.replace(/^(?:pre-pr|feedback):/, '') ?? body.adapter;
   const priorTask = priorRun?.taskJson ? JSON.parse(priorRun.taskJson) as AgentTask | null : null;
   if (priorRun && !priorTask?.agentSelection) throw new RetryError('Legacy agent bindings cannot be migrated by retry. Continue the original retained voyage or start a new voyage.');
   if (priorRun && !priorTask?.executionHost) throw new RetryError('Legacy execution hosts cannot be migrated by retry. Continue the retained voyage or start a new voyage.');
@@ -1168,7 +1190,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const selectedExecutionHost = priorTask?.executionHost
     ? { revision: readExecutionHostProviderSelection(pluginDirectory()).revision, record: parseExecutionHostRetainedProviderV1(priorTask.executionHost) }
     : selectExecutionHost();
-  assertExecutionHostCoordinatorSupport(selectedExecutionHost.record.metadata, selectedWorkflow.record.metadata.execution === 'staged'
+  assertExecutionHostCoordinatorSupport(selectedExecutionHost.record.metadata, (selectedWorkflow.record.metadata.execution === 'staged' || selectedWorkflow.record.metadata.feedbackCompletion === true)
     || workflowMode === 'review' && selectedExecutionHost.record.metadata.stageExecution === 'isolated');
   if (selectedExecutionHost.record.metadata.stageExecution === 'isolated' && !gatewayAllowsIsolation) throw new Error('Restart Helmsman after selecting an isolated execution host so its scoped gateway is reachable.');
   if (priorTask && priorRun) verifyHostExecution(priorTask, executionSnapshot(priorRun));
@@ -1178,7 +1200,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
   const selectedAgents = priorTask?.agentSelection
     ? { selection: parseAgentSelectionV1(priorTask.agentSelection), revision: readAgentProviderSelection(pluginDirectory()).revision }
     : resolveAgentSelection({ ...agentOptions, ...(adapterId ? { writer: canonicalAgentId(adapterId) } : {}),
-      reviewerCount: selectedWorkflow.record.metadata.execution === 'direct' ? 0 : readAgentProviderSelection(pluginDirectory()).reviewers?.length ?? agentDefaults.reviewers.length, defaults: agentDefaults });
+      reviewerCount: selectedWorkflow.record.metadata.execution === 'direct' && !selectedWorkflow.record.metadata.feedbackCompletion ? 0 : readAgentProviderSelection(pluginDirectory()).reviewers?.length ?? agentDefaults.reviewers.length, defaults: agentDefaults });
   if (priorTask && priorRun) verifyAgentExecution(priorTask, executionSnapshot(priorRun));
   const agentArtifacts = priorTask?.agentRuntime?.artifacts ?? mergeExecutionArtifacts(...[selectedAgents.selection.writer, ...selectedAgents.selection.reviewers].map(record => providerArtifacts(record.binding)));
   const agentRuntime = { pluginsRoot: resolve(pluginDirectory()), runtimeArtifactsRoot: resolve(runtimeArtifactsRoot), artifacts: agentArtifacts };
@@ -1292,11 +1314,33 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         taskObj.hostIsolation = { gatewayUrl, capability: capability.token, runId };
         taskObj.dockerExecution = undefined;
       }
+      if (selectedWorkflow.record.metadata.feedbackCompletion === true) {
+        if (!taskObj.pullRequestSource || !pullRequestRegistration(taskObj.pullRequestSource.binding, 'obligation').provider.feedbackSnapshot) {
+          throw new Error('Retained PR source does not provide complete feedback snapshots');
+        }
+        if (priorRun) {
+          const source = taskObj.pullRequestSource;
+          await verifyEffectArtifacts(source.artifacts);
+          const registration = pullRequestRegistration(source.binding, 'obligation');
+          if (persistenceHash(registration.settings ?? {}) !== persistenceHash(source.settings)) throw new Error('Retained PR source settings changed');
+          const query = { version: 1 as const, repo: taskObj.repo, number: taskObj.prNumber! };
+          const snapshot = parsePullRequestFeedbackSnapshotV1(await registration.provider.feedbackSnapshot!(query, pullRequestContext(source.binding, lifetime.admissionSignal, false)), query);
+          if (snapshot.state !== 'OPEN' || snapshot.headBranch !== taskObj.prBranch || snapshot.fingerprint !== await fingerprintPullRequestFeedbackSnapshotV1(snapshot)) {
+            throw new Error('Current PR feedback revision could not be verified for retry');
+          }
+          taskObj.prHeadSha = snapshot.headSha;
+          if (priorRun.worktreePath && existsSync(priorRun.worktreePath)) {
+            if (!isFeedbackUpdateAdapter(priorRun.adapter) || priorRun.status === 'running' || pm.hasRun(priorRun.id)
+              || !runnerDurability(cfg).cleanupEligibility(priorRun.id).allowed) throw new Error('Previous feedback worktree is still protected by an execution');
+            await detachRetainedFeedbackWorktree(AGENTS_ROOT, taskObj.repo, priorRun.id, priorRun.worktreePath, taskObj.prBranch!);
+          }
+        }
+      }
       taskObj.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
       const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task: taskObj,
         provider: adapter.id, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort });
       taskObj = prepared.task;
-      const runAdapter = selectedWorkflow.record.metadata.execution === 'staged' ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : taskObj.review && taskObj.hostIsolation ? dockerReviewAdapter(adapter) : adapter;
+      const runAdapter = selectedWorkflow.record.metadata.execution === 'staged' ? prePrAdapter(adapter, RUNS_DIR, prepared.reviewSettings, publicationConnection(runId)) : selectedWorkflow.record.metadata.feedbackCompletion === true ? feedbackUpdateAdapter(adapter, RUNS_DIR) : taskObj.review && taskObj.hostIsolation ? dockerReviewAdapter(adapter) : adapter;
       lifetime.admissionSignal.throwIfAborted();
       pullRequestSource?.assertCurrent();
       lifetime.startExecution();
@@ -1304,7 +1348,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         ...baseRunnerDeps(cfg, runId, hosting),
         launchJson,
         adapter: runAdapter,
-        ...(isPrePrAdapter(runAdapter.id) ? { maxAttempts: 1, preserveWorktreeOnFailure: true } : {}),
+        ...((isPrePrAdapter(runAdapter.id) || isFeedbackUpdateAdapter(runAdapter.id)) ? { maxAttempts: 1, preserveWorktreeOnFailure: true } : {}),
         genId: () => runId,
         onLaunch: (_runId: string, stop: () => Promise<void>) => {
           control.stop = stop;
@@ -1646,7 +1690,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      clarificationGate, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,
       sourceSchedule: taskSourceRuntime.schedule,

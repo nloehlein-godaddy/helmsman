@@ -3,6 +3,8 @@ import {
   parsePullRequestInspectTargetV1, parsePullRequestReadItemV1, parsePullRequestReadQueryV1, type PullRequestInspectDetailV1, type PullRequestInspectFileV1,
   type PullRequestInspectQualityV1, type PullRequestInspectReviewV1, type PullRequestInspectTargetV1, type PullRequestProviderContextV1, type PullRequestProviderV1,
   formatPullRequestReviewBody,
+  PULL_REQUEST_FEEDBACK_LIMITS, parsePullRequestFeedbackSnapshotV1, fingerprintPullRequestFeedbackSnapshotV1,
+  type PullRequestInspectDetailQueryV1, type PullRequestFeedbackSnapshotV1,
 } from '@helmsman/plugin-sdk';
 
 const api = 'https://api.github.com';
@@ -47,6 +49,22 @@ function nextPage(link: string | undefined, path: string, query: Readonly<Record
   return found;
 }
 
+function validateFeedbackPagination(link: string | undefined, path: string): void {
+  if (link === undefined) return;
+  if (typeof link !== 'string' || !link) throw new Error('Invalid GitHub feedback pagination');
+  const relations = new Set<string>();
+  for (const entry of link.split(',')) {
+    const match = entry.match(/^\s*<([^>]+)>;\s*rel="(first|prev|next|last)"\s*$/);
+    if (!match || relations.has(match[2]!)) throw new Error('Invalid GitHub feedback pagination');
+    relations.add(match[2]!);
+    const url = new URL(match[1]!);
+    if (url.origin !== api || url.pathname !== path || url.username || url.password || url.hash
+      || url.searchParams.size !== 2 || url.searchParams.getAll('page').length !== 1
+      || url.searchParams.getAll('per_page').length !== 1 || url.searchParams.get('per_page') !== '100'
+      || !/^[1-9]\d*$/.test(url.searchParams.get('page') ?? '')) throw new Error('Invalid GitHub feedback pagination');
+  }
+}
+
 async function request(context: PullRequestProviderContextV1, method: 'GET' | 'POST', path: string, query: Record<string, string> = {}, body: unknown | null = null) {
   context.signal.throwIfAborted();
   const response = await context.http.request({ method, path, query, body });
@@ -55,7 +73,7 @@ async function request(context: PullRequestProviderContextV1, method: 'GET' | 'P
   return response;
 }
 
-async function collection(context: PullRequestProviderContextV1, path: string, query: Readonly<Record<string, string>>, options: { key?: string; expectedSha?: string; pages?: number } = {}): Promise<{ quality: 'complete' | 'partial'; items: unknown[] }> {
+async function collection(context: PullRequestProviderContextV1, path: string, query: Readonly<Record<string, string>>, options: { key?: string; expectedSha?: string; pages?: number; completeEvidence?: boolean } = {}): Promise<{ quality: 'complete' | 'partial'; items: unknown[] }> {
   const { key, expectedSha, pages = PULL_REQUEST_INSPECT_LIMITS.pages } = options;
   const items: unknown[] = []; let total: number | null = null;
   for (let page = 1; page <= pages; page++) {
@@ -73,6 +91,7 @@ async function collection(context: PullRequestProviderContextV1, path: string, q
       if (data?.incomplete_results !== undefined && data?.incomplete_results !== false) throw new Error('Invalid GitHub collection completeness');
     }
     items.push(...values);
+    if (options.completeEvidence) validateFeedbackPagination(response.link, path);
     const next = nextPage(response.link, path, { ...query, per_page: String(PULL_REQUEST_INSPECT_LIMITS.page) }, page);
     if (!next) {
       if (total !== null && total !== items.length) return { quality: 'partial', items: [] };
@@ -98,6 +117,46 @@ async function metadata(query: { repo: string; number: number }, context: PullRe
     url: raw.html_url, status: raw.merged ? 'merged' as const : raw.state as 'open' | 'closed', draft: raw.draft, authorLogin: author,
     isOwnPr: author === null ? null : author.toLowerCase() === configuredAuthor(context).trim().toLowerCase(), headRefName: head.ref, updatedAt: raw.updated_at,
     comments: raw.comments === undefined || raw.comments === null ? null : integer(raw.comments) ? raw.comments : (() => { throw new Error('Invalid GitHub comment count'); })() };
+}
+
+function feedbackUrl(value: unknown, query: PullRequestInspectDetailQueryV1): string {
+  if (!text(value)) throw new Error('Invalid GitHub feedback URL');
+  const url = new URL(value); const expected = `/${query.repo}/pull/${query.number}`.toLowerCase();
+  if (url.origin !== 'https://github.com' || url.username || url.password || url.search
+    || ![expected, `${expected}/files`].includes(url.pathname.toLowerCase())) throw new Error('GitHub feedback URL does not match this PR');
+  return value;
+}
+
+async function feedbackMetadata(query: PullRequestInspectDetailQueryV1, context: PullRequestProviderContextV1): Promise<PullRequestFeedbackSnapshotV1> {
+  const response = await request(context, 'GET', `/repos/${query.repo}/pulls/${query.number}`);
+  const raw = object(response.body); const base = object(raw?.base); const head = object(raw?.head);
+  const fullName = object(base?.repo)?.full_name;
+  if (response.status !== 200 || !raw || raw.number !== query.number || typeof fullName !== 'string'
+    || fullName.toLowerCase() !== query.repo.toLowerCase() || typeof raw.state !== 'string' || !['open', 'closed'].includes(raw.state)
+    || typeof raw.merged !== 'boolean' || raw.merged && raw.state !== 'closed') throw new Error('Invalid GitHub feedback PR metadata');
+  return parsePullRequestFeedbackSnapshotV1({ version: 1, quality: 'complete', repo: query.repo, prNumber: query.number,
+    headSha: head?.sha, baseSha: base?.sha, headBranch: head?.ref, baseBranch: base?.ref,
+    state: raw.merged ? 'MERGED' : raw.state === 'open' ? 'OPEN' : 'CLOSED',
+    sources: [{ id: `description:${query.number}`, kind: 'description', url: feedbackUrl(raw.html_url, query),
+      body: raw.body === null ? '' : raw.body, updatedAt: raw.updated_at }], fingerprint: '0'.repeat(64) }, query);
+}
+
+function feedbackSources(items: readonly unknown[], kind: 'review' | 'comment' | 'inline', query: PullRequestInspectDetailQueryV1, updatedAt: string) {
+  return items.map(value => {
+    const item = object(value);
+    if (!item || !positive(item.id)) throw new Error('Invalid GitHub feedback source');
+    const source = { id: `${kind}:${item.id}`, kind, url: feedbackUrl(item.html_url, query), body: item.body };
+    if (kind === 'review') {
+      // REST reviews have no edit timestamp; their complete body and state are fingerprinted.
+      return { ...source, state: item.state, submittedAt: item.submitted_at,
+        updatedAt: item.updated_at === undefined ? item.submitted_at ?? updatedAt : item.updated_at };
+    }
+    if (kind === 'inline' && item.in_reply_to_id !== undefined && item.in_reply_to_id !== null) {
+      if (!positive(item.in_reply_to_id)) throw new Error('Invalid GitHub inline reply ID');
+      return { ...source, updatedAt: item.updated_at, replyTo: `inline:${item.in_reply_to_id}` };
+    }
+    return { ...source, updatedAt: item.updated_at };
+  });
 }
 
 async function checks(target: PullRequestInspectTargetV1, context: PullRequestProviderContextV1): Promise<PullRequestInspectDetailV1['checks']> {
@@ -235,6 +294,28 @@ async function prepared(repo: string, number: number, expectedHeadSha: string | 
 }
 
 export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<PullRequestProviderV1>({
+  async feedbackSnapshot(input, context) {
+    const query = parsePullRequestInspectDetailQueryV1(input);
+    const first = await feedbackMetadata(query, context);
+    const description = first.sources[0];
+    if (!description) throw new Error('Missing GitHub PR description');
+    const endpoints = [
+      ['review', `/repos/${query.repo}/pulls/${query.number}/reviews`],
+      ['comment', `/repos/${query.repo}/issues/${query.number}/comments`],
+      ['inline', `/repos/${query.repo}/pulls/${query.number}/comments`],
+    ] as const;
+    const sources = await Promise.all(endpoints.map(async ([kind, path]) => {
+      const result = await collection(context, path, {}, { pages: PULL_REQUEST_FEEDBACK_LIMITS.pages, completeEvidence: true });
+      if (result.quality !== 'complete') throw new Error('GitHub feedback pagination is incomplete');
+      return feedbackSources(result.items, kind, query, description.updatedAt);
+    }));
+    const last = await feedbackMetadata(query, context);
+    if (JSON.stringify(first) !== JSON.stringify(last)) throw inspectionFailure('head-changed');
+    const snapshot = parsePullRequestFeedbackSnapshotV1({ ...first, sources: [description, ...sources.flat()] }, query);
+    const fingerprint = await fingerprintPullRequestFeedbackSnapshotV1(snapshot);
+    context.signal.throwIfAborted();
+    return Object.freeze({ ...snapshot, fingerprint });
+  },
   async profile(context) {
     const bounded = (value: unknown, maximum: number): string | null => text(value, maximum) ? value.trim() || null : null;
     try {

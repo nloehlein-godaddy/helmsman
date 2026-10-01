@@ -13,6 +13,7 @@ import { installPluginArtifact } from './plugins/artifacts';
 import { activateBackendPlugins, type BackendRuntime } from './plugins/backend';
 import { initializeWorkflowReviewerSelection, readAgentProviderSelection, selectAgentProvider, selectAgentReviewers, clearPluginSettings, workflowProviderSelectionInitialized, initializeWorkflowProviderSelection, initializeWorkflowSettings, readWorkflowProviderSelection, readPluginSettings, selectWorkflowProvider, writePluginSettings } from './plugins/data';
 import { pluginCommand } from './plugins/cli';
+import { branchWorkflowProvider } from '../../src/plugins/workflow-coding/provider';
 
 const metadata: WorkflowMetadataV1 = { version: 1, label: 'Example workflow', modes: ['coding'], execution: 'staged', requiredSkills: [], maxRounds: 3, stageTimeoutMinutes: 45 };
 const promptInput: WorkflowPromptInputV1 = { version: 1, runtime: { providerId: 'example.agent/writer', model: null, effort: null, reviewDelegation: 'none' }, byline: '_Helmsman_', clarificationInstructions: '', task: { ticketId: 'freeform', title: 'Example', repo: 'owner/repo', jiraBaseUrl: '', task: 'Implement\nthis task' }, stage: null };
@@ -127,6 +128,21 @@ it('resolves versioned explicit references and fences independent mode revisions
   selectWorkflowProvider(root, 'coding', 'example.missing/policy'); expect(() => resolveWorkflowSelection({ root, registry, mode: 'coding' })).toThrow('unavailable');
   expect(canonicalWorkflowProviderId('coding@1')).toBe(DEFAULT_WORKFLOW_PROVIDERS.coding); expect(canonicalWorkflowProviderId('review@1')).toBe(DEFAULT_WORKFLOW_PROVIDERS.review);
   expect(() => canonicalWorkflowProviderId('example.workflow/policy@2')).toThrow(); expect(() => canonicalWorkflowProviderId('coding@2')).toThrow();
+});
+
+it('selects feedback execution for new branch providers without changing retained direct branch policy', async () => {
+  const root = await temporary();
+  const registry = createWorkflowProviderRegistry({ eligible: () => true });
+  const feedback = branchWorkflowProvider({ maxRounds: 4, stageTimeoutMinutes: 30 });
+  const registration = registry.stage({ binding: { providerId: 'example.workflow/policy', pluginId: 'example.workflow', artifactHash: 'f'.repeat(64), contractVersion: 1 },
+    provider: feedback, package: parsePluginPackage(descriptor()), settings: {}, origin: 'external' });
+  registry.publish([registration]);
+  const options = { root, registry, mode: 'branch' as const, providerId: registration.record.binding.providerId };
+  const selected = resolveWorkflowSelection(options);
+  expect(selected.record.metadata).toMatchObject({ execution: 'direct', feedbackCompletion: true });
+  expect(() => assertWorkflowSelectionCurrent(options, selected)).not.toThrow();
+  const legacy = { ...feedback.metadata, maxRounds: 1 }; delete legacy.feedbackCompletion;
+  expect(parseWorkflowRetainedProviderV1({ ...registration.record, metadata: legacy }).metadata.feedbackCompletion).toBeUndefined();
 });
 it('persists CLI mode choices and resets and imports legacy settings only once', async () => {
   const root = await temporary(); const pkg = parsePluginPackage(descriptor()); expect(workflowProviderSelectionInitialized(root, 'coding')).toBe(false);

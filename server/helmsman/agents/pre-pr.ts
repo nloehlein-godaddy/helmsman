@@ -4,7 +4,7 @@ import type { AgentAdapter, AgentEvent, AgentEventKind } from './adapter';
 import type { PrePrPublicationConnection } from '../publication-client';
 import { isContributionId } from '../../../src/plugins/manifest';
 
-const KINDS = new Set<AgentEventKind>(['phase', 'tool', 'log', 'result', 'usage', 'error', 'review-verdict', 'run-complete']);
+const KINDS = new Set<AgentEventKind>(['phase', 'tool', 'log', 'result', 'usage', 'error', 'review-verdict', 'run-complete', 'feedback-outcome']);
 const PREFIX = 'pre-pr:';
 
 export function isPrePrAdapter(id: string): boolean {

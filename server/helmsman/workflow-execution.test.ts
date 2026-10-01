@@ -4,7 +4,7 @@ import type { AgentProviderV1 } from '../../src/plugins/agent-provider';
 import type { ExecutionSnapshotInput } from './execution-store';
 import type { AgentTask } from './agents/adapter';
 import { agentProviderAdapter } from './agents/provider';
-import { verifyWorkflowExecution, workflowExecutionSnapshot, workflowPromptProjection } from './workflow-execution';
+import { verifyWorkflowExecution, workflowExecutionSnapshot, workflowPromptProjection, workflowMode } from './workflow-execution';
 
 const agentMetadata = { version: 1 as const, label: 'Agent', defaults: { model: 'agent/model', effort: 'high' },
   review: { low: { model: null, effort: null }, medium: { model: null, effort: null }, high: { model: null, effort: null } },
@@ -33,6 +33,17 @@ function snapshot(): ExecutionSnapshotInput {
 }
 
 describe('retained workflow execution', () => {
+  it('projects feedback audit evidence through the branch workflow without exposing runtime authority', () => {
+    const feedbackStage = { stage: 'audit' as const, round: 2, snapshotPath: '/runtime/snapshot.json', reportPath: '/runtime/audit.json',
+      snapshot: { repo: task.repo, prNumber: 42, headSha: 'd'.repeat(40), baseSha: 'c'.repeat(40), fingerprint: 'e'.repeat(64) } };
+    const auditTask = { ...task, prePr: undefined, prBranch: 'feature', prNumber: 42, feedbackStage };
+    expect(workflowMode(auditTask)).toBe('branch');
+    expect(workflowMode({ ...auditTask, review: true })).toBe('branch');
+    const projection = workflowPromptProjection(auditTask, agent);
+    expect(projection.feedback).toEqual(feedbackStage);
+    expect(projection.stage).toBeNull();
+    for (const secret of ['secret', '/private/plugins', '/private/artifacts', '/private/runtime', 'workflowRuntime', 'agentSelection']) expect(JSON.stringify(projection)).not.toContain(secret);
+  });
   it('projects only validated prompt data after host path remapping', () => {
     const projected = workflowPromptProjection(task, agent);
     expect(projected).toMatchObject({ runtime: { providerId: agent.binding.providerId, model: 'selected/model', effort: 'xhigh' },

@@ -48,3 +48,22 @@ describe('public run read data', () => {
     expect(() => parseRunReadLogPageV1({ ...page, events: [{ ...event, text: 'x'.repeat(2001) }] }, logQuery)).toThrow();
   });
 });
+
+describe('feedback outcomes in the public run projection', () => {
+  it.each([
+    ['completed', 'succeeded', 'completed'], ['completed', 'running', null],
+    ['completed', 'failed', 'changes_remaining'], ['completed', 'stopped', 'changes_remaining'],
+    ['awaiting_decision', 'running', 'awaiting_decision'], ['awaiting_decision', 'succeeded', 'changes_remaining'],
+    ['awaiting_decision', 'failed', 'changes_remaining'], ['awaiting_decision', 'stopped', 'changes_remaining'],
+    ['changes_remaining', 'succeeded', 'changes_remaining'],
+  ])('projects %s on %s as %s without changing execution status', (state, status, expected) => {
+    const parsed = parseRunReadSummaryV1({ ...run, status, sourceSettlement: null,
+      feedbackOutcome: { state, headSha: 'a'.repeat(40), summary: 'Feedback result.', privateData: 'omit' } });
+    expect(parsed.status).toBe(status);
+    expect(parsed.feedbackOutcome?.state ?? null).toBe(expected);
+    if (expected) { expect(Object.isFrozen(parsed.feedbackOutcome)).toBe(true); expect(parsed.feedbackOutcome).not.toHaveProperty('privateData'); }
+  });
+  it.each([undefined, null, { state: 'completed' }, '{broken'])('omits absent or malformed optional outcome %j', feedbackOutcome => {
+    expect(parseRunReadSummaryV1({ ...run, feedbackOutcome })).not.toHaveProperty('feedbackOutcome');
+  });
+});

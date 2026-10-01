@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, realpath, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createReviewWorktree, createWorktreeFromBranch, sweepOrphanedWorktrees, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, type Worktree } from './worktree';
+import { detachRetainedFeedbackWorktree, createReviewWorktree, createWorktreeFromBranch, sweepOrphanedWorktrees, discoverRepoDirs, listAgentWorktrees, removeCleanWorktreeAt, type Worktree } from './worktree';
 
 const execFileAsync = promisify(execFile);
 
@@ -318,5 +318,43 @@ it.each([true, false])('preserves an occupied dirty developer worktree with reta
     expect(await readFile(join(developer, 'untracked.txt'), 'utf8')).toBe('untracked work');
     expect((await execFileAsync('git', ['-C', developer, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(head);
     expect(existsSync(join(repo, '.worktrees', 'rerun'))).toBe(false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it('detaches only an owned retained checkout, preserving staged, unstaged, untracked and unpublished work on retry', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'retained-feedback-'));
+  try {
+    const source = join(root, 'source'); const repo = join(root, 'repo');
+    await mkdir(source);
+    await execFileAsync('git', ['-C', source, 'init', '-q', '-b', 'main']);
+    await execFileAsync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
+    await execFileAsync('git', ['-C', source, 'config', 'user.name', 'Test']);
+    await writeFile(join(source, 'tracked.txt'), 'original');
+    await execFileAsync('git', ['-C', source, 'add', '.']);
+    await execFileAsync('git', ['-C', source, 'commit', '-qm', 'base']);
+    const published = (await execFileAsync('git', ['-C', source, 'rev-parse', 'HEAD'])).stdout.trim();
+    await execFileAsync('git', ['-C', source, 'branch', 'fix/pr']);
+    await execFileAsync('git', ['clone', '-q', source, repo]);
+    await execFileAsync('git', ['-C', repo, 'config', 'user.email', 'test@example.com']);
+    await execFileAsync('git', ['-C', repo, 'config', 'user.name', 'Test']);
+    const previous = await createWorktreeFromBranch(root, 'org/repo', 'previous', 'fix/pr', published);
+    await execFileAsync('git', ['-C', previous.path, 'commit', '-q', '--allow-empty', '-m', 'unpublished']);
+    const unpublished = (await execFileAsync('git', ['-C', previous.path, 'rev-parse', 'HEAD'])).stdout.trim();
+    await writeFile(join(previous.path, 'tracked.txt'), 'staged');
+    await execFileAsync('git', ['-C', previous.path, 'add', '.']);
+    await writeFile(join(previous.path, 'tracked.txt'), 'unstaged');
+    await writeFile(join(previous.path, 'untracked.txt'), 'untracked');
+    const before = (await execFileAsync('git', ['-C', previous.path, 'status', '--porcelain=v1'])).stdout;
+    await expect(detachRetainedFeedbackWorktree(root, 'org/repo', 'other', previous.path, 'fix/pr')).rejects.toThrow('owned run path');
+    await expect(detachRetainedFeedbackWorktree(root, 'org/repo', 'previous', previous.path, 'wrong-branch')).rejects.toThrow('identity changed');
+    await detachRetainedFeedbackWorktree(root, 'org/repo', 'previous', previous.path, 'fix/pr');
+    await detachRetainedFeedbackWorktree(root, 'org/repo', 'previous', previous.path, 'fix/pr');
+    const next = await createWorktreeFromBranch(root, 'org/repo', 'next', 'fix/pr', published);
+    expect((await execFileAsync('git', ['-C', next.path, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(published);
+    expect((await execFileAsync('git', ['-C', previous.path, 'rev-parse', 'HEAD'])).stdout.trim()).toBe(unpublished);
+    expect((await execFileAsync('git', ['-C', previous.path, 'status', '--porcelain=v1'])).stdout).toBe(before);
+    expect((await execFileAsync('git', ['-C', previous.path, 'show', ':tracked.txt'])).stdout).toBe('staged');
+    expect(await readFile(join(previous.path, 'tracked.txt'), 'utf8')).toBe('unstaged');
+    expect(await readFile(join(previous.path, 'untracked.txt'), 'utf8')).toBe('untracked');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -1,7 +1,13 @@
-import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, RunInspectHistoryPageV1 } from '@helmsman/plugin-sdk';
+import type { RunReadSummaryV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, RunInspectHistoryPageV1 } from '@helmsman/plugin-sdk';
 import { readState, saveState, type HistoryState } from './state.js';
 import { styles } from './styles.js';
 
+const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null => {
+  const state = run?.feedbackOutcome?.state;
+  if (state === 'completed') return run?.status === 'succeeded' ? 'Feedback completed' : run?.status === 'running' ? null : 'Feedback remaining';
+  if (state === 'awaiting_decision') return run?.status === 'running' ? 'Awaiting decision' : 'Feedback remaining';
+  return state === 'changes_remaining' ? 'Feedback remaining' : null;
+};
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 
 class HistoryPanel implements PluginPanelInstance {
@@ -96,7 +102,9 @@ class HistoryPanel implements PluginPanelInstance {
         open.setAttribute('aria-label', `${run.displayKey} · ${run.repo} · ${run.id} · Attempt ${run.attempt}`);
         row.append(open, node('small', `${run.repo} · ${run.id} · Attempt ${run.attempt}`),
           node('p', `Worker: ${run.status} · ${run.costUsd === null ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`}`), node('small', `Started ${run.startedAt}${run.endedAt ? ` · Ended ${run.endedAt}` : ''}`));
-        if (run.review) row.append(node('p', `Review recommendation: ${run.review.outcome}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
+        const feedback = feedbackLabel(run);
+      if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = run.feedbackOutcome?.summary ?? ''; row.append(outcome); }
+      if (run.review) row.append(node('p', `Review recommendation: ${run.review.outcome}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
         if (run.sourceSettlement) row.append(node('p', `Source settlement: ${run.sourceSettlement.state}`));
         root.append(row);
       }

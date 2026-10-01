@@ -31,7 +31,8 @@ function validBinding(value: PullRequestProviderBinding): boolean {
 export function validatePullRequestProvider(provider: PullRequestProviderV1): void {
   if (!provider || typeof provider !== 'object' || ['list', 'detail', 'diff', 'prepareReview', 'invokeReview', 'reconcileReview']
     .some(method => typeof provider[method as keyof PullRequestProviderV1] !== 'function')
-    || provider.profile !== undefined && typeof provider.profile !== 'function') throw new Error('Invalid pull request provider registration.');
+    || provider.profile !== undefined && typeof provider.profile !== 'function'
+    || provider.feedbackSnapshot !== undefined && typeof provider.feedbackSnapshot !== 'function') throw new Error('Invalid pull request provider registration.');
 }
 
 export function createPullRequestProviderRegistry(options: { eligible(binding: PullRequestProviderBinding, purpose: PullRequestProviderPurpose): boolean }) {

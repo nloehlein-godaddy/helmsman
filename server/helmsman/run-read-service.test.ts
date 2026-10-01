@@ -88,3 +88,17 @@ describe('server run read projection', () => {
     expect(handleRunReadApi({ method: 'GET', path: '/api/run-read', query: new URLSearchParams(), service: failing })).toEqual({ status: 503, json: { error: 'Run reads unavailable' } });
   });
 });
+
+it.each([
+  ['completed', 'succeeded', 'completed'], ['completed', 'running', null],
+  ['completed', 'failed', 'changes_remaining'], ['completed', 'stopped', 'changes_remaining'],
+  ['awaiting_decision', 'running', 'awaiting_decision'], ['awaiting_decision', 'failed', 'changes_remaining'],
+  ['changes_remaining', 'succeeded', 'changes_remaining'],
+] as const)('projects latest %s feedback on %s as %s', (state, status, expected) => {
+  db.insertRun(run({ status, endedAt: status === 'running' ? null : '2026-09-20T12:10:00Z' }));
+  db.appendEvent('run-1', 'feedback-outcome', JSON.stringify({ state, headSha: 'a'.repeat(40), summary: 'Feedback checked.' }), '2026-09-20T12:01:00Z');
+  const service = fixture(); const result = service.load(detail).run;
+  expect(result?.status).toBe(status); expect(result?.feedbackOutcome?.state ?? null).toBe(expected);
+  db.appendEvent('run-1', 'feedback-outcome', '{broken', '2026-09-20T12:02:00Z');
+  expect(service.load(detail).run).not.toHaveProperty('feedbackOutcome');
+});

@@ -1,3 +1,4 @@
+import { parseFeedbackOutcome, type FeedbackOutcome } from '../../src/logic/feedbackOutcome';
 import type Database from 'better-sqlite3';
 import { storeConnection } from './store-connection';
 
@@ -70,6 +71,7 @@ export interface Db {
   appendEvent(runId: string, kind: string, text: string, ts: string): RunEventRow;
   listEvents(runId: string): RunEventRow[];
   latestReviewVerdict(runId: string): string | null;
+  latestFeedbackOutcome(runId: string): FeedbackOutcome | null;
   recentEvents(runId: string, limit: number, textLimit: number): RunEventRow[];
   eventPage(runId: string, afterId: number, throughId: number, limit: number, textLimit?: number): RunEventRow[];
   getConfigOverrides(): Record<string, string>;
@@ -107,6 +109,8 @@ export function openDb(path: string | Database.Database): Db {
       }
     },
   });
+  sql.exec("CREATE INDEX IF NOT EXISTS idx_events_feedback_outcome ON run_events(runId, id) WHERE kind = 'feedback-outcome'");
+  const latestFeedbackOutcome = sql.prepare("SELECT substr(text, 1, 16385) AS text FROM run_events WHERE runId = ? AND kind = 'feedback-outcome' ORDER BY id DESC LIMIT 1");
   const latestReviewVerdict = sql.prepare("SELECT substr(text, 1, 512) AS text FROM run_events WHERE runId = ? AND kind = 'review-verdict' ORDER BY id DESC LIMIT 1");
 
   return {
@@ -223,6 +227,22 @@ export function openDb(path: string | Database.Database): Db {
     },
     listEvents(runId: string): RunEventRow[] {
       return sql.prepare('SELECT * FROM run_events WHERE runId = ? ORDER BY id ASC').all(runId) as RunEventRow[];
+    },
+    latestFeedbackOutcome(runId: string): FeedbackOutcome | null {
+      const raw = (latestFeedbackOutcome.get(runId) as { text: string } | undefined)?.text;
+      const outcome = parseFeedbackOutcome(raw);
+      if (!outcome || !raw) return null;
+      try {
+        const row = sql.prepare('SELECT attempt,taskJson FROM runs WHERE id = ?').get(runId) as { attempt: number; taskJson: string | null } | undefined;
+        const task = row?.taskJson ? JSON.parse(row.taskJson) as { clarification?: { version?: number; attempt?: number; channelId?: string } } | null : null;
+        const event = JSON.parse(raw) as { attempt?: unknown; channelId?: unknown };
+        const channel = task?.clarification;
+        if (channel?.version === 1 || event.attempt !== undefined || event.channelId !== undefined) {
+          if (!row || channel?.version !== 1 || channel.attempt !== row.attempt || typeof channel.channelId !== 'string'
+            || event.attempt !== row.attempt || event.channelId !== channel.channelId) return null;
+        }
+        return outcome;
+      } catch { return null; }
     },
     latestReviewVerdict(runId: string): string | null {
       return (latestReviewVerdict.get(runId) as { text: string | null } | undefined)?.text ?? null;

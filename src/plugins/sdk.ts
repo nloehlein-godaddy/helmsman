@@ -38,6 +38,7 @@ export * from './communication';
 export * from './communication-connection';
 export * from './communication-command';
 export * from './pull-request-provider';
+export * from './pull-request-feedback';
 export * from './communication-provider';
 export * from './activity-read';
 export * from './run-command';

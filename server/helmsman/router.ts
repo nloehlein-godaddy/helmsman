@@ -123,6 +123,8 @@ export interface RouterDeps {
   usage?: UsageQueryService;
   pricing?: (snapshot: UsageSnapshot) => Promise<PricingEstimate | null>;
   clarificationGate?: (runId: string, query: URLSearchParams) => boolean;
+  feedbackClarifications?: (runId: string, query: URLSearchParams) => unknown;
+  feedbackSnapshot?: (runId: string, query: URLSearchParams) => Promise<unknown>;
   outcomes?: OutcomeService;
   publicCampaigns?: CampaignPublicService;
   campaignCaller?: string;
@@ -207,6 +209,13 @@ export async function handleApi(
       if (error instanceof CapabilityResolutionError) return { status: 503, json: { error: error.message, code: error.code } };
       throw error;
     }
+  }
+  const feedbackRead = path.match(/^\/api\/runs\/([a-z\d_-]{1,128})\/(feedback-snapshot|feedback-clarifications)$/i);
+  if (feedbackRead && method === 'GET') {
+    const read = feedbackRead[2] === 'feedback-snapshot' ? deps.feedbackSnapshot : deps.feedbackClarifications;
+    if (!read) return { status: 503, json: { error: 'Feedback evidence service is unavailable' } };
+    try { return { status: 200, json: await read(feedbackRead[1]!, query) }; }
+    catch { return { status: 409, json: { error: 'Current feedback evidence could not be verified' } }; }
   }
   const clarificationGate = path.match(/^\/api\/runs\/([a-z\d_-]{1,128})\/clarification-gate$/i);
   if (clarificationGate && method === 'GET') {

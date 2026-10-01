@@ -20,14 +20,15 @@ function mergeWorkflowArtifacts(first: readonly ArtifactBinding[], second: reado
   return [...result.values()];
 }
 
-export function workflowMode(task: Pick<AgentTask, 'review' | 'prBranch' | 'prePr'>): WorkflowModeV1 {
+export function workflowMode(task: Pick<AgentTask, 'review' | 'prBranch' | 'prePr' | 'feedbackStage'>): WorkflowModeV1 {
+  if (task.feedbackStage) return 'branch';
   if (task.review) return 'review';
   if (task.prBranch && !task.prePr) return 'branch';
   return 'coding';
 }
 
 export function workflowPromptProjection(task: AgentTask, agent: AgentRetainedProviderV1): WorkflowPromptInputV1 {
-  const role = task.review || task.prePr?.stage === 'review' ? 'review agent' : 'PR author';
+  const role = task.review || task.prePr?.stage === 'review' || task.feedbackStage?.stage === 'audit' ? 'review agent' : 'PR author';
   const stage = task.prePr ? {
     stage: task.prePr.stage,
     baseSha: task.prePr.baseSha,
@@ -63,6 +64,7 @@ export function workflowPromptProjection(task: AgentTask, agent: AgentRetainedPr
       ...(task.reviewOutputPaths ? { reviewOutputPaths: { ...task.reviewOutputPaths } } : {}),
     },
     stage,
+    ...(task.feedbackStage ? { feedback: task.feedbackStage } : {}),
   });
 }
 
@@ -97,17 +99,18 @@ export function verifyWorkflowExecution(task: AgentTask, snapshot: ExecutionSnap
   return record;
 }
 
-export async function loadExecutionWorkflow(task: Pick<AgentTask, 'workflow' | 'workflowRuntime' | 'review' | 'prBranch' | 'prePr'>,
+export async function loadExecutionWorkflow(task: Pick<AgentTask, 'workflow' | 'workflowRuntime' | 'review' | 'prBranch' | 'prePr' | 'feedbackStage'>,
   signal?: AbortSignal): Promise<{ record: WorkflowRetainedProviderV1; provider: WorkflowProviderV1; renderPrompt: WorkflowPromptRenderer;
-    assertMode(task: Pick<AgentTask, 'review' | 'prBranch' | 'prePr'>): void; dispose(): Promise<void> } | null> {
+    assertMode(task: Pick<AgentTask, 'review' | 'prBranch' | 'prePr' | 'feedbackStage'>): void; dispose(): Promise<void> } | null> {
   if (!task.workflow) return null;
   const record = parseWorkflowRetainedProviderV1(task.workflow);
   const runtime = task.workflowRuntime;
   if (!runtime) throw new Error('Retained workflow runtime is unavailable');
   const loaded = await loadRetainedWorkflowProvider({ ...runtime, record, signal });
-  const assertMode = (modeTask: Pick<AgentTask, 'review' | 'prBranch' | 'prePr'>) => {
+  const assertMode = (modeTask: Pick<AgentTask, 'review' | 'prBranch' | 'prePr' | 'feedbackStage'>) => {
     const mode = workflowMode(modeTask);
     if (!record.metadata.modes.includes(mode)) throw new Error(`Retained workflow does not support ${mode} execution`);
+    if (modeTask.feedbackStage && record.metadata.feedbackCompletion !== true) throw new Error('Retained workflow does not support feedback stages');
   };
   return {
     record,

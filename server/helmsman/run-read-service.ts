@@ -46,6 +46,7 @@ export function createRunReadService(options: { db: Db; repos(): readonly string
     const outcome = label === 'Approve' ? 'APPROVE' : label === 'Request changes' ? 'REQUEST_CHANGES' : label === 'Comment only' ? 'COMMENT' : null;
     return parseRunReadSummaryV1({ version: 1, id: row.id, repo: row.repo, displayKey: row.ticketId, status: row.status, attempt: row.attempt,
       startedAt: row.startedAt, endedAt: row.endedAt, prNumber: row.prNumber, costUsd: row.costUsd,
+      feedbackOutcome: db.latestFeedbackOutcome(row.id),
       review: outcome && verdict ? { outcome, verdict } : null, sourceSettlement: row.status === 'running' ? null : options.settlement?.(row.id) ?? null });
   }
   function scopedRun(query: RunReadLoadQueryV1): RunRow | null {

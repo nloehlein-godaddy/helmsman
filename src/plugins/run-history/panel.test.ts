@@ -80,3 +80,16 @@ describe('authored bounded run history', () => {
     expect(f.container.querySelector('select')?.disabled).toBe(true); expect(f.saveState).not.toHaveBeenCalled();
   });
 });
+
+it.each([false, true])('renders truthful feedback history in either terminology mode (%s)', async pirateMode => {
+  const feedbackOutcome = { state: 'completed' as const, headSha: 'a'.repeat(40), summary: '<img src=x onerror=alert(1)>' };
+  const items: RunReadSummaryV1[] = [
+    { ...run('one'), status: 'succeeded', feedbackOutcome },
+    { ...run('two'), feedbackOutcome },
+    { ...run('three'), status: 'running', sourceSettlement: null, feedbackOutcome: { ...feedbackOutcome, state: 'awaiting_decision' } },
+  ];
+  const f = await mount(vi.fn(async () => available(page({ items }))), { pirateMode });
+  await vi.waitFor(() => expect(f.container.querySelectorAll('.run-feedback-outcome')).toHaveLength(3));
+  expect([...f.container.querySelectorAll('.run-feedback-outcome')].map(el => el.textContent)).toEqual(['Feedback completed', 'Feedback remaining', 'Awaiting decision']);
+  expect(f.container.textContent).toContain('Worker: failed'); expect(f.container.querySelector('img')).toBeNull();
+});

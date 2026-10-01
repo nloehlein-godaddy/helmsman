@@ -1,8 +1,14 @@
-import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PresentationLocatorV1,
+import type { RunReadSummaryV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PresentationLocatorV1,
   RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptQueryV1, RunCommandReceiptV1, RunInspectLogPageV1, RunInspectTargetV1 } from '@helmsman/plugin-sdk';
 import { emptyState, mergeLog, newTab, readState, saveState, tabKey, type RunTab } from './state.js';
 import { styles } from './styles.js';
 
+const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null => {
+  const state = run?.feedbackOutcome?.state;
+  if (state === 'completed') return run?.status === 'succeeded' ? 'Feedback completed' : run?.status === 'running' ? null : 'Feedback remaining';
+  if (state === 'awaiting_decision') return run?.status === 'running' ? 'Awaiting decision' : 'Feedback remaining';
+  return state === 'changes_remaining' ? 'Feedback remaining' : null;
+};
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 const locatorKey = (locator: PresentationLocatorV1 | null | undefined) => !locator ? '' : locator.kind === 'run' ? JSON.stringify(['run', locator.repo, locator.runId])
   : locator.kind === 'legacy-run' ? JSON.stringify(['legacy-run', locator.runId]) : JSON.stringify(['pull-request', locator.repo, locator.number]);
@@ -309,14 +315,16 @@ class ViewerPanel implements PluginPanelInstance {
       const group = node('span'); group.className = 'run-tab'; group.dataset.runKey = tabKey(tab);
       const outcome = tab.summary?.status === 'succeeded' ? tab.summary.review?.outcome : null;
       const recommendation = outcome === 'APPROVE' ? 'Approve' : outcome === 'REQUEST_CHANGES' ? 'Request changes' : outcome === 'COMMENT' ? 'Comment only' : null;
-      const statusLabel = recommendation ?? tab.summary?.status ?? 'Status unavailable';
+      const feedback = feedbackLabel(tab.summary);
+      const statusLabel = feedback ?? recommendation ?? tab.summary?.status ?? 'Status unavailable';
       group.dataset.runStatus = tab.summary?.status ?? '';
       const label = `${tab.summary?.displayKey ?? tab.runId} · ${tab.repo} · ${tab.runId}`;
       const button = this.button(label, () => this.activate(tab), !this.context.selectPresentation); button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(this.activeKey === tabKey(tab)));
       button.setAttribute('aria-label', `${label}${tab.summary ? ` · Attempt ${tab.summary.attempt}` : ''} · ${statusLabel}`);
       const status = node('span', statusLabel); status.className = 'run-tab-status';
-      status.title = recommendation ? `Review recommendation: ${recommendation}` : statusLabel;
-      if (recommendation && outcome) status.dataset.reviewOutcome = outcome;
+      status.title = feedback ? tab.summary?.feedbackOutcome?.summary ?? feedback : recommendation ? `Review recommendation: ${recommendation}` : statusLabel;
+      if (feedback) status.dataset.feedbackOutcome = feedback === 'Feedback completed' ? 'completed' : feedback === 'Awaiting decision' ? 'awaiting_decision' : 'changes_remaining';
+      if (!feedback && recommendation && outcome) status.dataset.reviewOutcome = outcome;
       button.append(status);
       button.tabIndex = this.activeKey === tabKey(tab) || this.activeKey === null && index === 0 ? 0 : -1;
       button.addEventListener('keydown', event => {
@@ -335,6 +343,8 @@ class ViewerPanel implements PluginPanelInstance {
       root.append(node('small', `${tab.repo} · ${tab.runId}${tab.target ? ` · Attempt ${tab.target.expectedAttempt}` : ''}`));
       if (tab.summary) {
         root.append(node('p', `Worker: ${tab.summary.status} · ${tab.summary.costUsd === null ? 'Spend unknown' : `$${tab.summary.costUsd.toFixed(2)} observed spend`}`));
+        const feedback = feedbackLabel(tab.summary);
+        if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = tab.summary.feedbackOutcome?.summary ?? ''; root.append(outcome); }
         if (tab.summary.sourceSettlement) root.append(node('p', `Source settlement: ${tab.summary.sourceSettlement.state}`));
         if (tab.summary.review) root.append(node('p', `Review recommendation: ${tab.summary.review.outcome} — ${tab.summary.review.verdict}`));
       }

@@ -1,3 +1,4 @@
+import type { WorkflowFeedbackStageV1 } from '../../../src/plugins/workflow';
 import type { PullRequestSourceRecord } from '../pull-request-source';
 import type { TriggerProvenanceV1 } from '../trigger-provenance';
 import type { AgentProviderMetadataV1 } from '../../../src/plugins/agent-provider';
@@ -8,6 +9,7 @@ import type { ExecutionHostRetainedProviderV1 } from '../execution-host-provider
 import type { WorkflowRetainedProviderV1 } from '../workflow-providers';
 
 export interface AgentTask {
+  feedbackStage?: WorkflowFeedbackStageV1;
   modelGateway?: { url: string; token: string };
   trigger?: TriggerProvenanceV1;
   pullRequestSource?: PullRequestSourceRecord;
@@ -64,7 +66,7 @@ export interface AgentTask {
   };
 }
 
-export type AgentEventKind = 'phase' | 'tool' | 'log' | 'result' | 'usage' | 'error' | 'review-verdict' | 'run-complete';
+export type AgentEventKind = 'phase' | 'tool' | 'log' | 'result' | 'usage' | 'error' | 'review-verdict' | 'run-complete' | 'feedback-outcome';
 
 export interface AgentUsage {
   inputTokens?: number;
