@@ -36,6 +36,22 @@ flowchart TD
 
 Slack uses the GoCaaS/OI Companion MCP provider by default; it requires no Firefox bridge. Firefox remains optional for general browser integrations and explicitly selected legacy Slack. Firefox selection does not change the terminal host or automatically replace the existing browser default. Terminal operations remain explicitly unsupported by Firefox. Operator setup and platform verification are recorded in its [README](../src/plugins/native-firefox/README.md).
 
+## Clear notification history
+
+```mermaid
+flowchart TD
+    Read[Read scoped notification history] --> Snapshot[Capture server-issued cutoff before display limits]
+    Snapshot --> Click[Clear all notifications<br/>Header galleon or explicit panel scope]
+    Click --> Guard[Validate scope and original cutoff]
+    Guard --> Dismiss[Persist dismissal for captured history]
+    Dismiss --> Refresh[Refresh list and unread count]
+    Guard -->|Request fails| Retry[Retain cutoff for explicit retry]
+    Retry --> Guard
+    Later[Notifications arriving after the cutoff] --> Refresh
+```
+
+Clearing notification history preserves queued reviews, deduplication, task claims and run history. With All selected, it clears history across the available notification scope. Dismissals survive reload/restart; a later run attempt produces a new notification. The feature is available in both pre-rewrite and post-rewrite Helmsman.
+
 ## Live instructions, feedback and parallel execution
 
 ```mermaid

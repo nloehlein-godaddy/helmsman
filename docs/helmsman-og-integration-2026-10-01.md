@@ -1,7 +1,7 @@
 # Pre-rewrite parity audit — 2026-10-01
 
 Source: `nathanloehlein/helmsman-og`, `pre-rewrite` at `c42a9441cda4e8145dfb04b81b9722b89755cf0a`.
-Comparison ancestor: `e471d86630d78f2285611e81256ff912e5f57d0e` (52 subsequent commits).
+Comparison ancestor: `e471d86630d78f2285611e81256ff912e5f57d0e` (52 subsequent commits at the original audit). The later non-Slack `795a5ff` feedback-tab labeling fix is also integrated.
 Rewrite base: `fix/adversarial-review-2026-09-21` at `e51419d0e880ed747dbf8a121a0e85c2a36565e0`.
 
 Current integration: non-Slack ports from the combined parity branch are integrated into that rewrite branch. The new Underway Slack action and Slack OAuth link adjustment are excluded at the user’s request. Existing Slack launch code only gains the awaited admission call required by the shared concurrency contract.
@@ -63,6 +63,7 @@ The ports retain provider-owned commands, immutable artifact bindings, public SD
 | `d16094e` | Compact voyage tabs and open external links in new browser tabs | Ported in #16: compact tabs and protected canonical links opening a new tab. |
 | `647c09c` | Verify PR feedback completion with independent audits and decision handoffs | Ported in #14: independent feedback completion audits and decision handoffs. |
 | `59b0821` | Preserve clarification evidence and unfinished work across feedback retries | Ported in #14: preserve clarification evidence and unfinished work across retries. |
+| `795a5ff` | Identify feedback tabs by PR and galleon | Ported through public run summaries: reopened and retried branch-update tabs show the PR number and retained galleon/run identity. |
 | `c42a944` | Merge pull request #8 from nathanloehlein/fix/feedback-completion | Merge of the feedback-completion source changes above; no separate behavior. |
 
 ## Review branches

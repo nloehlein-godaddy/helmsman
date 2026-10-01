@@ -2,6 +2,8 @@
 
 SDK-only notification header, communication composition page, and independent notifications, review-request, and settings panels. The package requires public `helmsman/communication@1`, `helmsman/communication-command@1`, and composition services. It imports no application internals and uses no private HTTP endpoints.
 
+The header and notifications panel offer **Clear all notifications** when the host supplies optional `clearNotifications`. Clearing uses the effective galleon scope and a server-issued snapshot cutoff. It dismisses history persistently, including entries beyond the displayed limit, without changing work queues, review deduplication or run records. Failed clears retain the same cutoff for explicit retry; later arrivals survive. Older hosts keep existing notification reads and mark-read actions.
+
 The header selects `helmsman/notification-header`. The page selects `helmsman/communication-page` and accepts `helmsman/communication-panel@1`. Each panel can be hidden, replaced, or copied with a different contribution identity. The package owns notification polling and cancels reads and explicit mark-read operations when hidden or disposed; ordinary polling does not cancel a mark-read operation.
 
 Review requests show their exact workspace, channel, and mention before sending. Only explicit Send or Retry invokes a command. Pending requests retain their original target, destination, and request ID across reload and settings changes. Terminal receipts are saved locally before journal acknowledgment. Unknown or unavailable local evidence prevents new sends without overwriting the original data.

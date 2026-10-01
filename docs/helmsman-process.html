@@ -77,6 +77,15 @@ footer { font-size: 13px; color: #587082; margin-top: 24px; }
 </div>
 <p class="section-intro">Slack now defaults to GoCaaS/OI Companion MCP without a browser bridge. Firefox remains optional for general browser support and the explicit legacy Slack provider. Firefox does not change the terminal host or automatically replace the browser default; terminal operations are explicitly unsupported. See the <a href="../src/plugins/native-firefox/README.md">Firefox README</a> for setup and verification.</p>
 </section>
+<section aria-labelledby="notification-clear-heading">
+<h2 class="section-heading" id="notification-clear-heading">Clear notification history</h2>
+<div class="intake-sources">
+<article class="flow-step"><h3>Capture</h3><p>Read the selected galleon and capture a server-issued cutoff before display limits. All selects the available notification scope.</p></article>
+<article class="flow-step"><h3>Dismiss</h3><p>Clear all notifications validates the scope and original cutoff, then persists history dismissal. A failed request keeps its cutoff for explicit retry.</p></article>
+<article class="flow-step"><h3>Refresh</h3><p>Refresh the list and unread count. Later arrivals remain visible. Queued reviews, deduplication, task claims and run history are preserved.</p></article>
+</div>
+<p class="section-intro">Available in both versions. Dismissals survive reload and restart; later run attempts produce new notifications.</p>
+</section>
 <section aria-labelledby="parity-flow-heading">
 <h2 class="section-heading" id="parity-flow-heading">Instructions, feedback and parallel execution</h2>
 <div class="intake-sources">
