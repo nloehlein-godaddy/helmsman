@@ -590,6 +590,11 @@ select { text-transform: none; }
   .config-input { min-width: 0; width: 100%; }
 }
 
+@media (max-width: 640px) {
+  .app-footer { grid-template-columns: minmax(0, 1fr); }
+  .footer-controls { justify-self: end; justify-content: flex-end; flex-wrap: wrap; max-width: 100%; }
+}
+
 /* ---------- departure sequence ---------- */
 #boot {
   --live: var(--good);
