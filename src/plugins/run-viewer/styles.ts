@@ -1,5 +1,5 @@
 export const styles = `
-.plugin-run-viewer{color:var(--text);font:14px var(--sans,sans-serif);min-width:0;display:grid;gap:12px}
+.plugin-run-viewer{color:var(--text);font:14px var(--sans,sans-serif);min-width:0;display:grid;grid-template-columns:minmax(0,1fr);gap:12px;overflow-wrap:anywhere}
 .plugin-run-viewer :is(h1,h2,h3,p){margin:0}
 .plugin-run-viewer h1{font-size:18px}
 .plugin-run-viewer :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);padding:6px 10px}

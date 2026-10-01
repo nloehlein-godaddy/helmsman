@@ -36,6 +36,7 @@ export class DashboardView {
   private readonly questionsAttention: PageAttentionHost;
   private questionsNeedAttention = false;
   private presentationSelection: { locator: Exclude<PresentationLocatorV1, { kind: 'pull-request' }>; scopeRepo: string | null } | null = null;
+  private viewerSelection: string | null = null;
   private destroyed = false;
   private contentView: PageView | null = null;
   private repos: string[] = [];
@@ -79,6 +80,9 @@ export class DashboardView {
     this.questionsAttention = new PageAttentionHost(attention => { this.questionsNeedAttention = attention; this.paintQuestionsAttention(); });
     applyTheme(this.themeId);
     this.root.addEventListener('click', (event: MouseEvent): void => this.handleClick(event), { signal: this.rootEvents.signal });
+    this.root.addEventListener('toggle', event => {
+      if (event.target instanceof HTMLDetailsElement && event.target.matches('.plugin-auxiliary-slot')) this.rehomeRunViewer();
+    }, { capture: true, signal: this.rootEvents.signal });
     this.root.addEventListener('keydown', (event: KeyboardEvent): void => {
       const tab = event.target;
       if (tab instanceof HTMLAnchorElement && tab.matches('.page-tab')) {
@@ -303,6 +307,10 @@ export class DashboardView {
     const pane = this.route.pane;
     const target = pane ? this.root.querySelector<HTMLElement>(`[data-pane="${pane}"]`) : null;
     target?.scrollIntoView?.({ block: 'start' });
+    if (this.route.run && !this.isRunViewerPage() && this.auxiliary.element.isConnected) {
+      this.auxiliary.element.tabIndex = -1;
+      this.auxiliary.element.focus({ preventScroll: true });
+    }
     if (this.route.mode) this.root.querySelector<HTMLElement>(this.route.mode === 'review' ? '.pr-review-agent' : '.pr-rerun-feedback')?.focus({ preventScroll: true });
 
   }
@@ -439,7 +447,7 @@ export class DashboardView {
       this.mountPage(renderAppShell(this.shellOptions(), `<section class="panel"><h1>${escapeHtml(term('unavailablePluginPage'))}</h1><p class="empty-note" role="status">${escapeHtml(term('unavailablePluginMessage'))}</p></section>`));
     } else {
       if (!this.pageHost) {
-        this.mountPage(renderAppShell(this.shellOptions(), '<div data-plugin-page-host></div><aside class="plugin-auxiliary-slot" hidden></aside>'));
+        this.mountPage(renderAppShell(this.shellOptions(), '<div data-plugin-page-host></div>'));
         const container = this.root.querySelector<HTMLElement>('[data-plugin-page-host]');
         if (!container) return;
         this.pageHost = new PluginPageHost(container, {
@@ -700,6 +708,7 @@ export class DashboardView {
       field?.focus({ preventScroll: true });
     }
     this.bindHeadControls();
+    this.rehomeRunViewer();
   }
 
   private handleClick(event: MouseEvent): void {
@@ -753,10 +762,17 @@ export class DashboardView {
   private rehomeRunViewer(): void {
     const presentation = this.pluginPresentationState();
     const standalone = this.isPluginPage() && this.isRunViewerPage();
-    const auxiliarySlot = this.root.querySelector<HTMLElement>('.plugin-auxiliary-slot');
-    const showAuxiliary = presentation.presentation !== null && this.isPluginPage() && !standalone;
-    if (auxiliarySlot) auxiliarySlot.hidden = !showAuxiliary;
-    this.auxiliary.update({ ...presentation, pane: standalone ? this.route.pane : null,
+    const auxiliarySlot = this.root.querySelector<HTMLDetailsElement>('.plugin-auxiliary-slot');
+    const destination = auxiliarySlot?.querySelector<HTMLElement>('[data-run-viewer-host]') ?? null;
+    const selection = presentation.presentation ? JSON.stringify(presentation.presentation) : null;
+    if (auxiliarySlot) {
+      auxiliarySlot.hidden = standalone;
+      if (selection && selection !== this.viewerSelection) auxiliarySlot.open = true;
+      const label = auxiliarySlot.querySelector('summary');
+      if (label) label.textContent = term('runLogs');
+    }
+    this.viewerSelection = selection;
+    this.auxiliary.update({ ...presentation, visible: presentation.visible && (standalone || Boolean(auxiliarySlot?.open)), pane: standalone ? this.route.pane : null,
       panelInstance: standalone ? this.route.panelInstance ?? null : null,
       panelContribution: standalone ? this.route.panelContribution ?? null : null,
       panelRouteState: standalone ? this.panelRouteState() : {},
@@ -764,7 +780,7 @@ export class DashboardView {
       contributionId: standalone && !this.route.pluginSlot ? this.route.pluginPage ?? null : null,
       scopeRepo: this.presentationScopeRepo(),
     } : undefined);
-    this.auxiliary.rehome(standalone ? this.root.querySelector<HTMLElement>('[data-plugin-standalone]') : showAuxiliary ? auxiliarySlot : null);
+    this.auxiliary.rehome(standalone ? this.root.querySelector<HTMLElement>('[data-plugin-standalone]') : destination);
   }
 
   private async handleConfigSave(btn: HTMLButtonElement): Promise<void> {

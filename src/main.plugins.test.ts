@@ -145,7 +145,8 @@ describe('registered plugin page integration', () => {
     const other = sample(); register(other);
     appPages.select(RUN_HISTORY_PAGE_SLOT, 'example.history/page'); appPages.select(RUN_VIEWER_PAGE_SLOT, 'example.viewer/page');
     window.history.replaceState(null, '', '/run-history?repo=org/a'); await start();
-    expect(viewer.mount).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(viewer.mount).toHaveBeenCalledOnce());
+    expect(viewer.states.at(-1)?.visible).toBe(false);
     history.contexts[0]?.selectPresentation?.({ version: 1, kind: 'run', repo: 'org/a', runId: 'run-1' });
     await vi.waitFor(() => expect(viewer.mount).toHaveBeenCalledOnce());
     const element = document.querySelector<HTMLElement>('[data-plugin-page="example.viewer/page"]')!;
@@ -163,7 +164,8 @@ describe('registered plugin page integration', () => {
     expect(document.activeElement).toBe(field); expect(viewer.states.at(-1)).toMatchObject({ pane: null, panelInstance: null, panelRouteState: {} });
     expect(viewer.mount).toHaveBeenCalledOnce(); expect(viewer.dispose).not.toHaveBeenCalled(); expect(viewer.refresh).not.toHaveBeenCalled();
     other.contexts[0]?.navigate('/config?repo=org/a');
-    await vi.waitFor(() => expect(viewer.states.at(-1)?.visible).toBe(false));
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/config'));
+    expect(viewer.states.at(-1)?.visible).toBe(true);
     expect(viewer.dispose).not.toHaveBeenCalled();
     viewer.contexts[0]?.navigate('/run-viewer?repo=org/a&run=run-1&runRepo=org/a');
     await vi.waitFor(() => expect(viewer.states.at(-1)?.visible).toBe(true));
@@ -207,8 +209,29 @@ describe('registered plugin page integration', () => {
     expect(viewer.mount).toHaveBeenCalledOnce();
     expect(document.querySelector('.plugin-auxiliary-slot [data-plugin-page]')).not.toBeNull();
     plugin.contexts[0]?.selectPresentation?.(null);
-    await vi.waitFor(() => expect(viewer.states.at(-1)?.visible).toBe(false));
+    await vi.waitFor(() => expect(viewer.states.at(-1)?.presentation).toBeNull());
+    expect(viewer.states.at(-1)?.visible).toBe(true);
     expect(new URL(window.location.href).searchParams.has('run')).toBe(false);
+    expect(viewer.dispose).not.toHaveBeenCalled();
+  });
+
+  it('keeps a bottom log drawer without a run route, pauses it when collapsed, and opens it for a linked run', async () => {
+    const plugin = sample(); register(plugin);
+    const viewer = sample(); registerPresentation('example.viewer', RUN_VIEWER_PAGE_SLOT, viewer);
+    appPages.select(RUN_VIEWER_PAGE_SLOT, 'example.viewer/page'); await start();
+    const drawer = document.querySelector<HTMLDetailsElement>('.plugin-auxiliary-slot')!;
+    expect(drawer.closest('main')).toBeNull(); expect(drawer.hidden).toBe(false); expect(drawer.open).toBe(false);
+    await vi.waitFor(() => expect(viewer.mount).toHaveBeenCalledOnce());
+    expect(viewer.states.at(-1)?.visible).toBe(false);
+    drawer.open = true; drawer.dispatchEvent(new Event('toggle'));
+    await vi.waitFor(() => expect(viewer.states.at(-1)).toMatchObject({ visible: true, presentation: null }));
+    drawer.open = false; drawer.dispatchEvent(new Event('toggle'));
+    await vi.waitFor(() => expect(viewer.states.at(-1)?.visible).toBe(false));
+    plugin.contexts[0]?.navigate(`${path}&run=run-1&runRepo=org/a`);
+    await vi.waitFor(() => expect(drawer.open).toBe(true));
+    expect(viewer.states.at(-1)).toMatchObject({ visible: true, presentation: { runId: 'run-1', repo: 'org/a' } });
+    drawer.open = false; drawer.dispatchEvent(new Event('toggle'));
+    await view?.refresh(); expect(drawer.open).toBe(false); expect(viewer.mount).toHaveBeenCalledOnce();
     expect(viewer.dispose).not.toHaveBeenCalled();
   });
 

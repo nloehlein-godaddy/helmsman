@@ -153,6 +153,10 @@ export function renderAppShell(opts: HelmHeadOpts, content: string): string {
   return `<div class="helm${opts.active === 'dashboard' ? '' : ` ${opts.active}-view`}" data-page="${opts.active}">
     ${renderHelmHead(opts)}
     <main class="page-content" id="page-content" role="tabpanel" aria-labelledby="${activePageTabId(opts)}" tabindex="0">${content}</main>
+    <details class="plugin-auxiliary-slot" data-pane="tasks">
+      <summary>${term('runLogs')}</summary>
+      <div data-run-viewer-host></div>
+    </details>
     <footer class="app-footer mono">
       <div class="footer-meta">
         <a data-recovery-link href="/recovery${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">${term('recovery')}</a>
