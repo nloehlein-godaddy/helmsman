@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   loadRepoScope,
+  loadSavedRepoScope,
   saveRepoScope,
   loadConfigCollapsed,
   saveConfigCollapsed,
@@ -13,6 +14,7 @@ describe('repo scope pref', () => {
 
   it('returns null when unset', () => {
     expect(loadRepoScope()).toBeNull();
+    expect(loadSavedRepoScope()).toBeUndefined();
   });
 
   it('round-trips a repo', () => {
@@ -20,10 +22,11 @@ describe('repo scope pref', () => {
     expect(loadRepoScope()).toBe('acme/widgets');
   });
 
-  it('clears when saved null', () => {
+  it('remembers an explicit All selection separately from an unset preference', () => {
     saveRepoScope('acme/widgets');
     saveRepoScope(null);
     expect(loadRepoScope()).toBeNull();
+    expect(loadSavedRepoScope()).toBeNull();
   });
 
   it('treats an empty stored value as null', () => {

@@ -22,22 +22,17 @@ function safeSet(key: string, value: string): void {
   }
 }
 
-function safeRemove(key: string): void {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    return;
-  }
+export function loadRepoScope(): string | null {
+  return loadSavedRepoScope() ?? null;
 }
 
-export function loadRepoScope(): string | null {
-  const value: string | null = safeGet(REPO_KEY);
-  return value && value.length > 0 ? value : null;
+export function loadSavedRepoScope(): string | null | undefined {
+  const value = safeGet(REPO_KEY);
+  return value === '*' ? null : value || undefined;
 }
 
 export function saveRepoScope(repo: string | null): void {
-  if (repo) safeSet(REPO_KEY, repo);
-  else safeRemove(REPO_KEY);
+  safeSet(REPO_KEY, repo ?? '*');
 }
 
 export function loadConfigCollapsed(): boolean {

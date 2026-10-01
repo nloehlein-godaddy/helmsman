@@ -73,6 +73,8 @@ export const TERMINOLOGY = {
   reviewPr: { plain: 'Review a PR', pirate: 'Inspect a bounty' },
   runSource: { plain: 'Run source', pirate: 'Voyage source' },
   selectRepository: { plain: 'Select a repository', pirate: 'Select a galleon' },
+  startupScopePrompt: { plain: 'Choose a repository to continue. Your selection will be remembered.', pirate: 'Choose a galleon to continue. Your selection will be remembered.' },
+  startupScopeUnavailable: { plain: 'No repositories are available. Check the server configuration and refresh.', pirate: 'No galleons are available. Check the server configuration and refresh.' },
   noRuns: { plain: 'No past runs.', pirate: 'No past voyages.' },
   noRecentPrRuns: { plain: 'No recent PR runs for this repository scope.', pirate: 'No recent bounty voyages for this galleon scope.' },
   codeReview: { plain: 'Start agent review', pirate: 'Start deckhand review' },

@@ -1,4 +1,6 @@
 import { PageAttentionHost } from './plugins/page-attention-host';
+import { startupScope } from './logic/startupScope';
+import { selectStartupRepo } from './selectStartupRepo';
 import { CLARIFICATIONS_PAGE_SLOT } from './plugins/page-slots';
 import { AuxiliaryPageHost } from './plugins/auxiliary-page-host';
 import { scopedPresentationLocatorV1, type PresentationLocatorV1 } from './plugins/presentation';
@@ -20,7 +22,7 @@ import { fetchAgents, type RunSummary } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
 import { applyTheme, loadThemeId, saveThemeId } from './data/themes';
 import {
-  loadRepoScope,
+  loadSavedRepoScope,
   saveRepoScope,
   loadCollapsed,
   saveCollapsed,
@@ -40,7 +42,7 @@ export class DashboardView {
   private destroyed = false;
   private contentView: PageView | null = null;
   private repos: string[] = [];
-  private selectedRepo: string | null = loadRepoScope();
+  private selectedRepo: string | null = null;
   private runs: RunSummary[] = [];
   private uiConfig: UiConfig = { config: {}, overridden: [] };
   private configLoaded = false;
@@ -147,6 +149,26 @@ export class DashboardView {
   }
 
   async start(): Promise<void> {
+    const url = new URL(window.location.href);
+    const context = await getContext();
+    if (this.destroyed) return;
+    if (context) {
+      this.repos = context.repos;
+      this.jiraEnabled = context.jiraEnabled !== false;
+    }
+    let scope = startupScope(url, this.repos, loadSavedRepoScope());
+    if (scope === undefined) scope = await selectStartupRepo(this.root, this.repos, this.rootEvents.signal, async () => {
+      const next = await getContext();
+      if (next) { this.repos = next.repos; this.jiraEnabled = next.jiraEnabled !== false; }
+      return next?.repos ?? [];
+    });
+    if (this.destroyed || scope === undefined) return;
+    if (scope === null) url.searchParams.delete('repo'); else url.searchParams.set('repo', scope);
+    const route = parseRoute(url);
+    this.selectedRepo = scope;
+    this.view = route.view;
+    this.updateAddress(route, 'replace');
+    saveRepoScope(scope);
     this.unsubscribePages ??= appPages.subscribe(() => {
       if (this.destroyed) return;
       const next = parseRoute(new URL(window.location.href));
@@ -168,16 +190,6 @@ export class DashboardView {
     window.addEventListener('popstate', this.onPopState);
     window.addEventListener('resize', this.onResize);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
-    const route = parseRoute(new URL(window.location.href));
-    this.route = route;
-    this.selectedRepo = route.repo;
-    this.view = route.view;
-    const context = await getContext();
-    if (this.destroyed) return;
-    if (context) {
-      this.repos = context.repos;
-      this.jiraEnabled = context.jiraEnabled !== false;
-    }
     await this.refresh();
     if (this.destroyed) return;
     await this.navigate(parseRoute(new URL(window.location.href)), 'replace');
