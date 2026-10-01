@@ -72,6 +72,8 @@ test('copied SDK-only packages select, retain a paused window and render bounded
   await page.getByRole('button', { name: 'WEB-2048: preserve streamed output and scope · org/a · voyage-long-identity · Attempt 2', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Stop run', exact: true })).toBeEnabled();
   await expect(page.locator('#history')).toContainText('101 matching runs observed'); await expect(page.locator('#viewer')).toContainText('4,000 characters per event');
+  await expect(page.getByRole('link', { name: /Open WEB-2048.*in a new browser tab/ })).toHaveAttribute('target', '_blank');
+  await expect(page.getByRole('link', { name: /Open WEB-2048.*in a new browser tab/ })).toHaveAttribute('href', '/run-viewer?repo=org%2Fa&runRepo=org%2Fa&run=voyage-long-identity');
   await page.getByRole('button', { name: 'Earlier logs', exact: true }).click(); await expect(page.locator('#viewer pre')).toContainText('Earlier run-wide event');
   await expect(page.getByRole('button', { name: 'Stop run', exact: true })).toBeEnabled();
   await page.evaluate(() => { const probe = (window as typeof window & { presentationProbe: { suspend(): void; resume(): void; redraw(): void } }).presentationProbe; probe.suspend(); probe.resume(); });

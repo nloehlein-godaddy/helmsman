@@ -100,6 +100,8 @@ it('shows optional OAuth connection state and requires an explicit account actio
   await vi.waitFor(() => expect(f.container.textContent).toContain('Slack account connected.'));
   expect(f.container.querySelector('operator')).toBeNull();
   expect(f.container.querySelector<HTMLAnchorElement>('.communication-connection a')?.href).toBe('https://helmsman.example/communication');
+  expect(f.container.querySelector<HTMLAnchorElement>('.communication-connection a')?.target).toBe('_blank');
+  expect(f.container.querySelector<HTMLAnchorElement>('.communication-connection a')?.rel).toBe('noopener noreferrer');
   expect(f.container.querySelector<HTMLButtonElement>('[data-connection-action="connect"]')?.disabled).toBe(true);
   expect(connect).not.toHaveBeenCalled(); expect(check).not.toHaveBeenCalled(); expect(disconnect).not.toHaveBeenCalled();
   click(f.container, '[data-connection-action="disconnect"]');

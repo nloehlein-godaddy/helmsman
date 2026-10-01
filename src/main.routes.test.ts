@@ -79,6 +79,25 @@ afterEach(() => {
 });
 
 describe('URL navigation', () => {
+  it.each([
+    ['new tab', '/prs', '_blank', false, {}],
+    ['named tab', '/prs', 'review', false, {}],
+    ['download', '/api/agents/run-1/log/download', '', true, {}],
+    ['external destination', 'https://github.com/org/a/pull/42', '', false, {}],
+    ['modified click', '/prs', '', false, { metaKey: true }],
+    ['middle click', '/prs', '', false, { button: 1 }],
+  ])('leaves %s navigation to the browser', async (_label, href, target, download, init) => {
+    const { root } = await setup('/config?repo=org/a');
+    const address = window.location.href;
+    const link = document.createElement('a'); link.className = 'app-link'; link.href = href; link.target = target;
+    if (download) link.download = '';
+    root.append(link);
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init });
+    link.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(window.location.href).toBe(address);
+  });
+
 
   it('preserves Config drafts while header scope updates the Local Git link', async () => {
     const { root, requests } = await setup('/config?repo=org/a', url => url.pathname === '/api/config'
