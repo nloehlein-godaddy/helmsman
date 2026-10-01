@@ -13,7 +13,7 @@ const taskFocusKey = (source: TaskReadSourceV1, task: TaskReadTaskV1, control: s
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => {
   const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value;
 };
-const styles = `.plugin-underway{display:grid;gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-underway h2,.plugin-underway h3{font-size:14px;margin:0}.plugin-underway .underway-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.plugin-underway :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:var(--radius,4px);max-width:100%}.plugin-underway button{cursor:pointer}.plugin-underway button:disabled{opacity:.5}.plugin-underway ul{list-style:none;padding:0;margin:0}.plugin-underway li{padding:9px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-underway a{color:var(--accent)}.plugin-underway small{display:block;color:var(--text-dim)}.plugin-underway section{display:grid;gap:8px}.plugin-underway [role=alert]{color:var(--bad)}.plugin-underway :is(button,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
+const styles = `.plugin-underway{display:grid;gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-underway h2,.plugin-underway h3{font-size:14px;margin:0}.plugin-underway .underway-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.plugin-underway :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:var(--radius,4px);max-width:100%}.plugin-underway button{cursor:pointer}.plugin-underway button:disabled{opacity:.5}.plugin-underway .underway-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}.plugin-underway .underway-actions small{flex-basis:100%}.plugin-underway ul{list-style:none;padding:0;margin:0}.plugin-underway li{padding:9px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-underway a{color:var(--accent)}.plugin-underway small{display:block;color:var(--text-dim)}.plugin-underway section{display:grid;gap:8px}.plugin-underway [role=alert]{color:var(--bad)}.plugin-underway :is(button,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
 function selection(value: unknown): Selection | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const input = value as Record<string, unknown>;
@@ -261,15 +261,17 @@ class UnderwayPanel implements PluginPanelInstance {
         row.append(element('small', task.priority === null ? 'Priority unknown' : `Priority ${task.priority}`));
         const context = section.context.get(taskKey(task));
         if (context && this.state.visible && this.state.activity.active) {
+          const actions = element('div'); actions.className = 'underway-actions';
           if (context.run) {
             const locator = { version: 1 as const, kind: 'run' as const, repo: context.run.repo, runId: context.run.runId };
-            row.append(this.presentationLink('Open run', locator, this.presentationHref('run', locator.repo, locator.runId), taskFocusKey(section.source, task, 'run')));
+            actions.append(this.presentationLink('Open run', locator, this.presentationHref('run', locator.repo, locator.runId), taskFocusKey(section.source, task, 'run')));
           }
           if (context.pullRequest) {
             const locator = { version: 1 as const, kind: 'pull-request' as const, repo: context.pullRequest.repo, number: context.pullRequest.number };
-            row.append(this.presentationLink('Open pull request', locator, this.presentationHref('pull-request', locator.repo, String(locator.number)), taskFocusKey(section.source, task, 'pull-request')));
-            this.reviews.appendAction(row, context.pullRequest, taskFocusKey(section.source, task, 'review-request'));
+            actions.append(this.presentationLink('Open pull request', locator, this.presentationHref('pull-request', locator.repo, String(locator.number)), taskFocusKey(section.source, task, 'pull-request')));
+            this.reviews.appendAction(actions, context.pullRequest, taskFocusKey(section.source, task, 'review-request'));
           }
+          if (actions.childElementCount) row.append(actions);
         }
         list.append(row);
         if (this.state.repo !== null && task.state !== 'ready') row.append(element('small', 'Not ready for a new run.'));
