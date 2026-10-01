@@ -26,31 +26,33 @@ export function assertSchemaRanges(sql: Database.Database, ranges: readonly Sche
   }
 }
 
-function retainedSchemaRanges(sql: Database.Database): SchemaRange[] {
+export interface RetainedSchemaConsumer { source: 'execution-snapshot' | 'plugin-artifact'; identity: string; range: SchemaRange }
+
+export function retainedSchemaConsumers(sql: Database.Database): RetainedSchemaConsumer[] {
   const exists = (table: string) => Boolean(sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table));
   if (!exists('artifact_pins')) return [];
   const pins = sql.prepare('SELECT DISTINCT pluginId,artifactHash FROM artifact_pins').all() as { pluginId: string; artifactHash: string }[];
-  const ranges: SchemaRange[] = [];
+  const consumers: RetainedSchemaConsumer[] = [];
   const pinned = (item: unknown): boolean => {
     const value = item && typeof item === 'object' ? item as Record<string, unknown> : null;
     return !!value && pins.some(pin => pin.pluginId === value.pluginId && pin.artifactHash === value.artifactHash);
   };
-  function append(value: unknown): void {
+  function append(value: unknown, source: RetainedSchemaConsumer['source'], identity: string): void {
     if (!Array.isArray(value) || value.some(range => !range?.owner || !Number.isSafeInteger(range.minimum) || !Number.isSafeInteger(range.maximum) || range.minimum < 0 || range.maximum < range.minimum)) throw new PersistenceValidationError('Invalid retained schema compatibility');
-    ranges.push(...value as SchemaRange[]);
+    consumers.push(...(value as SchemaRange[]).map(range => ({ source, identity, range })));
   }
   if (exists('execution_snapshots')) for (const row of sql.prepare('SELECT id,contentHash,json FROM execution_snapshots').all() as { id: string; contentHash: string; json: string }[]) {
     const value = persistedJson(JSON.parse(row.json)) as { artifacts?: unknown; schemas?: unknown } | null;
     if (!value || !Array.isArray(value.artifacts)) throw new PersistenceValidationError('Invalid retained execution snapshot');
     if (!value.artifacts.some(pinned)) continue;
     if (row.id !== row.contentHash || persistenceHash(value) !== row.contentHash) throw new PersistenceValidationError('Retained execution snapshot integrity check failed');
-    append(value.schemas);
+    append(value.schemas, 'execution-snapshot', row.id);
   }
   if (exists('plugin_artifacts')) for (const row of sql.prepare('SELECT json FROM plugin_artifacts').all() as { json: string }[]) {
     const value = persistedJson(JSON.parse(row.json)) as { artifact?: unknown; schemas?: unknown } | null;
-    if (pinned(value?.artifact)) append(value?.schemas);
+    if (pinned(value?.artifact)) append(value?.schemas, 'plugin-artifact', persistenceHash(value?.artifact));
   }
-  return ranges;
+  return consumers;
 }
 
 export function migrateOwned(sql: Database.Database, migration: OwnedMigration, retainedConsumers: readonly SchemaRange[] = []): void {
@@ -66,7 +68,7 @@ export function migrateOwned(sql: Database.Database, migration: OwnedMigration, 
       return;
     }
     assertMaintenanceAvailable(sql);
-    retainedConsumers = [...retainedConsumers, ...retainedSchemaRanges(sql)];
+    retainedConsumers = [...retainedConsumers, ...retainedSchemaConsumers(sql).map(consumer => consumer.range)];
     if (prior && prior.version > migration.version) throw new PersistenceConflictError(`Schema downgrade is unsupported: ${migration.owner}`);
     for (const range of retainedConsumers) {
       if (range.owner === migration.owner && (migration.version < range.minimum || migration.version > range.maximum)) throw new PersistenceConflictError(`Retained consumer blocks schema migration: ${migration.owner}`);

@@ -19,6 +19,8 @@ export interface LocalGitOptions {
   activeWorktreePaths?: () => string[];
   beforeMutation?(state: LocalGitResponse): Promise<void>;
   beforeEffect?(): Promise<void>;
+  protectedBranches?(repo: string): readonly string[];
+  mutateWorktree?(repo: string, path: string, operation: 'delete' | 'release', effect: () => Promise<void>): Promise<void>;
 }
 export interface BranchCleanup {
   force: boolean;
@@ -262,8 +264,9 @@ export async function getLocalGit(
         : active.has(resolve(tree.path)) ? 'Worktree belongs to an active run.'
         : tree.branch && defaults.has(tree.branch) ? 'Worktree contains a protected default branch.' : null;
     }
+    const protectedBranches = new Set(options.protectedBranches?.(repo) ?? []);
     for (const branch of branches) {
-      branch.deletionBlockedReason ??= defaults.has(branch.name) ? 'Default branches are protected.'
+      branch.deletionBlockedReason ??= (protectedBranches.has(branch.name) || protectedBranches.has('*')) ? 'Branch remains owned by an execution.' : defaults.has(branch.name) ? 'Default branches are protected.'
         : branch.current || worktrees.some(tree => tree.branch === branch.name) ? 'Branch is checked out in a worktree.' : null;
     }
     return { status: 200, json: { ...empty, branches, worktrees } };
@@ -435,10 +438,12 @@ export async function mutateLocalGit(
           }
           await options.beforeEffect?.();
           if ((await activePaths(options)).has(canonicalTree)) return fail(409, 'Worktree belongs to an active run.');
-          await git(tree.path, ['switch', '--detach', action.expectedCommit]);
+          const effect = async () => { await git(tree.path, ['switch', '--detach', action.expectedCommit]); };
+          if (options.mutateWorktree) await options.mutateWorktree(repo, tree.path, 'release', effect); else await effect();
         } else {
           await options.beforeEffect?.();
-          await git(path, ['worktree', 'remove', '--', tree.path]);
+          const effect = async () => { await git(path, ['worktree', 'remove', '--', tree.path]); };
+          if (options.mutateWorktree) await options.mutateWorktree(repo, tree.path, 'delete', effect); else await effect();
         }
       }
       return await getLocalGit(agentsRoot, repo, configuredRepos, options);

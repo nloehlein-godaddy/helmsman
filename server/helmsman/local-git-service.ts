@@ -12,6 +12,9 @@ import { migrateOwned, validateTableColumns } from './migrations';
 export interface LocalGitServerOptions {
   readonly persistence: Persistence; readonly agentsRoot: string;
   repos(): readonly string[]; authorize(caller: string): void; activeWorktreePaths?(): string[];
+  readonly protectedBranches?: LocalGitOptions['protectedBranches'];
+  readonly mutateWorktree?: LocalGitOptions['mutateWorktree'];
+  readonly protectOperation?: (repo: string, operation: LocalGitControlCommandV1['operation']) => void;
   readonly read?: typeof getLocalGit; readonly mutate?: typeof mutateLocalGit; readonly identity?: typeof localGitCheckoutIdentity;
 }
 const DDL = `CREATE TABLE local_git_control_receipts (
@@ -21,7 +24,7 @@ interface Row { command: string; receipt: string; owner: string; hash: string }
 export function createLocalGitService(options: LocalGitServerOptions) {
   const { persistence } = options; const { sql } = persistence; const owner = randomUUID(); const active = new Set<string>(); let queued = 0;
   const read = options.read ?? getLocalGit; const mutate = options.mutate ?? mutateLocalGit; const identity = options.identity ?? localGitCheckoutIdentity;
-  const gitOptions: LocalGitOptions = { activeWorktreePaths: options.activeWorktreePaths };
+  const gitOptions: LocalGitOptions = { activeWorktreePaths: options.activeWorktreePaths, protectedBranches: options.protectedBranches, mutateWorktree: options.mutateWorktree };
   migrateOwned(sql, { owner: 'core.local-git-control-receipts', version: 1, checksum: persistenceHash(DDL), tables: ['local_git_control_receipts'], validateLegacy: () => null,
     apply: () => sql.exec(DDL), validateCurrent: () => validateTableColumns(sql, 'local_git_control_receipts', ['caller', 'requestId', 'command', 'receipt', 'owner', 'hash']) });
   const key = (caller: string, requestId: string) => JSON.stringify([caller, requestId]);
@@ -95,7 +98,7 @@ export function createLocalGitService(options: LocalGitServerOptions) {
             scope(caller, command.target.repo, scopeRepo);
             if (!admitted || binding === null || await identity(options.agentsRoot, command.target.repo) !== binding) throw new ClarificationServiceError(409, 'conflict');
             if (!effect) await current(caller, command.target, scopeRepo);
-            scope(caller, command.target.repo, scopeRepo); effect = true;
+            scope(caller, command.target.repo, scopeRepo); options.protectOperation?.(command.target.repo, command.operation); effect = true;
           },
         });
         if (replay) return replay;

@@ -17,6 +17,7 @@ export interface CampaignLaunch extends CampaignRecord {
 export interface CampaignDispatcherOptions {
   store: CampaignStore;
   canStart(repo: string): boolean;
+  hasAdmission?(runId: string): boolean;
   getRun(runId: string): { status: 'running' | 'succeeded' | 'failed' | 'stopped' } | null;
   launch(task: CampaignLaunch): string | Promise<string>;
   stop(runId: string): unknown | Promise<unknown>;
@@ -48,6 +49,7 @@ export function createCampaignDispatcher(options: CampaignDispatcherOptions): { 
       }
       return;
     }
+    if (options.hasAdmission?.(item.runId)) return;
     if (item.state === 'claiming' && store.trigger(item.id) && item.claimToken && item.claimedAt
       && now() - Date.parse(item.claimedAt) >= ttl && options.canStart(item.record.repo)) {
       store.releaseClaim(item.id, item.claimToken, 'Previous dispatch was not recorded; retrying the same run ID');
@@ -78,8 +80,12 @@ export function createCampaignDispatcher(options: CampaignDispatcherOptions): { 
       if (options.getRun(item.runId)) await reconcile(item);
       if (store.phase(item.phaseId)?.state === 'stopped') await options.stop(item.runId);
     } catch (error) {
-      store.claimError(item.id, token, errorText(error));
-      await reconcile(item);
+      if (!options.getRun(item.runId) && options.hasAdmission && !options.hasAdmission(item.runId)) {
+        store.releaseClaim(item.id, token, errorText(error));
+      } else {
+        store.claimError(item.id, token, errorText(error));
+        await reconcile(item);
+      }
     }
   }
 

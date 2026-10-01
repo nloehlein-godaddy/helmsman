@@ -1,4 +1,5 @@
 import type { RunInstructionServiceV1 } from './run-instructions';
+import type { ExecutionPolicyServiceV1 } from './execution-policy';
 import type { TaskActionServiceV1 } from './task-actions';
 import type { ProfileServiceV1 } from './profile';
 import type { GithubSettingsServiceV1 } from './github-settings';
@@ -55,6 +56,7 @@ export interface PluginPageServices {
   readonly jiraSettings?: JiraSettingsServiceV1;
   readonly githubSettings?: GithubSettingsServiceV1;
   readonly profile?: ProfileServiceV1;
+  readonly executionPolicy?: ExecutionPolicyServiceV1;
   readonly localGit?: LocalGitServiceV1;
   readonly communicationCommands?: CommunicationCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;

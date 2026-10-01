@@ -189,3 +189,11 @@ it('requires a fresh discovery after automatic starts are disabled and reenabled
   scheduler.setEnabled('org/a', true); await scheduler.tick();
   expect(launch).not.toHaveBeenCalled();
 });
+
+it('rotates galleon discovery order and never overlaps discovery in one tick', async () => {
+  const observed: string[] = []; let reading = false;
+  const scheduler = new AutoClaimScheduler({ canStart: () => true,
+    fetchTopBacklog: async repo => { expect(reading).toBe(false); reading = true; observed.push(repo); await Promise.resolve(); reading = false; return null; }, launch: () => {} });
+  scheduler.setEnabled('org/a', true); scheduler.setEnabled('org/b', true);
+  await scheduler.tick(); await scheduler.tick(); expect(observed).toEqual(['org/a', 'org/b', 'org/b', 'org/a']);
+});

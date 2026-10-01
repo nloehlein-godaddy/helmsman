@@ -1,4 +1,5 @@
 import { createHostRunInstructionService } from './run-instruction-service';
+import { createHostExecutionPolicyService } from './execution-policy-service';
 import { createHostTaskActionService } from './task-action-service';
 import { createHostProfileService } from './profile-service';
 import { createHostGithubSettingsService } from './github-settings-service';
@@ -124,6 +125,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
         jiraSettings: createHostJiraSettingsService(lifetime, { scope, caller }),
         githubSettings: createHostGithubSettingsService(lifetime, { scope, caller }),
         profile: createHostProfileService(lifetime, { scope, caller }),
+        executionPolicy: createHostExecutionPolicyService(lifetime, { scope, caller }),
         localGit: createHostLocalGitService(lifetime, { scope, caller }),
         communication: createHostCommunicationService(lifetime, { scope, caller }),
         communicationCommands: createHostCommunicationCommandService(lifetime, { scope, caller }),

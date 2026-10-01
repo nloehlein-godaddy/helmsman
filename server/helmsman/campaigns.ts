@@ -153,7 +153,7 @@ export function parseCampaignImport(input: unknown): CampaignRecord[] {
   });
 }
 
-export function openCampaignStore(path: string | Database.Database, options: { now?: () => string } = {}): CampaignStore {
+export function openCampaignStore(path: string | Database.Database, options: { now?: () => string; galleonMaximum?: (repo: string) => number } = {}): CampaignStore {
   const connection = storeConnection(path);
   const { sql } = connection;
   const now = () => {
@@ -197,8 +197,10 @@ export function openCampaignStore(path: string | Database.Database, options: { n
   function canClaim(current: CampaignTask, active: CampaignTask[]): boolean {
     if (current.state !== 'queued' || phase(current.phaseId)?.state !== 'running') return false;
     const campaign = get(current.campaignId);
+    const maximum = options.galleonMaximum?.(current.record.repo) ?? 1;
+    if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 20) throw new CampaignValidationError('Invalid galleon concurrency policy');
     return !!campaign && active.filter(item => item.campaignId === current.campaignId).length < campaign.concurrency
-      && !active.some(item => item.record.repo.toLowerCase() === current.record.repo.toLowerCase());
+      && active.filter(item => item.record.repo.toLowerCase() === current.record.repo.toLowerCase()).length < maximum;
   }
   function saveTask(item: CampaignTask): void {
     sql.prepare('UPDATE campaign_tasks SET state = ?, runId = ?, claimToken = ?, payload = ? WHERE id = ?')

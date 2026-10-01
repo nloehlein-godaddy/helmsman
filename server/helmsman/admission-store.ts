@@ -1,3 +1,4 @@
+import { parseExecutionFootprint, type ExecutionFootprint } from './execution-footprint';
 import type { PluginJson } from '../../src/plugins/backend';
 import type { ArtifactBinding, ExecutionStore } from './execution-store';
 import { migrateOwned, validateTableColumns } from './migrations';
@@ -9,6 +10,7 @@ export interface AdmissionInput {
   request: PluginJson;
   settings: PluginJson;
   artifacts: readonly ArtifactBinding[];
+  footprint?: ExecutionFootprint;
 }
 export interface Admission extends AdmissionInput {
   contentHash: string;
@@ -40,6 +42,11 @@ export function openAdmissionStore(persistence: Persistence, executions: Executi
       || value.artifacts.some(artifact => !artifact || typeof artifact.pluginId !== 'string' || !artifact.pluginId
         || !/^[a-f\d]{64}$/.test(artifact.artifactHash) || typeof artifact.packageVersion !== 'string'
         || !Array.isArray(artifact.requires))) throw new PersistenceValidationError('Invalid admission intent');
+    if (value.footprint !== undefined) {
+      const footprint = parseExecutionFootprint(value.footprint);
+      if (footprint.runId !== value.runId || footprint.repo !== value.repo.toLowerCase()) throw new PersistenceValidationError('Admission footprint identity differs');
+      return { ...value, footprint };
+    }
     return value;
   }
   function decode(row: { runId: string; contentHash: string; json: string; state: Admission['state']; reason: string | null; createdAt: string }): Admission {
@@ -68,7 +75,7 @@ export function openAdmissionStore(persistence: Persistence, executions: Executi
           if (prior.contentHash !== persistenceHash(value)) throw new PersistenceConflictError('Admission identity has different content');
           return prior;
         }
-        executions.reserveAdmission({ runId: value.runId, repo: value.repo, maxConcurrency, evidence: { contentHash: persistenceHash(value) } });
+        executions.reserveAdmission({ runId: value.runId, repo: value.repo, maxConcurrency, footprint: value.footprint, evidence: { contentHash: persistenceHash(value) } });
         executions.retainPins(value.artifacts.map(artifact => ({ kind: 'admission', ownerId: value.runId, pluginId: artifact.pluginId, artifactHash: artifact.artifactHash })));
         sql.prepare('INSERT INTO execution_admissions VALUES (?,?,?,\'pending\',NULL,?)').run(value.runId, persistenceHash(value), stableJson(value), new Date().toISOString());
         return get(value.runId)!;

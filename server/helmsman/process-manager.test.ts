@@ -73,3 +73,12 @@ describe('ProcessManager', () => {
     expect(pm.canStart('org/b')).toEqual({ ok: false, reason: 'max concurrency reached' });
   });
 });
+
+it('applies current galleon opt-in independently of global limits and keeps lowered occupancy intact', () => {
+  let maximum = 2;
+  const pm = new ProcessManager(3, undefined, () => maximum);
+  pm.add('one', 'org/repo', () => {}); expect(pm.canStart('org/repo').ok).toBe(true);
+  pm.add('two', 'org/repo', () => {}); expect(pm.canStart('org/repo').ok).toBe(false);
+  maximum = 1; expect(pm.count()).toBe(2); expect(pm.canStart('org/other').ok).toBe(true);
+  pm.add('three', 'org/other', () => {}); expect(pm.canStart('org/new').ok).toBe(false);
+});

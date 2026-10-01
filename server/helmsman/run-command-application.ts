@@ -34,7 +34,7 @@ export function createApplicationRunCommands(options: {
   store: RunCommandStore; db: Db; admissions: AdmissionStore; executions: ExecutionStore; controls: ExecutionControls;
   catalog(): PluginCatalog; repos(): readonly string[]; todos: TodoApi; jiraEnabled(): boolean;
   canStart(repo: string): { ok: boolean; reason?: string };
-  launch(input: LaunchIntent & { runId: string; retryOf?: string; headSha?: string; commandBinding: RunCommandAdmissionBinding }): string;
+  launch(input: LaunchIntent & { runId: string; retryOf?: string; headSha?: string; commandBinding: RunCommandAdmissionBinding }): string | Promise<string>;
   stop(runId: string): boolean;
 }) {
   const { db, admissions, executions, controls } = options;
@@ -84,11 +84,11 @@ export function createApplicationRunCommands(options: {
       }
       return prepared;
     },
-    launch(prepared, record) {
+    async launch(prepared, record) {
       gates(prepared);
       if (persistenceHash(intent(record.command)) !== persistenceHash(prepared)) throw new RunCommandRejection('The original voyage requirements changed.');
       try {
-        return { runId: options.launch({ ...prepared, runId: record.assignedRunId, commandBinding: runCommandAdmissionBinding(record) }), attempt: 1 };
+        return { runId: await options.launch({ ...prepared, runId: record.assignedRunId, commandBinding: runCommandAdmissionBinding(record) }), attempt: 1 };
       } catch (error) {
         if (error instanceof GoCaaSConfigurationError || error instanceof RetryError || error instanceof TodoConflictError || error instanceof TodoValidationError || error instanceof PersistenceConflictError) {
           throw new RunCommandRejection(error.message);

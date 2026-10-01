@@ -137,3 +137,4 @@ export * from './trigger';
 export * from './task-actions';
 
 export * from './run-instructions';
+export * from './execution-policy';
