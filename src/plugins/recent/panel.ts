@@ -155,7 +155,11 @@ class RunListPanel implements PluginPanelInstance {
     link.addEventListener('click', event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); this.context.navigate(path); } });
     return link;
   }
-  private detail(runId: string, repo: string): string { const query = new URLSearchParams({ run: runId, repo }); return `/runs?${query}`; }
+  private detail(runId: string, repo: string): string {
+    const headerRepo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
+    const query = new URLSearchParams({ ...(headerRepo ? { repo: headerRepo } : {}), runRepo: repo, run: runId });
+    return `/runs?${query}`;
+  }
   private button(label: string, callback: () => void, disabled = false): HTMLButtonElement { const button = node('button', label); button.type = 'button'; button.disabled = disabled; button.addEventListener('click', callback); return button; }
   private commandFeedback(parent: HTMLElement, command: CommandState): void {
     const receipt = command.receipt;

@@ -34,6 +34,31 @@ function fixture(action: 'stop' | 'retry', pirateMode = false) {
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 describe.each([['running', running, 'stop', 'Stop', 100], ['recent', recent, 'retry', 'Retry', 10]] as const)('%s standalone panel', (_name, module, action, label, limit) => {
+  it.each([undefined, null, 'owner/header'])('preserves header scope %s when opening a run or accepted retry', async headerRepo => {
+    const f = fixture(action);
+    f.context = { ...f.context, state: { ...f.state, headerRepo } };
+    f.submit.mockResolvedValue({ status: 'available', value: { ...receipt, action, status: 'accepted', runId: 'new-run' } });
+    await module.mount(f.container, f.context);
+    await vi.waitFor(() => expect(f.button(label).disabled).toBe(false));
+    const link = f.container.querySelector<HTMLAnchorElement>('.run-main a')!;
+    const target = new URL(link.href);
+    expect(target.pathname).toBe('/runs');
+    expect(target.searchParams.get('repo')).toBe(headerRepo === undefined ? repo : headerRepo);
+    expect(target.searchParams.get('runRepo')).toBe(repo);
+    expect(target.searchParams.get('run')).toBe(run.id);
+    link.click(); expect(f.context.navigate).toHaveBeenCalledWith(link.getAttribute('href'));
+    if (action === 'retry') {
+      f.button(label).click();
+      await vi.waitFor(() => expect(f.container.querySelector('a[href*="run=new-run"]')).not.toBeNull());
+      const retryLink = f.container.querySelector<HTMLAnchorElement>('a[href*="run=new-run"]')!;
+      const retryTarget = new URL(retryLink.href);
+      expect(retryTarget.pathname).toBe('/runs');
+      expect(retryTarget.searchParams.get('repo')).toBe(headerRepo === undefined ? repo : headerRepo);
+      expect(retryTarget.searchParams.get('runRepo')).toBe(repo);
+      retryLink.click(); expect(f.context.navigate).toHaveBeenLastCalledWith(retryLink.getAttribute('href'));
+    }
+    f.lifetime.abort();
+  });
   it('uses the public accessible loading wheel while awaiting a run read', async () => {
     const f = fixture(action); f.watchList.mockImplementation(() => f.cleanup);
     await module.mount(f.container, f.context);
@@ -155,7 +180,7 @@ describe.each([['running', running, 'stop', 'Stop', 100], ['recent', recent, 're
     f.emit([{ ...f.item, displayKey: '<img src=x onerror=alert(1)>', prNumber: 7 }]);
     expect(f.container.querySelector('img')).toBeNull(); expect(f.container.textContent).toContain('Bounty #7'); expect(f.container.textContent).toContain('Spend unknown');
     expect(f.container.textContent).toContain(action === 'stop' ? 'Deckhand tasks' : 'Recent voyages');
-    const link = f.container.querySelector('a')!; expect(link.getAttribute('href')).toContain('repo=owner%2Fproject'); link.click(); expect(f.context.navigate).toHaveBeenCalledWith(link.getAttribute('href')); f.lifetime.abort();
+    const link = f.container.querySelector('a')!; const target = new URL(link.href); expect(target.searchParams.has('repo')).toBe(false); expect(target.searchParams.get('runRepo')).toBe(repo); link.click(); expect(f.context.navigate).toHaveBeenCalledWith(link.getAttribute('href')); f.lifetime.abort();
   });
 });
 
