@@ -98,13 +98,29 @@ class HistoryPanel implements PluginPanelInstance {
         node('small', `Page ${this.index + 1} · ${this.page.items.length} runs shown. Statuses may change between pages.`));
       for (const run of this.page.items) {
         const row = node('article'); row.className = 'run-row'; row.dataset.runId = run.id;
-        const open = this.button(run.displayKey, () => this.select(run.repo, run.id), !this.context.selectPresentation);
-        open.setAttribute('aria-label', `${run.displayKey} · ${run.repo} · ${run.id} · Attempt ${run.attempt}`);
-        row.append(open, node('small', `${run.repo} · ${run.id} · Attempt ${run.attempt}`),
+        const review = /^review$/i.test(run.displayKey.trim());
+        const number = Number.isSafeInteger(run.prNumber) && (run.prNumber ?? 0) > 0 ? run.prNumber : null;
+        const label = review ? `${this.state.pirateMode ? 'Inspection' : 'Review'}${number ? ` #${number}` : ''}` : run.displayKey;
+        const open = this.button(label, () => this.select(run.repo, run.id), !this.context.selectPresentation);
+        open.setAttribute('aria-label', `${label} · ${run.repo} · ${run.id} · Attempt ${run.attempt}`);
+        row.append(open);
+        if (review && typeof run.title === 'string' && run.title.trim() && !/^review(?:\s+#\d+)?$/i.test(run.title.trim())) {
+          const title = node('p', run.title); title.className = 'run-subject'; row.append(title);
+        }
+        if (number && /^[a-z\d](?:[a-z\d-]*[a-z\d])?\/[a-z\d_.-]+$/i.test(run.repo)) {
+          const headerRepo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
+          const params = new URLSearchParams({ ...(headerRepo ? { repo: headerRepo } : {}), prRepo: run.repo, pr: String(number) });
+          const link = node('a', `${this.state.pirateMode ? 'Bounty' : 'PR'} ${run.repo}#${number}`); link.href = `/prs?${params}`;
+          link.addEventListener('click', event => {
+            if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !this.active()) return;
+            event.preventDefault(); this.context.navigate(link.getAttribute('href') ?? '/prs');
+          }); row.append(link);
+        }
+        row.append(node('small', `${run.repo} · ${run.id} · Attempt ${run.attempt}`),
           node('p', `Worker: ${run.status} · ${run.costUsd === null ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`}`), node('small', `Started ${run.startedAt}${run.endedAt ? ` · Ended ${run.endedAt}` : ''}`));
         const feedback = feedbackLabel(run);
-      if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = run.feedbackOutcome?.summary ?? ''; row.append(outcome); }
-      if (run.review) row.append(node('p', `Review recommendation: ${run.review.outcome}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
+        if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = run.feedbackOutcome?.summary ?? ''; row.append(outcome); }
+        if (run.review) row.append(node('p', `Review recommendation: ${run.review.outcome}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
         if (run.sourceSettlement) row.append(node('p', `Source settlement: ${run.sourceSettlement.state}`));
         root.append(row);
       }
@@ -116,7 +132,7 @@ class HistoryPanel implements PluginPanelInstance {
         this.cursors = this.cursors.slice(0, this.index + 1); this.cursors.push(this.page.nextCursor); void this.read(this.index + 1);
       }, this.loading || !this.page.nextCursor)); root.append(navigation);
     } else root.append(node('p', this.loading ? 'Loading run history…' : 'Run history is unavailable.'));
-    const controls = [...root.querySelectorAll<HTMLElement>('button')];
+    const controls = [...root.querySelectorAll<HTMLElement>('button, a')];
     for (const control of controls) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-id]')?.dataset.runId, control.textContent]);
     this.container.replaceChildren(root);
     if (focus) [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });

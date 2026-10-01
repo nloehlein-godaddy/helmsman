@@ -8,6 +8,13 @@ const run: RunReadSummaryV1 = { version: 1, id: 'run-1', repo, displayKey: 'TASK
 const query = { version: 1 as const, repo, kind: 'terminal' as const, limit: 10, cursor: null };
 const logQuery = { version: 1 as const, repo, runId: run.id, limit: 10, cursor: null };
 describe('public run read data', () => {
+  it('accepts an optional retained title without requiring it from older providers', () => {
+    expect(parseRunReadSummaryV1(run)).not.toHaveProperty('title');
+    expect(parseRunReadSummaryV1({ ...run, title: 'Fix login failure' }).title).toBe('Fix login failure');
+    for (const title of [null, 1, '', 'x'.repeat(513), 'line\nfeed']) {
+      expect(() => parseRunReadSummaryV1({ ...run, title })).toThrow();
+    }
+  });
   it('copies and freezes allowlisted data while keeping worker result independent of settlement', () => {
     const source = { ...run, sourceSettlement: { state: 'pending' }, taskJson: 'private', worktreePath: '/private', hostRef: 'capability', review: { outcome: 'APPROVE', verdict: 'Approved', secret: 'private' } };
     const parsed = parseRunReadSummaryV1(source);

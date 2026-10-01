@@ -1554,7 +1554,7 @@ async function launch(body: LaunchIntent & { runId?: string; headSha?: string; r
         preparedPullRequestSource = retainPullRequestSource(pullRequestSource, prepared.target);
         const choice = selectReviewModel(scope?.headSha === pr.headSha ? scope : null, adapter.metadata ?? adapter.id, body);
         taskObj = {
-          ticketId: 'review', title: `review #${pr.number}`, repo: body.repo,
+          ticketId: 'review', title: pr.title, repo: body.repo,
           jiraBaseUrl: cfg.jira?.baseUrl ?? '',
           prBranch: pr.headRefName, prNumber: pr.number, review: true,
           model: choice.model, effort: choice.effort, reviewComplexity: choice.complexity,

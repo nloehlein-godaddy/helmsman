@@ -15,6 +15,6 @@ export async function prepareTriggerReview(input: { repo: string; number: number
   const files = diff.files.map(file => ({ filename: file.filename, changes: file.additions + file.deletions, patch: file.patch }));
   const scope: ReviewScope = { files, changedFiles: files.length, changedLines: files.reduce((sum, file) => sum + file.changes, 0),
     complete: diff.quality === 'complete' && !diff.truncated, headSha: detail.target.headSha };
-  return { target: detail.target, pr: { number: detail.target.number, headSha: detail.target.headSha, headRefName: detail.headRefName,
+  return { target: detail.target, pr: { number: detail.target.number, title: detail.title, headSha: detail.target.headSha, headRefName: detail.headRefName,
     state: 'open' as const, draft: detail.draft, merged: false }, scope };
 }

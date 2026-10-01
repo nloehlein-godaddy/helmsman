@@ -126,3 +126,11 @@ it.each([
   db.appendEvent('run-1', 'feedback-outcome', '{broken', '2026-09-20T12:02:00Z');
   expect(service.history(history).items[0]).not.toHaveProperty('feedbackOutcome');
 });
+
+it('projects retained task titles without exposing task data and tolerates malformed history', () => {
+  db.insertRun(run({ taskJson: JSON.stringify({ title: 'Fix login failure', secret: 'private' }) }));
+  const item = fixture().history(history).items[0];
+  expect(item?.title).toBe('Fix login failure'); expect(item).not.toHaveProperty('taskJson'); expect(item).not.toHaveProperty('secret');
+  db.updateRun('run-1', { taskJson: '{broken' });
+  expect(fixture().history(history).items[0]).not.toHaveProperty('title');
+});

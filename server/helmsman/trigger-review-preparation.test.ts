@@ -16,7 +16,7 @@ function fixture() {
 describe('triggered review preparation', () => {
   it('uses public detail/diff for the pinned PR and preserves preview completeness', async () => {
     const f = fixture(); const result = await prepareTriggerReview({ ...inspectQuery, headSha: inspectDetail.target.headSha }, f.capture);
-    expect(result.pr).toMatchObject({ headSha: inspectDetail.target.headSha, headRefName: inspectDetail.headRefName });
+    expect(result.pr).toMatchObject({ title: inspectDetail.title, headSha: inspectDetail.target.headSha, headRefName: inspectDetail.headRefName });
     expect(result.scope.complete).toBe(inspectDiff.quality === 'complete' && !inspectDiff.truncated);
     expect(f.provider.diff).toHaveBeenCalledWith({ version: 1, target: inspectDetail.target }, f.capture.context);
     expect(f.capture.context.http.request).not.toHaveBeenCalled();

@@ -93,3 +93,34 @@ it.each([false, true])('renders truthful feedback history in either terminology 
   expect([...f.container.querySelectorAll('.run-feedback-outcome')].map(el => el.textContent)).toEqual(['Feedback completed', 'Feedback remaining', 'Awaiting decision']);
   expect(f.container.textContent).toContain('Worker: failed'); expect(f.container.querySelector('img')).toBeNull();
 });
+
+it.each([false, true])('identifies reviewed targets with retained subject and galleon in terminology mode %s', async pirateMode => {
+  const title = 'Fix login <img src=x onerror=alert(1)>';
+  const item = { ...run('opaque-id', 'org/b'), displayKey: 'REVIEW', title, prNumber: 42 };
+  const f = await mount(vi.fn(async () => available(page({ repo: 'org/b', items: [item] }))), { pirateMode, headerRepo: 'org/a', activity: { epoch: 1, repo: 'org/b', active: true, signal: new AbortController().signal } });
+  await vi.waitFor(() => expect(f.container.querySelector('.run-subject')?.textContent).toBe(title));
+  const open = button(f.container, `${pirateMode ? 'Inspection' : 'Review'} #42`);
+  expect(open.getAttribute('aria-label')).toContain('org/b · opaque-id · Attempt 1');
+  open.click(); expect(f.selectPresentation).toHaveBeenCalledWith({ version: 1, kind: 'run', repo: 'org/b', runId: 'opaque-id' });
+  const link = f.container.querySelector('a');
+  expect(link?.textContent).toBe(`${pirateMode ? 'Bounty' : 'PR'} org/b#42`);
+  expect(link?.getAttribute('href')).toBe('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42');
+  link?.click(); expect(f.context.navigate).toHaveBeenCalledWith('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42');
+  expect(f.container.querySelector('img')).toBeNull(); expect(f.state.repo).toBe('org/a');
+});
+
+it('preserves header All when the panel has an explicit scope and leaves modified link clicks to the browser', async () => {
+  const item = { ...run('review-id', 'org/b'), displayKey: 'review', title: 'review #42', prNumber: 42 };
+  const f = await mount(vi.fn(async () => available(page({ repo: 'org/b', items: [item] }))), { repo: 'org/b', headerRepo: null, activity: { epoch: 1, repo: 'org/b', active: true, signal: new AbortController().signal } });
+  await vi.waitFor(() => expect(f.container.querySelector('a')).toBeTruthy());
+  const link = f.container.querySelector('a'); expect(link?.getAttribute('href')).toBe('/prs?prRepo=org%2Fb&pr=42');
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true });
+  link?.dispatchEvent(event); expect(event.defaultPrevented).toBe(false); expect(f.context.navigate).not.toHaveBeenCalled();
+  expect(f.container.querySelector('.run-subject')).toBeNull();
+});
+
+it.each([null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])('omits links for reviews without a valid retained PR number (%s)', async prNumber => {
+  const f = await mount(vi.fn(async () => available(page({ items: [{ ...run('old-review'), displayKey: 'review', prNumber }] }))));
+  await vi.waitFor(() => expect(button(f.container, 'Review')).toBeTruthy());
+  expect(f.container.querySelector('a')).toBeNull();
+});

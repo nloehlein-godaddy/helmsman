@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { retainedRunTitle } from './run-title';
 import { parseTaskRepo } from '../../src/plugins/tasks';
 import { parseRunReadListQueryV1, parseRunReadSummaryV1 } from '../../src/plugins/run-read';
 import type { RunReadListQueryV1, RunReadSettlementV1, RunReadSummaryV1 } from '../../src/plugins/run-read';
@@ -49,10 +50,11 @@ export function createRunInspectService(options: { db: Db; repos(): readonly str
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new RunInspectError(409, 'cursor-invalid'); return value;
   }
   function summary(row: RunRow): RunReadSummaryV1 {
+    const title = retainedRunTitle(row.taskJson);
     const verdict = row.status === 'succeeded' ? db.latestReviewVerdict(row.id)?.slice(0, 512).replace(/[\uD800-\uDBFF]$/, '') ?? null : null;
     const label = verdict?.match(/^Verdict: (Approve|Request changes|Comment only) — \S/)?.[1];
     const outcome = label === 'Approve' ? 'APPROVE' : label === 'Request changes' ? 'REQUEST_CHANGES' : label === 'Comment only' ? 'COMMENT' : null;
-    return parseRunReadSummaryV1({ version: 1, id: row.id, repo: row.repo, displayKey: row.ticketId, status: row.status, attempt: row.attempt,
+    return parseRunReadSummaryV1({ version: 1, id: row.id, repo: row.repo, displayKey: row.ticketId, ...(title ? { title } : {}), status: row.status, attempt: row.attempt,
       startedAt: row.startedAt, endedAt: row.endedAt, prNumber: row.prNumber, costUsd: row.costUsd,
       feedbackOutcome: db.latestFeedbackOutcome(row.id),
       review: outcome && verdict ? { outcome, verdict } : null, sourceSettlement: row.status === 'running' ? null : options.settlement?.(row.id) ?? null });

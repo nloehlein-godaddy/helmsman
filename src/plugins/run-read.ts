@@ -11,6 +11,7 @@ export interface RunReadSummaryV1 {
   readonly id: string;
   readonly repo: string;
   readonly displayKey: string;
+  readonly title?: string;
   readonly status: RunReadStatusV1;
   readonly attempt: number;
   readonly startedAt: string;
@@ -111,7 +112,7 @@ export function parseRunReadSummaryV1(input: unknown): RunReadSummaryV1 {
   }
   const feedbackOutcome = normalizeFeedbackOutcomeForStatus(parseFeedbackOutcome(value.feedbackOutcome), workerStatus);
   const visibleFeedback = feedbackOutcome && (feedbackOutcome.state !== 'completed' || workerStatus === 'succeeded') ? Object.freeze(feedbackOutcome) : null;
-  return Object.freeze({ version: 1, id: runId(value.id), repo: parseTaskRepo(value.repo), displayKey: text(value.displayKey, 512), status: workerStatus,
+  return Object.freeze({ version: 1, id: runId(value.id), repo: parseTaskRepo(value.repo), displayKey: text(value.displayKey, 512), ...(value.title === undefined ? {} : { title: text(value.title, 512) }), status: workerStatus,
     attempt: integer(value.attempt, 1), startedAt: date(value.startedAt), endedAt: value.endedAt === null ? null : date(value.endedAt),
     prNumber: value.prNumber === null ? null : integer(value.prNumber, 1), costUsd: value.costUsd as number | null, review, sourceSettlement, ...(visibleFeedback ? { feedbackOutcome: visibleFeedback } : {}) });
 }
