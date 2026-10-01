@@ -1,4 +1,5 @@
 import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, TaskContextSnapshotV1, TaskReadSourceV1, TaskReadTaskV1, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1 } from '@helmsman/plugin-sdk';
+import { UnderwayReviews } from './reviews.js';
 
 interface Selection { sourceId: string; instanceId: string; repo: string; }
 interface Section { source: TaskReadSourceV1; tasks: readonly TaskReadTaskV1[]; context: Map<string, TaskContextSnapshotV1>; cursor: string | null; pages: number; error: string; loading: boolean; }
@@ -25,6 +26,7 @@ class UnderwayPanel implements PluginPanelInstance {
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
   private state: PluginPanelState;
+  private readonly reviews: UnderwayReviews;
   private chosen: Selection | null;
   private invalidSelection = false;
   private selectionDirty = false;
@@ -43,6 +45,7 @@ class UnderwayPanel implements PluginPanelInstance {
   private pending: Promise<void> | null = null;
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.container = container; this.context = context; this.state = context.state;
+    this.reviews = new UnderwayReviews(context, () => this.draw());
     const saved = context.state.savedState;
     this.chosen = saved?.version === 1 ? selection(saved.value) : null;
     this.invalidSelection = saved !== null && !this.chosen;
@@ -53,13 +56,14 @@ class UnderwayPanel implements PluginPanelInstance {
   }
   private abort = () => this.dispose();
   private suspend = () => { this.cancel(); };
-  private cancel() { ++this.generation; this.controller?.abort(); this.controller = null; this.contextController?.abort(); this.contextController = null; this.pending = null; this.evidenceReady = false; for (const command of this.commands.values()) command.busy = false; }
+  private cancel() { this.reviews.cancel(this.state); ++this.generation; this.controller?.abort(); this.controller = null; this.contextController?.abort(); this.contextController = null; this.pending = null; this.evidenceReady = false; for (const command of this.commands.values()) command.busy = false; }
   private current(generation: number): boolean { return !this.disposed && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
   refresh(): Promise<void> {
     if (this.disposed || !this.state.activity.active || this.state.activity.signal.aborted || !this.state.visible) return Promise.resolve();
     if (this.pending) return this.pending;
     this.contextController?.abort(); this.contextController = null;
     this.evidenceReady = false; this.sections = [];
+    void this.reviews.refresh(this.state, this.chosen?.repo ?? this.state.repo);
     const generation = ++this.generation; const controller = new AbortController(); const contextController = new AbortController(); this.controller = controller; this.contextController = contextController;
     const promise = Promise.resolve().then(async () => {
       await this.restoreCommands(generation);
@@ -220,6 +224,7 @@ class UnderwayPanel implements PluginPanelInstance {
     select.value = this.invalidSelection ? 'unsupported' : this.chosen ? key(this.chosen) : ''; select.addEventListener('change', () => { void this.choose(select.value); }); toolbar.append(select);
     const refresh = element('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.underwayFocus = 'refresh'; refresh.disabled = Boolean(this.pending); refresh.addEventListener('click', () => { void this.refresh(); }); toolbar.append(refresh); page.append(toolbar);
     for (const message of [...this.messages, ...(this.saveError ? [this.saveError] : []), ...(this.commandError ? [this.commandError] : [])]) { const note = element('p', message); note.setAttribute('role', 'status'); page.append(note); }
+    this.reviews.appendEvidence(page);
     if (this.state.repo === null) page.append(element('p', this.state.pirateMode ? 'Select one galleon to launch work.' : 'Select one repository to launch work.'));
     for (const command of this.commands.values()) {
       const receipt = command.receipt; const box = element('section');
@@ -263,6 +268,7 @@ class UnderwayPanel implements PluginPanelInstance {
           if (context.pullRequest) {
             const locator = { version: 1 as const, kind: 'pull-request' as const, repo: context.pullRequest.repo, number: context.pullRequest.number };
             row.append(this.presentationLink('Open pull request', locator, this.presentationHref('pull-request', locator.repo, String(locator.number)), taskFocusKey(section.source, task, 'pull-request')));
+            this.reviews.appendAction(row, context.pullRequest, taskFocusKey(section.source, task, 'review-request'));
           }
         }
         list.append(row);
