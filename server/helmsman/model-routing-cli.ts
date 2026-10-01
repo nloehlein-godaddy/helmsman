@@ -91,8 +91,8 @@ export function claudeCommand(command: Input['command'], settingsPath: string): 
   return { cmd: command.cmd, args: [...command.args, '--settings', settingsPath, '--setting-sources', 'project,local'] };
 }
 
-export async function runModelRoutingCli(raw = process.argv[2]): Promise<number> {
-  const routed = input(JSON.parse(raw ?? 'null'));
+export async function runModelRoutingCli(raw = process.argv.slice(2).map(argument => argument.startsWith('--input=') ? argument.slice('--input='.length) : argument).join('')): Promise<number> {
+  const routed = input(JSON.parse(raw || 'null'));
   const token = routed.modelGateway.token;
   const environment = cleanedEnvironment();
   let cleanup: () => Promise<void> = async () => undefined;
@@ -120,10 +120,26 @@ export async function runModelRoutingCli(raw = process.argv[2]): Promise<number>
     return await new Promise<number>((resolve, reject) => {
       const child = spawn(command.cmd, command.args, { env: environment, stdio: 'inherit' });
       const forward = (signal: NodeJS.Signals) => { try { child.kill(signal); } catch {} };
-      process.once('SIGTERM', () => forward('SIGTERM'));
-      process.once('SIGINT', () => forward('SIGINT'));
-      child.once('error', reject);
-      child.once('exit', (code, signal) => resolve(signal ? 1 : code ?? 1));
+      const terminate = () => forward('SIGTERM');
+      const interrupt = () => forward('SIGINT');
+      const detach = () => {
+        process.removeListener('SIGTERM', terminate);
+        process.removeListener('SIGINT', interrupt);
+      };
+      const diagnostic = (text: string) => { try { process.stderr.write(`model-routing: ${basename(command.cmd)} ${text}\n`); } catch {} };
+      process.once('SIGTERM', terminate);
+      process.once('SIGINT', interrupt);
+      child.once('error', (error: NodeJS.ErrnoException) => {
+        detach();
+        diagnostic(`could not start (${error.code ?? 'unknown error'})`);
+        reject(error);
+      });
+      child.once('exit', (code, signal) => {
+        detach();
+        if (signal) diagnostic(`terminated by signal ${signal}`);
+        else if (code !== 0) diagnostic(`exited with code ${code ?? 1}`);
+        resolve(signal ? 1 : code ?? 1);
+      });
     });
   } finally { await cleanup(); }
 }

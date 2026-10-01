@@ -86,6 +86,15 @@ it('projects a provider-declared failure even when the durable worker exits zero
   expect(f.sessions[0]?.terminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', exitCode: 0 }));
 });
 
+it('publishes nonzero exit evidence while retaining the durable outcome', async () => {
+  const f = fixture();
+  f.setCode(23);
+  await startRun(task, f.deps);
+  expect(f.sessions[0]?.terminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', exitCode: 23 }));
+  expect(f.db.listEvents('run1')).toContainEqual(expect.objectContaining({ kind: 'error', text: 'Agent process exited with code 23' }));
+  expect(f.db.getRun('run1')?.status).toBe('failed');
+});
+
 it('restores a journaled provider failure while attaching a durable execution after its log was consumed', async () => {
   const f = fixture();
   const row: RunRow = { id: 'run1', ticketId: task.ticketId, repo: task.repo, adapter: 'test', status: 'running', attempt: 1,

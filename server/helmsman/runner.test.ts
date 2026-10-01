@@ -236,6 +236,7 @@ describe('startRun', () => {
     const db: Db = openDb(':memory:');
     const id = await startRun(task, deps(db, jsonAdapter(), singleAttemptHost([], false), freshRunsDir()));
     expect(db.getRun(id)?.status).toBe('failed');
+    expect(db.listEvents(id)).toContainEqual(expect.objectContaining({ kind: 'error', text: 'Agent process exited with code 1' }));
     db.close();
   });
 
@@ -245,6 +246,7 @@ describe('startRun', () => {
       const id = await startRun(task, deps(db, jsonAdapter(), singleAttemptHost([{ kind: 'result', outcome: 'failure', text: 'provider failed' }], true), freshRunsDir()));
       expect(db.getRun(id)?.status).toBe('failed');
       expect(db.listEvents(id)).toContainEqual(expect.objectContaining({ kind: 'agent-result-failure:1', text: 'provider failed' }));
+      expect(db.listEvents(id).some(event => event.text === 'Agent process exited with code 0')).toBe(false);
     } finally { db.close(); }
   });
 
@@ -1069,6 +1071,21 @@ describe('reattachRun', () => {
     expect(d.enqueueCreatedPrReview).toHaveBeenCalledExactlyOnceWith({ parentRunId: row.id, repo: 'o/r', prNumber: 7 });
     expect(d.removeWorktree).toHaveBeenCalledOnce();
     db.close();
+  });
+
+  it.each([true, false])('reports recovered process failure with an existing exit file: %s', async existing => {
+    const db = openDb(':memory:');
+    try {
+      const runsDir = freshRunsDir(); const row = baseRow(runsDir);
+      writeFileSync(row.logPath!, '');
+      db.insertRun(row);
+      const host = { ...singleAttemptHost([], false), isAlive: async () => true };
+      if (existing) writeFileSync(row.exitPath!, '23');
+      else setTimeout(() => writeFileSync(row.exitPath!, '23'), 20);
+      await reattachRun(row, deps(db, jsonAdapter(), host, runsDir));
+      expect(db.getRun(row.id)?.status).toBe('failed');
+      expect(db.listEvents(row.id)).toContainEqual(expect.objectContaining({ kind: 'error', text: 'Agent process exited with code 23' }));
+    } finally { db.close(); }
   });
 
   it('retains a journaled provider failure when recovery starts after its log offset', async () => {

@@ -40,7 +40,13 @@ function supervise() {
   worker.on('message', message => {
     if (message?.kind === 'helmsman-coordinator-settled' && message.version === 1) acknowledged = true;
   });
-  worker.once('exit', code => settle(code ?? 1, !coordinator || acknowledged && code !== null));
+  worker.once('exit', (code, signal) => {
+    try {
+      if (signal) writeFileSync(spec.logPath, `run-wrapper: agent terminated by signal ${signal}\n`, { flag: 'a' });
+      else if (code !== 0) writeFileSync(spec.logPath, `run-wrapper: agent exited with code ${code ?? 1}\n`, { flag: 'a' });
+    } catch {}
+    settle(code ?? 1, !coordinator || acknowledged && code !== null);
+  });
   worker.once('error', error => {
     try { writeFileSync(spec.logPath, `run-wrapper: cannot start ${spec.cmd}: ${error.message}\n`, { flag: 'a' }); } catch {}
     if (!worker.pid) settle(127);

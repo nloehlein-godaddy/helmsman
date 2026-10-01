@@ -45,7 +45,25 @@ describe.skipIf(process.platform === 'win32')('run-wrapper', () => {
     spawnSync('node', [WRAPPER, specPath], { encoding: 'utf8' });
     expect(readFileSync(logPath, 'utf8')).toContain('out');
     expect(readFileSync(logPath, 'utf8')).toContain('err');
+    expect(readFileSync(logPath, 'utf8')).toContain('run-wrapper: agent exited with code 5');
     expect(readFileSync(exitPath, 'utf8').trim()).toBe('5');
+  });
+
+  it.each([false, true])('preserves durable signal receipts when diagnostic logging fails: %s', unavailableLog => {
+    const dir = mkdtempSync(join(tmpdir(), 'wrap-signal-'));
+    try {
+      const specPath = join(dir, 'spec.json'); const logPath = join(dir, 'run.log'); const exitPath = join(dir, 'run.exit');
+      const identity = { runId: 'signal-run', launchId: 'signal-launch', attempt: 1 };
+      const script = unavailableLog
+        ? 'const fs=require("node:fs");const log=process.argv[1];fs.unlinkSync(log);fs.mkdirSync(log);process.kill(process.pid,"SIGTERM");'
+        : 'process.kill(process.pid,"SIGTERM");';
+      writeFileSync(specPath, JSON.stringify({ ...identity, cmd: process.execPath, args: ['-e', script, logPath], cwd: dir, logPath, exitPath,
+        receiptPath: join(dir, 'receipt.json') }));
+      const wrapper = spawnSync(process.execPath, [WRAPPER, specPath], { encoding: 'utf8', timeout: 10_000, killSignal: 'SIGKILL' });
+      expect(wrapper.error).toBeUndefined(); expect(wrapper.status).toBe(0);
+      expect(JSON.parse(readFileSync(exitPath, 'utf8'))).toMatchObject({ ...identity, exitCode: 1 });
+      if (!unavailableLog) expect(readFileSync(logPath, 'utf8')).toContain('run-wrapper: agent terminated by signal SIGTERM');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('writes exit 127 and logs the error when the command cannot be spawned', () => {
