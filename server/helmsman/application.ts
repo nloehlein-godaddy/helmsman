@@ -1,3 +1,11 @@
+import { isContributionId } from '../../src/plugins/manifest';
+import { readFeedbackSettings, writeFeedbackSettings } from './plugins/data';
+import { builtinFrontendManifests } from '../../src/plugins/frontend-manifests';
+import { builtinFeedbackTrackers } from './plugins/builtin-feedback-trackers';
+import { createFeedbackCommandService } from './feedback-command-service';
+import { resolveSelectedFeedbackTrackerProvider } from './feedback-tracker-providers';
+import { loadRetainedFeedbackTrackerProvider } from './feedback-tracker-retained-loader';
+import { createFeedbackTrackerProviderHttp } from './feedback-tracker-http';
 import { createApplicationTaskActions } from './task-action-application';
 import { handleTaskActionApi } from './task-action-routes';
 import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
@@ -272,7 +280,7 @@ for (const plugin of builtinTriggers) {
     : plugin.package.manifest.id === 'helmsman.trigger-github-webhook' ? { enabled: Boolean(configStore.webhookCredential() && env.HELMSMAN_WEBHOOK_ROUTES), routesJson: env.HELMSMAN_WEBHOOK_ROUTES ?? '[]' } : {};
   initializeTriggerSettings(pluginDirectory(), plugin.package, values);
 }
-const builtinBackends = [...builtinTriggers, ...builtinWorkflows, ...builtinNativeTerminals, ...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications];
+const builtinBackends = [...builtinTriggers, ...builtinWorkflows, ...builtinNativeTerminals, ...builtinExecutionHosts, ...builtinAgents, builtinScheduling, builtinPricing, ...builtinTaskSources, ...builtinPullRequests, ...builtinCommunications, ...builtinFeedbackTrackers];
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
@@ -654,6 +662,24 @@ function pullRequestContext(binding: ProviderBinding, signal: AbortSignal, mutat
     },
   }) };
 }
+function feedbackTrackerContext(binding: ProviderBinding, signal: AbortSignal, mutation: boolean) {
+  const requireConnection = () => {
+    const github = configStore.current().github;
+    const connection = pullRequestConnection();
+    if (!github?.token || !connection || connection.connectionId !== binding.connectionId || connection.credentialHandle !== binding.credentialHandle) throw new Error('Pinned GitHub feedback tracker connection is unavailable.');
+    return github;
+  };
+  const github = requireConnection();
+  return { signal, configuredAuthor: github.author, http: createFeedbackTrackerProviderHttp({
+    connection: { id: binding.connectionId!, credentialHandle: binding.credentialHandle!, origin: 'https://api.github.com', subject: github.author }, signal, mutation,
+    authorize: () => { requireConnection(); },
+    resolve: async () => {
+      const current = requireConnection();
+      return { id: binding.connectionId!, credentialHandle: binding.credentialHandle!, origin: 'https://api.github.com', subject: current.author,
+        headers: { Authorization: `Bearer ${current.token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' } };
+    },
+  }) };
+}
 function pullRequestReadContext(binding: ProviderBinding, signal: AbortSignal) {
   const initial = configStore.current().github;
   if (!initial?.token || typeof initial.author !== 'string' || !initial.author.trim()) throw pullRequestSelectionChanged();
@@ -822,6 +848,51 @@ async function assertCommunicationReviewable(repo: string, number: number, sourc
   const pr = github ? await fetchPrStatus(github, repo, number) : null;
   if (!pr || pr.isOwnPr !== true || pr.state !== 'open' || pr.merged) throw new ClarificationServiceError(409, 'conflict');
 }
+function selectedFeedbackTrackerProvider(): ProviderBinding | null {
+  return resolveSelectedFeedbackTrackerProvider({ root: pluginDirectory(), registry: backendPlugins.feedbackTrackers, connection: pullRequestConnection });
+}
+function authorizeFeedback(caller: string, capability: string) {
+    if (!isContributionId(caller)) throw new ClarificationServiceError(403, 'forbidden');
+    const catalog = pluginSnapshot.catalog; const [pluginId, localId] = caller.split('/');
+    const manifest = catalog.plugins.find(plugin => plugin.package.manifest.id === pluginId)?.package.manifest
+      ?? builtinFrontendManifests.find(manifest => manifest.id === pluginId && catalog.builtins?.some(entry => entry.id === pluginId && entry.enabled && entry.version === manifest.version));
+    const contribution = manifest?.pages.find(page => page.id === localId)
+      ?? (manifest?.manifestVersion === 2 ? manifest.panels.find(panel => panel.id === localId) : undefined);
+    if (catalog.safeMode || !contribution?.requires?.some(requirement => requirement.id === capability && requirement.version === 1)) throw new ClarificationServiceError(403, 'forbidden');
+}
+const feedbackSettingsPackages = () => [...builtinFeedbackTrackers.map(value => value.package), ...pluginSnapshot.catalog.plugins.map(value => value.package).filter(pkg => pkg.backend?.feedbackTrackers)];
+const feedbackSettings = {
+  snapshot(caller: string) { authorizeFeedback(caller, 'helmsman/feedback-settings'); return readFeedbackSettings(pluginDirectory(), feedbackSettingsPackages()); },
+  save(caller: string, input: unknown) { authorizeFeedback(caller, 'helmsman/feedback-settings'); return writeFeedbackSettings(pluginDirectory(), feedbackSettingsPackages(), input); },
+};
+const feedbackCommands = createFeedbackCommandService({ persistence, operations, repos: applicationRepos,
+  authorize: caller => authorizeFeedback(caller, 'helmsman/feedback-command'),
+  capture() {
+    const binding = selectedFeedbackTrackerProvider(); if (!binding) return null;
+    const key = { providerId: binding.contributionId, pluginId: binding.pluginId, artifactHash: binding.artifactHash, contractVersion: 1 as const, connectionId: null, credentialHandle: null };
+    const registration = backendPlugins.feedbackTrackers.resolve(key, 'admission'); const settings = registration.settings ?? {};
+    return { binding, artifacts: providerArtifacts(binding), settings, provider: registration.provider, assertCurrent() {
+      if (!samePullRequestBinding(binding, selectedFeedbackTrackerProvider()) || backendPlugins.feedbackTrackers.resolve(key, 'admission') !== registration) throw new Error('Feedback tracker selection changed');
+    } };
+  },
+  async verifyArtifacts(artifacts) {
+    for (const artifact of artifacts) {
+      if (artifact.pluginId.startsWith('helmsman.')) { if (!await verifyLegacyRuntime(runtimeArtifactsRoot, artifact.artifactHash)) throw new Error('Retained feedback runtime is unavailable'); }
+      else { const archive = await readPluginArtifact(pluginDirectory(), artifact.artifactHash); if (archive.package.manifest.id !== artifact.pluginId || archive.package.manifest.version !== artifact.packageVersion) throw new Error('Retained feedback artifact is unavailable'); }
+    }
+  },
+  http: (binding, signal, mutation) => feedbackTrackerContext(binding, signal, mutation).http,
+  retained: (operation, settings, signal) => loadRetainedFeedbackTrackerProvider({ pluginsRoot: pluginDirectory(), runtimeArtifactsRoot, artifacts: operation.artifacts, signal,
+    record: { origin: operation.binding.pluginId.startsWith('helmsman.') ? 'builtin' : 'plugin', settings,
+      binding: { providerId: operation.binding.contributionId, pluginId: operation.binding.pluginId, artifactHash: operation.binding.artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null } } }),
+  async authorizeDelivery(operation, context) {
+    const live = operations.get(operation.id);
+    if (!live || live.contentHash !== operation.contentHash || live.generation !== context.generation || live.status !== 'leased'
+      || !live.leaseExpiresAt || Date.parse(live.leaseExpiresAt) <= Date.now()) return { allowed: false, reason: 'The feedback operation lease is no longer current.' };
+    try { feedbackTrackerContext(operation.binding, context.signal, false); return { allowed: true }; }
+    catch (error) { return { allowed: false, reason: error instanceof Error ? error.message : 'Pinned feedback connection is unavailable.' }; }
+  },
+});
 const communicationCommands = createCommunicationCommandService({ persistence, operations, repos: applicationRepos,
   authorize: caller => {
     if (!communicationContributionEnabled(pluginSnapshot.catalog, caller, true)) throw new ClarificationServiceError(403, 'forbidden');
@@ -1001,6 +1072,7 @@ function drainEffects(): Promise<void> {
       try { await communicationRuntime.refreshConnection(AbortSignal.timeout(30_000)); } catch {}
     }
     await communicationCommands.drainPending();
+    await feedbackCommands.drainPending();
     await taskSourceRuntime.drain();
   })().catch(error => { process.stderr.write(`Operation recovery failed: ${String(error)}\n`); }).finally(() => { drainingEffects = null; });
   return drainingEffects;
@@ -1575,6 +1647,7 @@ const recoveryService = createRecoveryService({ db, executions, admissions, oper
     const operation = operations.get(id);
     if (operation?.kind === 'task-source.effect') { await dispatchOperation(operations, id, taskSourceRuntime.effects.resolve, { reconcile: operation.requiresReconciliation }); await taskSourceRuntime.drain(); return; }
     if (operation?.origin.kind === 'public-source-action') { await taskActions.recover(id); return; }
+    if (operation?.origin.kind === 'public-feedback') { await feedbackCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'public-communication-review-request') { await communicationCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'public-pull-request-review') { await pullRequestCommands.dispatch(id); return; }
     if (operation?.origin.kind === 'manual-review') { await manualReviewEffects.dispatch(id); return; }
@@ -1688,7 +1761,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       integrationSettings, integrationSettingsCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       publicLocalGit, localGitCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      feedbackSettings, feedbackCommands, communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,

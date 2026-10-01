@@ -297,3 +297,18 @@ test('rebuild detects files created while staging and retains prior output after
   await writeFile(join(retained, 'late-writer.sqlite'), 'late runtime data');
   assert.equal(await readFile(join(retained, 'late-writer.sqlite'), 'utf8'), 'late runtime data');
 });
+
+test('feedback source packages build and pack using only the distributed public SDK', async () => {
+  for (const name of ['product-feedback', 'feedback-github']) {
+    const author = join(temporary, `feedback-author-${name}`);
+    await cp(join(installation, 'plugin-sources', name), author, { recursive: true });
+    await cp(join(installation, 'sdk'), join(author, 'node_modules/@helmsman/plugin-sdk'), { recursive: true });
+    await run(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', author], { cwd: author, timeout: 20_000 });
+    const descriptor = JSON.parse(await readFile(join(author, 'plugin-package.json'), 'utf8'));
+    descriptor.manifest.id = `independent.${name}`;
+    await writeFile(join(author, 'dist/plugin-package.json'), JSON.stringify(descriptor));
+    const archive = join(temporary, `${name}.hmp`);
+    const packed = await isolated([join(installation, 'server/helmsman/plugins/cli.js'), '--dir', join(temporary, 'feedback-plugins'), 'pack', join(author, 'dist'), archive]);
+    assert.match(packed.stdout, new RegExp(`Packed independent\\.${name}`));
+  }
+});

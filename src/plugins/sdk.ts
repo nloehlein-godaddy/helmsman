@@ -135,3 +135,8 @@ export * from './workflow';
 export * from './trigger';
 
 export * from './task-actions';
+
+export * from './feedback-command';
+export * from './feedback-tracker';
+
+export * from './feedback-settings';

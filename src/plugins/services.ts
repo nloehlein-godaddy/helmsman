@@ -1,3 +1,5 @@
+import type { FeedbackSettingsServiceV1 } from './feedback-settings';
+import type { FeedbackCommandServiceV1 } from './feedback-command';
 import type { TaskActionServiceV1 } from './task-actions';
 import type { ProfileServiceV1 } from './profile';
 import type { GithubSettingsServiceV1 } from './github-settings';
@@ -54,6 +56,8 @@ export interface PluginPageServices {
   readonly githubSettings?: GithubSettingsServiceV1;
   readonly profile?: ProfileServiceV1;
   readonly localGit?: LocalGitServiceV1;
+  readonly feedbackSettings?: FeedbackSettingsServiceV1;
+  readonly feedbackCommands?: FeedbackCommandServiceV1;
   readonly communicationCommands?: CommunicationCommandServiceV1;
   readonly activity?: ActivityReadServiceV1;
   readonly runCommands?: RunCommandServiceV1;

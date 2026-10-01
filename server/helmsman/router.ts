@@ -1,3 +1,6 @@
+import { handleFeedbackSettingsApi, type FeedbackSettingsServerService } from './feedback-settings-routes';
+import { handleFeedbackCommandApi } from './feedback-command-routes';
+import type { FeedbackCommandServerService } from './feedback-command-service';
 import { handleProfileApi } from './profile-routes';
 import type { ProfileServerService } from './profile-service';
 import { handleIntegrationSettingsApi } from './integration-settings-routes';
@@ -102,6 +105,8 @@ export interface RouterDeps {
   taskContextSignal?: AbortSignal;
   runInspect?: RunInspectServerService;
   communication?: CommunicationReadServerService;
+  feedbackSettings?: FeedbackSettingsServerService;
+  feedbackCommands?: FeedbackCommandServerService;
   communicationCommands?: CommunicationCommandServerService;
   communicationCaller?: string;
   pullRequestCommands?: PullRequestCommandServerService;
@@ -178,6 +183,10 @@ export async function handleApi(
   if (commandResult) return commandResult;
   const communicationResult = handleCommunicationApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.communication });
   if (communicationResult) return communicationResult;
+  const feedbackSettingsResult = await handleFeedbackSettingsApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.feedbackSettings });
+  if (feedbackSettingsResult) return feedbackSettingsResult;
+  const feedbackCommandResult = await handleFeedbackCommandApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.feedbackCommands });
+  if (feedbackCommandResult) return feedbackCommandResult;
   const communicationCommandResult = await handleCommunicationCommandApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.communicationCommands });
   if (communicationCommandResult) return communicationCommandResult;
   const pullRequestCommandResult = await handlePullRequestCommandApi({ method, path, query, body: _body, caller: deps.pullRequestCommandCaller, service: deps.pullRequestCommands });
