@@ -46,7 +46,7 @@ async function setup(path = '/helm?repo=org/a', degraded: string[] = []) {
 
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
-  syncBuiltinFrontend([{ id: 'helmsman.communication', version: '0.1.0', hash: 'a'.repeat(64), enabled: true }], false);
+  syncBuiltinFrontend([{ id: 'helmsman.communication', version: '0.2.0', hash: 'a'.repeat(64), enabled: true }], false);
   localStorage.clear();
   vi.useFakeTimers();
   vi.setSystemTime('2026-09-17T21:00:00Z');

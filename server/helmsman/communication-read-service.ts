@@ -1,5 +1,6 @@
+import { NotificationHistoryError, type openNotificationHistory } from './notification-history';
 import type { CommunicationDestinationV1 } from '../../src/plugins/communication-provider';
-import { COMMUNICATION_LIMITS, parseCommunicationNotificationsV1, parseCommunicationSettingsValuesV1, type CommunicationNotificationsV1,
+import { COMMUNICATION_LIMITS, parseCommunicationClearInputV1, type CommunicationClearInputV1, parseCommunicationNotificationsV1, parseCommunicationSettingsValuesV1, type CommunicationNotificationsV1,
   type CommunicationSettingsSnapshotV1, type CommunicationSettingsValuesV1 } from '../../src/plugins/communication';
 import type { SlackState } from '../../src/data/slack';
 import { parseTaskRepo } from '../../src/plugins/tasks';
@@ -11,6 +12,7 @@ export interface CommunicationReadServerOptions {
   repos(): readonly string[];
   authorize(caller: string): void;
   snapshot(): SlackState;
+  readonly notificationHistory?: ReturnType<typeof openNotificationHistory>;
   markRead(id: string, now: string): boolean;
   values(): CommunicationSettingsValuesV1;
   destination(): CommunicationDestinationV1 | null;
@@ -33,12 +35,28 @@ export function createCommunicationReadService(options: CommunicationReadServerO
       if (input?.version !== 1 || !Number.isSafeInteger(input?.limit) || input.limit < 1 || input.limit > COMMUNICATION_LIMITS.notifications)
         throw new ClarificationServiceError(400, 'invalid-response');
       const allowed = scope(caller, scopeRepo, input.repo === null ? null : parseTaskRepo(input.repo));
-      const snapshot = options.snapshot();
+      const captured = options.notificationHistory?.capture(options.snapshot);
+      const snapshot = captured?.value ?? options.snapshot();
       const notifications = snapshot.notifications.filter(item => item && allowed.some(repo => repo.toLowerCase() === item.repo?.toLowerCase()));
       const selected = notifications.slice(0, input.limit);
-      return parseCommunicationNotificationsV1({ version: 1, quality: selected.length < notifications.length ? 'partial' : 'complete',
+      return parseCommunicationNotificationsV1({ version: 1, ...(captured ? { clearToken: captured.clearToken } : {}), quality: selected.length < notifications.length ? 'partial' : 'complete',
         health: snapshot.health, githubHealth: snapshot.githubHealth ?? null,
         unread: notifications.filter(item => item.readAt === null).length, notifications: selected });
+    },
+    clearNotifications(caller: string, input: CommunicationClearInputV1, scopeRepo: string | null) {
+      const request = parseCommunicationClearInputV1(input);
+      const allowed = scope(caller, scopeRepo, request.repo);
+      if (!options.notificationHistory) throw new ClarificationServiceError(503, 'service-unavailable');
+      try {
+        return options.persistence.transaction(() => {
+          let cleared = 0;
+          for (const repo of allowed) cleared += options.notificationHistory!.clear({ repo, clearToken: request.clearToken }).cleared;
+          return Object.freeze({ ...request, cleared });
+        });
+      } catch (error) {
+        if (error instanceof NotificationHistoryError) throw new ClarificationServiceError(400, 'invalid-response');
+        throw error;
+      }
     },
     markRead(caller: string, input: { repo: string; id: string }, scopeRepo: string | null) {
       const repo = parseTaskRepo(input?.repo); scope(caller, scopeRepo, repo);

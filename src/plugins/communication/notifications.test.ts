@@ -72,3 +72,69 @@ it('requests the full supported history so older notifications beyond the first 
   const f = await setup(notifications, false, context => { vi.mocked(context.services.communication!.notifications).mockImplementation(async query => available({ ...history, notifications: history.notifications.slice(0, query.limit) })); });
   expect(f.context.services.communication!.notifications).toHaveBeenCalledWith({ version: 1, repo: 'org/b', limit: 256 }, expect.any(AbortSignal)); expect(f.container.querySelectorAll('.slack-notification')).toHaveLength(120); click(f.container, '[data-slack-toggle]'); click(f.container, '[data-slack-read="history-119"]'); await vi.waitFor(() => expect(f.context.services.communication!.markRead).toHaveBeenCalledWith({ repo: 'org/b', id: 'history-119' }, expect.any(AbortSignal)));
 });
+
+it('offers clear only when supported and disables an empty history', async () => {
+  const legacy = await setup(); expect(legacy.container.querySelector('[data-clear-notifications]')).toBeNull();
+  const empty = await setup({ ...notifications, clearToken: '0:cutoff', unread: 0, notifications: [] }, false, context => {
+    context.services.communication!.clearNotifications = vi.fn();
+  });
+  expect(empty.container.querySelector<HTMLButtonElement>('[data-clear-notifications]')?.disabled).toBe(true);
+  expect(empty.container.textContent).toContain('No notifications yet');
+});
+
+it('clears the captured scope, blocks duplicates while busy and retains notifications arriving after its cutoff', async () => {
+  let complete!: (value: ReturnType<typeof available<import('../sdk').CommunicationClearReceiptV1>>) => void;
+  const pending = new Promise<ReturnType<typeof available<import('../sdk').CommunicationClearReceiptV1>>>(resolve => { complete = resolve; });
+  const f = await setup({ ...notifications, clearToken: '1:cutoff' }, false, context => { context.services.communication!.clearNotifications = vi.fn(() => pending); });
+  const service = f.context.services.communication!; click(f.container, '[data-slack-toggle]'); click(f.container, '[data-clear-notifications]');
+  expect(service.clearNotifications).toHaveBeenCalledWith({ version: 1, repo: 'org/b', clearToken: '1:cutoff' }, expect.any(AbortSignal));
+  expect(f.container.querySelector<HTMLButtonElement>('[data-clear-notifications]')?.disabled).toBe(true);
+  expect(f.container.querySelector('.slack-popover')?.getAttribute('aria-busy')).toBe('true');
+  click(f.container, '[data-clear-notifications]'); await f.instance.refresh?.(); expect(service.clearNotifications).toHaveBeenCalledTimes(1);
+  const next = { ...item, id: 'arrival', author: 'Arrived after capture' };
+  vi.mocked(service.notifications).mockResolvedValue(available({ ...notifications, clearToken: '2:cutoff', notifications: [next] }));
+  complete(available({ version: 1, repo: 'org/b', clearToken: '1:cutoff', cleared: 100 }));
+  await vi.waitFor(() => expect(f.container.querySelector('[data-notification-id="arrival"]')).not.toBeNull());
+  expect(f.container.querySelector('[data-notification-id="notification-1"]')).toBeNull();
+  expect(f.container.querySelector('[data-slack-toggle]')?.getAttribute('aria-label')).toBe('Notifications, 1 unread');
+});
+
+it('keeps clear failures visible across polling and retries the original cutoff without clearing later arrivals', async () => {
+  const f = await setup({ ...notifications, clearToken: '1:cutoff' }, false, context => {
+    context.services.communication!.clearNotifications = vi.fn(async () => ({ status: 'unavailable' as const, reason: 'connection-failed' as const }));
+  });
+  const service = f.context.services.communication!; click(f.container, '[data-slack-toggle]'); click(f.container, '[data-clear-notifications]');
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Could not clear notifications'));
+  const arrival = { ...item, id: 'arrival', author: 'New notification' };
+  vi.mocked(service.notifications).mockResolvedValue(available({ ...notifications, clearToken: '2:cutoff', unread: 2, notifications: [item, arrival] }));
+  await f.instance.refresh?.(); expect(f.container.textContent).toContain('Could not clear notifications');
+  vi.mocked(service.clearNotifications!).mockResolvedValue(available({ version: 1, repo: 'org/b', clearToken: '1:cutoff', cleared: 1 }));
+  vi.mocked(service.notifications).mockResolvedValue({ status: 'unavailable', reason: 'connection-failed' });
+  click(f.container, '[data-clear-notifications]');
+  await vi.waitFor(() => expect(f.container.querySelectorAll('.slack-notification')).toHaveLength(1));
+  expect(service.clearNotifications).toHaveBeenLastCalledWith({ version: 1, repo: 'org/b', clearToken: '1:cutoff' }, expect.any(AbortSignal));
+  expect(f.container.querySelector('[data-notification-id="arrival"]')).not.toBeNull();
+  expect(f.container.textContent).not.toContain('Could not clear notifications');
+});
+
+it('cancels pending clear when the scope changes and ignores a late success', async () => {
+  let complete!: (value: ReturnType<typeof available<import('../sdk').CommunicationClearReceiptV1>>) => void;
+  const pending = new Promise<ReturnType<typeof available<import('../sdk').CommunicationClearReceiptV1>>>(resolve => { complete = resolve; });
+  const f = await setup({ ...notifications, clearToken: '1:cutoff' }, false, context => { context.services.communication!.clearNotifications = vi.fn(() => pending); });
+  const service = f.context.services.communication!; click(f.container, '[data-slack-toggle]'); click(f.container, '[data-clear-notifications]');
+  const signal = vi.mocked(service.clearNotifications!).mock.calls[0]![1]!;
+  vi.mocked(service.notifications).mockResolvedValue(available({ ...notifications, clearToken: '2:cutoff', notifications: [{ ...item, repo: 'org/a' }] }));
+  await f.instance.update({ ...f.state(), repo: 'org/a' }); await f.instance.refresh?.();
+  expect(signal.aborted).toBe(true); complete(available({ version: 1, repo: 'org/b', clearToken: '1:cutoff', cleared: 1 })); await Promise.resolve();
+  expect(f.container.querySelectorAll('.slack-notification')).toHaveLength(1);
+  expect(f.container.textContent).toContain('org/a #42'); expect(f.container.textContent).not.toContain('Retry clear');
+});
+
+it('passes the inherited All scope when clearing the notifications page', async () => {
+  const f = await fixture(panel, { repo: null, headerRepo: null, activity: { epoch: 1, repo: null, active: true, signal: new AbortController().signal } }, context => {
+    vi.mocked(context.services.communication!.notifications).mockResolvedValue(available({ ...notifications, clearToken: '1:cutoff' }));
+    context.services.communication!.clearNotifications = vi.fn(async input => available({ ...input, cleared: 1 }));
+  });
+  await f.instance.refresh?.(); click(f.container, '[data-clear-notifications]');
+  expect(f.context.services.communication!.clearNotifications).toHaveBeenCalledWith({ version: 1, repo: null, clearToken: '1:cutoff' }, expect.any(AbortSignal));
+});

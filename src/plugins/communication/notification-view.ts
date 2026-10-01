@@ -1,4 +1,4 @@
-import type { CommunicationNotificationV1, CommunicationNotificationsV1, PluginPageContext, PluginPageInstance, PluginPageState, PluginPanelContext, PluginPanelState } from '@helmsman/plugin-sdk';
+import type { CommunicationClearInputV1, CommunicationNotificationV1, CommunicationNotificationsV1, PluginPageContext, PluginPageInstance, PluginPageState, PluginPanelContext, PluginPanelState } from '@helmsman/plugin-sdk';
 import { esc, message, relativeTime, runHref, safePrUrl, safeSlackUrl } from './util.js';
 import { styles } from './styles.js';
 type Context = PluginPageContext | PluginPanelContext;
@@ -34,6 +34,10 @@ export class NotificationView implements PluginPageInstance {
   private snapshot: CommunicationNotificationsV1 | null = null;
   private open = false;
   private error = '';
+  private clearError = '';
+  private clearing: AbortController | null = null;
+  private retryClear: CommunicationClearInputV1 | null = null;
+  private clearIds = new Set<string>();
   private readonly reading = new Map<string, AbortController>();
   private readonly container: HTMLElement;
   private readonly context: Context;
@@ -48,11 +52,11 @@ export class NotificationView implements PluginPageInstance {
   }
   private active(generation = this.generation) { return !this.disposed && !this.context.signal.aborted && this.state.visible && (!('activity' in this.state) || this.state.activity.active && !this.state.activity.signal.aborted) && generation === this.generation; }
   private cancelReads = () => { ++this.generation; this.controller?.abort(); this.controller = null; if (this.timer) clearTimeout(this.timer); this.timer = null; };
-  private cancel = () => { this.cancelReads(); for (const controller of this.reading.values()) controller.abort(); this.reading.clear(); };
+  private cancel = () => { this.cancelReads(); for (const controller of this.reading.values()) controller.abort(); this.reading.clear(); this.clearing?.abort(); this.clearing = null; this.retryClear = null; this.clearIds.clear(); this.clearError = ''; };
   dispose = () => { if (this.disposed) return; this.disposed = true; this.cancel(); this.container.removeEventListener('click', this.click); document.removeEventListener('click', this.outside); document.removeEventListener('keydown', this.keydown); this.context.signal.removeEventListener('abort', this.dispose); if ('activity' in this.state) this.state.activity.signal.removeEventListener('abort', this.cancel); };
   update(next: State) { if (this.disposed) return; const changed = this.state.repo !== next.repo || this.state.visible !== next.visible || 'activity' in this.state && 'activity' in next && this.state.activity !== next.activity; if ('activity' in this.state) this.state.activity.signal.removeEventListener('abort', this.cancel); if (this.state.repo !== next.repo) { this.snapshot = null; this.error = ''; } this.state = next; if ('activity' in next) next.activity.signal.addEventListener('abort', this.cancel, { once: true }); if (changed) { this.cancel(); void this.refresh(); } this.draw(); }
   refresh = async () => {
-    if (!this.active()) return; this.cancelReads(); const generation = this.generation; const controller = new AbortController(); this.controller = controller;
+    if (!this.active() || this.clearing) return; this.cancelReads(); const generation = this.generation; const controller = new AbortController(); this.controller = controller;
     try { const result = await this.context.services!.communication!.notifications({ version: 1, repo: this.state.repo, limit: 256 }, controller.signal);
       if (!this.active(generation)) return;
       if (result?.status !== 'available' || result.value?.version !== 1 || !Array.isArray(result.value.notifications) || !validHealth(result.value.health) || result.value.githubHealth !== null && !validHealth(result.value.githubHealth) || result.value.notifications.some(item => !validItem(item) || this.state.repo !== null && item.repo.toLowerCase() !== this.state.repo.toLowerCase())) throw new Error('Notifications unavailable. Showing retained notifications.');
@@ -68,12 +72,37 @@ export class NotificationView implements PluginPageInstance {
     const link = event.target.closest<HTMLAnchorElement>('a.app-link'); if (link && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); event.stopPropagation(); this.context.navigate(link.getAttribute('href') ?? '/communication'); this.close(false); return; }
     const button = event.target.closest<HTMLButtonElement>('button'); if (!button || button.disabled || !this.active()) return; event.stopPropagation();
     if (button.matches('[data-slack-toggle]')) { this.open = !this.open; this.draw(); this.container.querySelector<HTMLElement>('[data-slack-toggle]')?.focus({ preventScroll: true }); }
+    else if (button.matches('[data-clear-notifications]')) void this.clearNotifications();
     else if (button.matches('[data-slack-close]')) this.close(true);
     else if (button.dataset.slackRead && button.dataset.repo) void this.markRead(button.dataset.repo, button.dataset.slackRead);
     else if (button.matches('[data-refresh]')) void this.refresh();
   };
+  private async clearNotifications() {
+    const service = this.context.services?.communication;
+    if (!service?.clearNotifications || this.clearing || this.reading.size || !this.snapshot?.clearToken) return;
+    const input = this.retryClear ?? { version: 1 as const, repo: this.state.repo, clearToken: this.snapshot.clearToken };
+    if (!this.retryClear) this.clearIds = new Set(this.snapshot.notifications.map(item => item.id));
+    this.retryClear = input; this.clearError = ''; this.cancelReads();
+    const controller = new AbortController(); this.clearing = controller; this.draw();
+    try {
+      const result = await service.clearNotifications(input, controller.signal);
+      if (controller.signal.aborted || !this.active()) return;
+      if (result?.status !== 'available' || result.value?.version !== 1 || result.value.repo !== input.repo
+        || result.value.clearToken !== input.clearToken || !Number.isSafeInteger(result.value.cleared) || result.value.cleared < 0)
+        throw new Error('Could not clear notifications. Try again.');
+      if (this.snapshot) {
+        const removedUnread = this.snapshot.notifications.filter(item => this.clearIds.has(item.id) && !item.readAt).length;
+        this.snapshot = { ...this.snapshot, notifications: this.snapshot.notifications.filter(item => !this.clearIds.has(item.id)),
+          unread: this.snapshot.unread === null ? null : Math.max(0, this.snapshot.unread - removedUnread) };
+      }
+      this.retryClear = null; this.clearIds.clear();
+    } catch (error) { if (!controller.signal.aborted && this.active()) this.clearError = message(error, 'Could not clear notifications. Try again.'); }
+    finally {
+      if (this.clearing === controller) { this.clearing = null; this.draw(); void this.refresh(); }
+    }
+  }
   private async markRead(repo: string, id: string) {
-    if (this.reading.has(id)) return; const controller = new AbortController(); this.reading.set(id, controller); this.draw();
+    if (this.clearing || this.reading.has(id)) return; const controller = new AbortController(); this.reading.set(id, controller); this.draw();
     try { const result = await this.context.services!.communication!.markRead({ repo, id }, controller.signal);
       if (controller.signal.aborted || !this.active()) return;
       if (result?.status !== 'available' || result.value?.id !== id) throw new Error('Could not mark notification read. Try again.');
@@ -95,11 +124,12 @@ export class NotificationView implements PluginPageInstance {
     }
   }
   private draw() {
-    if (this.disposed) return; const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null; const readId = focused?.dataset.slackRead; const toggleFocused = focused?.hasAttribute('data-slack-toggle'); const scroll = this.container.querySelector('.slack-popover')?.scrollTop ?? 0;
+    if (this.disposed) return; const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null; const readId = focused?.dataset.slackRead; const clearFocused = focused?.hasAttribute('data-clear-notifications'); const toggleFocused = focused?.hasAttribute('data-slack-toggle'); const scroll = this.container.querySelector('.slack-popover')?.scrollTop ?? 0;
     const data = this.snapshot; const count = data?.unread ?? null; const items = data?.notifications ?? []; const headerRepo = 'headerRepo' in this.state && this.state.headerRepo !== undefined ? this.state.headerRepo : this.state.repo; const params = new URLSearchParams(headerRepo ? { repo: headerRepo } : {});
-    const markup = `<div class="plugin-communication${this.header ? '' : ' communication-page'}"><style>${styles}</style>${this.header ? `<button type="button" class="slack-toggle${count ? ' has-unread' : ''}" data-slack-toggle aria-expanded="${this.open}" aria-controls="${this.popoverId}" aria-label="Notifications, ${count === null ? 'unread count unavailable' : `${count} unread`}"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 8a5 5 0 0 1 10 0v4l2 3H3l2-3zM8 17h4"/></svg>${count ? `<span class="slack-count" aria-hidden="true">${count}</span>` : ''}</button>` : ''}<section id="${this.popoverId}" class="slack-popover" aria-label="Notifications"${this.header && !this.open ? ' hidden' : ''}><div class="slack-popover-head"><h2>Notifications</h2>${this.header ? '<button type="button" data-slack-close aria-label="Close notifications">×</button>' : '<button type="button" data-refresh>Refresh</button>'}</div>${data ? healthMarkup(data.health, data.health.channelName ? `Slack #${data.health.channelName.replace(/^#/, '')}` : 'Slack') + (data.githubHealth ? healthMarkup(data.githubHealth, this.state.pirateMode ? 'GitHub requested inspections' : 'GitHub requested reviews') : '') : ''}${this.error ? `<p class="slack-action-error" role="alert">${esc(this.error)}</p>` : ''}${data?.quality === 'partial' ? '<p class="slack-empty">Notification results are incomplete; unread total may be unknown.</p>' : ''}${items.length ? `<ol class="slack-notification-list">${items.map(item => itemMarkup(item, this.state)).join('')}</ol>` : `<p class="slack-empty">${data ? 'No notifications yet' : 'Notifications unavailable'}${this.state.repo ? ` for this ${this.state.pirateMode ? 'galleon' : 'repository'}` : ''}.</p>`}<div class="slack-empty"><a class="app-link" href="/communication${params.size ? `?${params}` : ''}">Communication settings and review requests ↗</a></div></section></div>`;
+    const markup = `<div class="plugin-communication${this.header ? '' : ' communication-page'}"><style>${styles}</style>${this.header ? `<button type="button" class="slack-toggle${count ? ' has-unread' : ''}" data-slack-toggle aria-expanded="${this.open}" aria-controls="${this.popoverId}" aria-label="Notifications, ${count === null ? 'unread count unavailable' : `${count} unread`}"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 8a5 5 0 0 1 10 0v4l2 3H3l2-3zM8 17h4"/></svg>${count ? `<span class="slack-count" aria-hidden="true">${count}</span>` : ''}</button>` : ''}<section id="${this.popoverId}" class="slack-popover" aria-label="Notifications" aria-busy="${Boolean(this.clearing)}"${this.header && !this.open ? ' hidden' : ''}><div class="slack-popover-head"><h2>Notifications</h2>${this.context.services?.communication?.clearNotifications ? `<button type="button" data-clear-notifications${!this.active() || this.clearing || this.reading.size || !data?.clearToken || !items.length && !this.retryClear ? ' disabled' : ''}>${this.clearing ? 'Clearing…' : this.retryClear ? 'Retry clear all notifications' : 'Clear all notifications'}</button>` : ''}${this.header ? '<button type="button" data-slack-close aria-label="Close notifications">×</button>' : '<button type="button" data-refresh>Refresh</button>'}</div>${data ? healthMarkup(data.health, data.health.channelName ? `Slack #${data.health.channelName.replace(/^#/, '')}` : 'Slack') + (data.githubHealth ? healthMarkup(data.githubHealth, this.state.pirateMode ? 'GitHub requested inspections' : 'GitHub requested reviews') : '') : ''}${this.error ? `<p class="slack-action-error" role="alert">${esc(this.error)}</p>` : ''}${this.clearError ? `<p class="slack-action-error" role="alert">${esc(this.clearError)}</p>` : ''}${data?.quality === 'partial' ? '<p class="slack-empty">Notification results are incomplete; unread total may be unknown.</p>' : ''}${items.length ? `<ol class="slack-notification-list">${items.map(item => itemMarkup(item, this.state)).join('')}</ol>` : `<p class="slack-empty">${data ? 'No notifications yet' : 'Notifications unavailable'}${this.state.repo ? ` for this ${this.state.pirateMode ? 'galleon' : 'repository'}` : ''}.</p>`}<div class="slack-empty"><a class="app-link" href="/communication${params.size ? `?${params}` : ''}">Communication settings and review requests ↗</a></div></section></div>`;
     this.paint(markup);
-    this.container.querySelectorAll<HTMLButtonElement>('[data-slack-read]').forEach(button => { button.disabled = !this.active() || this.reading.has(button.dataset.slackRead ?? ''); }); const popover = this.container.querySelector('.slack-popover'); if (popover) popover.scrollTop = scroll;
-    if (readId) ([...this.container.querySelectorAll<HTMLElement>('[data-slack-read]')].find(button => button.dataset.slackRead === readId) ?? this.container.querySelector<HTMLElement>('[data-slack-toggle]'))?.focus({ preventScroll: true }); else if (toggleFocused) this.container.querySelector<HTMLElement>('[data-slack-toggle]')?.focus({ preventScroll: true });
+    this.container.querySelectorAll<HTMLButtonElement>('[data-slack-read]').forEach(button => { button.disabled = !this.active() || !!this.clearing || this.reading.has(button.dataset.slackRead ?? ''); }); const popover = this.container.querySelector('.slack-popover'); if (popover) popover.scrollTop = scroll;
+    if (clearFocused) this.container.querySelector<HTMLElement>('[data-clear-notifications]')?.focus({ preventScroll: true });
+    else if (readId) ([...this.container.querySelectorAll<HTMLElement>('[data-slack-read]')].find(button => button.dataset.slackRead === readId) ?? this.container.querySelector<HTMLElement>('[data-slack-toggle]'))?.focus({ preventScroll: true }); else if (toggleFocused) this.container.querySelector<HTMLElement>('[data-slack-toggle]')?.focus({ preventScroll: true });
   }
 }

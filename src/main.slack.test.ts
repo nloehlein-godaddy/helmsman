@@ -6,7 +6,7 @@ import type { CommunicationNotificationsV1 } from './plugins/communication';
 let view: DashboardView | undefined;
 let snapshot: CommunicationNotificationsV1;
 let unavailable = false;
-const entries = [{ id: 'helmsman.communication', version: '0.1.0', hash: 'a'.repeat(64), enabled: true }];
+const entries = [{ id: 'helmsman.communication', version: '0.2.0', hash: 'a'.repeat(64), enabled: true }];
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
   localStorage.clear(); window.history.replaceState(null, '', '/config');

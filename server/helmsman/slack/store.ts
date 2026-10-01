@@ -1,3 +1,4 @@
+import { initializeNotificationHistory, type NotificationIdentity } from '../notification-history';
 import type Database from 'better-sqlite3';
 import { storeConnection } from '../store-connection';
 import type { ArtifactPin } from '../execution-store';
@@ -75,6 +76,7 @@ export interface SlackStore {
   setNotificationRunId(id: string, runId: string): void;
   getNotification(id: string): SlackNotification | null;
   listNotifications(limit?: number): SlackNotification[];
+  notificationIdentities(): Iterable<NotificationIdentity>;
   markRead(id: string, now: string): boolean;
   claimDispatch(id: string, token: string, now: string): boolean;
   dispatchClaims(sourceKey: string): Array<{ notificationId: string; token: string; claimedAt: string }>;
@@ -93,6 +95,7 @@ const NOTIFICATION_SELECT_COLUMNS = `sourceKey, ${NOTIFICATION_COLUMNS}`;
 export function openSlackStore(path: string | Database.Database): SlackStore {
   const connection = storeConnection(path);
   const { sql } = connection;
+  initializeNotificationHistory(sql);
   connection.migrate({ owner: 'compat.slack', ddl: `
     CREATE TABLE IF NOT EXISTS slack_sources (
       key TEXT PRIMARY KEY, activatedAt TEXT NOT NULL, cursor TEXT, health TEXT NOT NULL
@@ -186,9 +189,13 @@ export function openSlackStore(path: string | Database.Database): SlackStore {
       const row = sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications WHERE id = ?`).get(id) as NotificationRow | undefined;
       return row ? decode(row) : null;
     },
+    *notificationIdentities() {
+      for (const row of sql.prepare('SELECT id,repo FROM slack_notifications').iterate() as Iterable<{ id: string; repo: string }>)
+        yield { kind: 'review' as const, id: row.id, repo: row.repo };
+    },
     listNotifications(limit = 100) {
       const count = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 100;
-      return (sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications ORDER BY updatedAt DESC, id DESC LIMIT ?`)
+      return (sql.prepare(`SELECT ${NOTIFICATION_SELECT_COLUMNS} FROM slack_notifications WHERE NOT EXISTS (SELECT 1 FROM notification_history history WHERE history.kind='review' AND history.id=slack_notifications.id AND history.dismissed=1) ORDER BY updatedAt DESC, id DESC LIMIT ?`)
         .all(count) as NotificationRow[]).map(decode);
     },
     markRead(id, now) {

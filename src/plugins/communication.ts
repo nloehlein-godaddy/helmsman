@@ -66,6 +66,7 @@ export type CommunicationNotificationV1 =
 export interface CommunicationNotificationsV1 {
   readonly version: 1;
   readonly quality: "complete" | "partial";
+  readonly clearToken?: string;
   readonly unread: number | null;
   readonly health: CommunicationHealthV1;
   readonly githubHealth: CommunicationHealthV1 | null;
@@ -90,7 +91,18 @@ export interface CommunicationSettingsSnapshotV1 {
   readonly destination: CommunicationDestinationV1 | null;
 }
 
+export interface CommunicationClearInputV1 {
+  readonly version: 1;
+  readonly repo: string | null;
+  readonly clearToken: string;
+}
+
+export interface CommunicationClearReceiptV1 extends CommunicationClearInputV1 {
+  readonly cleared: number;
+}
+
 export interface CommunicationServiceV1 {
+  clearNotifications?(input: CommunicationClearInputV1, signal?: AbortSignal): Promise<ClarificationReadResultV1<CommunicationClearReceiptV1>>;
   connectionStatus?(signal?: AbortSignal): Promise<ClarificationReadResultV1<CommunicationConnectionSnapshotV1>>;
   connect?(input: { readonly expectedRevision: string }, signal?: AbortSignal): Promise<ClarificationReadResultV1<{ readonly version: 1; readonly authorizationUrl: string }>>;
   disconnect?(input: { readonly expectedRevision: string }, signal?: AbortSignal): Promise<ClarificationReadResultV1<CommunicationConnectionSnapshotV1>>;
@@ -359,7 +371,7 @@ export function parseCommunicationNotificationsV1(
     "health",
     "githubHealth",
     "notifications",
-  ]);
+  ], ["clearToken"]);
   if (!["complete", "partial"].includes(String(value.quality)))
     invalidClarification();
   let unread: number | null = null;
@@ -376,6 +388,7 @@ export function parseCommunicationNotificationsV1(
   return Object.freeze({
     version: 1,
     quality: value.quality as CommunicationNotificationsV1["quality"],
+    ...(value.clearToken === undefined ? {} : { clearToken: parseCommunicationClearToken(value.clearToken) }),
     unread,
     health: parseCommunicationHealthV1(value.health),
     githubHealth:
@@ -448,4 +461,22 @@ export function parseCommunicationMarkReadReceiptV1(
     id: notificationId(value.id),
     readAt: clarificationTime(value.readAt),
   });
+}
+
+export function parseCommunicationClearToken(input: unknown): string {
+  if (typeof input !== 'string' || input.length < 1 || input.length > 512 || !/^[a-zA-Z0-9_:.-]+$/.test(input)) invalidClarification();
+  return input as string;
+}
+
+export function parseCommunicationClearInputV1(input: unknown): CommunicationClearInputV1 {
+  const value = clarificationVersion(input);
+  clarificationFields(value, ['version', 'repo', 'clearToken']);
+  return Object.freeze({ version: 1, repo: value.repo === null ? null : parseTaskRepo(value.repo), clearToken: parseCommunicationClearToken(value.clearToken) });
+}
+
+export function parseCommunicationClearReceiptV1(input: unknown, expected: CommunicationClearInputV1): CommunicationClearReceiptV1 {
+  const value = clarificationVersion(input);
+  clarificationFields(value, ['version', 'repo', 'clearToken', 'cleared']);
+  if (value.repo !== expected.repo || value.clearToken !== expected.clearToken) invalidClarification();
+  return Object.freeze({ ...expected, cleared: value.cleared === 0 ? 0 : clarificationInteger(value.cleared) });
 }

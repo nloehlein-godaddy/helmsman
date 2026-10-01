@@ -1,6 +1,8 @@
 import { parseCommunicationConnectionSnapshotV1, parseCommunicationConnectionStartV1 } from './communication-connection';
 import {
   COMMUNICATION_LIMITS,
+  parseCommunicationClearInputV1,
+  parseCommunicationClearReceiptV1,
   parseCommunicationMarkReadReceiptV1,
   parseCommunicationNotificationsV1,
   parseCommunicationSettingsSnapshotV1,
@@ -53,6 +55,14 @@ export function createHostCommunicationService(
         `/api/communication/notifications?${query}`,
         parseCommunicationNotificationsV1,
       );
+    },
+    async clearNotifications(input, signal) {
+      const call = operation(signal);
+      const request = parseCommunicationClearInputV1(input);
+      if (request.repo !== null && !call.allowed(request.repo) || request.repo === null && call.scope.repo !== null)
+        return clarificationUnavailable('forbidden');
+      return call.request('/api/communication/notifications/clear', value => parseCommunicationClearReceiptV1(value, request),
+        { ...request, scopeRepo: call.scope.repo });
     },
     async markRead(input, signal) {
       const call = operation(signal);

@@ -1,5 +1,5 @@
 import { clarificationFields, clarificationObject } from '../../src/plugins/clarification-validation';
-import { parseCommunicationSettingsValuesV1 } from '../../src/plugins/communication';
+import { parseCommunicationClearInputV1, parseCommunicationSettingsValuesV1 } from '../../src/plugins/communication';
 import { SourceContractValidationError } from '../../src/plugins/source-contract-validation';
 import { parseTaskRepo, TaskSourceValidationError } from '../../src/plugins/tasks';
 import { ClarificationServiceError } from './clarification-service-common';
@@ -28,6 +28,11 @@ export function handleCommunicationApi(input: {
     if (input.method !== 'POST') throw new ClarificationServiceError(405, 'invalid-response');
     if (input.query.size) throw new ClarificationServiceError(400, 'invalid-response');
     const body = clarificationObject(input.body);
+    if (input.path === '/api/communication/notifications/clear') {
+      clarificationFields(body, ['version', 'repo', 'clearToken', 'scopeRepo']);
+      const { scopeRepo, ...request } = body;
+      return { status: 200, json: service.clearNotifications(input.caller, parseCommunicationClearInputV1(request), scope(scopeRepo)) };
+    }
     if (input.path === '/api/communication/settings') {
       clarificationFields(body, ['expectedRevision', 'values', 'scopeRepo']);
       if (typeof body.expectedRevision !== 'string') throw new ClarificationServiceError(400, 'invalid-response');

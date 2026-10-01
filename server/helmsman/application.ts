@@ -1,3 +1,4 @@
+import { openNotificationHistory } from './notification-history';
 import { createRunInstructionService } from './run-instruction-service';
 import { instructionDirectory } from './instruction-channel';
 import { createExecutionPolicyService } from './execution-policy-service';
@@ -227,6 +228,10 @@ reconcileTodoRuns(todos, db, runId => Boolean(admissions.get(runId)?.state.match
 for (const admission of admissions.pending()) admissions.block(admission.runId, 'Restart interrupted preparation; retained bindings require reconciliation');
 const slackStore = openSlackStore(persistence.sql);
 const voyageNotifications = openVoyageNotifications(persistence.sql);
+const notificationHistory = openNotificationHistory(persistence.sql, function* () {
+  yield* slackStore.notificationIdentities();
+  yield* voyageNotifications.notificationIdentities();
+});
 const maxConcurrency = Number(process.env.AGENT_MAX_CONCURRENCY ?? '3');
 const pm: ProcessManager = new ProcessManager(maxConcurrency, { reservations: () => {
   const reservations = new Map(executions.reservations().map(row => [row.runId, row]));
@@ -979,6 +984,7 @@ const communication = createCommunicationReadService({ persistence, repos: appli
     if (!communicationContributionEnabled(pluginSnapshot.catalog, caller)) throw new ClarificationServiceError(403, 'forbidden');
   },
   snapshot: slackSnapshot,
+  notificationHistory,
   markRead: (id, now) => id.startsWith('voyage-') ? voyageNotifications.markRead(id, now) : slackStore.markRead(id, now),
   values: () => {
     const env = configStore.effectiveEnv(); const browser = slackSettings(env); const review = slackReviewSettings(env);
@@ -1729,7 +1735,7 @@ function slackSnapshot(): SlackState {
       lastSuccessAt: null, error: settings.error,
     },
     githubHealth: githubReviewWatcher.health(),
-    notifications: [...slackStore.listNotifications().map((notification) => {
+    notifications: [...slackStore.listNotifications().map(({ sourceKey: _sourceKey, proposal: _proposal, trigger: _trigger, policy: _policy, ...notification }) => {
       const run = notification.runId ? db.getRun(notification.runId) : null;
       let task: Partial<AgentTask> | null = null;
       try {
