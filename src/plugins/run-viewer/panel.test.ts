@@ -251,3 +251,36 @@ it.each([false, true])('hydrates a reopened review label and opens its canonical
   link.focus(); await f.instance.refresh?.();
   expect(document.activeElement).toBe(f.container.querySelector('.run-tab-open'));
 });
+
+it.each([false, true])('hydrates a reopened feedback tab with its PR and canonical galleon (pirate=%s)', async pirateMode => {
+  const f = await mount({ state: { headerRepo: 'org/header', pirateMode } }); await ready(f.container);
+  f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId,
+    run: { ...summary(input.runId), displayKey: 'rerun', prNumber: 42 } }));
+  await f.instance.refresh?.();
+  const tab = f.container.querySelector<HTMLButtonElement>('[role=tab]')!;
+  expect(tab.firstChild?.textContent).toBe('Branch update #42');
+  expect(tab.querySelector('.run-tab-identity')?.textContent).toBe('org/a · one');
+  expect(tab.getAttribute('aria-label')).toBe('Branch update #42 · org/a · one · Attempt 1 · running');
+  expect(tab.title).toBe('Branch update #42 · org/a · one');
+  const link = f.container.querySelector<HTMLAnchorElement>('.run-tab-open')!;
+  expect(Object.fromEntries(new URL(link.href).searchParams)).toEqual({ repo: 'org/header', runRepo: 'org/a', run: 'one' });
+  expect(link.getAttribute('aria-label')).toContain('Branch update #42');
+});
+
+it('keeps branch update identity when retrying the original attempt and opening its resulting run', async () => {
+  const f = await mount(); await ready(f.container);
+  vi.mocked(f.inspect.resolve).mockImplementation(async input => available({ version: 1, target: { ...target, runId: input.runId, expectedAttempt: input.runId === 'one' ? 2 : 1 }, observedAt: when }));
+  f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId,
+    run: { ...summary(input.runId, input.runId === 'one' ? 2 : 1), displayKey: 'rerun', prNumber: 42, status: input.runId === 'one' ? 'failed' : 'running' } }));
+  f.commands.submit.mockImplementation(async input => {
+    const result: RunCommandReceiptV1 = { ...receipt(), action: 'retry', runId: 'retry-one' };
+    f.setPending([{ command: { ...input, requestId }, receipt: result }]); return available(result);
+  });
+  await f.instance.refresh?.();
+  expect(f.container.querySelector('[role=tab]')?.getAttribute('aria-label')).toBe('Branch update #42 · org/a · one · Attempt 2 · failed');
+  button(f.container, 'Retry run').click();
+  await vi.waitFor(() => expect(f.commands.submit).toHaveBeenCalledWith({ version: 1, repo: 'org/a', action: 'retry', target: { runId: 'one', expectedAttempt: 2 } }, expect.any(AbortSignal)));
+  await vi.waitFor(() => expect(button(f.container, 'Retry run')?.disabled).toBe(true));
+  await f.instance.update({ ...f.state, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'retry-one' } });
+  await vi.waitFor(() => expect(f.container.querySelector('[role=tab][aria-selected=true]')?.getAttribute('aria-label')).toBe('Branch update #42 · org/a · retry-one · Attempt 1 · running'));
+});

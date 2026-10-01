@@ -321,8 +321,10 @@ class ViewerPanel implements PluginPanelInstance {
       const feedback = feedbackLabel(tab.summary);
       const statusLabel = feedback ?? recommendation ?? tab.summary?.status ?? 'Status unavailable';
       group.dataset.runStatus = tab.summary?.status ?? '';
-      const displayKey = tab.summary?.displayKey === 'review' && tab.summary.prNumber
-        ? `${this.state.pirateMode ? 'Inspection' : 'Review'} #${tab.summary.prNumber}` : tab.summary?.displayKey ?? tab.runId;
+      const prNumber = tab.summary?.prNumber;
+      const displayKey = tab.summary?.displayKey === 'rerun' ? `Branch update${typeof prNumber === 'number' && Number.isSafeInteger(prNumber) && prNumber > 0 ? ` #${prNumber}` : ''}`
+        : tab.summary?.displayKey === 'review' && prNumber
+          ? `${this.state.pirateMode ? 'Inspection' : 'Review'} #${prNumber}` : tab.summary?.displayKey ?? tab.runId;
       const label = `${displayKey} · ${tab.repo} · ${tab.runId}`;
       const button = this.button(displayKey, () => this.activate(tab), !this.context.selectPresentation); button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(this.activeKey === tabKey(tab)));
       button.setAttribute('aria-label', `${label}${tab.summary ? ` · Attempt ${tab.summary.attempt}` : ''} · ${statusLabel}`);
