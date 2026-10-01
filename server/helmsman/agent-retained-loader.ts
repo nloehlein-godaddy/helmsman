@@ -107,6 +107,9 @@ export async function loadRetainedAgentProvider(input: {
     if (!provider || persistenceHash(provider.metadata) !== persistenceHash(record.metadata)) throw new Error('Retained agent metadata differs from its snapshot');
     return { provider: Object.freeze<AgentProviderV1>({ metadata: provider.metadata,
       buildCommand(value) { signal.throwIfAborted(); const result = provider.buildCommand(value); signal.throwIfAborted(); return result; },
+      ...(provider.buildInteractiveCommand ? { buildInteractiveCommand(value: Parameters<AgentProviderV1['buildCommand']>[0]) {
+        signal.throwIfAborted(); const result = provider.buildInteractiveCommand!(value); signal.throwIfAborted(); return result;
+      } } : {}),
       parseLine(line) { signal.throwIfAborted(); const result = provider.parseLine(line); signal.throwIfAborted(); return result; },
     }), dispose };
   } catch (error) { await dispose(); throw error; } finally { clearTimeout(timer); }

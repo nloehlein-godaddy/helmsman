@@ -84,6 +84,37 @@ test('compiled workflow preparation finds its prompts and helpers outside the or
   assert.equal(stdout.trim(), 'workflow ready');
 });
 
+test('compiled interactive helpers preserve prompts and run with source access denied', async () => {
+  const module = name => pathToFileURL(join(installation, 'server', 'helmsman', name)).href;
+  const fixture = join(cwd, 'interactive-fixture.cjs');
+  await writeFile(fixture, `const send=value=>process.stdout.write(JSON.stringify(value)+'\\n');
+    require('node:readline').createInterface({input:process.stdin}).once('line',line=>{
+      const input=JSON.parse(line); if(input.message.content !== '🦜'.repeat(5000)) process.exit(9);
+      send({type:'system',subtype:'init',session_id:'compiled-session'});
+      setTimeout(()=>send({type:'result',subtype:'success',result:'compiled interactive works'}),20);
+    });`);
+  const { stdout } = await isolated(['--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import { execFileSync } from 'node:child_process';
+    import { basename, join } from 'node:path';
+    import { randomUUID } from 'node:crypto';
+    import { interactiveAgentCommand } from ${JSON.stringify(module('interactive-agent.js'))};
+    import { instructionDirectory, readInstructions } from ${JSON.stringify(module('instruction-channel.js'))};
+    const channelId=randomUUID(); const runs=join(process.cwd(),'interactive-runs');
+    const instructions={runId:'compiled-run',attempt:1,channelId,directory:instructionDirectory(runs,'compiled-run',1,channelId)};
+    const task={ticketId:'T-1',title:'Task',repo:'org/project',jiraBaseUrl:'',instructions};
+    const command=interactiveAgentCommand(task,'fixture/agent',{protocol:'claude-stream-json',command:{cmd:process.execPath,args:[${JSON.stringify(fixture)}]},
+      initialInput:{prompt:'🦜'.repeat(5000),model:null,effort:null}},null);
+    assert.equal(basename(command.args[0]),'interactive-agent-cli.js');
+    assert(command.args.slice(1).every(argument=>argument.startsWith('--input=')&&argument.length<=256));
+    const result=execFileSync(command.cmd,command.args,{encoding:'utf8',timeout:10000});
+    assert.match(result,/compiled interactive works/);
+    assert.equal((await readInstructions(instructions.directory,true)).available,false);
+    console.log('compiled interactive ready');
+  `]);
+  assert.equal(stdout.trim(), 'compiled interactive ready');
+});
+
 test('compiled coordinators and run wrapper execute without a TypeScript loader', async () => {
   for (const [name, message] of [['pre-pr-cli.js', 'Pre-PR worker input is required'], ['docker-review-cli.js', 'Invalid isolated review task'], ['feedback-update-cli.js', 'Feedback worker input is required']]) {
     await assert.rejects(isolated([join(installation, 'server', 'helmsman', name)]), error => {

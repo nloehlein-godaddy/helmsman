@@ -1,5 +1,5 @@
 import type { PluginJson } from '../../src/plugins/backend';
-import { AGENT_PROVIDER_LIMITS_V1, parseAgentCommandInputV1, parseAgentCommandV1, parseAgentEventV1, parseAgentProviderMetadataV1, type AgentProviderMetadataV1, type AgentProviderV1 } from '../../src/plugins/agent-provider';
+import { AGENT_PROVIDER_LIMITS_V1, parseAgentCommandInputV1, parseAgentCommandV1, parseAgentInteractiveCommandV1, parseAgentEventV1, parseAgentProviderMetadataV1, type AgentProviderMetadataV1, type AgentProviderV1 } from '../../src/plugins/agent-provider';
 import { isContributionId, isPluginId } from '../../src/plugins/manifest';
 import type { PluginPackage } from '../../src/plugins/package';
 import { sourceFields, sourceJson, sourceObject } from '../../src/plugins/source-contract-validation';
@@ -43,12 +43,15 @@ export function parseAgentSelectionV1(input: unknown): AgentSelectionV1 {
 }
 export function validateAgentProvider(provider: AgentProviderV1): void {
   if (!provider || typeof provider !== 'object' || typeof provider.buildCommand !== 'function' || typeof provider.parseLine !== 'function') throw new TypeError('Invalid agent provider registration');
+  if (provider.buildInteractiveCommand !== undefined && typeof provider.buildInteractiveCommand !== 'function') throw new TypeError('Invalid interactive agent provider');
   parseAgentProviderMetadataV1(provider.metadata);
 }
 export function boundedAgentProvider(provider: AgentProviderV1): AgentProviderV1 {
   validateAgentProvider(provider);
   return Object.freeze<AgentProviderV1>({ metadata: parseAgentProviderMetadataV1(provider.metadata),
     buildCommand(input) { return parseAgentCommandV1(provider.buildCommand(parseAgentCommandInputV1(input))); },
+    ...(provider.buildInteractiveCommand ? { buildInteractiveCommand: (input: Parameters<AgentProviderV1['buildCommand']>[0]) =>
+      parseAgentInteractiveCommandV1(provider.buildInteractiveCommand!(parseAgentCommandInputV1(input))) } : {}),
     parseLine(line) {
       if (typeof line !== 'string' || line.length > AGENT_PROVIDER_LIMITS_V1.line || Buffer.byteLength(line) > AGENT_PROVIDER_LIMITS_V1.line || line.includes('\0')) throw new TypeError('Agent output line exceeds contract bounds');
       return parseAgentEventV1(provider.parseLine(line));

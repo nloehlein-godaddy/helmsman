@@ -1,3 +1,4 @@
+import { createHostRunInstructionService } from './run-instruction-service';
 import { createHostTaskActionService } from './task-action-service';
 import { createHostProfileService } from './profile-service';
 import { createHostGithubSettingsService } from './github-settings-service';
@@ -116,6 +117,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
       ...(caller ? { runCommands: createHostRunCommandService(lifetime, { scope, caller }),
         clarifications: createHostClarificationReadService(lifetime, { scope, caller }),
         clarificationCommands: createHostClarificationCommandService(lifetime, { scope, caller }),
+        runInstructions: createHostRunInstructionService(lifetime, { scope, caller }),
         pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope, caller }),
         terminal: createHostTerminalService(lifetime, { scope, caller }),
         campaigns: createHostCampaignService(lifetime, { scope, caller }),

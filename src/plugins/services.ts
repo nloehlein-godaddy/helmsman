@@ -1,3 +1,4 @@
+import type { RunInstructionServiceV1 } from './run-instructions';
 import type { TaskActionServiceV1 } from './task-actions';
 import type { ProfileServiceV1 } from './profile';
 import type { GithubSettingsServiceV1 } from './github-settings';
@@ -42,6 +43,7 @@ export interface PluginPageServices {
   readonly runInspect?: RunInspectServiceV1;
   readonly downloads?: DownloadServiceV1;
   readonly clarifications?: ClarificationReadServiceV1;
+  readonly runInstructions?: RunInstructionServiceV1;
   readonly clarificationCommands?: ClarificationCommandServiceV1;
   readonly suggestedContacts?: SuggestedContactAdminServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;

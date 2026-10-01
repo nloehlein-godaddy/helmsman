@@ -1,3 +1,5 @@
+import { createRunInstructionService } from './run-instruction-service';
+import { instructionDirectory } from './instruction-channel';
 import { createApplicationTaskActions } from './task-action-application';
 import { handleTaskActionApi } from './task-action-routes';
 import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
@@ -40,7 +42,7 @@ import { createCommunicationReadService } from './communication-read-service';
 import { createCommunicationCommandService } from './communication-command-service';
 import { bootstrapCommunicationProviderSelection } from './communication-providers';
 import { builtinCommunications } from './plugins/builtin-communications';
-import { createApplicationClarifications } from './clarification-application';
+import { clarificationContributionEnabled, createApplicationClarifications } from './clarification-application';
 import { createApplicationSourceAdmin } from './source-admin-application';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isAppPagePath } from '../../src/logic/routes';
@@ -393,6 +395,19 @@ const taskContext = createTaskContextService({ sources: taskSourceRuntime.servic
 const runInspect = createRunInspectService({ db, repos: applicationRepos, settlement: runSettlement });
 const publicClarifications = createApplicationClarifications({ persistence, clarifications, executions, controls: executionControls,
   repos: applicationRepos, catalog: () => pluginSnapshot.catalog });
+const runInstructions = createRunInstructionService({ persistence, runsDir: RUNS_DIR, repos: applicationRepos,
+  authorize(caller) { if (!clarificationContributionEnabled(pluginSnapshot.catalog, caller, 'run-instructions')) throw new ClarificationServiceError(403, 'forbidden'); },
+  resolve(runId) {
+    const run = db.getRun(runId); if (!run) return null;
+    const bound = clarificationBinding(runId);
+    const snapshot = executionSnapshot(run);
+    const task = snapshot.task as unknown as AgentTask;
+    return { repo: run.repo, attempt: run.attempt, channelId: bound?.channel?.channelId ?? null,
+      active: bound?.active === true, supported: Boolean(task.instructions && bound?.channel && !task.dockerExecution && !task.hostIsolation
+        && task.instructions.runId === runId && task.instructions.attempt === run.attempt && task.instructions.channelId === bound.channel.channelId
+        && task.instructions.directory === instructionDirectory(RUNS_DIR, runId, run.attempt, bound.channel.channelId)) };
+  },
+});
 const runCommands = createApplicationRunCommands({ store: openRunCommandStore(persistence), db, admissions, executions, controls: executionControls,
   catalog: () => pluginSnapshot.catalog, repos: applicationRepos, todos: sourceTodos, jiraEnabled: () => taskSourceRuntime.jiraEnabled(),
   canStart: repo => pm.canStart(repo), launch: input => launch(input), stop: runId => pm.stop(runId) });
@@ -1093,6 +1108,7 @@ async function resumeVoyage(runId: string): Promise<void> {
         }
         task.modelGateway = { url: `http://127.0.0.1:${gatewayPort}`, token: gateway.issue(runId, 86_400_000).token };
         task.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: row.attempt + 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
+        task.instructions = { directory: instructionDirectory(RUNS_DIR, runId, task.clarification.attempt!, task.clarification.channelId!), runId, attempt: task.clarification.attempt!, channelId: task.clarification.channelId! };
         const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task, provider: row.adapter.replace(/^(?:pre-pr|feedback):/, ''), workflow: 'coding', reviewSettings: cfg.prePr, model: task.model, effort: task.effort, allowPromptUpgrade: true });
         if (prepared.task.hostIsolation) {
           if (!hosting.context.isolated) throw new ResumeError('The retained host cannot continue an isolated voyage.');
@@ -1337,6 +1353,7 @@ function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf
         }
       }
       taskObj.clarification = createClarificationChannel(RUNS_DIR, { runId, attempt: 1, gateUrl: `http://127.0.0.1:${PORT}/api/runs/${runId}/clarification-gate` });
+      taskObj.instructions = { directory: instructionDirectory(RUNS_DIR, runId, taskObj.clarification.attempt!, taskObj.clarification.channelId!), runId, attempt: taskObj.clarification.attempt!, channelId: taskObj.clarification.channelId! };
       const prepared = await prepareExecution({ runId, runsDir: RUNS_DIR, workflowDbPath: dbPath, store: workflows, task: taskObj,
         provider: adapter.id, workflow: taskObj.review ? 'review' : 'coding', reviewSettings: cfg.prePr, model: taskObj.model, effort: taskObj.effort });
       taskObj = prepared.task;
@@ -1690,7 +1707,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, runInstructions, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,
       sourceSchedule: taskSourceRuntime.schedule,

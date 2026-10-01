@@ -13,6 +13,9 @@ import { installPluginArtifact } from './plugins/artifacts';
 import { activateBackendPlugins, type BackendRuntime } from './plugins/backend';
 import { clearPluginSettings, initializeAgentProviderSelection, initializeCommandAgentSettings, readAgentProviderSelection, readPluginSettings, selectAgentProvider, selectAgentReviewers, writePluginSettings } from './plugins/data';
 import { pluginCommand } from './plugins/cli';
+import { agentProviderAdapter } from './agents/provider';
+import { buildRoutedAgentCommand } from './model-routing';
+import { randomUUID } from 'node:crypto';
 
 const models = { model: null, effort: null };
 const metadata: AgentProviderMetadataV1 = { version: 1, label: 'Example', defaults: models, review: { low: models, medium: models, high: models }, reviewSkills: [], reviewDelegation: 'none', supportsPrePr: true, docker: null, costReporting: 'delta' };
@@ -86,6 +89,29 @@ it('uses the same restricted context in ordinary and retained activation with ex
   expect(retained.provider.parseLine('fail')).toMatchObject({ kind: 'result', outcome: 'failure' });
   await retained.dispose(); await retained.dispose(); expect(() => retained.provider.buildCommand(input)).toThrow();
   writePluginSettings(f.root, f.archive.package, { commandTemplate: 'changed' }); expect(runtime.agents.list()).toEqual([]);
+});
+it('retains optional interactive behavior and the exact workflow prompt and stage settings', async () => {
+  const f = await fixture(`export default { activate(context) {
+    context.registerAgent('agent', { metadata: ${JSON.stringify(metadata)}, buildCommand() { return {cmd:'legacy',args:[]}; }, parseLine() {return null;},
+      buildInteractiveCommand(input) { return { command:{cmd:'custom-agent',args:[context.settings.commandTemplate,input.stage]},protocol:'codex-app-server',
+        initialInput:{prompt:input.prompt,model:input.model,effort:input.effort} }; } });
+  } };`);
+  const loaded = await f.load();
+  const prompt = 'Frozen workflow instructions 🦜';
+  const render = vi.fn(() => prompt);
+  const adapter = agentProviderAdapter(f.record, loaded.provider, render);
+  const task = { ticketId: 'T-1', title: 'Task', repo: 'owner/project', jiraBaseUrl: '', model: 'pinned-model', effort: 'high',
+    instructions: { directory: '/runs/channel', runId: 'run-1', attempt: 3, channelId: randomUUID() },
+    prePr: { stage: 'review' as const, baseSha: 'a'.repeat(40), reportPath: '/report', round: 2 } };
+  const launch = buildRoutedAgentCommand(adapter, task);
+  const config = JSON.parse(launch.args.filter(argument => argument.startsWith('--input=')).map(argument => argument.slice('--input='.length)).join(''));
+  expect(config).toMatchObject({ provider: f.record.binding.providerId, instructions: task.instructions, stage: 'review · round 2',
+    interactive: { command: { cmd: 'custom-agent', args: ['retained', 'review'] }, protocol: 'codex-app-server',
+      initialInput: { prompt, model: task.model, effort: task.effort } } });
+  expect(render).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ model: task.model, effort: task.effort, instructions: task.instructions }));
+  expect(buildRoutedAgentCommand(adapter, { ...task, instructions: undefined })).toEqual({ cmd: 'legacy', args: [] });
+  await loaded.dispose();
+  expect(() => loaded.provider.buildInteractiveCommand?.(input)).toThrow();
 });
 it('joins overlapping retained disposal while asynchronous cleanup is in progress', async () => {
   const globals = globalThis as unknown as Record<string, unknown>;

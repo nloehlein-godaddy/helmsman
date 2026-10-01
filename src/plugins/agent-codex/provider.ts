@@ -65,5 +65,12 @@ export function parseCodexLine(line: string): AgentEventV1 | null {
 export const codexAgentProvider: AgentProviderV1 = {
   metadata: { version: 1, label: 'Codex', defaults: { model: 'gpt-6-astra', effort: 'medium' }, review: { low: { model: 'gpt-5.6-terra', effort: 'low' }, medium: { model: 'gpt-5.6-sol', effort: 'medium' }, high: { model: 'gpt-6-astra', effort: 'high' } }, reviewSkills: ['review-agent'], reviewDelegation: 'review-agent-skill', supportsPrePr: true, docker: 'openai-responses', costReporting: 'delta' },
   buildCommand(input) { return { cmd: 'codex', args: codexArgs(input) }; },
+  buildInteractiveCommand(input) {
+    codexArgs(input);
+    const effort = input.effort ?? 'medium';
+    return { command: { cmd: 'codex', args: ['-c', `model_reasoning_effort="${effort}"`,
+      ...(input.stage === 'review' && !input.summaryCorrection ? ['-c', 'features.multi_agent=true'] : []), 'app-server', '--stdio'] },
+    protocol: 'codex-app-server', initialInput: { prompt: input.prompt, model: input.model ?? 'gpt-6-astra', effort } };
+  },
   parseLine(line) { return parseCodexLine(line) ?? (line ? { kind: 'log', text: line, ...(prNumber(line) === undefined ? {} : { prNumber: prNumber(line) }) } : null); },
 };

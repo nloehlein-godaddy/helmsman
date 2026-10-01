@@ -17,6 +17,12 @@ describe('Codex agent provider', () => {
     expect(codexArgs({ ...input, model: 'gpt-5.6-sol', effort: 'high' })).toContain('model_reasoning_effort="high"');
     expect(() => codexArgs({ ...input, effort: 'turbo' })).toThrow('Unsupported Codex reasoning effort');
   });
+  it('describes an app-server session with the same prompt, model, effort, and review delegation', () => {
+    expect(codexAgentProvider.buildInteractiveCommand?.({ ...input, model: 'retained-model', effort: 'high' })).toEqual({
+      command: { cmd: 'codex', args: ['-c', 'model_reasoning_effort="high"', '-c', 'features.multi_agent=true', 'app-server', '--stdio'] },
+      protocol: 'codex-app-server', initialInput: { prompt: input.prompt, model: 'retained-model', effort: 'high' },
+    });
+  });
 
   it('maps streamed messages, usage, and errors without a run completion event', () => {
     expect(parseCodexLine(JSON.stringify({ type: 'item.completed', item: { id: 'm1', type: 'agent_message', text: 'opened https://github.com/org/repo/pull/9' } }))).toEqual({ kind: 'result', outcome: 'unknown', text: 'opened https://github.com/org/repo/pull/9', eventId: 'm1', prNumber: 9 });

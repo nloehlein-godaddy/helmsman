@@ -1,3 +1,5 @@
+import { handleRunInstructionApi } from './run-instruction-routes';
+import type { createRunInstructionService } from './run-instruction-service';
 import { handleProfileApi } from './profile-routes';
 import type { ProfileServerService } from './profile-service';
 import { handleIntegrationSettingsApi } from './integration-settings-routes';
@@ -96,6 +98,7 @@ function toRunSummary(row: RunRow, db: Db): RunSummary {
 
 export interface RouterDeps {
   publicClarifications?: ReturnType<typeof createApplicationClarifications>;
+  runInstructions?: ReturnType<typeof createRunInstructionService>;
   clarificationCaller?: string;
   runRead?: RunReadServerService;
   taskContext?: TaskContextServerService;
@@ -162,6 +165,8 @@ export async function handleApi(
   _body: unknown,
   deps: RouterDeps,
 ): Promise<ApiResult | null> {
+  const instructionsResult = await handleRunInstructionApi({ method, path, query, body: _body, caller: deps.clarificationCaller, service: deps.runInstructions });
+  if (instructionsResult) return instructionsResult;
   const clarificationResult = handleClarificationServiceApi({ method, path, query, body: _body, caller: deps.clarificationCaller, ...deps.publicClarifications });
   if (clarificationResult) return clarificationResult;
   const sourceAdminResult = await handleSourceAdminApi({ method, path, query, body: _body, caller: deps.sourceAdminCaller, service: deps.sourceAdmin });

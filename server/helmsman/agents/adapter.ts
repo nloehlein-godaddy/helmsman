@@ -1,7 +1,7 @@
 import type { WorkflowFeedbackStageV1 } from '../../../src/plugins/workflow';
 import type { PullRequestSourceRecord } from '../pull-request-source';
 import type { TriggerProvenanceV1 } from '../trigger-provenance';
-import type { AgentProviderMetadataV1 } from '../../../src/plugins/agent-provider';
+import type { AgentInteractiveCommandV1, AgentProviderMetadataV1 } from '../../../src/plugins/agent-provider';
 import type { AgentSelectionV1 } from '../agent-providers';
 import type { ArtifactBinding, ProviderBinding } from '../execution-store';
 import type { PluginJson } from '../../../src/plugins/backend';
@@ -9,6 +9,7 @@ import type { ExecutionHostRetainedProviderV1 } from '../execution-host-provider
 import type { WorkflowRetainedProviderV1 } from '../workflow-providers';
 
 export interface AgentTask {
+  instructions?: { directory: string; runId: string; attempt: number; channelId: string };
   feedbackStage?: WorkflowFeedbackStageV1;
   modelGateway?: { url: string; token: string };
   trigger?: TriggerProvenanceV1;
@@ -100,5 +101,6 @@ export interface AgentAdapter {
   readonly id: string;
   readonly metadata?: AgentProviderMetadataV1;
   buildCommand(task: AgentTask): { cmd: string; args: string[] };
+  buildInteractiveCommand?(task: AgentTask): AgentInteractiveCommandV1;
   parseLine(line: string): AgentEvent | null;
 }

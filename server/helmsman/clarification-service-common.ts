@@ -3,7 +3,7 @@ import { isContributionId } from '../../src/plugins/manifest';
 import { parseTaskRepo } from '../../src/plugins/tasks';
 import { persistenceHash, PersistenceValidationError } from './persistence';
 
-export type ClarificationFacet = 'clarification-read' | 'clarification-command' | 'suggested-contact-admin';
+export type ClarificationFacet = 'run-instructions' | 'clarification-read' | 'clarification-command' | 'suggested-contact-admin';
 export type ClarificationServiceReason = 'forbidden' | 'not-found' | 'service-unavailable' | 'invalid-response' | 'conflict' | 'cursor-invalid';
 export class ClarificationServiceError extends Error {
   readonly status: number; readonly reason: ClarificationServiceReason;

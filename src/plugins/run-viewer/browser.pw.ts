@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { PluginPanelInstance, PluginPanelState, RunInspectLogQueryV1, RunReadListQueryV1 } from '@helmsman/plugin-sdk';
+import type { PluginPanelInstance, PluginPanelState, RunInspectLogQueryV1, RunReadListQueryV1, RunInstructionInputV1, RunInstructionPendingV1 } from '@helmsman/plugin-sdk';
 
 const execute = promisify(execFile); const root = fileURLToPath(new URL('../../../', import.meta.url));
 let temporary: string; let server: Server; let origin: string;
@@ -21,7 +21,7 @@ test.beforeAll(async () => {
       NODE_OPTIONS: `--import=${pathToFileURL(join(temporary, 'deny-source.mjs')).href}` } });
   }
   server = createServer((request, response) => {
-    const match = /^\/(run-viewer|run-history)\/(panel|state|styles)\.js$/.exec(request.url ?? '');
+    const match = /^\/(run-viewer|run-history)\/(panel|state|styles|instructions)\.js$/.exec(request.url ?? '');
     if (match) {
       void readFile(join(temporary, match[1]!, 'dist', `${match[2]}.js`)).then(code => { response.writeHead(200, { 'Content-Type': 'text/javascript' }); response.end(code); }).catch(() => { response.writeHead(404); response.end(); });
     } else { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root{--text:#e6edf3;--text-dim:#9daebf;--accent:#82c9ff;--bad:#ff9b9b;--line:#344658;--line-strong:#536c85;--face:#101d2b;--face-hi:#243547;--sans:system-ui}body{background:#152331;margin:20px;color:var(--text)}main{display:grid;gap:24px;max-width:1250px;margin:auto}section{min-width:0}h1{font:24px system-ui}</style><h1>Run presentation</h1><main><div id="history"></div><div id="viewer"></div><div id="destination"></div></main>'); }
@@ -47,7 +47,17 @@ test('copied SDK-only packages select, retain a paused window and render bounded
         throughSequence: 100, hasEarlier: query.cursor !== 'older', hasLater: false, nextCursor: query.direction === 'forward' ? 'follow' : query.cursor === 'older' ? null : 'older', followCursor: query.cursor === null ? 'follow' : null }), exportLog: async () => { throw new Error('Unused export'); } };
     let state: PluginPanelState = { repo: 'org/a', visible: true, themeId: 'default', pirateMode: false, pane: null, instanceId: 'viewer', savedState: null, presentation: null,
       activity: { epoch: 1, repo: 'org/a', active: true, signal: activity.signal } };
-    const services = { version: 1, runInspect: inspect, runs: { version: 1, load: async () => available({ version: 1, repo: target.repo, runId: target.runId, run: summary }) },
+    let instructionRequests: RunInstructionPendingV1[] = [];
+    const services = { version: 1,
+      runInstructions: { version: 1, read: async () => available({ version: 1, ...target, channelId: '00000000-0000-4000-8000-000000000011', available: true, reason: null,
+        targets: [{ id: '00000000-0000-4000-8000-000000000012', provider: 'Retained agent', stage: 'review' }] }),
+        pending: async () => instructionRequests, receipt: async () => available(instructionRequests[0]?.receipt ?? null),
+        submit: async (input: RunInstructionInputV1) => {
+          const requestId = '00000000-0000-4000-8000-000000000013';
+          const receipt = { version: 1 as const, requestId, input, status: 'delivered' as const, message: null };
+          instructionRequests = [{ command: { ...input, requestId }, receipt }]; return available(receipt);
+        }, acknowledge: async () => { instructionRequests = []; }, retry: async () => { throw new Error('Unused retry'); } },
+      runInspect: inspect, runs: { version: 1, load: async () => available({ version: 1, repo: target.repo, runId: target.runId, run: summary }) },
       runCommands: { version: 1, pending: async () => [], submit: async () => { throw new Error('Unused command'); } }, downloads: { version: 1, save: async () => ({ status: 'unavailable', reason: 'unsupported' }) } };
     let viewer: PluginPanelInstance;
     const context = { state, signal: lifetime.signal, activity: state.activity, services, saveState: async () => {}, onDispose: () => {}, navigate: () => {},
@@ -58,7 +68,7 @@ test('copied SDK-only packages select, retain a paused window and render bounded
       resume() { activity = new AbortController(); state = { ...state, visible: true, activity: { epoch: state.activity.epoch + 1, repo: 'org/a', active: true, signal: activity.signal } }; void viewer.update(state); },
     };
   });
-  await page.getByRole('button', { name: 'WEB-2048: preserve streamed output and scope', exact: true }).click();
+  await page.getByRole('button', { name: 'WEB-2048: preserve streamed output and scope · org/a · voyage-long-identity · Attempt 2', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Stop run', exact: true })).toBeEnabled();
   await expect(page.locator('#history')).toContainText('101 matching runs observed'); await expect(page.locator('#viewer')).toContainText('4,000 characters per event');
   await page.getByRole('button', { name: 'Earlier logs', exact: true }).click(); await expect(page.locator('#viewer pre')).toContainText('Earlier run-wide event');
@@ -66,6 +76,10 @@ test('copied SDK-only packages select, retain a paused window and render bounded
   await page.evaluate(() => { const probe = (window as typeof window & { presentationProbe: { suspend(): void; resume(): void } }).presentationProbe; probe.suspend(); probe.resume(); });
   await expect(page.getByRole('button', { name: 'Stop run', exact: true })).toBeEnabled(); await expect(page.locator('#viewer pre')).toContainText('Earlier run-wide event');
   await expect(page.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Instruction for active agent' }).fill('Preserve the public API while fixing the bug.');
+  await page.getByRole('button', { name: 'Send instruction', exact: true }).click();
+  await expect(page.locator('[data-instruction-request]')).toContainText('Attempt 2 · delivered');
+  await expect(page.getByRole('button', { name: 'Send instruction', exact: true })).toBeDisabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`run-presentation-${testInfo.project.name}.png`), fullPage: true }); expect(errors).toEqual([]);
 });

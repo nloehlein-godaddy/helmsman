@@ -1,3 +1,4 @@
+import { RunInstructions } from './instructions.js';
 import type { RunReadSummaryV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PresentationLocatorV1,
   RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptQueryV1, RunCommandReceiptV1, RunInspectLogPageV1, RunInspectTargetV1 } from '@helmsman/plugin-sdk';
 import { emptyState, mergeLog, newTab, readState, saveState, tabKey, type RunTab } from './state.js';
@@ -17,6 +18,7 @@ const terminal = (receipt: RunCommandReceiptV1 | null | undefined) => receipt?.s
 const logText = (tab: RunTab) => tab.events.map(event => `[${event.at}] ${event.kind}: ${event.text}${event.truncated ? ' [preview clipped]' : ''}`).join('\n');
 
 class ViewerPanel implements PluginPanelInstance {
+  private readonly instructions: RunInstructions;
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
   private state: PluginPanelState;
@@ -48,6 +50,7 @@ class ViewerPanel implements PluginPanelInstance {
   private readonly downloads = new Set<AbortController>();
 
   constructor(container: HTMLElement, context: PluginPanelContext) {
+    this.instructions = new RunInstructions(context.services.runInstructions);
     this.container = container; this.context = context; this.state = context.state;
     const parsed = readState(this.state.savedState); this.unsupported = parsed === null; const saved = parsed ?? emptyState();
     this.tabs = saved.tabs.map(newTab); this.activeKey = saved.activeKey; this.results = saved.results;
@@ -73,7 +76,7 @@ class ViewerPanel implements PluginPanelInstance {
     this.busy = false; this.reading = false; this.summariesReading = false; this.summariesReadAt = 0; this.commandBusy = false; this.evidenceReady = false;
   };
   dispose = () => {
-    if (this.disposed) return; this.disposed = true; this.cancel();
+    if (this.disposed) return; this.disposed = true; this.cancel(); this.instructions.dispose();
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     this.context.signal.removeEventListener('abort', this.dispose); this.state.activity.signal.removeEventListener('abort', this.cancel); this.container.replaceChildren();
   };
@@ -363,6 +366,8 @@ class ViewerPanel implements PluginPanelInstance {
       if (this.log.textContent !== text) this.log.textContent = text;
       this.logIdentity = tabKey(tab); root.append(this.log);
     }
+    this.instructions.update(this.state, tab?.summary ? { version: 1, repo: tab.repo, runId: tab.runId, expectedAttempt: tab.summary.attempt } : null);
+    root.append(this.instructions.element);
     this.drawRequests(root);
     for (const control of root.querySelectorAll<HTMLElement>('button')) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey, control.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, control.getAttribute('role') === 'tab' ? 'select-tab' : control.getAttribute('aria-label') ?? control.textContent]);
     this.container.replaceChildren(root);

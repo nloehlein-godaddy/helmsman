@@ -157,6 +157,12 @@ describe('model routing', () => {
     expect(() => codexCommand({ cmd: 'codex', args: ['exec', '--oss', 'prompt'] }, gateway.url)).toThrow('cannot be overridden');
     expect(() => codexCommand({ cmd: 'codex', args: ['exec', '--ignore-user-config', 'prompt'] }, gateway.url)).toThrow('cannot be overridden');
   });
+  it('enforces the scoped gateway before Codex app-server starts', () => {
+    const command = codexCommand({ cmd: 'codex', args: ['-c', 'model_reasoning_effort="high"', 'app-server', '--stdio'] }, gateway.url);
+    expect(command.args.indexOf('model_provider="helmsman"')).toBeLessThan(command.args.indexOf('app-server'));
+    expect(command.args).toContain('model_providers.helmsman.base_url="http://127.0.0.1:8790/openai/v1"');
+    expect(() => codexCommand({ cmd: 'codex', args: ['-c', 'model_provider="other"', 'app-server', '--stdio'] }, gateway.url)).toThrow('cannot be overridden');
+  });
 
   it('uses its generated Claude settings ahead of user settings', () => {
     expect(claudeCommand({ cmd: 'claude', args: ['-p', 'prompt'] }, '/private/settings.json').args).toEqual(['-p', 'prompt', '--settings', '/private/settings.json', '--setting-sources', 'project,local']);
