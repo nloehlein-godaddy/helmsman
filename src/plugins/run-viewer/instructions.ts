@@ -26,7 +26,7 @@ export class RunInstructions {
     this.editor.addEventListener('input', () => this.controls()); this.targets.addEventListener('change', () => this.controls());
     this.send.addEventListener('click', () => { void this.submit(); });
     const title = node('h3', 'Live instructions'); const label = node('label', 'Instruction'); label.append(this.editor);
-    this.element.append(title, this.targets, label, this.send, this.status, this.history);
+    this.element.append(node('style', '.plugin-run-viewer .run-instructions textarea{font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);padding:6px 10px;display:block;width:100%;box-sizing:border-box;min-height:5em}.plugin-run-viewer .run-instructions article{border-top:1px solid var(--line);padding-block:.5rem;overflow-wrap:anywhere}'), title, this.targets, label, this.send, this.status, this.history);
   }
   update(state: PluginPanelState, query: RunInstructionQueryV1 | null) {
     const current = state.visible && state.activity.active && !state.activity.signal.aborted ? query : null;
