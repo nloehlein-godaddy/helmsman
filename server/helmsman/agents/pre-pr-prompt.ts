@@ -1,4 +1,4 @@
-import { REVIEW_CALIBRATION } from './review-calibration';
+import { FEEDBACK_GUIDANCE, IMPLEMENTATION_GUIDANCE, REVIEW_CALIBRATION } from './review-calibration';
 import { clarificationPrompt } from './clarification-prompt';
 import type { AgentTask } from './adapter';
 import { agentAttribution, appendAgentByline } from '../agent-attribution';
@@ -106,9 +106,12 @@ export function buildPrePrPrompt(task: AgentTask, runtime: string): string {
     ...context,
     '',
     '## Work',
+    ...IMPLEMENTATION_GUIDANCE,
+    "- Before the first implementation commit, draft the acceptance property at the top of the PR body and a Non-goals list in the permitted external PR metadata file below; do not publish it early. Carry them into the final metadata. During repairs, preserve the prior scope when available; otherwise reconstruct it from the original requirements without inventing or weakening criteria.",
     '- Use the current Helmsman-managed branch and worktree. Read applicable repository instructions and task acceptance criteria, explore the affected code, implement the requested behavior, run relevant tests and build/type checks, and commit the finished changes on this branch.',
     '- Helmsman owns the independent review stages. Do not request GitHub Copilot or other external AI reviewers.',
     ...(stage.stage === 'fix' ? [
+      ...FEEDBACK_GUIDANCE,
       '- Fix verified material blockers with the smallest sufficient change. Non-blocking observations and optional follow-ups are not required repairs; do not expand the ticket to address them unless explicitly requested. Explain any scope expansion necessary for an acceptance criterion or concrete consequential regression.',
       '- Address every verified material finding below and add focused regression coverage when appropriate. Preserve the original task requirements. Check related paths for the same root cause without broadening into unrelated cleanup.',
       '- Do not dismiss a finding, mark it resolved, or rewrite a review report as a substitute for independent reviewer reapproval. If evidence shows a finding is invalid or cannot be safely resolved, record the specific evidence or limitation in your result; the independent reviewers must recheck the final committed revision.',
