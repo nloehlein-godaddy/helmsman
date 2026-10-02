@@ -1,10 +1,11 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { WorkflowRetainedProviderV1 } from './workflow-providers';
 import { prepareExecution } from './prepare-run';
 import { openWorkflowStore } from './workflow-snapshots';
+import { claudeAgentProvider } from '../../src/plugins/agent-claude/provider';
 
 const roots: string[] = [];
 async function fixture() {
@@ -14,6 +15,18 @@ async function fixture() {
 }
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 describe('prepare execution', () => {
+  it('pins the review skill for a Claude-only provider selection and refuses to launch without it', async () => {
+    const f = await fixture();
+    const claude = { version: 1 as const, origin: 'builtin' as const, settings: {}, metadata: claudeAgentProvider.metadata,
+      binding: { providerId: 'helmsman.agent-claude/claude-code', pluginId: 'helmsman.agent-claude', artifactHash: 'c'.repeat(64), contractVersion: 1 as const } };
+    const input = { runId: 'claude_review', runsDir: join(f.root, 'runs'), workflowDbPath: join(f.root, 'workflow.db'),
+      task: { ...f.task, agentSelection: { version: 1 as const, writer: claude, reviewers: [claude] } }, workflow: 'review' as const, reviewSettings: f.settings };
+    await expect(prepareExecution({ ...input, skillsRoots: [] })).rejects.toThrow('Required skill review-agent');
+    const prepared = await prepareExecution({ ...input, skillsRoots: [f.skills] });
+    expect(prepared.skills.map(skill => skill.name)).toEqual(['review-agent']);
+    expect(await readFile(join(prepared.task.skillsPath!, 'skills', 'review-agent', 'SKILL.md'), 'utf8')).toBe('# review');
+    expect(prepared.task.agentSelection?.writer.metadata.reviewDelegation).toBe('native-subagents');
+  });
   it('preflights required review skills, pins a snapshot, and provisions a private runtime', async () => {
     const f = await fixture();
     const result = await prepareExecution({ runId: 'run_1', runsDir: join(f.root, 'runs'), workflowDbPath: join(f.root, 'workflow.db'), task: f.task, workflow: 'review', reviewSettings: f.settings, skills: ['review-agent'], skillsRoots: [f.skills] });

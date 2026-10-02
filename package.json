@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "check:prompt-parity": "node --import tsx scripts/check-prompt-parity.mjs",
     "test:browser": "playwright test",
     "helmsman": "tsx server/helmsman/main.ts",
     "serve": "tsx server/helmsman/main.ts",

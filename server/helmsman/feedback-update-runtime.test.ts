@@ -118,7 +118,8 @@ describe.skipIf(!hasShebangShims)('feedback runtime with retained providers and 
     await f.run();
     expect(mocks.agent.mock.calls.map(([input]) => input.record.binding.providerId)).toEqual(['example.writer/writer', 'example.reviewer/reviewer']);
     expect(f.commands.map(command => command.model)).toEqual(['explicit-author', 'writer/audit', 'reviewer/audit']);
-    expect(f.commands[0]?.prompt).toContain('Run the tests, commit, and push');
+    expect(f.commands[0]?.prompt).toContain('run relevant checks, then commit and push to the same branch when code changed');
+    expect(f.commands[0]?.prompt).toContain('Do not create an empty commit for a response-only outcome.');
     expect(f.commands.slice(1).every(command => command.prompt.includes('Independently verify PR feedback completion'))).toBe(true);
     expect(f.checkouts).toHaveLength(2); expect(new Set(f.checkouts).size).toBe(2);
     expect(f.completed()).toHaveLength(1); expect(f.events.some(event => event.text.includes('forged'))).toBe(false);

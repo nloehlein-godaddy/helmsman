@@ -38,7 +38,7 @@ The OG presentation ports add scoped Triage and Bugs descriptions, canonical Und
 
 **Voyage logs** (Run logs with Pirate mode off) stays at the bottom of the application. Expand it to reopen saved log tabs; selecting a run opens it automatically. Collapse it to recover screen space and pause log polling. Voyage History identifies reviewed PRs by number and galleon, with their retained title when available. Older reviews without a saved title still link to their PR. Recent/running links preserve the header galleon.
 
-Start with the [independent plugin quickstart](docs/plugin-quickstart.md), [package installation](docs/plugin-packages.md), [compatibility policy](docs/plugin-compatibility.md) and [retired routes](docs/plugin-legacy-retirement.md). The [voyage flow diagrams](docs/helmsman-process.md) describe current presentation, execution and recovery boundaries. Runs, history, the shared viewer and clarification panels are authored packages; `/runs` and `/prs` select compositions using public PR panels and the same auxiliary viewer.
+Start with the [independent plugin quickstart](docs/plugin-quickstart.md), [package installation](docs/plugin-packages.md), [compatibility policy](docs/plugin-compatibility.md) and [retired routes](docs/plugin-legacy-retirement.md). The [voyage flow diagrams](docs/helmsman-process.md) describe current presentation, execution and recovery boundaries. [Prompt parity](docs/prompt-parity.md) documents the shared pre/post coder and reviewer instructions and their local comparison check. Runs, history, the shared viewer and clarification panels are authored packages; `/runs` and `/prs` select compositions using public PR panels and the same auxiliary viewer.
 
 The [authored question/contact guide](docs/authored-clarifications.md) describes the selected `/clarifications` composition, conditional draft/result saves and its always-visible compatibility recovery link. Original drafts and pending requests remain under their original caller in the independently buildable recovery package; the alias does not import or replay them. Renamed copies use their own storage namespace and request journals. The [public PR page and provider guide](docs/pull-request-authoring.md) describes independently buildable PR presentation, replaceable GitHub integration and durable manual-review requests. `/prs` and `/pr` select an authored composition. The [Runs package](src/plugins/runs/README.md) composes the public PR and history panels; separate header, PR and run targets remain intact. The [Communication authoring guide](docs/communication-authoring.md) covers the selected `/communication` composition, notification header, scoped reads and revision-checked settings, caller-owned exact retry, durable Slack requests, and the independently buildable Slack provider.
 
@@ -284,8 +284,8 @@ session. Agent and workflow settings are captured at admission; changes do not
 affect an existing voyage. Scheduling and automatic trigger policies are independently selectable plugins.
 
 Reviewers inspect the same pinned commit in separate detached worktrees and focus
-on material logic, structure, acceptance criteria, UX, and external effects. Codex
-reviewers require the installed `$review-agent` skill; each CLI delegates relevant
+on material logic, structure, acceptance criteria, UX, and external effects. Codex and
+Claude reviewers require the pinned `review-agent` skill; each CLI delegates relevant
 areas to focused leaf agents. Reviews default to low effort and use medium for
 larger changes across areas. The author fixes verified findings, then **all**
 reviewers review the new commit again. By default there are at most three review
@@ -525,8 +525,8 @@ configure <plugin-id> '<json>'` before selection.
 
 Provider metadata declares defaults, review tuning, skills/delegation, Docker
 compatibility and whether costs are delta or cumulative. Codex defaults to
-`gpt-6-astra`/medium and declares the review-agent skill; Claude Code uses provider
-defaults and native subagents; command uses its namespaced `commandTemplate` setting.
+`gpt-6-astra`/medium; Claude Code uses provider defaults and native subagents. Both
+declare the required `review-agent` skill. Command uses its namespaced `commandTemplate` setting.
 The command template supports `{ticket}`, `{repo}` and `{title}`, is argv-only, and
 an empty template never falls back to Codex. Legacy `AGENT_ADAPTER` and `AGENT_CMD`
 values remain readable for legacy recovery. The adapter seeds the initial selection
@@ -965,13 +965,20 @@ Review model selection defaults to these tiers for Codex:
 Automatic routing is limited to low and medium. File size, sensitive paths, and unavailable diffs do not trigger high effort. Claude Code uses Sonnet for low/medium and Opus for high; the command adapter keeps its own model behavior. Explicit selections in PR controls override automatic tuning. The assessed revision, model, effort, complexity, and reason are saved with the run; review checkouts are pinned to that revision.
 
 Reviewers reserve request-changes recommendations for demonstrated material logic,
-structural/integration defects, or missed explicit acceptance criteria. They omit
-standalone test/doc/style suggestions and speculative hardening. A lead delegates
+structural/integration defects, or missed explicit material acceptance criteria.
+The goal is a reliable implementation for customers, not perfection. Suggestions
+stay within ticket scope; any necessary expansion must explain the material
+requirement or customer regression it addresses and propose the smallest sufficient fix.
+Credible rare edge cases appear as brief **Non-blocking** summary notes, outside
+findings arrays, and do not prevent approval or trigger another fix round. A rare
+case blocks only with evidence of a material requirement failure or serious customer
+harm. Reviewers omit standalone test/doc/style suggestions and speculative hardening.
+A lead passes these rules to delegates covering
 applicable logic, acceptance/tests, UX, and external-effects scopes, then verifies
-and deduplicates findings. Codex review runs enable multi-agent support and require
-an installed `$review-agent` skill for each read-only leaf reviewer. The lead alone
-writes the output files. Missing required skills or delegation tools produce a
-COMMENT limitation. Low effort remains the default for scoped workers; high effort
+and deduplicates findings. Codex and Claude review runs pin the required `review-agent`
+skill. Codex uses skill-based leaf reviewers; Claude uses native subagents. The lead alone
+writes the output files. Missing required skills fail preparation; a reviewer that
+cannot access a pinned skill or delegation tools reports a COMMENT limitation. Low effort remains the default for scoped workers; high effort
 is reserved for serious architecture changes. See the [five-review calibration
 audit](docs/reviewer-calibration-2026-09-17.md) for examples and rationale.
 

@@ -28,6 +28,12 @@ Core starts the interactive child, applies the declared scoped model transport t
 
 Metadata declares `version: 1`, a label, nullable default model/effort, low/medium/high review model settings, `reviewSkills`, `reviewDelegation`, `supportsPrePr`, `docker` and `costReporting`. Delegation is `review-agent-skill`, `native-subagents` or `none`. Costs are `delta` or `cumulative`. Docker transport is `openai-responses`, `anthropic-messages` or `null`; unsupported custom transports are blocked at admission and do not fall back to a vendor endpoint. The `docker` field is also the retained model-transport declaration for local runs; `null` cannot start a new managed run. Commands must honor the scoped endpoint and credential environment supplied by core. Set `supportsPrePr: true` only when your command can follow implementation, independent review, correction and fix prompts. Providers without this support cannot enter a gated coding run.
 
+The shipped Codex and Claude providers both declare `reviewSkills: ['review-agent']`.
+Claude retains `reviewDelegation: 'native-subagents'`; pinning the review skill does
+not replace its native delegation mechanism. Core resolves required skills from
+retained provider metadata, so replacement providers declare their own requirements.
+See [prompt parity](prompt-parity.md) for the shared pre/post instructions and checker.
+
 ## Build, install and select
 
 The distribution includes independent SDK-only sources in `plugin-sources/agent-codex`, `plugin-sources/agent-claude` and `plugin-sources/agent-command`. Copy a package outside the application and change its reserved manifest ID to your own, such as `example.agent`:
