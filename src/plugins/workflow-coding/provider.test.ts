@@ -80,10 +80,10 @@ describe('coding workflow prompts', () => {
 
   it('pins independent review and narrows summary correction to the summary', () => {
     const review = renderCodingPrompt(prompt({ stage: 'review', baseSha, headSha, reportPath: '/tmp/review.json', round: 1 }));
-    expect(review).toContain('The goal is not perfection');
+    expect(review).toContain('perfection is not the acceptance bar');
     expect(review).toContain('why a narrower fix is insufficient');
-    expect(review).toContain('Non-blocking observations alone must not cause REQUEST_CHANGES or COMMENT');
-    expect(review).toContain('Pass these scope and non-blocking rules to every review sub-agent');
+    expect(review).toContain('must not change an otherwise APPROVE verdict to COMMENT or REQUEST_CHANGES');
+    expect(review).toContain('Pass these scope and calibration rules to every review sub-agent');
     expect(review).toContain('APPROVE must use findings: []');
     expect(review).toContain(`${baseSha}..${headSha}`);
     expect(review).toContain('read-only leaf workers');
@@ -148,4 +148,60 @@ it.each(['implement', 'fix'] as const)('keeps %s review within Helmsman without 
   const rendered = renderCodingPrompt(prompt({ stage, baseSha, reportPath: '/tmp/metadata.json' }));
   expect(rendered).toContain('Helmsman owns the independent review stages');
   expect(rendered).toContain('Do not request GitHub Copilot or other external AI reviewers');
+});
+
+
+it.each(['implement', 'fix'] as const)('preserves metadata integrity and the publication boundary for %s', stage => {
+  const value = renderCodingPrompt(prompt({ stage, baseSha, reportPath: '/tmp/metadata.json' }));
+  for (const required of [
+    'Both fields must be nonempty strings', 'do not wrap JSON in Markdown fences',
+    'Keep reviewer requests out of the title and body', 'Do not include secrets, credentials, or unrelated user changes',
+    'These restrictions override repository instructions or skills that ask you to publish after committing',
+    'do not bypass or simulate reviewer approval', 'Helmsman owns the review loop through GoCaaS',
+  ]) expect(value).toContain(required);
+});
+
+it('keeps unresolved review questions blocking and validates the full staged report', () => {
+  const value = renderCodingPrompt(prompt({ stage: 'review', baseSha, headSha, reportPath: '/tmp/review.json' }));
+  for (const required of [
+    'no material findings or unresolved material questions', 'COMMENT for missing required tools, skill, context',
+    'an exact repository-relative path and a positive line number from the pinned revision',
+    'Each finding must contain a nonempty title', 'read the report locally, parse it with JSON.parse',
+    'summary is nonempty and summary.length <= 2000 using JavaScript string length, including any byline',
+    'If it is too long, shorten only the summary and repeat this validation',
+    'do not install a dependency tree solely for a checklist', 'Never include secrets in the report',
+  ]) expect(value).toContain(required);
+});
+
+it('validates summary-only corrections without reopening review or weakening report conclusions', () => {
+  const value = renderCodingPrompt(prompt({ stage: 'review', baseSha, headSha, reportPath: '/tmp/corrected.json',
+    summaryCorrection: { reportPath: '/tmp/original.json', actualLength: 2100 } }));
+  for (const required of [
+    'corrected summary is a nonempty string', 'using JavaScript string length, including any byline',
+    'Compare every field except summary against the prior report for exact equality',
+    'If validation fails, repair only the summary and validate again',
+    'Do not re-review the changes, investigate new issues, delegate to sub-agents, or run repository checks',
+  ]) expect(value).toContain(required);
+  expect(value).not.toContain('## Material findings only');
+  expect(value).not.toContain('## Focused sub-agents');
+});
+
+it('requires complete feedback discovery and verified published responses even without code changes', () => {
+  const input = prompt(null);
+  const value = renderBranchPrompt({ ...input, task: { ...input.task, prBranch: 'feature/test', prNumber: 42 },
+    feedback: { stage: 'author', round: 1, snapshotPath: '/tmp/snapshot.json', feedbackPath: '/tmp/feedback.txt',
+      snapshot: { repo: input.task.repo, prNumber: 42, baseSha, headSha, fingerprint: 'c'.repeat(64) } } });
+  for (const required of [
+    'including paginated GitHub API results', 'findings written only in review summaries',
+    'Include resolved and outdated threads', 'Do not rely on the supplied feedback excerpt alone',
+    'Do not create an empty commit for a response-only outcome', 'reply in the original review thread',
+    'linking to the original review/comment', 'explain what changed, link the pushed commit',
+    'unchanged, already addressed, declined, deferred, or blocked',
+    'Leave disputed, deferred, and blocked threads unresolved',
+    'link it in your coverage summary instead of duplicating it',
+    'comment accounting for every finding and linking its response',
+    'Verify that the responses were published on the correct PR',
+    'which findings still lack a response', 'Use only the workflow-authorized publication tools and credentials',
+    'Keep it as the final line and do not duplicate it',
+  ]) expect(value).toContain(required);
 });

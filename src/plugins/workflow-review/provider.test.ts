@@ -27,20 +27,44 @@ describe('review workflow', () => {
 
   it.each([
     ['review-agent-skill', '$review-agent'],
-    ['native-subagents', 'runtime’s sub-agent tools'],
+    ['native-subagents', "runtime's sub-agent tools"],
     ['none', 'no review delegation support'],
   ] as const)('renders pinned read-only output rules for %s delegation', (mode, expected) => {
     const value = renderReviewPrompt(input(mode));
-    expect(value).toContain('The goal is not perfection');
+    expect(value).toContain('perfection is not the acceptance bar');
     expect(value).toContain('why a narrower fix is insufficient');
-    expect(value).toContain('Non-blocking observations alone must not cause REQUEST_CHANGES or COMMENT');
-    expect(value).toContain('Pass these scope and non-blocking rules to every review sub-agent');
+    expect(value).toContain('must not change an otherwise APPROVE verdict to COMMENT or REQUEST_CHANGES');
+    expect(value).toContain('Pass these scope and calibration rules to every review sub-agent');
     expect(value).toContain('Put only blocking material defects in inline findings');
     expect(value).toContain(headSha);
     expect(value).toContain('/tmp/review.md');
     expect(value).toContain('/tmp/comments.json');
     expect(value).toContain(expected);
-    expect(value).toContain('Do not submit a GitHub approval');
+    expect(value).toContain('do not submit a GitHub approval');
     expect(value).toContain('modify code, commit, push, open a pull request, merge, or approve');
   });
+});
+
+
+it.each(['review-agent-skill', 'native-subagents'] as const)('preserves the complete evidence and publication contract for %s reviews', mode => {
+  const value = renderReviewPrompt(input(mode));
+  for (const required of [
+    'Read existing PR comments, submitted reviews, and inline threads once',
+    'Cite the actual requirement for acceptance-criteria claims',
+    'If criteria are inaccessible, say so briefly; do not invent them',
+    'A source trace can be sufficient proof; do not demand a reproduction',
+    'Each sub-agent returns concise evidence-backed candidates or No findings; it does not set the final verdict',
+    'do not clone unrelated repos or install a full dependency tree merely to satisfy a review checklist',
+    'reference its original thread once in the summary without reposting the finding',
+    'at most two short validation/limitation bullets',
+    'Output files must be written; stdout is not used as the review',
+    'Keep the reason to 120 characters or fewer on that same line',
+    'positive file line number, not diff position',
+    'RIGHT for new/context lines or LEFT for deleted lines',
+    'both ends must be on the same side and in the same diff hunk',
+    'Do not invent missing APIs or offer speculative fixes',
+    'Keep it as the final line and do not duplicate it',
+    'outside any code or suggestion fence',
+  ]) expect(value).toContain(required);
+  expect(value).not.toContain('## Respond to every finding on GitHub');
 });
