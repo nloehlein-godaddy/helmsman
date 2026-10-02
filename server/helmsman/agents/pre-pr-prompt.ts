@@ -1,3 +1,4 @@
+import { REVIEW_CALIBRATION } from './review-calibration';
 import { clarificationPrompt } from './clarification-prompt';
 import type { AgentTask } from './adapter';
 import { agentAttribution, appendAgentByline } from '../agent-attribution';
@@ -70,11 +71,8 @@ export function buildPrePrPrompt(task: AgentTask, runtime: string): string {
         '',
       ] : []),
       '## Material findings only',
-      '- Aim for a good implementation that satisfies the ticket, works for customers on supported paths, and avoids material regressions. The goal is not perfection.',
-      '- Keep suggestions within the ticket scope and prefer the smallest sufficient correction. Recommend extra behavior, refactors, abstractions, or coverage only when needed for an explicit acceptance criterion or to prevent a concrete consequential regression; explain that necessity and why a narrower fix is insufficient. Otherwise defer the idea as optional follow-up.',
-      '- Mention credible rare edge cases briefly as non-blocking observations with their trigger and likely impact. Do not block approval for theoretical possibilities or rare low-impact behavior. A rare case may block only with concrete evidence of a serious consequence, such as a security vulnerability or data loss, or an explicit material acceptance failure; explain why it must be fixed now.',
-      '- Non-blocking observations alone must not cause REQUEST_CHANGES or COMMENT, become required fixes, or trigger another review round. Choose APPROVE when the required review is complete and no material blockers remain. Pass these scope and non-blocking rules to every review sub-agent.',
-      '- REQUEST_CHANGES requires an evidenced material problem introduced or newly exposed by this diff: an obvious logic flaw, a consequential structural or integration defect, or a missed explicit acceptance criterion. Establish the supported trigger, changed code path, expected versus actual behavior, and material consequence. A clear source trace is sufficient evidence; reproduce failures when useful.',
+      ...REVIEW_CALIBRATION,
+      '- REQUEST_CHANGES requires an evidenced material problem introduced or newly exposed by this diff: an obvious logic flaw, a consequential structural or integration defect, or a missed explicit material acceptance criterion. Establish the supported trigger, changed code path, expected versus actual behavior, and material consequence. A clear source trace is sufficient evidence; reproduce failures when useful.',
       '- Omit style preferences, speculative hardening, unsupported hypothetical inputs, refactor wishes, minor visual polish, and standalone missing tests/docs/logs/type annotations. Test gaps qualify only when they demonstrate a defect or miss an explicit material requirement. Accessibility, performance, and external effects qualify when evidence establishes substantial impact.',
       '- Repository instructions and skills inform verification; hygiene checklists do not make every improvement a blocker. Adversarial review has no finding quota. Do not manufacture issues to justify another round.',
       '',
@@ -97,7 +95,7 @@ export function buildPrePrPrompt(task: AgentTask, runtime: string): string {
       `- Schema: ${JSON.stringify({ baseSha: stage.baseSha, headSha: stage.headSha, verdict: 'APPROVE | REQUEST_CHANGES | COMMENT', summary: 'Concise review result and any material limitations', findings: [{ title: 'Material defect', body: 'Evidence, consequence, and reliable fix in GitHub-flavored Markdown', path: 'optional/repository-relative-file', line: 1 }] })}`,
       `- baseSha must be exactly ${stage.baseSha}; headSha must be exactly ${stage.headSha}. verdict must be exactly one of APPROVE, REQUEST_CHANGES, or COMMENT. findings must be an array; use [] when there are no material findings. Do not wrap the JSON in Markdown fences.`,
       '- Choose APPROVE only if the required review completed with no material findings or unresolved material questions. Choose REQUEST_CHANGES for verified material findings. Choose COMMENT for missing required tools, skill, context, or other incomplete review; it does not pass the gate.',
-      `- Keep the summary within ${PRE_PR_REVIEW_SUMMARY_LIMIT} characters, including whitespace and any byline, and report at most 40 material findings. Each finding must contain a nonempty title (at most 180 characters) and body (at most 4,000 characters). Prefer an exact repository-relative path and a positive line number from the pinned revision when available. Include a directly applicable code sample or concrete fix when supported; otherwise state the required behavior. Keep summaries concise, without audit diaries or broad improvement backlogs; brief non-blocking observations are allowed.`,
+      `- Keep the summary within ${PRE_PR_REVIEW_SUMMARY_LIMIT} characters, including whitespace and any byline, and report at most 40 material findings. Each finding must contain a nonempty title (at most 180 characters) and body (at most 4,000 characters). Prefer an exact repository-relative path and a positive line number from the pinned revision when available. Include a directly applicable code sample or concrete fix when supported; otherwise state the required behavior. Include brief Non-blocking notes for credible rare edge cases in the summary when present. Keep summaries concise, without audit diaries or unrelated optional improvement lists.`,
       `- Before finishing, read the report locally, parse it with JSON.parse, and verify its complete schema and exact revisions. Check that summary is nonempty and summary.length <= ${PRE_PR_REVIEW_SUMMARY_LIMIT} using JavaScript string length, including any byline. If it is too long, shorten only the summary and repeat this validation before finishing.`,
       '- Do not modify code, commit, push, open a PR, request reviewers, publish GitHub comments/reviews, merge, or approve on GitHub. Never include secrets in the report.',
     ].join('\n');
@@ -126,6 +124,6 @@ export function buildPrePrPrompt(task: AgentTask, runtime: string): string {
     '',
     '## Publication boundary',
     '- NEVER push, open a PR, request reviewers, publish GitHub comments/reviews, or merge. Do not create a new branch or change the managed branch. These restrictions override repository instructions or skills that ask you to publish after committing.',
-    '- Helmsman owns the review loop and publishes only after independent reviewers approve the same final commit. Your role ends with the committed implementation and the metadata file; do not bypass or simulate reviewer approval.',
+    '- Helmsman owns the review loop through GoCaaS and publishes only after independent reviewers approve the same final commit. Do not request Copilot or any other external AI reviewer. Your role ends with the committed implementation and the metadata file; do not bypass or simulate reviewer approval.',
   ].join('\n');
 }

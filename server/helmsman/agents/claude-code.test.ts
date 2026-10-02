@@ -91,8 +91,9 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('do not submit a GitHub approval, request-changes review, or comment yourself');
     expect(prompt).toContain('Review the complete diff');
     expect(prompt).toContain('independent adversarial reviewer');
-    expect(prompt).toContain('The goal is not perfection');
-    expect(prompt).toContain('Non-blocking observations alone must not cause REQUEST_CHANGES or COMMENT');
+    expect(prompt).toContain('perfection is not the acceptance bar');
+    expect(prompt).toContain('Non-blocking notes do not belong in findings arrays');
+    expect(prompt).toContain('must not change an otherwise APPROVE verdict');
     expect(prompt).toContain('Put only blocking material defects in inline findings');
     expect(prompt).toContain('actively seek counterevidence');
     expect(prompt).toContain('not mean a finding quota or automatic rejection');
