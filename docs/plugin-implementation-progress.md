@@ -606,3 +606,19 @@ under the mandatory GoCaaS policy; recorded obligations remain recoverable.
 The earlier planned assign-self, tracker feedback, and parallel-execution batches
 remain separate future work. This integration preserves version 0.4.0 and the
 rewrite tab marker.
+
+## Coder and reviewer prompt parity — 2026-10-02
+
+Aligned active coding/review workflow plugins and legacy generators with the
+pre-rewrite instruction contracts, carrying scoped-repair and publication-authority
+safeguards into both versions. Claude now pins `review-agent` while retaining native
+subagents. Workflow and Claude package patches are 0.1.1; public interfaces and old
+execution snapshots remain unchanged. See [prompt parity](prompt-parity.md).
+
+Validation: 35 exact cross-version prompt comparisons; final preparation, provider
+and feedback-runtime checks (24 post-rewrite and 21 pre-rewrite tests, with the stale
+post-rewrite wording assertion corrected and rechecked); both TypeScript/app builds;
+post-rewrite distribution build and all 11 distribution checks. Earlier focused
+workflow/legacy prompt checks also passed. Independent post-commit architecture
+review found no material issues. Checks launched no live agent jobs or PR reviews;
+no visual test was needed for these prompt-only changes.
