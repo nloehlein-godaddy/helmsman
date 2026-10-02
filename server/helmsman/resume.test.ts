@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db, type RunRow } from './db';
 import { inspectPrePrContinuation, resumeFailedPrePrRun } from './resume';
+import { joinInputArguments } from './runtime-paths';
 import type { LaunchSpec, RunHost } from './run-host';
 import { createRunArtifactStore, prePrArtifactFilename } from './artifacts';
 import type { DurableRunnerAttempt, DurableRunnerCoordinator } from './runner';
@@ -101,7 +102,7 @@ describe('same-voyage pre-PR continuation', () => {
     expect(JSON.parse(result.taskJson ?? '{}')).toMatchObject(f.task);
     const launched = JSON.parse(readFileSync(f.row.specPath!, 'utf8')) as LaunchSpec;
     expect(launched.cwd).toBe(f.cwd);
-    expect(JSON.parse(launched.args.at(-1)!)).toMatchObject({ settings: f.settings, task: { prePrResume: { headSha: f.headSha, round: 2 } } });
+    expect(JSON.parse(joinInputArguments(launched.args.filter(argument => argument.startsWith('--input='))))).toMatchObject({ settings: f.settings, task: { prePrResume: { headSha: f.headSha, round: 2 } } });
     expect(readFileSync(f.row.logPath!, 'utf8')).toBe('original log\nnew stage\n');
     const archive = readdirSync(f.deps.runsDir).find(name => name.startsWith(`${f.row.id}.attempt-1-`));
     expect(JSON.parse(readFileSync(join(f.deps.runsDir, archive!, 'spec.json'), 'utf8'))).toEqual(f.spec);

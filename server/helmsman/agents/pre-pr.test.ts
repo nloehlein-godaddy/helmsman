@@ -4,6 +4,7 @@ import { codexAdapter } from './codex';
 import { claudeCodeAdapter } from './claude-code';
 import { commandAdapter } from './command';
 import { isPrePrAdapter, prePrAdapter } from './pre-pr';
+import { joinInputArguments } from '../runtime-paths';
 
 const task = { ticketId: 'T-1', title: 'Fix the bug', repo: 'org/repo', jiraBaseUrl: '' };
 
@@ -15,7 +16,8 @@ describe('durable pre-PR adapter', () => {
     expect(command.cmd).toBe(process.execPath);
     expect(command.args[0]).toBe('--import');
     expect(command.args[2]).toMatch(/pre-pr-cli\.ts$/);
-    expect(JSON.parse(command.args[3] ?? '')).toEqual({ task: { ...task, model: 'selected-model', effort: 'low' }, writerId: writer.id, runsDir: '/tmp/run files',
+    expect(command.args.slice(3).every(argument => argument.startsWith('--input=') && argument.length <= 256)).toBe(true);
+    expect(JSON.parse(joinInputArguments(command.args.slice(3)))).toEqual({ task: { ...task, model: 'selected-model', effort: 'low' }, writerId: writer.id, runsDir: '/tmp/run files',
       settings: { reviewerCount: 2, maxRounds: 3, stageTimeoutMinutes: 45 } });
   });
 
@@ -23,7 +25,7 @@ describe('durable pre-PR adapter', () => {
     const settings = { reviewerCount: 1, maxRounds: 5, stageTimeoutMinutes: 90 };
     const adapter = prePrAdapter(codexAdapter, '/tmp', settings);
     settings.maxRounds = 1;
-    expect(JSON.parse(adapter.buildCommand(task).args[3] ?? '').settings).toEqual({ reviewerCount: 1, maxRounds: 5, stageTimeoutMinutes: 90 });
+    expect(JSON.parse(joinInputArguments(adapter.buildCommand(task).args.slice(3))).settings).toEqual({ reviewerCount: 1, maxRounds: 5, stageTimeoutMinutes: 90 });
   });
 
   it('advertises normalized delta costs for retained cumulative providers', () => {

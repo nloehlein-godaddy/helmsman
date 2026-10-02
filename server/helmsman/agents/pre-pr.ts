@@ -1,4 +1,4 @@
-import { runtimeNodeArguments } from '../runtime-paths';
+import { runtimeNodeArguments, chunkInputArguments } from '../runtime-paths';
 import { normalizePrePrSettings, type PrePrSettings } from '../../../src/logic/prePrSettings';
 import type { AgentAdapter, AgentEvent, AgentEventKind } from './adapter';
 import type { PrePrPublicationConnection } from '../publication-client';
@@ -24,7 +24,7 @@ export function prePrAdapter(writer: AgentAdapter | string, runsDir: string, set
       return {
         cmd: process.execPath,
         args: [...runtimeNodeArguments('../pre-pr-cli.ts', import.meta.url),
-          JSON.stringify({ task, ...(task.agentSelection ? {} : { writerId }), runsDir, settings: reviewSettings, ...(publication ? { publication } : {}) })],
+          ...chunkInputArguments(JSON.stringify({ task, ...(task.agentSelection ? {} : { writerId }), runsDir, settings: reviewSettings, ...(publication ? { publication } : {}) }))],
       };
     },
     parseLine(line) {

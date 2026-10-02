@@ -1,4 +1,4 @@
-import { runtimeNodeArguments } from '../runtime-paths';
+import { runtimeNodeArguments, chunkInputArguments } from '../runtime-paths';
 import type { AgentAdapter } from './adapter';
 import { isPrePrAdapter, prePrAdapter } from './pre-pr';
 
@@ -16,7 +16,7 @@ export function feedbackUpdateAdapter(writer: AgentAdapter, runsDir: string): Ag
       if (task.review || !task.prBranch || !task.prNumber || task.workflow?.metadata.feedbackCompletion !== true
         || !task.agentSelection || !task.pullRequestSource) throw new Error('Feedback workflow requires retained PR, workflow and agent providers');
       return { cmd: process.execPath,
-        args: [...runtimeNodeArguments('../feedback-update-cli.ts', import.meta.url), JSON.stringify({ task, runsDir })] };
+        args: [...runtimeNodeArguments('../feedback-update-cli.ts', import.meta.url), ...chunkInputArguments(JSON.stringify({ task, runsDir }))] };
     },
   };
 }
