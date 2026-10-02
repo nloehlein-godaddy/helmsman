@@ -61,8 +61,8 @@ describe('codexArgs', () => {
     expect(args.at(-1)).toContain('report that limitation and use COMMENT');
     expect(args.at(-1)).toContain('Helmsman publishes');
     expect(args.at(-1)).toContain('independent adversarial reviewer');
-    expect(args.at(-1)).toContain('The goal is not perfection');
-    expect(args.at(-1)).toContain('Non-blocking observations alone must not cause REQUEST_CHANGES or COMMENT');
+    expect(args.at(-1)).toContain('perfection is not the acceptance bar');
+    expect(args.at(-1)).toContain('must not change an otherwise APPROVE verdict to COMMENT or REQUEST_CHANGES');
     expect(args.at(-1)).toContain('Put only blocking material defects in inline findings');
     expect(args.at(-1)).toContain('realistic supported inputs');
   });

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { parseAcceptanceBrief, PrePrContext, type AcceptanceBrief } from './pre-pr-context';
 import { beginCoordinatorStage } from './coordinator-settlement';
 import { spawn, execFile } from 'node:child_process';
 import { constants } from 'node:fs';
@@ -34,13 +35,14 @@ export function githubRepository(remote: string): string | null {
   return match?.[1]?.toLowerCase() ?? null;
 }
 
-export function parsePrMetadata(value: unknown, task?: Pick<AgentTask, 'ticketId' | 'task'>): { title: string; body: string } {
+export function parsePrMetadata(value: unknown, task?: Pick<AgentTask, 'ticketId' | 'task'>): { title: string; body: string; brief?: AcceptanceBrief } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Missing PR metadata');
   const { title, body } = value as Record<string, unknown>;
   if (typeof title !== 'string' || !title.trim() || title.length > 256 || /[\r\n\u0000]/.test(title)
     || typeof body !== 'string' || !body.trim() || body.length > 64_000 || body.includes('\0')) throw new Error('Invalid PR metadata');
   if (task && !task.task && !title.split(/[^a-zA-Z0-9_-]+/).includes(task.ticketId)) throw new Error('PR title must include the Jira ticket ID');
-  return { title: title.trim(), body };
+  const brief = parseAcceptanceBrief((value as Record<string, unknown>).brief);
+  return { title: title.trim(), body, ...(brief ? { brief } : {}) };
 }
 
 export function localReviewScope(numstat: string, headSha: string): ReviewScope {
@@ -339,6 +341,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
     if (!relativeArtifacts || (!relativeArtifacts.startsWith('..') && !isAbsolute(relativeArtifacts))) throw new Error('Pre-PR artifacts must be outside the author worktree');
     await mkdir(artifactDir, { recursive: true, mode: 0o700 });
     let metadataPath = '';
+    const acceptanceContext = new PrePrContext(baseSha, branch, reviewerIds);
     const reviewedRounds = new Map<string, number>();
     const reviewedStages = new Map<string, string>();
     const runStage = async (id: string, task: AgentTask, dir: string) => {
@@ -389,7 +392,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
           await sanitizeDockerGit(worktree, input.task.repo);
         } else await git(['worktree', 'add', '--detach', worktree, context.headSha]);
         const reviewTask: AgentTask = { ...input.task, model: choice.model, effort: choice.effort,
-          prePr: { stage: 'review', ...context, reportPath, ...(incompleteReview ? { incompleteReview } : {}) } };
+          prePr: { stage: 'review', ...context, feedback: acceptanceContext.render(context.round), reportPath, ...(incompleteReview ? { incompleteReview } : {}) } };
         const assertReviewUnchanged = async () => {
           if ((await git(['rev-parse', 'HEAD'], worktree)) !== context.headSha
             || await git(['status', '--porcelain', '--untracked-files=all'], worktree)) throw new Error('Reviewer modified its immutable worktree');
@@ -405,6 +408,8 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
           await recordValidatedReport(input.runsDir, runId, { stage: reportStage, round: context.round, reviewer: reviewerId }, reportPath);
           reviewedRounds.set(reviewerId, context.round);
           reviewedStages.set(reviewerId, reportStage);
+          acceptanceContext.rememberReview(reviewerId, context.round, parsed);
+          await acceptanceContext.save(metadataPath);
           return parsed;
         } catch (error) {
           if (!(error instanceof PrePrSummaryTooLongError)) throw error;
@@ -413,7 +418,7 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
           if (correctedPath === reportPath) throw new PrePrGateError('saved corrected summary is still too long; publication blocked.');
           await rm(correctedPath, { force: true });
           try {
-            await runStage(reviewerId, { ...reviewTask, prePr: { stage: 'review', ...context, reportPath: correctedPath,
+            await runStage(reviewerId, { ...reviewTask, prePr: { stage: 'review', ...context, feedback: acceptanceContext.render(context.round), reportPath: correctedPath,
               summaryCorrection: { reportPath, actualLength: error.actualLength } } }, worktree);
             await assertReviewUnchanged();
             if (JSON.stringify(await readPrePrReport(reportPath)) !== JSON.stringify(originalReport)) {
@@ -424,6 +429,8 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
             await recordValidatedReport(input.runsDir, runId, { stage: reportStage, round: context.round, reviewer: reviewerId }, correctedPath);
             reviewedRounds.set(reviewerId, context.round);
             reviewedStages.set(reviewerId, reportStage);
+            acceptanceContext.rememberReview(reviewerId, context.round, corrected);
+            await acceptanceContext.save(metadataPath);
             return corrected;
           } catch (correctionError) {
             throw new PrePrGateError(`${reviewerId} summary correction failed after one attempt; publication blocked. ${correctionError instanceof Error ? correctionError.message : String(correctionError)}`);
@@ -450,8 +457,9 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
         }
       };
       assertArtifactPath(checkpoint.metadataPath);
-      parsePrMetadata(await readPrePrReport(checkpoint.metadataPath), input.task);
+      const savedMetadata = parsePrMetadata(await readPrePrReport(checkpoint.metadataPath), input.task);
       metadataPath = checkpoint.metadataPath;
+      await acceptanceContext.restore(metadataPath, savedMetadata, checkpoint);
       const reviews: PrePrResumeCheckpoint['reviews'] = [];
       for (const reviewer of reviewerIds) {
         const path = checkpoint.reviewerReports[reviewer]!;
@@ -475,8 +483,11 @@ export async function runPrePrRuntime(input: { task: AgentTask; writerId?: 'code
       runAuthor: async (stage, context) => {
         metadataPath = join(artifactDir, prePrArtifactFilename(stage, context.round));
         await rm(metadataPath, { force: true });
-        await runStage(writerId, { ...input.task, prePr: { stage, ...context, reportPath: metadataPath } }, cwd);
-        parsePrMetadata(await readPrePrReport(metadataPath), input.task);
+        const feedback = stage === 'fix' ? [acceptanceContext.render(context.round + 1), context.feedback].filter(Boolean).join('\n\nCurrent findings to address:\n') : context.feedback;
+        await runStage(writerId, { ...input.task, prePr: { stage, ...context, feedback, reportPath: metadataPath } }, cwd);
+        const metadata = parsePrMetadata(await readPrePrReport(metadataPath), input.task);
+        acceptanceContext.captureAuthor(metadata, context.round, await git(['rev-parse', 'HEAD']));
+        await acceptanceContext.save(metadataPath);
         await recordValidatedReport(input.runsDir, runId, { stage, round: context.round }, metadataPath);
         if (!(await git(['diff', '--name-only', baseSha, 'HEAD']))) throw new Error('Author produced an empty overall diff');
       },

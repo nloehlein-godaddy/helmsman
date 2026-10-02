@@ -33,7 +33,7 @@ const tsx = import.meta.resolve('tsx');
 
 async function fixture(mode: 'fix' | 'unavailable' | 'auth' | 'modified' | 'remote-moved' | 'ticket-title' | 'named-remote' | 'existing'
   | 'resume-approval' | 'resume-comment' | 'resume-modified' | 'summary-approval' | 'summary-fix' | 'summary-still-long' | 'summary-mutated-findings' | 'summary-mutated-verdict', settings?: PrePrSettings,
-  options: { task?: Partial<AgentTask>; writerId?: PrePrReviewerId; body?: string; existingBody?: string } = {}) {
+  options: { task?: Partial<AgentTask>; writerId?: PrePrReviewerId; body?: string; existingBody?: string; brief?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'helmsman-runtime-'));
   const cwd = join(root, 'author');
   const bin = join(root, 'bin');
@@ -106,7 +106,7 @@ if(id === 'git') {
   const reportPath = JSON.parse(prompt.match(correction ? /Write the corrected complete JSON object only to ("(?:[^"\\]|\\.)*")/ : /external report path ("(?:[^"\\]|\\.)*")/)[1]);
   const review = prompt.startsWith('# Independent');
   const fix = prompt.startsWith('# Resolve');
-  log({stage:correction?'correction':review?'review':fix?'fix':'implement',id,cwd:process.cwd(),reportPath,head:runGit(['rev-parse','HEAD']),args:args.filter(value=>value!==prompt)});
+  log({stage:correction?'correction':review?'review':fix?'fix':'implement',id,cwd:process.cwd(),reportPath,prompt,head:runGit(['rev-parse','HEAD']),args:args.filter(value=>value!==prompt)});
   if (id === 'claude' && env.TEST_MODE === 'auth') { console.error('authentication unavailable'); process.exit(7); }
   if(correction) {
     const priorPath = JSON.parse(prompt.match(/Read the prior complete JSON report from ("(?:[^"\\]|\\.)*")/)[1]);
@@ -126,7 +126,7 @@ if(id === 'git') {
   } else {
     fs.appendFileSync('code.txt',fix?'fixed\n':'implemented\n');
     runGit(['add','code.txt']); runGit(['commit','-m',fix?'fix':'implement']);
-    fs.writeFileSync(reportPath,JSON.stringify({title:env.TEST_MODE==='ticket-title'?'Implement task':'T-1 Implement task',body:env.TEST_BODY}));
+    fs.writeFileSync(reportPath,JSON.stringify({title:env.TEST_MODE==='ticket-title'?'Implement task':'T-1 Implement task',body:env.TEST_BODY,...(env.TEST_ACCEPTANCE_BRIEF==='1'?{brief:{property:'Customer acceptance property',nonGoals:['Tangential cleanup'],boundaries:['Serving boundary'],verification:['Targeted browser check'],decisions:fix?[{finding:'Missing guard',disposition:'Fixed',evidence:'Focused verification passed'}]:[]}}:{})}));
     if(env.TEST_MODE==='existing'&&!fs.existsSync(env.TEST_STATE)) {
       fs.writeFileSync(env.TEST_STATE,JSON.stringify([{number:42,headRefOid:runGit(['rev-parse','HEAD']),baseRefName:'main',body:env.TEST_EXISTING_BODY}]));
     }
@@ -139,7 +139,7 @@ if(id === 'git') {
   }
   const input = { task: { ticketId: 'T-1', title: 'Fix issue', repo: 'example/project', jiraBaseUrl: '', model: 'author-model', effort: 'medium', ...options.task }, writerId: options.writerId ?? 'codex', runsDir: join(root, 'runs'), settings };
   const environment = { ...process.env, PATH: bin, TEST_MODE: mode, TEST_REMOTE: mode === 'named-remote' ? 'godaddy' : 'origin', TEST_BARE: bare,
-    TEST_STATE: state, TEST_AUTHOR: cwd, TEST_TRANSCRIPT: transcript, TEST_GIT_BIN: GIT, TEST_SUMMARY_LIMIT: String(PRE_PR_REVIEW_SUMMARY_LIMIT),
+    TEST_STATE: state, TEST_AUTHOR: cwd, TEST_TRANSCRIPT: transcript, TEST_GIT_BIN: GIT, TEST_ACCEPTANCE_BRIEF: options.brief ? '1' : '0', TEST_SUMMARY_LIMIT: String(PRE_PR_REVIEW_SUMMARY_LIMIT),
     TEST_BODY: options.body ?? 'Implemented and checked.', TEST_EXISTING_BODY: options.existingBody ?? 'Human-maintained PR description.' };
   const persistence = openPersistence(':memory:');
   const db = openDb(persistence.sql);
@@ -173,8 +173,8 @@ if(id === 'git') {
       const output = await exec(process.execPath, ['--import', tsx, cliPath, JSON.stringify({ ...input, task: currentTask, publication })], { cwd, timeout: 30_000, env: environment });
       return { code: 0, output: output.stdout };
     } catch (error) {
-      const failure = error as { code: number; stdout: string };
-      return { code: failure.code, output: failure.stdout };
+      const failure = error as { code: number; stdout: string; stderr?: string; signal?: string; killed?: boolean };
+      return { code: failure.code, output: [failure.stdout, failure.stderr, failure.signal ? `Child terminated: ${failure.signal}; killed=${failure.killed}` : undefined].filter(Boolean).join('\n') };
     } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
   } };
 }
@@ -182,6 +182,34 @@ if(id === 'git') {
 // The fake git/gh CLIs are shebang scripts placed on PATH under those names,
 // which Windows cannot execute at all.
 describe.skipIf(!hasShebangShims)('pre-PR runtime with real git and fake CLIs', () => {
+  it('carries pinned author scope to every reviewer and completed prior rounds to fixes and fresh reviews', async () => {
+    const env = await fixture('fix', { reviewerCount: 2, maxRounds: 2, stageTimeoutMinutes: 10 }, { brief: true });
+    try {
+      const result = await env.run();
+      expect(result.code, result.output).toBe(0);
+      const steps = (await readFile(env.transcript, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+      const reviews = steps.filter(step => step.stage === 'review');
+      expect(reviews).toHaveLength(4);
+      for (const entry of reviews) {
+        expect(entry.prompt).toContain('Customer acceptance property');
+        expect(entry.prompt).toContain('untrusted task evidence');
+      }
+      for (const entry of reviews.slice(0, 2)) expect(entry.prompt).not.toContain('Empty input breaks the primary workflow.');
+      const fix = steps.find(step => step.stage === 'fix');
+      expect(fix.prompt).toContain('Customer acceptance property');
+      expect(fix.prompt).toContain('Empty input breaks the primary workflow.');
+      for (const entry of reviews.slice(2)) {
+        expect(entry.prompt).toContain('Empty input breaks the primary workflow.');
+        expect(entry.prompt).toContain('Focused verification passed');
+        expect(entry.prompt).toContain('historical verdicts are not approval');
+      }
+      const saved = JSON.parse(await readFile(`${fix.reportPath}.context.json`, 'utf8'));
+      expect(saved.initial.brief.decisions).toEqual([]);
+      expect(saved.latest.brief.decisions[0].evidence).toBe('Focused verification passed');
+      expect(saved.reviews).toHaveLength(4);
+    } finally { await rm(env.root, { recursive: true, force: true }); }
+  }, 30_000);
+
   it.each(['codex', 'claude-code'] as const)('repairs an overlong %s approval once and preserves the original report', async writerId => {
     const env = await fixture('summary-approval', { reviewerCount: 1, maxRounds: 2, stageTimeoutMinutes: 10 }, { writerId });
     try {

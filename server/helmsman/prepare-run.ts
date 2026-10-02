@@ -47,7 +47,7 @@ export function defaultSkillsRoots(cwd = process.cwd()): string[] {
 
 async function promptCodeHash(): Promise<string> {
   const hash = createHash('sha256');
-  for (const path of ['server/helmsman/agent-attribution.ts', 'server/helmsman/agents/prompt.ts', 'server/helmsman/agents/review-calibration.ts', 'server/helmsman/agents/clarification-prompt.ts', 'server/helmsman/agents/pre-pr-prompt.ts', 'server/helmsman/agents/pre-pr.ts', 'server/helmsman/pre-pr-workflow.ts', 'server/helmsman/pre-pr-runtime.ts', 'server/helmsman/docker-stage.ts', 'server/helmsman/docker-review-cli.ts', 'server/helmsman/docker-gateway-relay.mjs', 'server/helmsman/agents/docker-review.ts']) {
+  for (const path of ['server/helmsman/agent-attribution.ts', 'server/helmsman/agents/prompt.ts', 'server/helmsman/agents/review-calibration.ts', 'server/helmsman/agents/clarification-prompt.ts', 'server/helmsman/agents/pre-pr-prompt.ts', 'server/helmsman/agents/pre-pr.ts', 'server/helmsman/pre-pr-workflow.ts', 'server/helmsman/pre-pr-runtime.ts', 'server/helmsman/pre-pr-context.ts', 'server/helmsman/docker-stage.ts', 'server/helmsman/docker-review-cli.ts', 'server/helmsman/docker-gateway-relay.mjs', 'server/helmsman/agents/docker-review.ts']) {
     hash.update(path).update('\0').update(await readFile(runtimeModulePath(path.replace('server/helmsman/', './'), import.meta.url))).update('\0');
   }
   return hash.digest('hex');

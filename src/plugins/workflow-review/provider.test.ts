@@ -39,7 +39,7 @@ describe('review workflow', () => {
     expect(value).toContain('observable acceptance property and Non-goals');
     expect(value).toContain('missing prose alone is not a blocker');
     expect(value).toContain('Existing regression tests do not establish that their invariant is required');
-    expect(value).toContain('worker heap limits may exclude native/external allocations');
+    expect(value).toContain('input-pattern counters alone do not establish safety');
     expect(value).toContain('do not lower the required review or acceptance bar to end the loop');
     expect(value).toContain(headSha);
     expect(value).toContain('/tmp/review.md');

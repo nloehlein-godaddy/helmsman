@@ -18,7 +18,9 @@
     "plugins": "tsx server/helmsman/plugins/cli.ts",
     "build:distribution": "npm run build && node scripts/build-distribution.mjs",
     "test:distribution": "npm run build:distribution && node --test scripts/distribution-check.mjs && playwright test --config playwright.distribution.config.ts",
-    "slack:oi:check": "tsx server/helmsman/slack-oi-check.ts"
+    "slack:oi:check": "tsx server/helmsman/slack-oi-check.ts",
+    "eval:prompts": "node --import tsx scripts/prompt-evaluation.mjs",
+    "test:prompt-evaluation": "node --import tsx --test scripts/prompt-evaluation-check.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

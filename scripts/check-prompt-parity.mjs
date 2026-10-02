@@ -47,6 +47,12 @@ for (const runtime of ['codex', 'claude-code']) {
     reviewOutputPaths: { markdown: '/reports/review.md', comments: '/reports/comments.json' } };
   check(`${runtime}/PR-review/plugin`, pre(reviewing, runtime), review.renderReviewPrompt(input(reviewing, runtime)));
   check(`${runtime}/PR-review/legacy`, pre(reviewing, runtime), legacy(reviewing, runtime));
+  for (const stage of ['implement', 'review']) {
+    const scoped = { ...task, title: 'Contain SVG parsing', prePr: { stage, baseSha, headSha, round: 2,
+      reportPath: '/reports/result.json', feedback: 'Retained untrusted evidence: initial property forbids script execution; prior guard depended on image/png. Current serving behavior must be verified.' } };
+    check(`${runtime}/${stage}/parser-context/plugin`, pre(scoped, runtime), coding.renderCodingPrompt(input(scoped, runtime)));
+    check(`${runtime}/${stage}/parser-context/legacy`, pre(scoped, runtime), legacy(scoped, runtime));
+  }
   check(`${runtime}/direct-author/legacy`, pre(task, runtime), legacy(task, runtime));
   const branch = { ...task, ticketId: 'rerun', prNumber: 42, prBranch: 'topic', task: 'Address review findings' };
   check(`${runtime}/feedback-author/legacy`, pre(branch, runtime), legacy(branch, runtime));
@@ -64,5 +70,10 @@ for (const runtime of ['codex', 'claude-code']) {
 }
 check('clarification-protocol/source', await readFile(resolve(preRoot, 'server/helmsman/agents/clarification-prompt.ts'), 'utf8'),
   await readFile(resolve(postRoot, 'server/helmsman/agents/clarification-prompt.ts'), 'utf8'));
+for (const [root, path] of [[preRoot, 'server/helmsman/agents/review-calibration.ts'],
+  [postRoot, 'src/plugins/workflow-coding/guidance.ts'], [postRoot, 'src/plugins/workflow-review/guidance.ts']]) {
+  check(`shared-guidance/${root === preRoot ? 'pre' : 'post'}/${path}`,
+    await readFile(resolve(postRoot, 'server/helmsman/agents/review-calibration.ts'), 'utf8'), await readFile(resolve(root, path), 'utf8'));
+}
 console.log(`${checks - failures}/${checks} prompt comparisons passed.`);
 if (failures) process.exitCode = 1;
