@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { loadDashboard as loadMockSnapshot } from './data/mock';
 import type { DashboardResponse } from './data/live';
-import { DEFAULT_THEME_ID } from './data/themes';
+import { DEFAULT_THEME_ID, getTheme } from './data/themes';
 
 const views: DashboardView[] = [];
 function createView(root: HTMLElement): DashboardView {
@@ -187,7 +187,7 @@ describe('DashboardView settings interactions', () => {
     const view: DashboardView = createView(root);
 
     expect(document.documentElement.dataset.theme).toBe('dracula');
-    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#bd93f9');
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe(getTheme('dracula')?.vars['--accent']);
 
     await view.refresh();
     expect(root.querySelector('.theme-select')).toBeNull();
@@ -206,7 +206,7 @@ describe('DashboardView settings interactions', () => {
     void createView(root);
 
     expect(document.documentElement.dataset.theme).toBe(DEFAULT_THEME_ID);
-    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#dfb778');
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe(getTheme(DEFAULT_THEME_ID)?.vars['--accent']);
   });
 
   it('applies and persists a new theme on select change without a full data refetch', async () => {
@@ -230,7 +230,7 @@ describe('DashboardView settings interactions', () => {
     select.dispatchEvent(new Event('change', { bubbles: true }));
 
     expect(document.documentElement.dataset.theme).toBe('nord');
-    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#88c0d0');
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe(getTheme('nord')?.vars['--accent']);
     expect(localStorage.getItem('cmux.theme')).toBe('nord');
     expect(root.querySelector('.theme-preview')).toBe(preview);
     expect(fetchMock.mock.calls.length).toBe(callsBefore);

@@ -58,14 +58,16 @@ test('compiled workflow preparation finds its prompts and helpers outside the or
     import assert from 'node:assert/strict';
     import { mkdir, writeFile, readFile } from 'node:fs/promises';
     import { basename, join } from 'node:path';
-    import { applicationRoot } from ${JSON.stringify(module('runtime-paths.js'))};
+    import { applicationRoot, joinInputArguments } from ${JSON.stringify(module('runtime-paths.js'))};
     import { prePrAdapter } from ${JSON.stringify(module('agents/pre-pr.js'))};
     import { dockerReviewAdapter } from ${JSON.stringify(module('agents/docker-review.js'))};
     import { codexAdapter } from ${JSON.stringify(module('agents/codex.js'))};
     import { prepareExecution } from ${JSON.stringify(module('prepare-run.js'))};
     const task = { ticketId: 'T-1', title: 'Example', repo: 'org/example', jiraBaseUrl: '' };
     const command = prePrAdapter(codexAdapter, process.cwd()).buildCommand(task);
-    assert.equal(command.args.length, 2);
+    assert(command.args.length > 1);
+    assert(command.args.slice(1).every(argument => argument.startsWith('--input=') && argument.length <= 256));
+    assert.deepEqual(JSON.parse(joinInputArguments(command.args.slice(1))).task, task);
     assert.equal(basename(command.args[0]), 'pre-pr-cli.js');
     const review = dockerReviewAdapter(codexAdapter).buildCommand({ ...task, review: true, dockerExecution: {} });
     assert.equal(basename(review.args[0]), 'docker-review-cli.js');

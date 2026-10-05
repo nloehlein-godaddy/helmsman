@@ -58,7 +58,7 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
   await expect(recent.getByRole('button', { name: 'Check request', exact: true })).toBeEnabled();
   expect(commands).toHaveLength(2);
   await recent.getByRole('button', { name: 'Check request', exact: true }).click();
-  await expect(recent.getByRole('link', { name: 'Open new voyage', exact: true })).toHaveAttribute('href', '/runs?run=new-run&repo=org%2Fa');
+  await expect(recent.getByRole('link', { name: 'Open new voyage', exact: true })).toHaveAttribute('href', '/runs?repo=org%2Fa&runRepo=org%2Fa&run=new-run');
   await expect(recent.getByText('Worker: failed', { exact: true })).toBeVisible();
   expect(commands).toHaveLength(2);
   enabled.delete('helmsman.recent');

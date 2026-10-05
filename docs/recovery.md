@@ -31,6 +31,8 @@ Each authored workflow retains its exact provider, metadata, settings, artifact 
 
 A valid completed-review checkpoint reconstructs the recorded revision and full reviewer state before calling the original provider's pure `next` policy. It does not repeat completed implementation or reviews. Core still checks branch/base/head, artifact manifests, reviewer completeness, cancellation and required answers before publication. Legacy voyages without a workflow binding remain on their original compatibility path. Workflow extraction and its installed acceptance are complete; see [workflow authoring](workflow-authoring.md).
 
+Pre-PR continuation reconstructs the saved input from either legacy raw JSON or `--input=` chunks. It recognizes source `.ts` and packaged `.js` launchers with POSIX or Windows path separators. Decoding the saved input does not bypass original artifact, revision, provider, or publication checks.
+
 Workflow and agent selection resets affect future admissions. Old `PRE_PR_*` values seed reviewer lists and workflow package settings once; they do not overwrite an explicit configuration or a later reset on restart.
 
 ## Retired entry points and queued triggers

@@ -510,7 +510,8 @@ flowchart TD
     Stage --> Checkpoint[Validate reports and revision<br/>Retain completed checkpoint evidence]
     Checkpoint --> Next
     Guard -->|Publish requested| Publish[All selected reviews approve same clean revision<br/>Required answers resolved; publish through core]
-    Resume[Restart or continuation] --> Original[Load original workflow and saved checkpoint<br/>Skip completed implementation and reviews]
+    Resume[Restart or continuation] --> Decode[Reassemble saved raw or chunked input<br/>Recognize source and packaged launcher paths]
+    Decode --> Original[Load original workflow and saved checkpoint<br/>Skip completed implementation and reviews]
     Original --> Next
     Original -.->|Missing or corrupt original artifact| Block
 ```

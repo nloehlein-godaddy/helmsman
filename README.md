@@ -308,7 +308,7 @@ review contract. `AGENT_MAX_ATTEMPTS` does not multiply the captured workflow `m
 Each author, fix, or reviewer session has a 45-minute timeout by default. The managed post-PR review still runs through GoCaaS after successful publication.
 New Copilot or other external AI reviewer requests are not created.
 
-See the [latest OG integration ledger](docs/helmsman-og-integration-2026-09-28.md) for continuation, worktree release, PR navigation, and Slack OAuth updates.
+See the [latest OG integration ledger](docs/helmsman-og-integration-2026-10-05.md) for portable continuation, theme palettes, and plugin form controls. Earlier integrations are linked there.
 
 ### Recent voyages
 
@@ -813,11 +813,12 @@ have no `.env` keys, do not change server behavior, and are not shared with anot
 browser. Per-voyage model/effort choices belong to the launch form; there are no
 global model/effort environment variables in the app's config parser.
 
-Dark presets include Quarterdeck (sea blue/wood brown/brass), Abyss (navy/cyan), Forest (green/mint), Ember (brown/coral),
-Aubergine (wine/rose), Graphite (near-black/white), and Phosphor (black/lime).
-Themes color the full interface, including panels, text, and scrollbars.
-The selected theme's palette and sample status chips appear below the selector,
-updating immediately so you can compare surface, text, and status colors.
+Dark presets include Quarterdeck, Abyss, Forest, Ember, Aubergine, Graphite,
+Phosphor, and Amber, alongside editor-inspired dark and light themes.
+Themes color the full interface, including panels, text, form controls, and scrollbars.
+The theme preview shows surfaces, action and companion accents, field surfaces,
+and sample status chips. Selection applies immediately, including to the next loading screen.
+See [theme palettes](docs/themes.md) for color roles and contrast checks.
 Page panels use the full content width or two equal columns, stacking on smaller screens.
 
 Helm's **Mine · underway** panel reads the selected source's optional underway view.
