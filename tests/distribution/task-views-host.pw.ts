@@ -76,6 +76,20 @@ const page: PluginPageModule = { mount(container, context) {
       const db=openDb(persistence.sql); db.insertRun({id:'related-a',repo:'org/a',ticketId:'Same display key is insufficient',adapter:'codex',status:'succeeded',attempt:1,prNumber:42,startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),costUsd:null,worktreePath:null});
       for(const externalId of ['org-a','org-b']) store.reserveWork({ref:{sourceId:value.instance.sourceId,externalId},admissionId:'related-'+externalId,runId:'related-a',instanceId:value.instance.id,expectedSourceRevision:value.source.revision,expectedInstanceRevision:1});
       console.log(JSON.stringify(value.instance)); } finally { persistence.close(); }`));
+    const waitForDescriptionSave = async (contributionId: string, repo: string) => {
+      const expected = JSON.stringify([repo, selected.sourceId, selected.id, selected.sourceId, repo.replace('/', '-')]);
+      await expect.poll(async () => {
+        const storage = await page.context().storageState({ indexedDB: true });
+        return storage.origins.filter(item => item.origin === new URL(page.url()).origin)
+          .flatMap(item => item.indexedDB ?? []).filter(database => database.name === 'helmsman.composition-layouts')
+          .flatMap(database => database.stores).filter(store => store.name === 'layouts').flatMap(store => store.records)
+          .flatMap(record => Array.isArray(record.value?.instances) ? record.value.instances : [])
+          .flatMap(instance => {
+            const expanded = instance?.state?.[contributionId]?.value?.descriptionExpanded;
+            return Array.isArray(expanded) ? expanded : [];
+          });
+      }, { message: `Description expansion is persisted for ${contributionId}`, timeout: 5000 }).toContain(expected);
+    };
     let origin = await host.start(); await page.goto(`${origin}/outcomes?repo=org/a`);
     const output = page.locator('[data-views]'); await expect(output).toContainText('Scoped org/a'); await expect(output).not.toContainText('Scoped org/b');
     let results = JSON.parse(await output.innerText()); expect(results[0]).toMatchObject({ status: 'available', value: { page: { quality: 'unavailable', items: [] } } });
@@ -96,6 +110,7 @@ const page: PluginPageModule = { mount(container, context) {
     await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
     await expect(triage).toContainText('Description for org/a <img src=x onerror=alert(1)>');
     await expect(triage.locator('img')).toHaveCount(0);
+    await waitForDescriptionSave('example.triage-view/panel', 'org/a');
     await page.reload();
     await expect(triage).toContainText('Description for org/a <img src=x onerror=alert(1)>');
     await expect(triage).toHaveScreenshot('triage-authored-groups.png');
@@ -111,6 +126,7 @@ const page: PluginPageModule = { mount(container, context) {
     await expect(bugDescription).toHaveAttribute('aria-expanded', 'true');
     await expect(bugs).toContainText('Bug description for org/b <img src=x onerror=alert(1)>');
     await expect(bugs.locator('img')).toHaveCount(0);
+    await waitForDescriptionSave('example.bugs-view/panel', 'org/b');
     await page.reload();
     await expect(bugs).toContainText('Bug description for org/b <img src=x onerror=alert(1)>');
     await expect(bugs).toHaveScreenshot('bugs-authored-metrics.png', { mask: [bugs.getByText(/^Observed /)] });
