@@ -17,6 +17,7 @@ import { createRunArtifactStore, prePrArtifactFilename } from './artifacts';
 import { parseExecutionHostRetainedProviderV1 } from './execution-host-providers';
 import { parseAgentSelectionV1 } from './agent-providers';
 import { persistenceHash } from './persistence';
+import { joinInputArguments } from './runtime-paths';
 
 const exec = promisify(execFile);
 
@@ -76,7 +77,10 @@ export async function inspectPrePrContinuation(row: RunRow, runsDir: string) {
   const logSize = (await lstat(logPath)).size;
   if (row.logOffset !== logSize) throw new ResumeError('The original log must be fully processed before continuing.');
   const args = spec?.args;
-  const original = Array.isArray(args) && typeof args.at(-1) === 'string' ? record(JSON.parse(args.at(-1))) : null;
+  const scriptIndex = Array.isArray(args) ? args.findIndex(arg => typeof arg === 'string' && /(?:^|[\\/])pre-pr-cli\.[jt]s$/.test(arg)) : -1;
+  const inputArgs = Array.isArray(args) ? scriptIndex >= 0 ? args.slice(scriptIndex + 1) : args.length === 1 ? args : null : null;
+  const original = inputArgs?.length && inputArgs.every((arg): arg is string => typeof arg === 'string')
+    ? record(JSON.parse(joinInputArguments(inputArgs))) : null;
   const originalTask = record(original?.task);
   const selection = task.agentSelection === undefined ? undefined : parseAgentSelectionV1(task.agentSelection);
   const writerId = selection?.writer.binding.providerId

@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db, type RunRow } from './db';
 import { inspectPrePrContinuation, resumeFailedPrePrRun } from './resume';
-import { joinInputArguments } from './runtime-paths';
+import { chunkInputArguments, joinInputArguments } from './runtime-paths';
+import { prePrAdapter } from './agents/pre-pr';
 import type { LaunchSpec, RunHost } from './run-host';
 import { createRunArtifactStore, prePrArtifactFilename } from './artifacts';
 import type { DurableRunnerAttempt, DurableRunnerCoordinator } from './runner';
@@ -85,6 +86,31 @@ function bindRetainedAgent(f: ReturnType<typeof fixture>) {
 }
 
 describe('same-voyage pre-PR continuation', () => {
+  it.each([
+    '/helmsman/pre-pr-cli.ts', '/helmsman/pre-pr-cli.js',
+    'C:\\helmsman\\pre-pr-cli.ts', 'C:\\helmsman\\pre-pr-cli.js', 'pre-pr-cli.js',
+  ])('restores raw and chunked worker inputs from %s', async script => {
+    const f = fixture();
+    const input = JSON.stringify({ task: f.task, settings: f.settings, writerId: 'codex', runsDir: f.deps.runsDir });
+    for (const payload of [[input], chunkInputArguments(input)]) {
+      writeFileSync(f.row.specPath!, JSON.stringify({ ...f.spec, args: ['--import', 'tsx', script, ...payload] }));
+      const checkpoint = await inspectPrePrContinuation(f.row, f.deps.runsDir);
+      expect(checkpoint.task).toMatchObject(f.task);
+      expect(checkpoint.settings).toEqual(f.settings);
+    }
+  });
+
+  it('restores the actual pre-PR launcher command with a multi-chunk task', async () => {
+    const f = fixture();
+    const task = { ...f.task, jiraContext: 'Preserve customer behavior. '.repeat(100) };
+    f.row.taskJson = JSON.stringify(task);
+    const command = prePrAdapter('codex', f.deps.runsDir, f.settings).buildCommand(task);
+    expect(command.args.filter(arg => arg.startsWith('--input=')).length).toBeGreaterThan(1);
+    writeFileSync(f.row.specPath!, JSON.stringify({ ...f.spec, ...command }));
+    const checkpoint = await inspectPrePrContinuation(f.row, f.deps.runsDir);
+    expect(checkpoint.task).toMatchObject(task);
+  });
+
   it('validates a saved round and allows only the known summary-length defect', async () => {
     const f = fixture();
     const checkpoint = await inspectPrePrContinuation(f.row, f.deps.runsDir);
@@ -174,6 +200,8 @@ describe('same-voyage pre-PR continuation', () => {
   it('resumes a retained agent checkpoint from its immutable corrected report', async () => {
     const f = fixture();
     const retained = bindRetainedAgent(f);
+    const command = prePrAdapter(retained.providerId, f.deps.runsDir, retained.settings).buildCommand(retained.task);
+    writeFileSync(f.row.specPath!, JSON.stringify({ ...f.spec, ...command }));
     const correctedPath = join(f.artifacts, prePrArtifactFilename('review', 2, retained.providerId, true));
     const corrected = { baseSha: f.baseSha, headSha: f.headSha, verdict: 'REQUEST_CHANGES', summary: 'Concise corrected summary.',
       findings: [{ title: 'Timing issue', body: 'Reproduce the remaining crash loop.' }] };
