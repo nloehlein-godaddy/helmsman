@@ -58,6 +58,7 @@ describe('THEMES data', () => {
   it('lists Field Guide first as the default theme', () => {
     expect(THEMES[0]?.id).toBe('field-guide');
     expect(THEMES[0]?.id).toBe(DEFAULT_THEME_ID);
+    expect(THEMES[0]?.mode).toBe('dark');
   });
 
   it('has at least 11 presets', () => {

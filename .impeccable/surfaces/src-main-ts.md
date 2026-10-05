@@ -9,13 +9,13 @@ related_targets: ["src/style.css","src/render.ts","src/plugins","src/data/themes
 
 Mode: Operate. Audience: engineer supervising coding agents throughout the day. Scope: application shell, Helm dashboard, plugin work surfaces, settings, and responsive layouts.
 User selected Field Guide on 2026-10-05 through decision c61e5f87; code-led build, seed 2131487b. No raster comp was generated or approved.
-Preserve all task/run actions, immutable command identities, header and panel scope, layouts, URLs, Pirate mode, existing themes, extension points and recovery. Do not invent data. Fresh installs use the Field Guide palette; existing theme selections remain honored. No launch, publication or remote effect is part of verification.
+Preserve all task/run actions, immutable command identities, header and panel scope, layouts, URLs, Pirate mode, existing themes, extension points and recovery. Do not invent data. User requested dark Field Guide on 2026-10-05. Fresh installs use the dark Field Guide palette; existing theme selections remain honored. No launch, publication or remote effect is part of verification.
 
 ## Direction contract
 
 THESIS: Make work identifiable at a glance through task titles, compact labeled states and subordinate evidence; replace the crowded horizontal chrome and repeated boxed headings.
 
-OWN-WORLD: Evergreen navigation, cool neutral work surfaces, restrained teal selection, clear semantic states; system sans for controls and text, JetBrains Mono only for identifiers and logs. Twelve-pixel panel corners, six-pixel controls, consistent spacing and native affordances. Existing user-selected palettes retain their colors.
+OWN-WORLD: Evergreen navigation, dark green-neutral work surfaces, restrained teal selection, clear semantic states; system sans for controls and text, JetBrains Mono only for identifiers and logs. Twelve-pixel panel corners, six-pixel controls, consistent spacing and native affordances. Existing user-selected palettes retain their colors.
 
 STORY: Select the galleon, find active work or a question, inspect evidence and act; launch remains close by and logs stay within reach.
 

@@ -2,34 +2,34 @@
 name: "Helmsman — Field Guide"
 description: "Scientific field-guide classification for supervising coding-agent work."
 colors:
-  nav-bg: "#153c3a"
+  nav-bg: "#0a1714"
   nav-text: "#f2f6f3"
-  nav-muted: "#b9d0c8"
-  nav-active: "#285450"
-  bg: "#edf3ef"
-  gutter: "#e4eee8"
-  panel: "#ffffff"
-  panel-2: "#f5f8f6"
-  panel-hi: "#e4eee8"
-  control-bg: "#e6e6e6"
-  control-border: "#435951"
-  line: "rgba(70, 94, 85, 0.32)"
-  line-strong: "rgba(70, 94, 85, 0.76)"
-  line-faint: "rgba(70, 94, 85, 0.18)"
-  secondary: "#276b7a"
-  on-accent: "#ffffff"
-  on-good: "#ffffff"
-  accent: "#23665b"
-  accent-bright: "#1e574d"
-  accent-dim: "rgba(35, 102, 91, 0.55)"
-  accent-plate: "#23665b"
-  text: "#183a34"
-  text-dim: "#465e55"
-  text-faint: "#50675e"
-  bad: "#a33d35"
-  good: "#276148"
-  review: "#315f83"
-  queued: "#775616"
+  nav-muted: "#a9c4b4"
+  nav-active: "#26463b"
+  bg: "#0e1b19"
+  gutter: "#0a1412"
+  panel: "#172a25"
+  panel-2: "#1c322c"
+  panel-hi: "#244238"
+  control-bg: "#080f0d"
+  control-border: "#8a9c91"
+  line: "rgba(168, 190, 177, 0.32)"
+  line-strong: "rgba(168, 190, 177, 0.72)"
+  line-faint: "rgba(168, 190, 177, 0.18)"
+  secondary: "#96cad3"
+  on-accent: "#08090c"
+  on-good: "#08090c"
+  accent: "#82cbbb"
+  accent-bright: "#95d3c5"
+  accent-dim: "rgba(130, 203, 187, 0.55)"
+  accent-plate: "#82cbbb"
+  text: "#e5efe8"
+  text-dim: "#a8beb1"
+  text-faint: "#9aafa3"
+  bad: "#ff9b88"
+  good: "#91d2ad"
+  review: "#a0c9ed"
+  queued: "#e4c17e"
 typography:
   page-title:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
@@ -152,13 +152,13 @@ components:
 
 **Creative North Star: "Field Guide"**
 
-Field Guide uses scientific field-guide classification to make work identifiable at a glance: task titles, compact labeled states and subordinate evidence. Evergreen navigation frames cool neutral work surfaces; restrained teal marks selection and action. Controls and text use system sans, with JetBrains Mono reserved for identifiers and logs.
+Field Guide uses scientific field-guide classification to make work identifiable at a glance: task titles, compact labeled states and subordinate evidence. Evergreen navigation frames dark green-neutral work surfaces; restrained teal marks selection and action. Controls and text use system sans, with JetBrains Mono reserved for identifiers and logs.
 
-Standard web controls and the plugin composition model remain intact. Panels share an index-like rhythm of identity, state and aligned evidence; tab selection and collapse occupy one header row. The default palette applies to fresh installs, while existing user-selected palettes retain their colors. Motion provides bounded state feedback with reduced-motion support.
+Standard web controls and the plugin composition model remain intact. Panels share an index-like rhythm of identity, state and aligned evidence; tab selection and collapse occupy one header row. The dark default palette applies to fresh installs, while existing user-selected palettes retain their colors. Motion provides bounded state feedback with reduced-motion support.
 
 **Key Characteristics:**
 
-- Evergreen navigation, cool neutral work surfaces and restrained teal selection.
+- Evergreen navigation, dark green-neutral work surfaces and restrained teal selection.
 - Task identity first, labeled state alongside it, supporting evidence below.
 - System sans for controls and text; JetBrains Mono for identifiers and logs.
 - Twelve-pixel panels and six-pixel controls, with native affordances.
@@ -166,7 +166,7 @@ Standard web controls and the plugin composition model remain intact. Panels sha
 
 ## Colors
 
-Evergreen navigation, cool neutral work surfaces and restrained teal selection follow the selected Field Guide contract. Frontmatter records the resolved default palette from `src/data/themes.ts`; selecting a theme replaces the same semantic properties at runtime.
+Evergreen navigation, dark green-neutral work surfaces and restrained teal selection follow the selected Field Guide contract. Frontmatter records the resolved default palette from `src/data/themes.ts`; selecting a theme replaces the same semantic properties at runtime.
 
 ### Primary
 
@@ -180,13 +180,13 @@ Evergreen navigation, cool neutral work surfaces and restrained teal selection f
 
 ### Neutral
 
-- **Cool work ground** (`bg`, `gutter`): work area and outer ground.
+- **Dark green-neutral work ground** (`bg`, `gutter`): work area and outer ground.
 - **Work surfaces** (`panel`, `panel-2`, `panel-hi`): panels, subordinate areas and raised-tone controls or hover feedback.
 - **Text** (`text`, `text-dim`, `text-faint`): task identity, supporting text and quiet metadata.
 - **Field ground and boundary** (`control-bg`, `control-border`): native inputs, selects and textareas.
 - **Dividers** (`line`, `line-strong`, `line-faint`): panel boundaries, control boundaries and quiet row separation. Preserve source RGBA values.
 
-**The Theme Continuity Rule.** Use semantic CSS properties for surfaces, text, selection and state. Field Guide is the fresh-install default; a saved theme keeps its palette.
+**The Theme Continuity Rule.** Use semantic CSS properties for surfaces, text, selection and state. Dark Field Guide is the fresh-install default; a saved theme keeps its palette.
 
 ## Typography
 
@@ -229,7 +229,7 @@ Use panel and control radii for their corresponding surfaces. Compact preview ba
 
 ### Buttons
 
-Primary authored-plugin actions use teal fill, contrasting foreground and medium-bold text; hover uses the darker accent. Authored-plugin controls use (36px) minimum height; Helm and its task panels use (34px). Launch has (7px 16px) padding and a mixed accent/text hover. Secondary controls use raised neutral ground. The shell default uses panel ground and (8px 12px) padding. Disabled controls reduce opacity to (0.5). Focus is a (2px) accent outline, offset (1px) on shell buttons or (2px) in authored plugins.
+Primary authored-plugin actions use teal fill, contrasting foreground and medium-bold text; hover uses the brighter accent. Authored-plugin controls use (36px) minimum height; Helm and its task panels use (34px). Launch has (7px 16px) padding and a mixed accent/text hover. Secondary controls use raised neutral ground. The shell default uses panel ground and (8px 12px) padding. Disabled controls reduce opacity to (0.5). Focus is a (2px) accent outline, offset (1px) on shell buttons or (2px) in authored plugins.
 
 Global buttons transition background and color over (150ms); authored plugins use (160ms) state transitions. Reduced-motion rules remove them. Question-tab attention changes a boundary over (1.8s) and stops under reduced motion.
 
@@ -248,6 +248,10 @@ Authored Helm stacks use panel ground, a thin semantic line and panel corners. H
 ### State labels and work rows
 
 Running/recent work uses a prominent linked title, technical identifier, compact outlined state and aligned evidence. State labels use (2px 8px) padding and control corners. Row separation uses the semantic line; the last row removes it. Titles wrap as needed, evidence wraps independently, and narrow-screen order keeps identity ahead of state and actions. Theme-preview status chips use sentence-case sans with compact corners.
+
+### Startup scope
+
+The startup repository selector uses the semantic panel background directly, including outside the application shell. It shares panel corners, (24px) padding and a bounded width of `min(100% - 32px, 540px)`. Boot HTML uses the default dark work ground and text colors as fallbacks before runtime theme application; the selected theme then controls these properties.
 
 ### Logs and disclosures
 
@@ -270,6 +274,6 @@ Run logs use the mono log role, (12px) padding, control corners, neutral panel g
 - Don't use a status hue as the only way to identify state.
 - Don't turn a viewport change into a saved layout edit.
 
-Source evidence: `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/render.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
+Source evidence: `index.html`, `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/render.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
 
 Not canonized or repaired: retained legacy lamp glow, uppercase mono status rules and hard-coded amber tints in `src/style.css`, plus glyph icons in compatibility/notification markup, fall outside the selected Field Guide language. Loaded DSEG7 assets do not establish a current type role. PRODUCT.md still describes the previous visual world; it is outside this documentation write boundary.

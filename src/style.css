@@ -589,7 +589,7 @@ select { text-transform: none; }
 .page-tab.needs-attention::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 8px; border-radius: 50%; background: currentColor; vertical-align: middle; }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } .page-tab.needs-attention { animation: none; } }
 
-.startup-scope { box-sizing: border-box; width: min(100% - 32px, 540px); margin: 12vh auto; padding: 24px; border: 1px solid var(--line); background: var(--face); border-radius: 12px; }
+.startup-scope { box-sizing: border-box; width: min(100% - 32px, 540px); margin: 12vh auto; padding: 24px; border: 1px solid var(--line); background: var(--panel); border-radius: 12px; }
 .startup-scope form { display: flex; gap: 12px; flex-wrap: wrap; }
 .startup-scope label { display: grid; gap: 8px; width: 100%; }
 .startup-scope select { width: 100%; min-width: 0; }

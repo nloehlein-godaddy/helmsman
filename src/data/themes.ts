@@ -85,10 +85,10 @@ function mixHex(hex: string, target: number, amount: number): string {
 
 function deriveVars(anchors: ThemeAnchors): Record<string, string> {
   return {
-    '--nav-bg': anchors.id === 'field-guide' ? '#153c3a' : anchors.gutter,
+    '--nav-bg': anchors.id === 'field-guide' ? '#0a1714' : anchors.gutter,
     '--nav-text': anchors.id === 'field-guide' ? '#f2f6f3' : anchors.text,
-    '--nav-muted': anchors.id === 'field-guide' ? '#b9d0c8' : anchors.textDim,
-    '--nav-active': anchors.id === 'field-guide' ? '#285450' : anchors.panelHi,
+    '--nav-muted': anchors.id === 'field-guide' ? '#a9c4b4' : anchors.textDim,
+    '--nav-active': anchors.id === 'field-guide' ? '#26463b' : anchors.panelHi,
     '--bg': anchors.bg,
     '--gutter': anchors.gutter,
     '--panel': anchors.panel,
@@ -118,10 +118,10 @@ function deriveVars(anchors: ThemeAnchors): Record<string, string> {
 
 const THEME_ANCHORS: ThemeAnchors[] = [
   {
-    id: 'field-guide', label: 'Field Guide', mode: 'light',
-    bg: '#edf3ef', gutter: '#e4eee8', panel: '#ffffff', panel2: '#f5f8f6', panelHi: '#e4eee8',
-    accent: '#23665b', secondary: '#276b7a', text: '#183a34', textDim: '#465e55', textFaint: '#50675e',
-    bad: '#a33d35', good: '#276148', review: '#315f83', queued: '#775616',
+    id: 'field-guide', label: 'Field Guide', mode: 'dark',
+    bg: '#0e1b19', gutter: '#0a1412', panel: '#172a25', panel2: '#1c322c', panelHi: '#244238',
+    accent: '#82cbbb', secondary: '#96cad3', text: '#e5efe8', textDim: '#a8beb1', textFaint: '#9aafa3',
+    bad: '#ff9b88', good: '#91d2ad', review: '#a0c9ed', queued: '#e4c17e',
   },
   {
     id: 'quarterdeck', label: 'Quarterdeck', mode: 'dark',
