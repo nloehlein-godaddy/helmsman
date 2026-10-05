@@ -76,8 +76,8 @@ const page: PluginPageModule = { mount(container, context) {
       const db=openDb(persistence.sql); db.insertRun({id:'related-a',repo:'org/a',ticketId:'Same display key is insufficient',adapter:'codex',status:'succeeded',attempt:1,prNumber:42,startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),costUsd:null,worktreePath:null});
       for(const externalId of ['org-a','org-b']) store.reserveWork({ref:{sourceId:value.instance.sourceId,externalId},admissionId:'related-'+externalId,runId:'related-a',instanceId:value.instance.id,expectedSourceRevision:value.source.revision,expectedInstanceRevision:1});
       console.log(JSON.stringify(value.instance)); } finally { persistence.close(); }`));
-    const waitForDescriptionSave = async (contributionId: string, repo: string) => {
-      const expected = JSON.stringify([repo, selected.sourceId, selected.id, selected.sourceId, repo.replace('/', '-')]);
+    const waitForDescriptionSave = async (contributionId: string, repo: string, externalId: string) => {
+      const expected = JSON.stringify([repo, selected.sourceId, selected.id, selected.sourceId, externalId]);
       await expect.poll(async () => {
         const storage = await page.context().storageState({ indexedDB: true });
         return storage.origins.filter(item => item.origin === new URL(page.url()).origin)
@@ -110,7 +110,7 @@ const page: PluginPageModule = { mount(container, context) {
     await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
     await expect(triage).toContainText('Description for org/a <img src=x onerror=alert(1)>');
     await expect(triage.locator('img')).toHaveCount(0);
-    await waitForDescriptionSave('example.triage-view/panel', 'org/a');
+    await waitForDescriptionSave('example.triage-view/panel', 'org/a', 'org-a');
     await page.reload();
     await expect(triage).toContainText('Description for org/a <img src=x onerror=alert(1)>');
     await expect(triage).toHaveScreenshot('triage-authored-groups.png');
@@ -126,7 +126,7 @@ const page: PluginPageModule = { mount(container, context) {
     await expect(bugDescription).toHaveAttribute('aria-expanded', 'true');
     await expect(bugs).toContainText('Bug description for org/b <img src=x onerror=alert(1)>');
     await expect(bugs.locator('img')).toHaveCount(0);
-    await waitForDescriptionSave('example.bugs-view/panel', 'org/b');
+    await waitForDescriptionSave('example.bugs-view/panel', 'org/b', 'bug-1');
     await page.reload();
     await expect(bugs).toContainText('Bug description for org/b <img src=x onerror=alert(1)>');
     await expect(bugs).toHaveScreenshot('bugs-authored-metrics.png', { mask: [bugs.getByText(/^Observed /)] });
