@@ -2,7 +2,7 @@ export const styles = `
 .plugin-runs{color:var(--text);font:14px var(--sans,sans-serif);min-width:0;display:grid;gap:12px}
 .plugin-runs>h1{margin:0;font-size:18px}
 .plugin-runs>.runs-tools,.plugin-runs>.runs-stack>.runs-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-.plugin-runs .runs-tools>:is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);padding:6px 10px;max-width:100%}
+.plugin-runs .runs-tools>:is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);padding:6px 10px;max-width:100%}.plugin-runs .runs-tools>select{background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}
 .plugin-runs .runs-tools>button{cursor:pointer;overflow-wrap:anywhere}
 .plugin-runs .runs-tools>button:disabled{opacity:.5;cursor:default}
 .plugin-runs .runs-tools>:is(button,select):focus-visible{outline:2px solid var(--accent);outline-offset:2px}

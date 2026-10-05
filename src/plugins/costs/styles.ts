@@ -1,17 +1,17 @@
 export const COSTS_STYLES = `
 .helmsman-costs-page { color: var(--text, #e8e0d0); font: 14px var(--sans, sans-serif); }
 .helmsman-costs-page .costs-panel { border: 1px solid var(--line, #555); border-radius: var(--radius, 4px); background: var(--panel, #191b21); }
-.helmsman-costs-page .costs-panel-head { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line, #555); }
-.helmsman-costs-page .costs-panel-title { font-family: var(--mono, monospace); text-transform: uppercase; letter-spacing: .12em; font-weight: 700; font-size: 12px; color: var(--text, #e8e0d0); }
+.helmsman-costs-page .costs-panel-head { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line, #555); background: color-mix(in srgb, var(--secondary, var(--text, #e8e0d0)) 8%, var(--panel, #191b21)); }
+.helmsman-costs-page .costs-panel-title { font-family: var(--mono, monospace); text-transform: uppercase; letter-spacing: .12em; font-weight: 700; font-size: 12px; color: var(--secondary, var(--text, #e8e0d0)); }
 .helmsman-costs-page .costs-empty-note { padding: 14px; color: var(--text-faint, #aaa); font-size: 12px; font-style: normal; list-style: none; }
 .helmsman-costs-page .costs-error-banner { border: 1px solid var(--line-strong, #666); background: rgba(245,166,35,.06); color: var(--accent-bright, #f5bd62); font-size: 12px; padding: 8px 12px; border-radius: var(--radius, 4px); }
 .helmsman-costs-page button { font-family: var(--mono, monospace); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent, #eeb05d); background: transparent; border: 1px solid var(--line-strong, #666); padding: 5px 12px; cursor: pointer; border-radius: var(--radius, 4px); transition: background 90ms, color 90ms; }
-.helmsman-costs-page button:hover { background: var(--accent-plate, #f5bd62); color: #0a0805; border-color: var(--accent-plate, #f5bd62); }
+.helmsman-costs-page button:hover { background: var(--accent-plate, #f5bd62); color: var(--on-accent, #0a0805); border-color: var(--accent-plate, #f5bd62); }
 .helmsman-costs-page a { color: var(--accent, #eeb05d); text-underline-offset: 3px; }
 .helmsman-costs-page {display:grid;gap:16px}
 .helmsman-costs-page .outcome-toolbar, .helmsman-costs-page .outcome-stats, .helmsman-costs-page .outcome-run {display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .helmsman-costs-page .outcome-toolbar {justify-content:space-between}
-.helmsman-costs-page .outcome-toolbar select, .helmsman-costs-page .outcome-assessment input, .helmsman-costs-page .outcome-assessment select, .helmsman-costs-page .outcome-assessment textarea {background:var(--face-hi);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);padding:7px}
+.helmsman-costs-page .outcome-toolbar select, .helmsman-costs-page .outcome-assessment input, .helmsman-costs-page .outcome-assessment select, .helmsman-costs-page .outcome-assessment textarea {background-color:var(--control-bg,var(--face-hi));color:var(--text);border:1px solid var(--control-border,var(--line));border-radius:var(--radius);padding:7px}
 .helmsman-costs-page .outcome-stats {display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .helmsman-costs-page .outcome-stat {border:1px solid var(--line);border-radius:var(--radius);padding:12px;display:grid;gap:4px}
 .helmsman-costs-page .outcome-stat b {font-size:1.1rem}

@@ -6,7 +6,7 @@ export const styles = `
 .plugin-helm .helm-column {display:grid;gap:16px;min-width:0}.plugin-helm .helm-stack {border:1px solid var(--line);border-radius:var(--radius,4px);background:var(--panel);min-width:0;overflow:hidden}
 .plugin-helm .helm-tabs {padding:10px;border-bottom:1px solid var(--line)}.plugin-helm .helm-tabs [aria-selected=true] {background:var(--accent-plate);color:var(--face-hi)}
 .plugin-helm .helm-panel-body {padding:12px;min-width:0}.plugin-helm .helm-panel-body[hidden] {display:none}
-.plugin-helm button,.plugin-helm select,.plugin-helm input {font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);padding:6px 9px;max-width:100%}
+.plugin-helm button,.plugin-helm select,.plugin-helm input {font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);padding:6px 9px;max-width:100%}.plugin-helm :is(input,select){background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}
 .plugin-helm button {cursor:pointer}.plugin-helm button:disabled {opacity:.5;cursor:default}.plugin-helm label {display:flex;gap:6px;align-items:center}
 .plugin-helm details {border:1px solid var(--line);border-radius:var(--radius,4px);padding:10px}.plugin-helm summary {cursor:pointer}.plugin-helm .helm-config {display:grid;gap:12px;margin-top:12px}
 .plugin-helm .helm-config-row {padding-bottom:10px;border-bottom:1px solid var(--line)}.plugin-helm .helm-config-row strong {overflow-wrap:anywhere}

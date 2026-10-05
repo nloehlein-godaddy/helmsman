@@ -3,7 +3,7 @@
   "manifest": {
     "manifestVersion": 1,
     "id": "example.full-costs",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "sdkVersion": 1,
     "pages": [{ "id": "page", "title": "Costs & Outcomes", "slots": ["helmsman/costs-page"], "panes": ["summary", "history"] }]
   },

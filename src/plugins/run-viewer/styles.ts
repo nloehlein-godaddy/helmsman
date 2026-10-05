@@ -3,6 +3,7 @@ export const styles = `
 .plugin-run-viewer :is(h1,h2,h3,p){margin:0}
 .plugin-run-viewer h1{font-size:18px}
 .plugin-run-viewer :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);padding:6px 10px}
+.plugin-run-viewer select{background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}
 .plugin-run-viewer button{cursor:pointer}
 .plugin-run-viewer button:disabled{opacity:.5;cursor:default}
 .plugin-run-viewer .run-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

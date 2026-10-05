@@ -10,7 +10,7 @@ export const styles = `
 .plugin-terminal .terminal-tab { display:grid; gap:.3rem; text-align:left; width:100%; padding:.6rem; }
 .plugin-terminal .terminal-tab[aria-pressed=true] { border-color:var(--accent); color:var(--accent); }
 .plugin-terminal .terminal-tab small { color:var(--text-faint); overflow-wrap:anywhere; }
-.plugin-terminal button,.plugin-terminal select,.plugin-terminal input { color:var(--text); background:var(--rail); border:1px solid var(--line-strong); border-radius:var(--radius); padding:.4rem .6rem; font:inherit; max-width:100%; }
+.plugin-terminal button,.plugin-terminal select,.plugin-terminal input { color:var(--text); background:var(--rail); border:1px solid var(--line-strong); border-radius:var(--radius); padding:.4rem .6rem; font:inherit; max-width:100%; }.plugin-terminal :is(input,select){background-color:var(--control-bg,var(--rail));border-color:var(--control-border,var(--line-strong))}
 .plugin-terminal button { cursor:pointer; } .plugin-terminal button:disabled { opacity:.55; cursor:default; }
 .plugin-terminal button:focus-visible,.plugin-terminal input:focus-visible,.plugin-terminal select:focus-visible,.plugin-terminal pre:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .plugin-terminal .terminal-screen { white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; height:24rem; padding:.75rem; margin:.5rem 0; border:1px solid var(--line-faint); background:var(--bg); font:12px/1.45 var(--mono); }
