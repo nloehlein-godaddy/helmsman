@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { syncBuiltinFrontend } from './plugins/builtin-modules';
+import { communicationManifest } from './plugins/frontend-manifests';
 import type { CommunicationNotificationsV1 } from './plugins/communication';
 import { saveRepoScope } from './logic/prefs';
 
 let view: DashboardView | undefined;
 let snapshot: CommunicationNotificationsV1;
 let unavailable = false;
-const entries = [{ id: 'helmsman.communication', version: '0.2.0', hash: 'a'.repeat(64), enabled: true }];
+const entries = [{ id: communicationManifest.id, version: communicationManifest.version, hash: 'a'.repeat(64), enabled: true }];
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
   localStorage.clear(); window.history.replaceState(null, '', '/config');

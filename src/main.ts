@@ -91,8 +91,9 @@ export class DashboardView {
       if (tab instanceof HTMLAnchorElement && tab.matches('.page-tab')) {
         const tabs = Array.from(this.root.querySelectorAll<HTMLAnchorElement>('.page-tab'));
         const index = tabs.indexOf(tab);
-        const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length
-          : event.key === 'ArrowLeft' ? (index - 1 + tabs.length) % tabs.length
+        const vertical = this.root.querySelector('.page-tabs')?.getAttribute('aria-orientation') === 'vertical';
+        const next = event.key === (vertical ? 'ArrowDown' : 'ArrowRight') ? (index + 1) % tabs.length
+          : event.key === (vertical ? 'ArrowUp' : 'ArrowLeft') ? (index - 1 + tabs.length) % tabs.length
           : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null;
         if (next !== null) {
           event.preventDefault();
@@ -509,7 +510,17 @@ export class DashboardView {
   private revealActiveTab(): void {
     const tabs = this.root.querySelector<HTMLElement>('.page-tabs');
     const activeTab = tabs?.querySelector<HTMLElement>('.page-tab.is-active');
-    if (tabs && activeTab) {
+    if (!tabs) return;
+    const vertical = window.innerWidth > 840;
+    tabs.setAttribute('aria-orientation', vertical ? 'vertical' : 'horizontal');
+    if (!activeTab) return;
+    if (vertical) {
+      tabs.scrollLeft = 0;
+      const bottom = activeTab.offsetTop + activeTab.offsetHeight;
+      if (bottom > tabs.scrollTop + tabs.clientHeight) tabs.scrollTop = bottom - tabs.clientHeight;
+      else if (activeTab.offsetTop < tabs.scrollTop) tabs.scrollTop = activeTab.offsetTop;
+    } else {
+      tabs.scrollTop = 0;
       const right = activeTab.offsetLeft + activeTab.offsetWidth;
       if (right > tabs.scrollLeft + tabs.clientWidth) tabs.scrollLeft = right - tabs.clientWidth;
       else if (activeTab.offsetLeft < tabs.scrollLeft) tabs.scrollLeft = activeTab.offsetLeft;
@@ -866,42 +877,20 @@ export class DashboardView {
 
 function armBootScreen(boot: HTMLElement): () => void {
   applyBootTerminology(boot);
-  const MIN_MS: number = 2000;
-  const CAP_MS: number = 4200;
-  const start: number = performance.now();
-  const pctEl: HTMLElement | null = boot.querySelector<HTMLElement>('.boot-pct');
-  let dismissed: boolean = false;
-  let raf: number = 0;
-
-  const tick = (): void => {
-    if (dismissed) return;
-    const t: number = Math.min(1, (performance.now() - start) / MIN_MS);
-    if (pctEl) pctEl.textContent = String(Math.min(99, Math.round(t * 100)));
-    if (t < 1) raf = requestAnimationFrame(tick);
-  };
-  raf = requestAnimationFrame(tick);
-
+  let dismissed = false;
   const dismiss = (): void => {
     if (dismissed) return;
     dismissed = true;
-    cancelAnimationFrame(raf);
-    if (pctEl) pctEl.textContent = '100';
-    boot.removeEventListener('click', skip);
-    window.removeEventListener('keydown', skip);
+    window.clearTimeout(cap);
+    boot.removeEventListener('click', dismiss);
+    window.removeEventListener('keydown', dismiss);
     boot.classList.add('boot-out');
-    window.setTimeout(() => boot.remove(), 520);
+    window.setTimeout(() => boot.remove(), 160);
   };
-  function skip(): void {
-    if (performance.now() - start >= MIN_MS) dismiss();
-  }
-  boot.addEventListener('click', skip);
-  window.addEventListener('keydown', skip);
-  window.setTimeout(dismiss, CAP_MS);
-
-  return (): void => {
-    const elapsed: number = performance.now() - start;
-    window.setTimeout(dismiss, Math.max(0, MIN_MS - elapsed));
-  };
+  const cap = window.setTimeout(dismiss, 4200);
+  boot.addEventListener('click', dismiss);
+  window.addEventListener('keydown', dismiss);
+  return dismiss;
 }
 
 export function bootstrap(): void {

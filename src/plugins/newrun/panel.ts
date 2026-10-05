@@ -7,7 +7,23 @@ const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTM
 };
 const sourceKey = (value: { sourceId: string; instanceId: string; instanceRevision: number; repo: string } | null | undefined): string => JSON.stringify([value?.repo, value?.sourceId, value?.instanceId, value?.instanceRevision]);
 const refKey = (value: { sourceId: string; externalId: string } | null | undefined): string => JSON.stringify([value?.sourceId, value?.externalId]);
-const styles = `.plugin-newrun{display:grid;gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-newrun :is(h2,h3,p){margin:0}.plugin-newrun :is(header,.newrun-actions){display:flex;gap:8px;align-items:center;flex-wrap:wrap}.plugin-newrun form,.plugin-newrun section,.plugin-newrun label{display:grid;gap:8px}.plugin-newrun :is(input,textarea,select,button){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:7px 9px;border-radius:var(--radius,4px);max-width:100%;box-sizing:border-box}.plugin-newrun :is(input:not([type=checkbox]):not([type=radio]),textarea,select){background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}.plugin-newrun textarea{min-height:110px;resize:vertical;width:100%}.plugin-newrun button{cursor:pointer}.plugin-newrun button:disabled{opacity:.5}.plugin-newrun small{color:var(--text-dim)}.plugin-newrun [role=alert]{color:var(--bad)}.plugin-newrun a{color:var(--accent)}.plugin-newrun :is(button,input,textarea,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
+const styles = `.plugin-newrun{display:grid;gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-newrun :is(h2,h3,p){margin:0}.plugin-newrun :is(header,.newrun-actions){display:flex;gap:8px;align-items:center;flex-wrap:wrap}.plugin-newrun form,.plugin-newrun section,.plugin-newrun label{display:grid;gap:8px}.plugin-newrun :is(input,textarea,select,button){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:7px 9px;border-radius:6px;max-width:100%;box-sizing:border-box}.plugin-newrun :is(input:not([type=checkbox]):not([type=radio]),textarea,select){background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}.plugin-newrun textarea{min-height:110px;resize:vertical;width:100%}.plugin-newrun button{cursor:pointer}.plugin-newrun button:disabled{opacity:.5}.plugin-newrun small{color:var(--text-dim)}.plugin-newrun [role=alert]{color:var(--bad)}.plugin-newrun a{color:var(--accent)}.plugin-newrun :is(button,input,textarea,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.plugin-newrun{line-height:1.5;overflow-wrap:anywhere}
+.plugin-newrun :is(h2,h3,p){margin:0}
+.plugin-newrun h2{font-size:15px;font-weight:650}
+.plugin-newrun h3{font-size:13px;font-weight:600;color:var(--text-dim)}
+.plugin-newrun :is(button,select,input:not([type=checkbox]):not([type=radio])){min-height:34px}
+.plugin-newrun :is(button,select,input,textarea){font-family:var(--sans,sans-serif);min-width:0}
+.plugin-newrun button{transition:background-color 160ms ease,color 160ms ease}
+.plugin-newrun button:not(:disabled):hover{background:var(--panel-hover,var(--panel));border-color:var(--accent)}
+.plugin-newrun button:disabled{cursor:not-allowed}
+.plugin-newrun :is(a,button){text-underline-offset:3px}
+.plugin-newrun small{font-size:12px;line-height:1.5}
+@media(prefers-reduced-motion:reduce){.plugin-newrun button{transition:none}}
+.plugin-newrun header{justify-content:space-between}.plugin-newrun form{gap:16px}.plugin-newrun label{font-size:13px;font-weight:500}.plugin-newrun label :is(input,select,textarea){font-size:14px;font-weight:400}.plugin-newrun .newrun-save-message:empty{display:none}.plugin-newrun .newrun-actions{padding-top:8px}.plugin-newrun .newrun-actions>button:first-child{background:var(--accent);border-color:var(--accent);color:var(--on-accent,var(--face-hi));font-weight:600;padding-inline:16px}.plugin-newrun .newrun-actions>button:first-child:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 86%,var(--text));border-color:transparent}.plugin-newrun .newrun-advanced{border:0;padding:0}.plugin-newrun .newrun-advanced summary{cursor:pointer;font-size:13px;color:var(--text-dim);min-height:32px;align-content:center}.plugin-newrun .newrun-advanced[open]{display:grid;gap:12px}.plugin-newrun .newrun-advanced label{margin-top:12px}
+[role=tabpanel][aria-labelledby][data-panel-instance] .plugin-newrun>header>h2{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+[role=tabpanel][aria-labelledby][data-panel-instance] .plugin-newrun>header{display:contents}
+`;
 
 class NewRunPanel implements PluginPanelInstance {
   private readonly container: HTMLElement;
@@ -259,7 +275,8 @@ class NewRunPanel implements PluginPanelInstance {
     const selection = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement
       ? { start: focused.selectionStart, end: focused.selectionEnd } : null;
     const root = node('section'); root.className = 'plugin-newrun'; root.append(node('style', styles));
-    const header = node('header'); header.append(node('h2', this.state.pirateMode ? 'New voyage' : 'New run'), this.button('Refresh', () => { void this.refresh(); }, this.busy || !this.active())); root.append(header);
+    const header = node('header'); header.append(node('h2', this.state.pirateMode ? 'New voyage' : 'New run')); root.append(header);
+    const refresh = this.button('Refresh', () => { void this.refresh(); }, this.busy || !this.active()); refresh.setAttribute('aria-label', 'Refresh');
     for (const text of [this.error, this.sourceError, this.unsupported ? 'Saved drafts use an unsupported format. Restore a compatible panel to edit them.' : '']) {
       if (text) { const error = node('p', text); error.setAttribute('role', 'alert'); root.append(error); }
     }
@@ -313,13 +330,19 @@ class NewRunPanel implements PluginPanelInstance {
         this.field(form, 'PR number', draft.prNumber, value => { draft.prNumber = value; });
         if (draft.mode === 'rerun') this.field(form, 'PR feedback', draft.feedback, value => { draft.feedback = value; }, true);
       }
-      this.field(form, 'Model (optional)', draft.model, value => { draft.model = value; });
-      this.select(form, 'Effort', efforts.map(value => ({ value, label: value || 'Default effort' })), draft.effort, value => { draft.effort = value; this.change(); });
+      const previousAdvanced = this.container.querySelector<HTMLDetailsElement>('.newrun-advanced');
+      const advanced = node('details'); advanced.className = 'newrun-advanced'; advanced.dataset.repo = repo;
+      advanced.open = previousAdvanced?.dataset.repo === repo ? previousAdvanced.open : Boolean(draft.model || draft.effort);
+      const summary = node('summary', 'Model and effort'); summary.setAttribute('aria-label', 'Model and effort'); advanced.append(summary);
+      this.field(advanced, 'Model (optional)', draft.model, value => { draft.model = value; });
+      this.select(advanced, 'Effort', efforts.map(value => ({ value, label: value || 'Default effort' })), draft.effort, value => { draft.effort = value; this.change(); });
+      form.append(advanced);
       const actions = node('div'); actions.className = 'newrun-actions';
       actions.append(this.button(this.state.pirateMode ? 'Weigh anchor' : 'Start run', () => { void this.launch(); }, this.busy || this.lookupBusy || !this.active() || !this.pendingReady
         || this.pending.some(entry => entry.command.repo === repo) || this.state.repo === null && !this.galleons.includes(repo)),
-      this.button('Save draft', () => { void this.save(); }, this.busy || !this.active())); form.append(actions); root.append(form);
+      this.button('Save draft', () => { void this.save(); }, this.busy || !this.active()), refresh); form.append(actions); root.append(form);
     }
+    if (!repo || this.unsupported) root.append(refresh);
     if (this.pending.length) {
       const section = node('section'); section.append(node('h3', 'Saved launch requests'));
       if (this.pending.length > 100) section.append(node('p', `Showing 100 of ${this.pending.length} saved requests. Dismiss handled requests to reveal the remaining ${this.pending.length - 100}.`));

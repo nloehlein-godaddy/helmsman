@@ -121,7 +121,7 @@ export function renderHelmHead(opts: HelmHeadOpts): string {
     (t) =>
       `<a class="page-tab view-toggle${t.active ? ' is-active' : ''}" href="${esc(t.href)}" data-view="${t.view}" role="tab" id="${t.id}" aria-selected="${t.active}" aria-controls="page-content" tabindex="${t.active ? 0 : -1}"${t.active ? ' aria-current="page"' : ''}>${esc(t.label)}</a>`,
   ).join('');
-  const readout = `<div class="helm-readout mono" aria-label="${term('systemStatus')}">
+  const readout = `<div class="helm-readout" aria-label="${term('systemStatus')}">
     ${(['running', 'queued', 'review'] as const).map((key) => {
       const value = opts.readout?.[key];
       const known = typeof value === 'number' && Number.isFinite(value);
@@ -133,19 +133,18 @@ export function renderHelmHead(opts: HelmHeadOpts): string {
     <header class="helm-head">
       <div class="nameplate">
         <span class="nameplate-mark" aria-hidden="true">${HELM_EMBLEM}</span>
-        <div class="nameplate-scope">
-          <span class="nameplate-name">Helmsman <span class="nameplate-alpha">Alpha</span></span>
-          <select class="repo-select" aria-label="${term('scopeByRepository')}">${scopeOptions}</select>
-          <span class="helm-greeting"><span data-greeting>${term('greeting')}</span><span data-profile-header></span>!</span>
-        </div>
+        <span class="nameplate-name">Helmsman <span class="nameplate-alpha">Alpha</span></span>
+      </div>
+      <div class="nameplate-scope">
+        <select class="repo-select" aria-label="${term('scopeByRepository')}">${scopeOptions}</select>
       </div>
       ${readout}
       <div class="helm-controls">
+        <span class="helm-greeting"><span data-greeting>${term('greeting')}</span><span data-profile-header></span>!</span>
         ${renderPagesMenu(opts)}
-        <span class="lamp lamp-live is-pulsing" role="img" aria-label="Live">LIVE</span>
       </div>
     </header>
-    <nav class="page-tabs" role="tablist" aria-label="Views">${tabs}</nav>`;
+    <nav class="page-tabs" role="tablist" aria-label="Views" aria-orientation="vertical">${tabs}</nav>`;
 }
 
 export function renderAppShell(opts: HelmHeadOpts, content: string): string {
@@ -157,14 +156,19 @@ export function renderAppShell(opts: HelmHeadOpts, content: string): string {
       <summary>${term('runLogs')}</summary>
       <div data-run-viewer-host></div>
     </details>
-    <footer class="app-footer mono">
+    <footer class="app-footer">
       <div class="footer-meta">
         <a data-recovery-link href="/recovery${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">${term('recovery')}</a>
-        <span class="footer-dot" aria-hidden="true">&bull;</span><span class="footer-attr">nloehlein@godaddy.com</span>
-        <span class="footer-dot" aria-hidden="true">&bull;</span><span>Helmsman v${esc(__APP_VERSION__)}</span>
-        <span class="footer-dot" aria-hidden="true">&bull;</span><span>updated ${esc(__BUILD_DATE__)}</span>
-        <span class="footer-dot" aria-hidden="true">&bull;</span><span data-footer-repos>${opts.repos.length} ${term(opts.repos.length === 1 ? 'repository' : 'repositories').toLowerCase()} tracked</span>
-        <span class="footer-dot" aria-hidden="true">&bull;</span><span data-footer-running>${running} ${term('running').toLowerCase()}</span>
+        <details class="footer-about">
+          <summary>About</summary>
+          <div class="footer-about-content">
+            <span>Helmsman v${esc(__APP_VERSION__)}</span>
+            <span>Updated ${esc(__BUILD_DATE__)}</span>
+            <span class="footer-attr">nloehlein@godaddy.com</span>
+            <span data-footer-repos>${opts.repos.length} ${term(opts.repos.length === 1 ? 'repository' : 'repositories').toLowerCase()} tracked</span>
+            <span data-footer-running>${running} ${term('running').toLowerCase()}</span>
+          </div>
+        </details>
       </div>
       <div class="footer-controls"><span data-feedback-footer></span><button class="pirate-mode-toggle" type="button" data-pirate-mode aria-label="Pirate mode" aria-pressed="${isPirateMode()}" title="Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}">${ICON_PIRATE_FLAG}</button></div>
     </footer>
@@ -230,8 +234,8 @@ function configCustomizationPanel(themeId: string): string {
 
 export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): string {
   const customization = configCustomizationPanel(opts.themeId);
-  const sources = `<section class="panel config-panel"><h2>Task sources</h2><p><a href="${esc(routeHref({ view: 'plugin', pluginSlot: SOURCE_SETTINGS_PAGE_SLOT, repo: opts.selectedRepo }))}">Source settings</a></p></section>`;
-  const integrations = `<section class="panel config-panel"><h2>Integrations and workspace</h2><ul>${[
+  const sources = `<section class="panel config-panel config-section"><h2>Task sources</h2><p><a class="app-link" href="${esc(routeHref({ view: 'plugin', pluginSlot: SOURCE_SETTINGS_PAGE_SLOT, repo: opts.selectedRepo }))}">Source settings</a></p></section>`;
+  const integrations = `<section class="panel config-panel config-section"><h2>Integrations and workspace</h2><ul class="config-links">${[
     ['/feedback-settings', 'Product feedback settings'], ['/jira-settings', 'Jira connection'], ['/github-settings', 'GitHub settings'],
     ['/communication', 'Notifications and Slack settings'], ['/local-git', 'Local branches and worktrees'],
   ].map(([path, label]) => `<li><a class="app-link" href="${path}${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">${label}</a></li>`).join('')}</ul></section>`;
@@ -252,6 +256,6 @@ export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): stri
           ${configRowsHtml(uiConfig)}
         </div>
       </section>
-      <section class="panel config-panel"><h2>Workflows and reviewers</h2><p>Configure workflow providers in Plugins and select them with <span class="mono">helmsman plugins select-workflow</span>. Select the ordered reviewers with <span class="mono">helmsman plugins select-agent-reviewers</span>. Active ${term('runs').toLowerCase()} keep their original workflow and reviewers.</p></section>
+      <section class="panel config-panel config-section"><h2>Workflows and reviewers</h2><p>Configure workflow providers in Plugins and select them with <span class="mono">helmsman plugins select-workflow</span>. Select the ordered reviewers with <span class="mono">helmsman plugins select-agent-reviewers</span>. Active ${term('runs').toLowerCase()} keep their original workflow and reviewers.</p></section>
 `);
 }

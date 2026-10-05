@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { syncBuiltinFrontend } from './plugins/builtin-modules';
+import communicationPackage from './plugins/communication/plugin-package.json';
 import { loadDashboard } from './data/mock';
 import { LOCAL_POLL_MS } from './data/live';
 import type { RunSummary } from './data/agents';
@@ -46,7 +47,7 @@ async function setup(path = '/helm?repo=org/a', degraded: string[] = []) {
 
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
-  syncBuiltinFrontend([{ id: 'helmsman.communication', version: '0.2.0', hash: 'a'.repeat(64), enabled: true }], false);
+  syncBuiltinFrontend([{ id: 'helmsman.communication', version: communicationPackage.manifest.version, hash: 'a'.repeat(64), enabled: true }], false);
   localStorage.clear();
   vi.useFakeTimers();
   vi.setSystemTime('2026-09-17T21:00:00Z');
@@ -58,11 +59,35 @@ afterEach(() => {
   view = null;
   syncBuiltinFrontend([], false);
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   localStorage.clear();
 });
 
 describe('persistent app shell', () => {
+  it('changes navigation orientation on resize while retaining focus and revealing the active destination', async () => {
+    const width = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1024);
+    const { root } = await setup('/config?repo=org/a');
+    const tabs = root.querySelector<HTMLElement>('.page-tabs')!;
+    const active = root.querySelector<HTMLElement>('.page-tab.is-active')!;
+    const focused = root.querySelector<HTMLAnchorElement>('.page-tab')!;
+    Object.defineProperties(tabs, { clientHeight: { value: 240 }, clientWidth: { value: 320 } });
+    Object.defineProperties(active, { offsetTop: { value: 640 }, offsetHeight: { value: 40 }, offsetLeft: { value: 980 }, offsetWidth: { value: 88 } });
+    focused.focus();
+    window.dispatchEvent(new Event('resize'));
+    expect(tabs.getAttribute('aria-orientation')).toBe('vertical');
+    expect(tabs.scrollTop).toBe(440);
+    expect(tabs.scrollLeft).toBe(0);
+    expect(document.activeElement).toBe(focused);
+    width.mockReturnValue(390);
+    window.dispatchEvent(new Event('resize'));
+    expect(tabs.getAttribute('aria-orientation')).toBe('horizontal');
+    expect(tabs.scrollTop).toBe(0);
+    expect(tabs.scrollLeft).toBe(748);
+    expect(document.activeElement).toBe(focused);
+    expect(root.querySelector('.page-tabs')).toBe(tabs);
+  });
+
   it('keeps the same header, tabs, counts, footer, and notification controls across the primary views', async () => {
     const { root, switchTo } = await setup();
     const selectors = ['.helm-head', '.nameplate', '.repo-select', '.helm-readout', '.page-tabs', '.app-footer', '[data-slack-toggle]', '.slack-popover', '#page-content'];
@@ -183,7 +208,7 @@ describe('persistent app shell', () => {
     expect(document.activeElement).toBe(bell);
     const runs = root.querySelector<HTMLAnchorElement>('[data-view="runs"]')!;
     runs.focus();
-    runs.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    runs.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
     const focused = document.activeElement;
     await vi.advanceTimersByTimeAsync(LOCAL_POLL_MS);
     expect(document.activeElement).toBe(focused);

@@ -7,12 +7,16 @@ export interface Theme {
   vars: Record<string, string>;
 }
 
-export const DEFAULT_THEME_ID = 'quarterdeck';
+export const DEFAULT_THEME_ID = 'field-guide';
 
 export const THEME_STORAGE_KEY = 'cmux.theme';
 export const AMBER_BACKGROUND = '#08090c';
 
 export const REQUIRED_VAR_KEYS: readonly string[] = [
+  '--nav-bg',
+  '--nav-text',
+  '--nav-muted',
+  '--nav-active',
   '--bg',
   '--gutter',
   '--panel',
@@ -81,6 +85,10 @@ function mixHex(hex: string, target: number, amount: number): string {
 
 function deriveVars(anchors: ThemeAnchors): Record<string, string> {
   return {
+    '--nav-bg': anchors.id === 'field-guide' ? '#153c3a' : anchors.gutter,
+    '--nav-text': anchors.id === 'field-guide' ? '#f2f6f3' : anchors.text,
+    '--nav-muted': anchors.id === 'field-guide' ? '#b9d0c8' : anchors.textDim,
+    '--nav-active': anchors.id === 'field-guide' ? '#285450' : anchors.panelHi,
     '--bg': anchors.bg,
     '--gutter': anchors.gutter,
     '--panel': anchors.panel,
@@ -109,6 +117,12 @@ function deriveVars(anchors: ThemeAnchors): Record<string, string> {
 }
 
 const THEME_ANCHORS: ThemeAnchors[] = [
+  {
+    id: 'field-guide', label: 'Field Guide', mode: 'light',
+    bg: '#edf3ef', gutter: '#e4eee8', panel: '#ffffff', panel2: '#f5f8f6', panelHi: '#e4eee8',
+    accent: '#23665b', secondary: '#276b7a', text: '#183a34', textDim: '#465e55', textFaint: '#50675e',
+    bad: '#a33d35', good: '#276148', review: '#315f83', queued: '#775616',
+  },
   {
     id: 'quarterdeck', label: 'Quarterdeck', mode: 'dark',
     bg: '#0c141e', gutter: '#080e16', panel: '#192633', panel2: '#223544', panelHi: '#2b3e4e',

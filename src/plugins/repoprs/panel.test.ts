@@ -49,6 +49,13 @@ describe.each([['repository pull requests', repoprs, 'repo-open', 100], ['shippe
     expect(f.container.textContent).toContain('Pull requests are unavailable'); expect(f.container.textContent).not.toContain(pr.title);
     f.emit({ items: [] }); expect(f.container.textContent).toContain(kind === 'repo-open' ? 'No open pull requests' : 'No recent pull requests'); f.lifetime.abort();
   });
+  it('keeps refresh available with provider navigation below the list', async () => {
+    const f = fixture(kind); await module.mount(f.container, f.context);
+    expect(f.container.querySelector('header button')).toBeNull();
+    const refresh = f.container.querySelector<HTMLButtonElement>('footer button')!;
+    expect(refresh.textContent).toBe('Refresh'); refresh.click();
+    await vi.waitFor(() => expect(f.watchList).toHaveBeenCalledTimes(2)); f.lifetime.abort();
+  });
   it('preserves unknown counts, known zero counts, literal hostile text, and keyboard focus', async () => {
     const f = fixture(kind); await module.mount(f.container, f.context); expect(f.container.textContent).not.toContain('Comments:'); expect(f.container.textContent).not.toContain('Approvals:');
     const refresh = f.container.querySelector('button')!; refresh.focus(); f.emit({ items: [{ ...pr, title: '<img src=x onerror=alert(1)>', comments: 0, reviews: { approved: 0, changesRequested: null, commented: 0, requested: 2 } }] });

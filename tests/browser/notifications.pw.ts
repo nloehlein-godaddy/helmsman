@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { builtinCatalog } from './builtin-catalog';
 
 for (const width of [1440, 390]) test(`clears scoped notification history with retry and new arrivals at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 1000 });
@@ -14,7 +15,7 @@ for (const width of [1440, 390]) test(`clears scoped notification history with r
     if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
     if (!url.pathname.startsWith('/api/')) return route.continue();
     let body: unknown = {};
-    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [{ id: 'helmsman.communication', version: '0.2.0', hash: 'a'.repeat(64), enabled: true }] };
+    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.communication']) };
     else if (url.pathname === '/api/context') body = { repos: ['org/a', 'org/b'], jiraEnabled: false, jiraBaseUrl: null };
     else if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: {} };
     else if (url.pathname === '/api/config') body = { config: {}, overridden: [] };

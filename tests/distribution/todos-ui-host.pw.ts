@@ -126,7 +126,8 @@ test('All-source Todos preserve source-qualified search and persisted launch rea
     for (const [repo, title, priority, description] of [['org/a', 'Undescribed draft', 'P2', ''], ['org/b', 'Urgent other-galleon task', 'P1', 'Distinct acceptance phrase']]) {
       const response = await request.post(`${origin}/api/todos?requestId=${title!.replaceAll(' ', '-')}`, { data: { repo, title, priority, description } }); expect(response.ok()).toBe(true);
     }
-    await page.goto(`${origin}/plugins/example.todos-view/page`);
+    await page.goto(`${origin}/plugins/example.todos-view/page?repo=`);
+    await expect(page.locator('.repo-select')).toHaveValue('');
     await expect(page.locator('.todo-row')).toHaveCount(2);
     await expect(page.locator('.todo-row').first()).toContainText('Urgent other-galleon task');
     await page.getByRole('searchbox', { name: 'Search Todos', exact: true }).fill('Distinct acceptance phrase');

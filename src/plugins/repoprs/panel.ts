@@ -2,7 +2,29 @@ import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, Plugin
 
 const presentation: { kind: 'repo-open' | 'authored-recent'; name: string; limit: number } = { kind: 'repo-open', name: 'repoprs', limit: 100 };
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
-const styles = `.plugin-pr-list{display:grid;gap:12px;font:14px var(--sans,sans-serif);color:var(--text);min-width:0}.plugin-pr-list h2,.plugin-pr-list p{margin:0}.plugin-pr-list h2{font-size:15px}.plugin-pr-list header,.plugin-pr-list .pr-identity,.plugin-pr-list .pr-links{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.plugin-pr-list header{justify-content:space-between}.plugin-pr-list ul{list-style:none;padding:0;margin:0}.plugin-pr-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-pr-list small{color:var(--text-dim)}.plugin-pr-list a,.plugin-pr-list button{font:inherit;color:var(--accent)}.plugin-pr-list button{background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);padding:5px 8px}.plugin-pr-list button:disabled{opacity:.5}.plugin-pr-list .pr-state{font-weight:600}.plugin-pr-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
+const styles = `.plugin-pr-list{display:grid;gap:12px;font:14px var(--sans,sans-serif);color:var(--text);min-width:0}.plugin-pr-list h2,.plugin-pr-list p{margin:0}.plugin-pr-list h2{font-size:15px}.plugin-pr-list header,.plugin-pr-list .pr-identity,.plugin-pr-list .pr-links{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.plugin-pr-list header{justify-content:space-between}.plugin-pr-list ul{list-style:none;padding:0;margin:0}.plugin-pr-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-pr-list small{color:var(--text-dim)}.plugin-pr-list a,.plugin-pr-list button{font:inherit;color:var(--accent)}.plugin-pr-list button{background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;padding:5px 8px}.plugin-pr-list button:disabled{opacity:.5}.plugin-pr-list .pr-state{font-weight:600}.plugin-pr-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.plugin-pr-list{line-height:1.5;overflow-wrap:anywhere}
+.plugin-pr-list :is(h2,h3,p){margin:0}
+.plugin-pr-list h2{font-size:15px;font-weight:650}
+.plugin-pr-list h3{font-size:13px;font-weight:600;color:var(--text-dim)}
+.plugin-pr-list :is(button,select,input:not([type=checkbox]):not([type=radio])){min-height:34px}
+.plugin-pr-list :is(button,select,input,textarea){font-family:var(--sans,sans-serif);min-width:0}
+.plugin-pr-list button{transition:background-color 160ms ease,color 160ms ease}
+.plugin-pr-list button:not(:disabled):hover{background:var(--panel-hover,var(--panel));border-color:var(--accent)}
+.plugin-pr-list button:disabled{cursor:not-allowed}
+.plugin-pr-list :is(a,button){text-underline-offset:3px}
+.plugin-pr-list small{font-size:12px;line-height:1.5}
+.plugin-pr-list li:last-child{border-bottom:0}
+@media(prefers-reduced-motion:reduce){.plugin-pr-list button{transition:none}}
+.plugin-pr-list .pr-identity{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:start}
+.plugin-pr-list .pr-identity>a{font-size:15px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
+.plugin-pr-list .pr-identity>a:hover{color:var(--accent);text-decoration:underline}
+.plugin-pr-list .pr-state{padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:var(--panel)}
+.plugin-pr-list .pr-state[data-state=merged]{color:var(--accent)}
+@media(max-width:480px){.plugin-pr-list .pr-identity{grid-template-columns:minmax(0,1fr)}.plugin-pr-list .pr-state{justify-self:start}}
+[role=tabpanel][aria-labelledby][data-panel-instance] .plugin-pr-list>header>h2{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+[role=tabpanel][aria-labelledby][data-panel-instance] .plugin-pr-list>header{display:contents}
+`;
 
 class PullRequestPanel implements PluginPanelInstance {
   private readonly context: PluginPanelContext;
@@ -67,7 +89,7 @@ class PullRequestPanel implements PluginPanelInstance {
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.prFocus : undefined;
     const root = node('section'); root.className = `plugin-pr-list plugin-${presentation.name}`; root.setAttribute('aria-busy', String(this.loading)); root.append(node('style', styles));
     const header = node('header'); header.append(node('h2', presentation.kind === 'repo-open' ? this.state.pirateMode ? 'Galleon pull requests' : 'Repository pull requests' : this.state.pirateMode ? 'Out to sea' : 'Recent authored PRs'));
-    const refresh = node('button', 'Refresh'); refresh.type = 'button'; refresh.disabled = !this.active(); refresh.addEventListener('click', () => this.refresh()); header.append(refresh); root.append(header);
+    const refresh = node('button', 'Refresh'); refresh.type = 'button'; refresh.disabled = !this.active(); refresh.addEventListener('click', () => this.refresh()); root.append(header);
     if (presentation.kind === 'authored-recent') root.append(node('small', 'Recent authored pull requests, including open, closed, and merged work.'));
     const status = (text: string) => { const message = node('p', text); message.setAttribute('role', 'status'); root.append(message); };
     if (presentation.kind === 'repo-open' && this.state.repo === null) status(this.state.pirateMode ? 'Select a galleon to see its open bounties.' : 'Select a repository to see its open PRs.');
@@ -82,7 +104,7 @@ class PullRequestPanel implements PluginPanelInstance {
       if (!pr || typeof pr.repo !== 'string' || typeof pr.title !== 'string' || !Number.isSafeInteger(pr.number) || pr.number < 1 || this.state.repo !== null && pr.repo !== this.state.repo) continue;
       const row = node('li'); row.dataset.prKey = `${pr.repo}#${pr.number}`;
       const identity = node('div'); identity.className = 'pr-identity'; const detail = this.link(`#${pr.number} · ${pr.title}`, this.route(pr)); if (detail) identity.append(detail);
-      const state = node('span', pr.status === 'merged' ? 'Merged' : pr.status === 'closed' ? 'Closed' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'Changes requested' : 'Open'); state.className = 'pr-state'; identity.append(state); if (pr.draft) identity.append(node('span', 'Draft')); row.append(identity);
+      const state = node('span', pr.status === 'merged' ? 'Merged' : pr.status === 'closed' ? 'Closed' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'Changes requested' : 'Open'); state.className = 'pr-state'; state.dataset.state = pr.status; identity.append(state); if (pr.draft) identity.append(node('span', 'Draft')); row.append(identity);
       const created = Number.isFinite(Date.parse(pr.createdAt)) ? new Date(pr.createdAt).toLocaleString() : 'unknown'; row.append(node('small', `${pr.repo}${pr.ticketId ? ` · ${pr.ticketId}` : ''} · Opened ${created}`));
       if (pr.reviewDecision && pr.status === 'open') row.append(node('small', `Review: ${{ APPROVED: 'Approved', CHANGES_REQUESTED: 'Changes requested', REVIEW_REQUIRED: 'Required' }[pr.reviewDecision]}`));
       const stats = [['Comments', pr.comments], ['Approvals', pr.reviews?.approved], ['Changes requested', pr.reviews?.changesRequested], [this.state.pirateMode ? 'Pending inspections' : 'Pending reviews', pr.reviews?.requested]] as const;
@@ -95,7 +117,9 @@ class PullRequestPanel implements PluginPanelInstance {
     }
     root.append(list);
     if (page && !page.items.length && !this.loading && !this.error && page.quality === 'complete') status(presentation.kind === 'repo-open' ? this.state.pirateMode ? 'No open bounties in this galleon.' : 'No open pull requests in this repository.' : this.state.pirateMode ? 'No recent bounties.' : 'No recent pull requests.');
-    if (page?.browseUrl) { const browse = this.link('View more at provider ↗', page.browseUrl, true); if (browse) root.append(browse); }
+    const footer = node('footer'); footer.className = 'pr-links'; footer.append(refresh);
+    if (page?.browseUrl) { const browse = this.link('View more at provider ↗', page.browseUrl, true); if (browse) footer.append(browse); }
+    root.append(footer);
     const controls = Array.from(root.querySelectorAll<HTMLElement>('a,button'));
     for (const control of controls) control.dataset.prFocus = JSON.stringify([control.closest<HTMLElement>('[data-pr-key]')?.dataset.prKey ?? '', control.textContent, control.getAttribute('href')]);
     this.container.replaceChildren(root); if (focused) controls.find(control => control.dataset.prFocus === focused)?.focus({ preventScroll: true });

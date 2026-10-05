@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BuiltinFrontendCatalogEntry } from './runtime';
+import { builtinFrontendManifests } from './frontend-manifests';
 
 const hash = 'a'.repeat(64);
-const entries = (): BuiltinFrontendCatalogEntry[] => ['helmsman.costs', 'helmsman.helm', 'helmsman.backlog']
-  .map(id => ({ id, version: '0.1.0', hash, enabled: true }));
+const entries = (ids = ['helmsman.costs', 'helmsman.helm', 'helmsman.backlog']): BuiltinFrontendCatalogEntry[] => ids.map(id => {
+  const manifest = builtinFrontendManifests.find(item => item.id === id);
+  if (!manifest) throw new Error(`Missing builtin manifest: ${id}`);
+  return { id, version: manifest.version, hash, enabled: true };
+});
 
 async function setup() {
   const builtins = await import('./builtins');
@@ -150,7 +154,7 @@ describe('shipped frontend plugin lifecycle', () => {
 
 it('binds the authored clarification alias while retaining separate compatibility recovery and optional contacts', async () => {
   const app = await setup(); const ids = ['helmsman.clarifications', 'helmsman.suggested-contacts', 'helmsman.compat-clarifications'];
-  const metadata = ids.map(id => ({ id, version: '0.1.0', hash, enabled: true })); app.syncBuiltinFrontend(metadata, false);
+  const metadata = entries(ids); app.syncBuiltinFrontend(metadata, false);
   expect(app.appPages.resolvePath('/clarifications')?.page).toMatchObject({ contributionId: app.CLARIFICATIONS_PAGE_ID, composition: { accepts: [{ id: app.CLARIFICATIONS_PANEL_CONTRACT, version: 1 }, { id: 'helmsman/suggested-contacts-panel', version: 1 }] } });
   expect(app.appPages.resolvePath('/plugins/helmsman.compat-clarifications/page')?.page?.contributionId).toBe('helmsman.compat-clarifications/page');
   app.syncBuiltinFrontend(metadata.map(entry => ({ ...entry, enabled: entry.id !== 'helmsman.suggested-contacts' })), false);

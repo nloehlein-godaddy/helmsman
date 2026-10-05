@@ -1,0 +1,639 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-05T21:14:48.059812+00:00",
+  "title": "Design System: Helmsman — Field Guide",
+  "extensions": {
+    "colorMeta": {
+      "nav-bg": {
+        "role": "primary",
+        "displayName": "Nav bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.04386 190.62)",
+          "oklch(26.43% 0.04386 190.62)",
+          "oklch(37.86% 0.04386 190.62)",
+          "oklch(49.29% 0.04386 190.62)",
+          "oklch(60.71% 0.04386 190.62)",
+          "oklch(72.14% 0.04386 190.62)",
+          "oklch(83.57% 0.04386 190.62)",
+          "oklch(95.00% 0.04386 190.62)"
+        ]
+      },
+      "nav-text": {
+        "role": "primary",
+        "displayName": "Nav text",
+        "tonalRamp": [
+          "oklch(15.00% 0.00579 153.78)",
+          "oklch(26.43% 0.00579 153.78)",
+          "oklch(37.86% 0.00579 153.78)",
+          "oklch(49.29% 0.00579 153.78)",
+          "oklch(60.71% 0.00579 153.78)",
+          "oklch(72.14% 0.00579 153.78)",
+          "oklch(83.57% 0.00579 153.78)",
+          "oklch(95.00% 0.00579 153.78)"
+        ]
+      },
+      "nav-muted": {
+        "role": "primary",
+        "displayName": "Nav muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.02711 172.73)",
+          "oklch(26.43% 0.02711 172.73)",
+          "oklch(37.86% 0.02711 172.73)",
+          "oklch(49.29% 0.02711 172.73)",
+          "oklch(60.71% 0.02711 172.73)",
+          "oklch(72.14% 0.02711 172.73)",
+          "oklch(83.57% 0.02711 172.73)",
+          "oklch(95.00% 0.02711 172.73)"
+        ]
+      },
+      "nav-active": {
+        "role": "primary",
+        "displayName": "Nav active",
+        "tonalRamp": [
+          "oklch(15.00% 0.04937 187.70)",
+          "oklch(26.43% 0.04937 187.70)",
+          "oklch(37.86% 0.04937 187.70)",
+          "oklch(49.29% 0.04937 187.70)",
+          "oklch(60.71% 0.04937 187.70)",
+          "oklch(72.14% 0.04937 187.70)",
+          "oklch(83.57% 0.04937 187.70)",
+          "oklch(95.00% 0.04937 187.70)"
+        ]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.00827 157.09)",
+          "oklch(26.43% 0.00827 157.09)",
+          "oklch(37.86% 0.00827 157.09)",
+          "oklch(49.29% 0.00827 157.09)",
+          "oklch(60.71% 0.00827 157.09)",
+          "oklch(72.14% 0.00827 157.09)",
+          "oklch(83.57% 0.00827 157.09)",
+          "oklch(95.00% 0.00827 157.09)"
+        ]
+      },
+      "gutter": {
+        "role": "neutral",
+        "displayName": "Gutter",
+        "tonalRamp": [
+          "oklch(15.00% 0.01328 159.91)",
+          "oklch(26.43% 0.01328 159.91)",
+          "oklch(37.86% 0.01328 159.91)",
+          "oklch(49.29% 0.01328 159.91)",
+          "oklch(60.71% 0.01328 159.91)",
+          "oklch(72.14% 0.01328 159.91)",
+          "oklch(83.57% 0.01328 159.91)",
+          "oklch(95.00% 0.01328 159.91)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "panel-2": {
+        "role": "neutral",
+        "displayName": "Panel 2",
+        "tonalRamp": [
+          "oklch(15.00% 0.00412 157.18)",
+          "oklch(26.43% 0.00412 157.18)",
+          "oklch(37.86% 0.00412 157.18)",
+          "oklch(49.29% 0.00412 157.18)",
+          "oklch(60.71% 0.00412 157.18)",
+          "oklch(72.14% 0.00412 157.18)",
+          "oklch(83.57% 0.00412 157.18)",
+          "oklch(95.00% 0.00412 157.18)"
+        ]
+      },
+      "panel-hi": {
+        "role": "neutral",
+        "displayName": "Panel hi",
+        "tonalRamp": [
+          "oklch(15.00% 0.01328 159.91)",
+          "oklch(26.43% 0.01328 159.91)",
+          "oklch(37.86% 0.01328 159.91)",
+          "oklch(49.29% 0.01328 159.91)",
+          "oklch(60.71% 0.01328 159.91)",
+          "oklch(72.14% 0.01328 159.91)",
+          "oklch(83.57% 0.01328 159.91)",
+          "oklch(95.00% 0.01328 159.91)"
+        ]
+      },
+      "control-bg": {
+        "role": "neutral",
+        "displayName": "Control bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "control-border": {
+        "role": "neutral",
+        "displayName": "Control border",
+        "tonalRamp": [
+          "oklch(15.00% 0.02989 170.62)",
+          "oklch(26.43% 0.02989 170.62)",
+          "oklch(37.86% 0.02989 170.62)",
+          "oklch(49.29% 0.02989 170.62)",
+          "oklch(60.71% 0.02989 170.62)",
+          "oklch(72.14% 0.02989 170.62)",
+          "oklch(83.57% 0.02989 170.62)",
+          "oklch(95.00% 0.02989 170.62)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Line",
+        "tonalRamp": [
+          "oklch(15.00% 0.03244 169.85 / 0.32)",
+          "oklch(26.43% 0.03244 169.85 / 0.32)",
+          "oklch(37.86% 0.03244 169.85 / 0.32)",
+          "oklch(49.29% 0.03244 169.85 / 0.32)",
+          "oklch(60.71% 0.03244 169.85 / 0.32)",
+          "oklch(72.14% 0.03244 169.85 / 0.32)",
+          "oklch(83.57% 0.03244 169.85 / 0.32)",
+          "oklch(95.00% 0.03244 169.85 / 0.32)"
+        ]
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Line strong",
+        "tonalRamp": [
+          "oklch(15.00% 0.03244 169.85 / 0.76)",
+          "oklch(26.43% 0.03244 169.85 / 0.76)",
+          "oklch(37.86% 0.03244 169.85 / 0.76)",
+          "oklch(49.29% 0.03244 169.85 / 0.76)",
+          "oklch(60.71% 0.03244 169.85 / 0.76)",
+          "oklch(72.14% 0.03244 169.85 / 0.76)",
+          "oklch(83.57% 0.03244 169.85 / 0.76)",
+          "oklch(95.00% 0.03244 169.85 / 0.76)"
+        ]
+      },
+      "line-faint": {
+        "role": "neutral",
+        "displayName": "Line faint",
+        "tonalRamp": [
+          "oklch(15.00% 0.03244 169.85 / 0.18)",
+          "oklch(26.43% 0.03244 169.85 / 0.18)",
+          "oklch(37.86% 0.03244 169.85 / 0.18)",
+          "oklch(49.29% 0.03244 169.85 / 0.18)",
+          "oklch(60.71% 0.03244 169.85 / 0.18)",
+          "oklch(72.14% 0.03244 169.85 / 0.18)",
+          "oklch(83.57% 0.03244 169.85 / 0.18)",
+          "oklch(95.00% 0.03244 169.85 / 0.18)"
+        ]
+      },
+      "secondary": {
+        "role": "secondary",
+        "displayName": "Secondary",
+        "tonalRamp": [
+          "oklch(15.00% 0.07093 215.00)",
+          "oklch(26.43% 0.07093 215.00)",
+          "oklch(37.86% 0.07093 215.00)",
+          "oklch(49.29% 0.07093 215.00)",
+          "oklch(60.71% 0.07093 215.00)",
+          "oklch(72.14% 0.07093 215.00)",
+          "oklch(83.57% 0.07093 215.00)",
+          "oklch(95.00% 0.07093 215.00)"
+        ]
+      },
+      "on-accent": {
+        "role": "neutral",
+        "displayName": "On accent",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "on-good": {
+        "role": "neutral",
+        "displayName": "On good",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Accent",
+        "tonalRamp": [
+          "oklch(15.00% 0.06936 180.33)",
+          "oklch(26.43% 0.06936 180.33)",
+          "oklch(37.86% 0.06936 180.33)",
+          "oklch(49.29% 0.06936 180.33)",
+          "oklch(60.71% 0.06936 180.33)",
+          "oklch(72.14% 0.06936 180.33)",
+          "oklch(83.57% 0.06936 180.33)",
+          "oklch(95.00% 0.06936 180.33)"
+        ]
+      },
+      "accent-bright": {
+        "role": "primary",
+        "displayName": "Accent bright",
+        "tonalRamp": [
+          "oklch(15.00% 0.06149 179.55)",
+          "oklch(26.43% 0.06149 179.55)",
+          "oklch(37.86% 0.06149 179.55)",
+          "oklch(49.29% 0.06149 179.55)",
+          "oklch(60.71% 0.06149 179.55)",
+          "oklch(72.14% 0.06149 179.55)",
+          "oklch(83.57% 0.06149 179.55)",
+          "oklch(95.00% 0.06149 179.55)"
+        ]
+      },
+      "accent-dim": {
+        "role": "primary",
+        "displayName": "Accent dim",
+        "tonalRamp": [
+          "oklch(15.00% 0.06936 180.33 / 0.55)",
+          "oklch(26.43% 0.06936 180.33 / 0.55)",
+          "oklch(37.86% 0.06936 180.33 / 0.55)",
+          "oklch(49.29% 0.06936 180.33 / 0.55)",
+          "oklch(60.71% 0.06936 180.33 / 0.55)",
+          "oklch(72.14% 0.06936 180.33 / 0.55)",
+          "oklch(83.57% 0.06936 180.33 / 0.55)",
+          "oklch(95.00% 0.06936 180.33 / 0.55)"
+        ]
+      },
+      "accent-plate": {
+        "role": "primary",
+        "displayName": "Accent plate",
+        "tonalRamp": [
+          "oklch(15.00% 0.06936 180.33)",
+          "oklch(26.43% 0.06936 180.33)",
+          "oklch(37.86% 0.06936 180.33)",
+          "oklch(49.29% 0.06936 180.33)",
+          "oklch(60.71% 0.06936 180.33)",
+          "oklch(72.14% 0.06936 180.33)",
+          "oklch(83.57% 0.06936 180.33)",
+          "oklch(95.00% 0.06936 180.33)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "tonalRamp": [
+          "oklch(15.00% 0.04131 180.52)",
+          "oklch(26.43% 0.04131 180.52)",
+          "oklch(37.86% 0.04131 180.52)",
+          "oklch(49.29% 0.04131 180.52)",
+          "oklch(60.71% 0.04131 180.52)",
+          "oklch(72.14% 0.04131 180.52)",
+          "oklch(83.57% 0.04131 180.52)",
+          "oklch(95.00% 0.04131 180.52)"
+        ]
+      },
+      "text-dim": {
+        "role": "neutral",
+        "displayName": "Text dim",
+        "tonalRamp": [
+          "oklch(15.00% 0.03244 169.85)",
+          "oklch(26.43% 0.03244 169.85)",
+          "oklch(37.86% 0.03244 169.85)",
+          "oklch(49.29% 0.03244 169.85)",
+          "oklch(60.71% 0.03244 169.85)",
+          "oklch(72.14% 0.03244 169.85)",
+          "oklch(83.57% 0.03244 169.85)",
+          "oklch(95.00% 0.03244 169.85)"
+        ]
+      },
+      "text-faint": {
+        "role": "neutral",
+        "displayName": "Text faint",
+        "tonalRamp": [
+          "oklch(15.00% 0.03103 169.17)",
+          "oklch(26.43% 0.03103 169.17)",
+          "oklch(37.86% 0.03103 169.17)",
+          "oklch(49.29% 0.03103 169.17)",
+          "oklch(60.71% 0.03103 169.17)",
+          "oklch(72.14% 0.03103 169.17)",
+          "oklch(83.57% 0.03103 169.17)",
+          "oklch(95.00% 0.03103 169.17)"
+        ]
+      },
+      "bad": {
+        "role": "secondary",
+        "displayName": "Bad",
+        "tonalRamp": [
+          "oklch(15.00% 0.13687 27.54)",
+          "oklch(26.43% 0.13687 27.54)",
+          "oklch(37.86% 0.13687 27.54)",
+          "oklch(49.29% 0.13687 27.54)",
+          "oklch(60.71% 0.13687 27.54)",
+          "oklch(72.14% 0.13687 27.54)",
+          "oklch(83.57% 0.13687 27.54)",
+          "oklch(95.00% 0.13687 27.54)"
+        ]
+      },
+      "good": {
+        "role": "secondary",
+        "displayName": "Good",
+        "tonalRamp": [
+          "oklch(15.00% 0.07399 162.57)",
+          "oklch(26.43% 0.07399 162.57)",
+          "oklch(37.86% 0.07399 162.57)",
+          "oklch(49.29% 0.07399 162.57)",
+          "oklch(60.71% 0.07399 162.57)",
+          "oklch(72.14% 0.07399 162.57)",
+          "oklch(83.57% 0.07399 162.57)",
+          "oklch(95.00% 0.07399 162.57)"
+        ]
+      },
+      "review": {
+        "role": "secondary",
+        "displayName": "Review",
+        "tonalRamp": [
+          "oklch(15.00% 0.07750 244.17)",
+          "oklch(26.43% 0.07750 244.17)",
+          "oklch(37.86% 0.07750 244.17)",
+          "oklch(49.29% 0.07750 244.17)",
+          "oklch(60.71% 0.07750 244.17)",
+          "oklch(72.14% 0.07750 244.17)",
+          "oklch(83.57% 0.07750 244.17)",
+          "oklch(95.00% 0.07750 244.17)"
+        ]
+      },
+      "queued": {
+        "role": "secondary",
+        "displayName": "Queued",
+        "tonalRamp": [
+          "oklch(15.00% 0.08880 79.40)",
+          "oklch(26.43% 0.08880 79.40)",
+          "oklch(37.86% 0.08880 79.40)",
+          "oklch(49.29% 0.08880 79.40)",
+          "oklch(60.71% 0.08880 79.40)",
+          "oklch(72.14% 0.08880 79.40)",
+          "oklch(83.57% 0.08880 79.40)",
+          "oklch(95.00% 0.08880 79.40)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "page-title": {
+        "displayName": "Page title",
+        "purpose": "Shell page introductions."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Authored plugin h2 headings."
+      },
+      "subheading": {
+        "displayName": "Subheading",
+        "purpose": "Authored plugin h3 headings."
+      },
+      "panel-title": {
+        "displayName": "Panel title",
+        "purpose": "Standalone task-panel headings."
+      },
+      "work-title": {
+        "displayName": "Work title",
+        "purpose": "Task and PR title links."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "General plugin content."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Authored plugin controls."
+      },
+      "navigation": {
+        "displayName": "Navigation",
+        "purpose": "Destination links."
+      },
+      "evidence": {
+        "displayName": "Evidence",
+        "purpose": "Supporting state and repository evidence."
+      },
+      "identifier": {
+        "displayName": "Identifier",
+        "purpose": "Technical identities."
+      },
+      "log": {
+        "displayName": "Log",
+        "purpose": "Selectable log text."
+      }
+    },
+    "shadows": [
+      {
+        "name": "notification-popover",
+        "value": "0 12px 32px #0003",
+        "purpose": "Header notification popover; removed on the standalone communication page."
+      }
+    ],
+    "motion": [
+      {
+        "name": "shell-button",
+        "value": "background 150ms, color 150ms",
+        "purpose": "Global button feedback; removed under reduced motion."
+      },
+      {
+        "name": "plugin-button",
+        "value": "background-color 160ms ease-out, border-color 160ms ease-out",
+        "purpose": "Authored plugin feedback; removed under reduced motion."
+      },
+      {
+        "name": "collapse",
+        "value": "transform 160ms ease",
+        "purpose": "Collapse chevron; removed under reduced motion."
+      },
+      {
+        "name": "boot-exit",
+        "value": "opacity 160ms ease-out",
+        "purpose": "Startup exit; removed under reduced motion."
+      },
+      {
+        "name": "question-attention",
+        "value": "question-attention 1.8s ease-in-out infinite",
+        "purpose": "Question destination boundary feedback; removed under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "header-readouts",
+        "value": "1200px"
+      },
+      {
+        "name": "legacy-rack-stack",
+        "value": "1080px"
+      },
+      {
+        "name": "theme-preview-stack",
+        "value": "900px"
+      },
+      {
+        "name": "horizontal-navigation",
+        "value": "840px"
+      },
+      {
+        "name": "authored-helm-stack",
+        "value": "760px"
+      },
+      {
+        "name": "footer-controls",
+        "value": "640px"
+      },
+      {
+        "name": "theme-control-stack",
+        "value": "560px"
+      },
+      {
+        "name": "work-state-stack",
+        "value": "480px"
+      },
+      {
+        "name": "compact-header",
+        "value": "420px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Authored-plugin action control.",
+      "html": "<button class=\"ds-primary\">Save settings</button>",
+      "css": ".ds-primary{font:14px/1.4 var(--sans,system-ui,sans-serif);border-radius:6px;min-height:36px;padding:6px 12px;cursor:pointer;transition:background-color 160ms ease-out,border-color 160ms ease-out;background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);font-weight:600;}.ds-primary:hover:not(:disabled){background:var(--accent-bright);border-color:var(--accent-bright);}.ds-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-primary:disabled{opacity:.5;cursor:default;}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none;}}"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Authored-plugin action control.",
+      "html": "<button class=\"ds-secondary\">Refresh</button>",
+      "css": ".ds-secondary{font:14px/1.4 var(--sans,system-ui,sans-serif);border-radius:6px;min-height:36px;padding:6px 12px;cursor:pointer;transition:background-color 160ms ease-out,border-color 160ms ease-out;background:var(--face-hi,var(--panel-hi));color:var(--text);border:1px solid var(--line-strong);}.ds-secondary:hover:not(:disabled){background:var(--face-hi,var(--panel-hi));border-color:var(--line-strong);}.ds-secondary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-secondary:disabled{opacity:.5;cursor:default;}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none;}}"
+    },
+    {
+      "name": "Launch action",
+      "kind": "button",
+      "refersTo": "button-launch",
+      "description": "Launch task-panel primary action.",
+      "html": "<button class=\"ds-launch\">Launch</button>",
+      "css": ".ds-launch{font:600 14px/1.5 var(--sans,system-ui,sans-serif);min-height:34px;padding:7px 16px;border-radius:6px;background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);cursor:pointer;transition:background-color 160ms ease,color 160ms ease}.ds-launch:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 86%,var(--text));border-color:transparent}.ds-launch:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-launch:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-launch{transition:none}}"
+    },
+    {
+      "name": "Labeled input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Native authored-plugin field with a visible label.",
+      "html": "<label class=\"ds-field\">Repository<input class=\"ds-input\" value=\"helmsman\" /></label>",
+      "css": ".ds-field{display:grid;gap:5px;color:var(--text);font:14px/1.5 var(--sans,system-ui,sans-serif)}.ds-input{font:14px/1.4 var(--sans,system-ui,sans-serif);min-height:36px;padding:6px 12px;border-radius:6px;background:var(--control-bg);color:var(--text);border:1px solid var(--control-border);max-width:100%}.ds-input:focus{border-color:var(--accent)}.ds-input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}"
+    },
+    {
+      "name": "Navigation destination",
+      "kind": "nav",
+      "refersTo": "page-tab",
+      "description": "Evergreen destination navigation.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Pages\"><a class=\"ds-nav-link ds-nav-active\" href=\"#helm\" aria-current=\"page\">Helm</a><a class=\"ds-nav-link\" href=\"#runs\">Runs</a></nav>",
+      "css": ".ds-nav{display:flex;flex-direction:column;gap:4px;padding:24px 12px;background:var(--nav-bg);width:176px}.ds-nav-link{font:500 13px/1.4 var(--sans,system-ui,sans-serif);color:var(--nav-muted);border:1px solid transparent;border-radius:6px;padding:10px 14px;text-decoration:none}.ds-nav-link:hover,.ds-nav-active{color:var(--nav-text);background:var(--nav-active)}.ds-nav-active{border-color:var(--nav-muted);font-weight:650}.ds-nav-link:focus-visible{outline:2px solid var(--nav-text);outline-offset:1px}@media(max-width:840px){.ds-nav{flex-direction:row;overflow:auto;width:auto;padding:8px 12px}.ds-nav-link{padding:8px 12px;white-space:nowrap}}"
+    },
+    {
+      "name": "Labeled run state",
+      "kind": "chip",
+      "refersTo": "run-status",
+      "description": "Text carries the meaning of this outlined running state.",
+      "html": "<span class=\"ds-state\">Running</span>",
+      "css": ".ds-state{display:inline-block;font:600 12px/1.5 var(--sans,system-ui,sans-serif);padding:2px 8px;border:1px solid var(--line);border-radius:6px;color:var(--accent);background:var(--panel)}"
+    },
+    {
+      "name": "Composed panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Shared header for panel identity and collapse.",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-panel-head\"><button class=\"ds-panel-title\" role=\"tab\" aria-selected=\"true\">Agents running</button><button class=\"ds-collapse\" aria-label=\"Collapse Agents running\" aria-expanded=\"true\"><svg viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><path d=\"m4 6 4 4 4-4\"/></svg></button></div><div class=\"ds-panel-body\">No active runs.</div></section>",
+      "css": ".ds-panel{font:14px/1.5 var(--sans,system-ui,sans-serif);color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}.ds-panel-head{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--line)}.ds-panel-title{font:600 13px/1.5 var(--sans,system-ui,sans-serif);min-height:34px;padding:6px 0;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text);cursor:pointer}.ds-panel-title:hover{border-color:var(--accent)}.ds-panel-title:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-collapse{display:grid;place-items:center;width:32px;height:32px;padding:6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text-dim);cursor:pointer}.ds-collapse svg{width:16px;height:16px;transition:transform 160ms ease}.ds-collapse[aria-expanded=false] svg{transform:rotate(-90deg)}.ds-collapse:hover{border-color:var(--accent)}.ds-collapse:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-panel-body{padding:16px}@media(max-width:760px){.ds-panel-body{padding:12px}}@media(prefers-reduced-motion:reduce){.ds-collapse svg{transition:none}}"
+    },
+    {
+      "name": "Work identity row",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Title, technical identity, state and wrapping evidence.",
+      "html": "<article class=\"ds-work\"><div class=\"ds-work-main\"><a href=\"#run\">Update repository settings</a><small class=\"ds-work-id\">TASK-123</small><span class=\"ds-work-state\">Running</span></div><div class=\"ds-evidence\"><span>helmsman</span><span>2m elapsed</span></div></article>",
+      "css": ".ds-work{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);font:14px/1.5 var(--sans,system-ui,sans-serif);color:var(--text);overflow-wrap:anywhere}.ds-work-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:start}.ds-work-main>a{font:600 15px/1.45 var(--sans,system-ui,sans-serif);color:var(--text);text-decoration:none}.ds-work-main>a:hover{color:var(--accent);text-decoration:underline}.ds-work-main>a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-work-id{grid-column:1;grid-row:2;font:12px/1.5 var(--mono,monospace);color:var(--text-dim)}.ds-work-state{grid-column:2;grid-row:1/3;align-self:start;padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;font-weight:600;color:var(--accent);background:var(--panel)}.ds-evidence{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--text-dim);font-size:12px}@media(max-width:480px){.ds-work-main{grid-template-columns:minmax(0,1fr)}.ds-work-state{grid-column:1;grid-row:3;justify-self:start}}"
+    },
+    {
+      "name": "Run log",
+      "kind": "custom",
+      "refersTo": "run-log",
+      "description": "Bounded, selectable neutral mono evidence.",
+      "html": "<pre class=\"ds-log\" tabindex=\"0\">Reading repository configuration\nRunning checks…</pre>",
+      "css": ".ds-log{max-height:420px;min-height:100px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:12px;background:var(--face,var(--panel));color:var(--text);border:1px solid var(--line);border-radius:6px;font:12px/1.6 var(--mono,monospace)}.ds-log:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Field Guide",
+    "overview": "Field Guide uses scientific field-guide classification to make work identifiable at a glance: task titles, compact labeled states and subordinate evidence. Evergreen navigation frames cool neutral work surfaces; restrained teal marks selection and action. Controls and text use system sans, with JetBrains Mono reserved for identifiers and logs.\n\nStandard web controls and the plugin composition model remain intact. Panels share an index-like rhythm of identity, state and aligned evidence; tab selection and collapse occupy one header row. The default palette applies to fresh installs, while existing user-selected palettes retain their colors. Motion provides bounded state feedback with reduced-motion support.",
+    "keyCharacteristics": [
+      "Evergreen navigation, cool neutral work surfaces and restrained teal selection.",
+      "Task identity first, labeled state alongside it, supporting evidence below.",
+      "System sans for controls and text; JetBrains Mono for identifiers and logs.",
+      "Twelve-pixel panels and six-pixel controls, with native affordances.",
+      "Customizable panels, logs within reach and a single-column small-screen reading order."
+    ],
+    "rules": [
+      {
+        "name": "The Theme Continuity Rule",
+        "body": "Use semantic CSS properties for surfaces, text, selection and state. Field Guide is the fresh-install default; a saved theme keeps its palette.",
+        "section": "colors"
+      },
+      {
+        "name": "The Identity First Rule",
+        "body": "Give the task title priority, keep identifiers and evidence subordinate, and write the state as a label rather than relying on color alone.",
+        "section": "typography"
+      },
+      {
+        "name": "The Named Panel Rule",
+        "body": "Within a named panel tab, visually hide a repeated local heading while keeping it available to assistive technology. Preserve the heading when the plugin is rendered standalone.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Work Surface Rule",
+        "body": "Separate work panels with neutral surface tone, spacing and thin borders. Reserve floating depth for the notification popover.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use semantic theme properties so existing palettes continue to work.",
+      "Do present task titles, labeled states and subordinate evidence in the shared index-like rhythm.",
+      "Do preserve the accessible heading when suppressing a repeated visible panel heading.",
+      "Do keep tab selection and collapse together, and preserve saved panel order when adapting to a narrow screen.",
+      "Do use visible focus outlines and honor reduced-motion preferences."
+    ],
+    "donts": [
+      "Don't restore brushed-metal panels, seven-segment counts or the oscilloscope treatment as the default visual language.",
+      "Don't use monospace as the general control or prose face.",
+      "Don't use a status hue as the only way to identify state.",
+      "Don't turn a viewport change into a saved layout edit."
+    ]
+  }
+}

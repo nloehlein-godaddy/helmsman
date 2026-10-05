@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { builtinCatalog } from './builtin-catalog';
 
 test('fresh Helm composes all eight panels and preserves deliberate removals', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-09-20T12:30:00.000Z'));
@@ -11,7 +12,7 @@ test('fresh Helm composes all eight panels and preserves deliberate removals', a
     if (!url.pathname.startsWith('/api/')) return route.continue();
     let body: unknown = {};
     if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {},
-      builtins: ['costs', 'helm', ...panels].map(name => ({ id: `helmsman.${name}`, version: '0.1.0', hash: 'a'.repeat(64), enabled: true })) };
+      builtins: builtinCatalog(['costs', 'helm', ...panels].map(name => `helmsman.${name}`)) };
     if (url.pathname === '/api/context') body = { repos: ['org/a'], jiraEnabled: false, jiraBaseUrl: null };
     if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } };
     if (url.pathname === '/api/config') body = { config: {}, overridden: [] };
@@ -58,7 +59,7 @@ test('Helm keeps independent panel scopes and layout through disablement and rel
     if (!url.pathname.startsWith('/api/')) return route.continue();
     let body: unknown = {};
     if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {},
-      builtins: ['helmsman.costs', 'helmsman.helm', 'helmsman.backlog'].map(id => ({ id, version: '0.1.0', hash: 'a'.repeat(64), enabled: enabled.has(id) })) };
+      builtins: builtinCatalog(['helmsman.costs', 'helmsman.helm', 'helmsman.backlog'], enabled) };
     if (url.pathname === '/api/context') body = { repos: ['org/a', 'org/b'], jiraEnabled: false, jiraBaseUrl: null };
     if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } };
     if (url.pathname === '/api/config') body = { config: {}, overridden: [] };
@@ -76,7 +77,8 @@ test('Helm keeps independent panel scopes and layout through disablement and rel
   await expect(page).toHaveTitle('↻ Helm · Helmsman');
   await expect(page.locator('#boot')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Helm', exact: true })).toBeVisible();
-  await expect(page.locator('#helm-body-legacy-0-0-0').getByText('TASK-1: Work for org/a', { exact: true })).toBeVisible();
+  await expect(page.locator('#helm-body-legacy-0-0-0').getByText('Work for org/a', { exact: true })).toBeVisible();
+  await expect(page.locator('#helm-body-legacy-0-0-0').getByText('TASK-1', { exact: true })).toBeVisible();
   await page.getByText('Manage panels', { exact: true }).click();
   await page.getByRole('button', { name: /^Duplicate(?: ·|$)/ }).click();
   await expect(page.getByRole('button', { name: /^Duplicate(?: ·|$)/ })).toHaveCount(2);
@@ -84,8 +86,8 @@ test('Helm keeps independent panel scopes and layout through disablement and rel
   await row.getByLabel('Scope for Backlog', { exact: false }).selectOption('galleon');
   await row.getByLabel('Panel galleon', { exact: false }).fill('org/b');
   await row.getByRole('button', { name: /^Apply scope(?: ·|$)/ }).click();
-  await expect(page.locator('#helm-body-legacy-0-0-0').getByText('TASK-1: Work for org/a', { exact: true })).toBeVisible();
-  await expect(page.getByText('TASK-1: Work for org/b', { exact: true })).toBeVisible();
+  await expect(page.locator('#helm-body-legacy-0-0-0').getByText('Work for org/a', { exact: true })).toBeVisible();
+  await expect(page.getByText('Work for org/b', { exact: true })).toBeVisible();
   await expect(page.locator('.repo-select')).toHaveValue('org/a');
   await expect(page).toHaveURL(url => url.searchParams.get('repo') === 'org/a' && url.searchParams.get('panel') === 'legacy-0-0-0');
   await page.getByText('Manage panels', { exact: true }).click();
@@ -98,12 +100,12 @@ test('Helm keeps independent panel scopes and layout through disablement and rel
   await page.reload();
   await expect(page.getByText('This panel is unavailable. Enable or install its plugin to bring it aboard.')).toHaveCount(2);
   enabled.add('helmsman.backlog');
-  await expect(page.locator('#helm-body-legacy-0-0-0').getByText('TASK-1: Work for org/a', { exact: true })).toBeVisible();
-  await expect(page.getByText('TASK-1: Work for org/b', { exact: true })).toBeVisible();
+  await expect(page.locator('#helm-body-legacy-0-0-0').getByText('Work for org/a', { exact: true })).toBeVisible();
+  await expect(page.getByText('Work for org/b', { exact: true })).toBeVisible();
   enabled.delete('helmsman.helm');
   await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
   await expect(page.locator('.repo-select')).toHaveValue('org/a');
   await expect(page.getByRole('tab', { name: 'Config', exact: true })).toBeVisible();
   enabled.add('helmsman.helm');
-  await expect(page.getByText('TASK-1: Work for org/b', { exact: true })).toBeVisible();
+  await expect(page.getByText('Work for org/b', { exact: true })).toBeVisible();
 });

@@ -25,10 +25,33 @@ class HelmPage implements PluginPageInstance {
   private located: string | null = null;
   private pendingFocus: string | null = null;
   private scopeDrafts = new Map<string, { kind: string; repo: string }>();
+  private narrow = window.innerWidth <= 760;
+  private grid: HTMLElement | null = null;
+  private columns: { element: HTMLElement; stacks: HTMLElement[] }[] = [];
+  private readonly mobileColumn = element('div');
+  private resize = (): void => {
+    const narrow = window.innerWidth <= 760;
+    if (this.disposed || narrow === this.narrow) return;
+    this.narrow = narrow; this.arrangeColumns();
+  };
+  private arrangeColumns(): void {
+    if (!this.grid) return;
+    const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
+    if (this.narrow) {
+      const count = Math.max(0, ...this.columns.map(column => column.stacks.length));
+      const stacks = Array.from({ length: count }, (_, index) => this.columns.flatMap(column => column.stacks[index] ? [column.stacks[index]!] : [])).flat();
+      this.mobileColumn.className = 'helm-column'; this.mobileColumn.replaceChildren(...stacks); this.grid.replaceChildren(this.mobileColumn);
+    } else {
+      for (const column of this.columns) column.element.replaceChildren(...column.stacks);
+      this.grid.replaceChildren(...this.columns.map(column => column.element));
+    }
+    if (focused?.isConnected) focused.focus({ preventScroll: true });
+  }
   constructor(container: HTMLElement, context: PluginPageContext, composition: CompositionServiceV1) {
     this.container = container; this.context = context; this.composition = composition; this.state = context.state;
     context.onDispose(() => this.dispose()); context.signal.addEventListener('abort', this.abort, { once: true });
     if (context.signal.aborted) { this.dispose(); return; }
+    window.addEventListener('resize', this.resize);
     this.unsubscribe = composition.subscribe(() => { void this.read(); });
     void this.read();
   }
@@ -164,8 +187,10 @@ class HelmPage implements PluginPageInstance {
     }
     manager.append(controls); page.append(manager);
     const grid = element('div'); grid.className = 'helm-columns'; grid.style.setProperty('--helm-columns', String(Math.max(1, layout.columns.length)));
+    this.grid = grid; this.columns = [];
     for (const column of layout.columns) {
       const columnElement = element('div'); columnElement.className = 'helm-column';
+      const stacks: HTMLElement[] = [];
       for (const stack of column) {
         const section = element('section'); section.className = 'helm-stack';
         const tabs = element('div'); tabs.className = 'helm-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Panels');
@@ -187,8 +212,15 @@ class HelmPage implements PluginPageInstance {
             tab.setAttribute('aria-selected', String(stack.activeInstanceId === id)); tab.tabIndex = focusId === id ? 0 : -1; tab.dataset.helmFocus = `${id}:tab`; tabs.append(tab);
           }
         }
-        const collapse = button(stack.collapsed ? 'Expand' : 'Collapse', () => { void this.save(value => ({ ...value, columns: value.columns.map(items => items.map(item => item.instances.includes(stack.activeInstanceId) ? { ...item, collapsed: !item.collapsed } : item)) })); }, this.saving);
-        collapse.setAttribute('aria-expanded', String(!stack.collapsed)); collapse.dataset.helmFocus = `${stack.activeInstanceId}:collapse`; section.append(tabs, collapse);
+        const collapse = button('', () => { void this.save(value => ({ ...value, columns: value.columns.map(items => items.map(item => item.instances.includes(stack.activeInstanceId) ? { ...item, collapsed: !item.collapsed } : item)) })); }, this.saving);
+        collapse.className = 'helm-collapse';
+        collapse.setAttribute('aria-label', `${stack.collapsed ? 'Expand' : 'Collapse'} ${this.title(layout.instances.find(instance => instance.instanceId === stack.activeInstanceId)?.contributionId ?? '')}`);
+        collapse.title = stack.collapsed ? 'Expand panel' : 'Collapse panel';
+        collapse.setAttribute('aria-controls', `helm-body-${stack.activeInstanceId}`);
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('fill', 'none'); icon.setAttribute('stroke', 'currentColor'); icon.setAttribute('stroke-width', '1.75'); icon.setAttribute('aria-hidden', 'true');
+        const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'path'); chevron.setAttribute('d', 'm6 9 6 6 6-6'); chevron.setAttribute('stroke-linecap', 'round'); chevron.setAttribute('stroke-linejoin', 'round'); icon.append(chevron); collapse.append(icon);
+        collapse.setAttribute('aria-expanded', String(!stack.collapsed)); collapse.dataset.helmFocus = `${stack.activeInstanceId}:collapse`;
+        const header = element('div'); header.className = 'helm-stack-header'; header.append(tabs, collapse); section.append(header);
         let shown = false;
         for (const id of stack.instances) {
           const instance = layout.instances.find(value => value.instanceId === id); if (!instance) continue;
@@ -196,12 +228,12 @@ class HelmPage implements PluginPageInstance {
           const body = this.panel(id, instance.contributionId, this.state.visible && !instance.hidden && !stack.collapsed && stack.activeInstanceId === id);
           body.id = `helm-body-${id}`; body.setAttribute('role', 'tabpanel'); body.setAttribute('aria-labelledby', `helm-tab-${id}`); section.append(body);
         }
-        section.hidden = !shown; columnElement.append(section);
+        section.hidden = !shown; stacks.push(section); columnElement.append(section);
       }
-      grid.append(columnElement);
+      this.columns.push({ element: columnElement, stacks }); grid.append(columnElement);
     }
     page.append(grid); if (!layout.instances.length) page.append(element('p', 'Add a panel to start your dashboard.'));
-    this.container.replaceChildren(page);
+    this.container.replaceChildren(page); this.arrangeColumns();
     const target = this.pendingFocus && layout.instances.some(instance => instance.instanceId === this.pendingFocus && !instance.hidden)
       && layout.columns.flat().some(stack => stack.activeInstanceId === this.pendingFocus && !stack.collapsed)
       ? Array.from(this.container.querySelectorAll<HTMLElement>('[role="tab"]')).find(tab => tab.dataset.helmFocus === `${this.pendingFocus}:tab`) : null;
@@ -213,6 +245,7 @@ class HelmPage implements PluginPageInstance {
   async refresh(): Promise<void> { if (!this.disposed) { await this.read(); await Promise.all([...this.mounted.values()].filter(value => value.active).map(value => value.handle?.refresh())); } }
   dispose(): void {
     if (this.disposed) return; this.disposed = true; ++this.generation; this.unsubscribe?.(); this.context.signal.removeEventListener('abort', this.abort);
+    window.removeEventListener('resize', this.resize); this.grid = null; this.columns = [];
     for (const mounted of this.mounted.values()) { mounted.retired = true; mounted.handle?.dispose(); } this.mounted.clear();
   }
 }

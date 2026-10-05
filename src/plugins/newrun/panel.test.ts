@@ -68,6 +68,60 @@ async function selectSource(f: ReturnType<typeof fixture>) {
   await ready(f);
 }
 describe('New Run authored panel', () => {
+  it('shares launch actions with refresh while composed headers consume no extra row', async () => {
+    const f = fixture(); f.container.dataset.panelInstance = 'launch'; f.container.setAttribute('role', 'tabpanel'); f.container.setAttribute('aria-labelledby', 'launch-tab');
+    await panel.mount(f.container, f.context); await ready(f);
+    edit(f.container, 'Task instructions', 'Keep this draft during refresh');
+    expect(f.container.querySelector('header button')).toBeNull();
+    expect(window.getComputedStyle(f.container.querySelector('header')!).display).toBe('contents');
+    expect(Array.from(f.container.querySelectorAll('.newrun-actions button')).map(button => button.textContent)).toEqual(['Start run', 'Save draft', 'Refresh']);
+    const reads = f.discover.mock.calls.length; button(f.container, 'Refresh').click();
+    await vi.waitFor(() => expect(f.discover.mock.calls.length).toBeGreaterThan(reads)); await ready(f);
+    expect(field(f.container, 'Task instructions').value).toBe('Keep this draft during refresh');
+    expect(f.submit).not.toHaveBeenCalled();
+    f.container.removeAttribute('role');
+    expect(window.getComputedStyle(f.container.querySelector('header')!).display).toBe('flex');
+    expect(window.getComputedStyle(f.container.querySelector('h2')!).position).not.toBe('absolute');
+  });
+
+  it('reveals saved tuning on scope changes and preserves explicit disclosure within that scope', async () => {
+    const f = fixture(); const savedState = saveValue({ selectedRepo: repo, drafts: [
+      { repo: otherRepo, draft: { ...emptyDraft(), model: 'gpt-5.6-sol', effort: 'high' } },
+    ] });
+    const initial = { ...f.state, repo: null, savedState, activity: { ...f.state.activity, repo: null } };
+    const instance = await panel.mount(f.container, { ...f.context, state: initial }); await ready(f);
+    const disclosure = () => f.container.querySelector<HTMLDetailsElement>('.newrun-advanced')!;
+    expect(disclosure().open).toBe(false);
+    edit(f.container, 'Galleon', otherRepo); await ready(f);
+    expect(disclosure().open).toBe(true);
+    expect(field(f.container, 'Model (optional)').value).toBe('gpt-5.6-sol');
+    expect(field(f.container, 'Effort').value).toBe('high');
+    disclosure().open = false;
+    await instance.update({ ...initial, themeId: 'light' });
+    expect(disclosure().open).toBe(false);
+    await instance.refresh?.();
+    expect(disclosure().open).toBe(false);
+    edit(f.container, 'Galleon', repo); await ready(f);
+    expect(disclosure().open).toBe(false);
+    edit(f.container, 'Galleon', otherRepo); await ready(f);
+    expect(disclosure().open).toBe(true);
+    expect(f.submit).not.toHaveBeenCalled();
+  });
+  it('keeps keyboard focus on tuning disclosure through asynchronous refresh', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await ready(f);
+    const result = await f.discover();
+    let complete!: (value: typeof result) => void;
+    f.discover.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    const refreshed = instance.refresh?.();
+    await vi.waitFor(() => expect(complete).toBeTypeOf('function'));
+    const summary = f.container.querySelector<HTMLElement>('summary[aria-label="Model and effort"]')!;
+    summary.focus();
+    expect(document.activeElement).toBe(summary);
+    complete(result); await refreshed;
+    expect(document.activeElement).toBe(f.container.querySelector('summary[aria-label="Model and effort"]'));
+    expect(f.submit).not.toHaveBeenCalled();
+  });
+
   it('preserves task text, mode, galleon choice and tuning through theme and wording changes', async () => {
     const f = fixture(); const initial = { ...f.state, repo: null, activity: { ...f.state.activity, repo: null } };
     const instance = await panel.mount(f.container, { ...f.context, state: initial });

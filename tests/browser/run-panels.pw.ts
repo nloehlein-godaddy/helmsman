@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { builtinCatalog } from './builtin-catalog';
 
 test('run panels retain exact-attempt requests across reload and keep worker, review, and settlement outcomes distinct', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-09-20T12:30:00.000Z'));
@@ -15,7 +16,7 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
     if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
     if (!url.pathname.startsWith('/api/')) return route.continue();
     let body: unknown = {};
-    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [...enabled].map(id => ({ id, version: '0.1.0', hash: 'a'.repeat(64), enabled: true })) };
+    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog([...enabled]) };
     if (url.pathname === '/api/context') body = { repos: ['org/a', 'org/b'], jiraEnabled: false, jiraBaseUrl: null };
     if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } };
     if (url.pathname === '/api/config') body = { config: {}, overridden: [] };

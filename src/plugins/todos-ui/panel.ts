@@ -505,7 +505,8 @@ class TodosPanel implements PluginPanelInstance {
     }); this.editor.append(destination);
     const action = draft.target ? 'update' : 'create'; const unavailable = envelope?.commands[action];
     if (unavailable && !unavailable.available) this.editor.append(node('p', unavailable.reason ?? 'This Todo cannot be changed.'));
-    this.editor.append(this.button(draft.target ? 'Save Todo' : 'Create Todo', () => { void this.submit(action); }, locked || this.busy || this.taskPending(draft) || !envelope || !this.pendingReady || !this.inScope(draft.selection.repo)));
+    const save = this.button(draft.target ? 'Save Todo' : 'Create Todo', () => { void this.submit(action); }, locked || this.busy || this.taskPending(draft) || !envelope || !this.pendingReady || !this.inScope(draft.selection.repo));
+    save.className = 'primary-action'; this.editor.append(save);
     if (draft.target) {
       this.editor.append(this.button('Delete Todo', () => { this.confirmedDelete = draft.key; this.draw(); }, locked || this.busy || this.taskPending(draft) || !envelope?.commands.delete?.available || !this.inScope(draft.selection.repo)));
       if (this.confirmedDelete === draft.key) this.editor.append(node('p', `Delete ${draft.target.ref.externalId}: ${draft.values.title}?`), this.button('Confirm deletion', () => { void this.submit('delete'); }, this.busy), this.button('Cancel deletion', () => { this.confirmedDelete = null; this.draw(); }));

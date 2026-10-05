@@ -77,6 +77,69 @@ describe.each([['shipped Helm', helm], ['independent Helm', workspace]] as const
 });
 
 describe('shipped Helm composition controls', () => {
+  it('interleaves mobile stacks in reading order without remounting panels or saving a layout', async () => {
+    const width = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200, writable: true });
+    const f = await fixture();
+    try {
+      await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
+      const first = f.layout.instances[0]!;
+      const stack = (id: string) => ({ instances: [id], activeInstanceId: id, collapsed: false });
+      await f.composition.updateLayout({ ...f.layout,
+        instances: [first, ...['second', 'third', 'fourth'].map(instanceId => ({ ...first, instanceId }))],
+        columns: [[stack('first'), stack('third')], [stack('second'), stack('fourth')]],
+      }, f.layout.revision);
+      await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(4));
+      const original = structuredClone(f.layout); const saves = f.updates.mock.calls.length;
+      const stacks = Array.from(f.container.querySelectorAll('.helm-stack'));
+      const order = () => Array.from(f.container.querySelectorAll('.helm-panel-body')).map(body => body.getAttribute('data-panel-instance'));
+      const focused = f.container.querySelector<HTMLSelectElement>('#helm-body-first .backlog-toolbar select')!;
+      focused.focus();
+      expect(order()).toEqual(['first', 'third', 'second', 'fourth']);
+      window.innerWidth = 390; window.dispatchEvent(new Event('resize'));
+      expect(order()).toEqual(['first', 'second', 'third', 'fourth']);
+      expect(document.activeElement).toBe(focused);
+      expect(Array.from(f.container.querySelectorAll('.helm-stack'))).toEqual([stacks[0], stacks[2], stacks[1], stacks[3]]);
+      window.innerWidth = 1200; window.dispatchEvent(new Event('resize'));
+      expect(order()).toEqual(['first', 'third', 'second', 'fourth']);
+      expect(document.activeElement).toBe(focused);
+      expect(Array.from(f.container.querySelectorAll('.helm-stack'))).toEqual(stacks);
+      expect(f.layout).toEqual(original); expect(f.updates).toHaveBeenCalledTimes(saves);
+      expect(f.mounts).toHaveBeenCalledTimes(4);
+    } finally { f.lifetime.abort(); window.innerWidth = width; }
+  });
+  it('lets panels hide their own duplicate heading only inside a named panel region', async () => {
+    const f = await fixture();
+    await vi.waitFor(() => expect(f.container.querySelector('#helm-body-first h2')).not.toBeNull());
+    const body = f.container.querySelector<HTMLElement>('#helm-body-first')!;
+    const heading = body.querySelector('h2')!;
+    expect(window.getComputedStyle(heading).position).toBe('absolute');
+    expect(heading.textContent).toBe('Backlog');
+    expect(body.getAttribute('aria-labelledby')).toBe('helm-tab-first');
+    expect(body.querySelector('button')?.textContent).toBe('Refresh');
+    body.removeAttribute('role');
+    expect(window.getComputedStyle(heading).position).not.toBe('absolute');
+    f.lifetime.abort();
+  });
+
+  it('keeps collapse beside the tabs with an accessible name and preserves saved panel state', async () => {
+    const f = await fixture(); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
+    const original = structuredClone(f.layout.instances);
+    expect(f.updates).not.toHaveBeenCalled();
+    const header = f.container.querySelector('.helm-stack-header');
+    expect(header?.querySelector('[role=tablist]')).not.toBeNull();
+    const collapse = header?.querySelector<HTMLButtonElement>('button[aria-label="Collapse Tasks"]');
+    expect(collapse?.getAttribute('aria-controls')).toBe('helm-body-first');
+    collapse?.click();
+    await vi.waitFor(() => expect(f.layout.columns[0]?.[0]?.collapsed).toBe(true));
+    expect(f.container.querySelector<HTMLElement>('#helm-body-first')?.hidden).toBe(true);
+    f.container.querySelector<HTMLButtonElement>('button[aria-label="Expand Tasks"]')?.click();
+    await vi.waitFor(() => expect(f.layout.columns[0]?.[0]?.collapsed).toBe(false));
+    expect(f.layout.instances).toEqual(original);
+    expect(f.mounts).toHaveBeenCalledTimes(1);
+    f.lifetime.abort();
+  });
+
   it('gives duplicate instances distinguishable groups and action names while preserving the targeted state', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
     await f.composition.updateLayout({ ...f.layout, instances: [...f.layout.instances, { ...f.layout.instances[0]!, instanceId: 'second' }], columns: [[{ instances: ['first', 'second'], activeInstanceId: 'first', collapsed: false }]] }, f.layout.revision);

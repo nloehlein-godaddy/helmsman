@@ -1,6 +1,6 @@
 {
   "packageVersion": 1,
-  "manifest": { "manifestVersion": 2, "id": "helmsman.activity", "version": "0.1.0", "sdkVersion": 1, "pages": [],
+  "manifest": { "manifestVersion": 2, "id": "helmsman.activity", "version": "0.1.1", "sdkVersion": 1, "pages": [],
     "panels": [{ "id": "panel", "title": "Activity log", "contract": { "id": "helmsman/helm-panel", "version": 1 },
       "requires": [{ "id": "helmsman/task-read", "version": 1 }, { "id": "helmsman/activity-read", "version": 1 }, { "id": "helmsman/pull-request-read", "version": 1 }] }] },
   "node": { "minMajor": 22, "maxMajorExclusive": 30 }, "entries": {}, "panelEntries": { "panel": "panel.js" }

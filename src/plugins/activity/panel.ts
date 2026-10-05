@@ -3,7 +3,24 @@ import type { ActivityReadSnapshotV1, PluginPanelContext, PluginPanelInstance, P
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 interface SourceView { source: TaskReadSourceV1; snapshot: ActivityReadSnapshotV1 | null; error: string; }
 interface EventView { id: string; at: string; text: string; url: string | null; }
-const styles = `.plugin-activity{display:grid;gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-activity :is(h2,h3,p){margin:0}.plugin-activity h2,.plugin-activity h3{font-size:14px}.plugin-activity header{display:flex;gap:8px;align-items:center;justify-content:space-between}.plugin-activity button{font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:var(--radius,4px);cursor:pointer}.plugin-activity button:disabled{opacity:.5}.plugin-activity section{display:grid;gap:8px}.plugin-activity ol{list-style:none;padding:0;margin:0}.plugin-activity li{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-activity a{color:var(--accent)}.plugin-activity small{display:block;color:var(--text-dim)}.plugin-activity dl{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:0}.plugin-activity dt{font-size:11px;color:var(--text-dim)}.plugin-activity dd{margin:4px 0 0}.plugin-activity :is(button,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
+const styles = `.plugin-activity{display:grid;gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-activity :is(h2,h3,p){margin:0}.plugin-activity h2,.plugin-activity h3{font-size:14px}.plugin-activity header{display:flex;gap:8px;align-items:center;justify-content:space-between}.plugin-activity button{font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:6px;cursor:pointer}.plugin-activity button:disabled{opacity:.5}.plugin-activity section{display:grid;gap:8px}.plugin-activity ol{list-style:none;padding:0;margin:0}.plugin-activity li{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-activity a{color:var(--accent)}.plugin-activity small{display:block;color:var(--text-dim)}.plugin-activity dl{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:0}.plugin-activity dt{font-size:11px;color:var(--text-dim)}.plugin-activity dd{margin:4px 0 0}.plugin-activity :is(button,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.plugin-activity{line-height:1.5;overflow-wrap:anywhere}
+.plugin-activity :is(h2,h3,p){margin:0}
+.plugin-activity h2{font-size:15px;font-weight:650}
+.plugin-activity h3{font-size:13px;font-weight:600;color:var(--text-dim)}
+.plugin-activity :is(button,select,input:not([type=checkbox]):not([type=radio])){min-height:34px}
+.plugin-activity :is(button,select,input,textarea){font-family:var(--sans,sans-serif);min-width:0}
+.plugin-activity button{transition:background-color 160ms ease,color 160ms ease}
+.plugin-activity button:not(:disabled):hover{background:var(--panel-hover,var(--panel));border-color:var(--accent)}
+.plugin-activity button:disabled{cursor:not-allowed}
+.plugin-activity :is(a,button){text-underline-offset:3px}
+.plugin-activity small{font-size:12px;line-height:1.5}
+.plugin-activity li:last-child{border-bottom:0}
+@media(prefers-reduced-motion:reduce){.plugin-activity button{transition:none}}
+.plugin-activity dl{gap:8px}.plugin-activity dd{font-size:16px;font-variant-numeric:tabular-nums}.plugin-activity time{font-variant-numeric:tabular-nums}.plugin-activity li{display:grid;gap:4px;padding:12px 0}@media(max-width:480px){.plugin-activity dl{grid-template-columns:repeat(4,minmax(0,1fr))}}
+[role=tabpanel][aria-labelledby][data-panel-instance] .plugin-activity>header>h2{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+[role=tabpanel][aria-labelledby][data-panel-instance] .plugin-activity>header{display:contents}
+`;
 class ActivityPanel implements PluginPanelInstance {
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
@@ -78,7 +95,7 @@ class ActivityPanel implements PluginPanelInstance {
     if (this.disposed) return; const focused = this.container.contains(document.activeElement) && document.activeElement?.getAttribute('data-activity-focus') === 'refresh';
     const root = element('section'); root.className = 'plugin-activity'; root.append(element('style', styles));
     const header = element('header'); header.append(element('h2', this.state.pirateMode ? "Ship's log" : 'Activity log'));
-    const refresh = element('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.activityFocus = 'refresh'; refresh.disabled = Boolean(this.pending) || !this.active(); refresh.addEventListener('click', () => { void this.refresh(); }); header.append(refresh); root.append(header);
+    const refresh = element('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.activityFocus = 'refresh'; refresh.disabled = Boolean(this.pending) || !this.active(); refresh.addEventListener('click', () => { void this.refresh(); }); root.append(header);
     for (const message of this.messages) { const note = element('p', message); note.setAttribute('role', 'status'); root.append(note); }
     const events = new Map<string, EventView>(this.prEvents.map(event => [event.id, event]));
     for (const view of this.views) {
@@ -107,6 +124,7 @@ class ActivityPanel implements PluginPanelInstance {
     }
     root.append(list);
     if (!events.size) root.append(element('p', this.pending ? 'Loading activity…' : this.complete ? 'No activity in the available history.' : 'No events available from the incomplete history.'));
+    const footer = element('footer'); footer.append(refresh); root.append(footer);
     this.container.replaceChildren(root); if (focused) refresh.focus({ preventScroll: true });
   }
   update(state: PluginPanelState): void {

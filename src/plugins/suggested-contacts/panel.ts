@@ -131,7 +131,8 @@ class Contacts implements PluginPanelInstance {
       input.disabled = !this.active() || !this.saved.writable;
       input.addEventListener('input', () => { this.saved.edit(value => { const target = id === null ? value.create : value.edits.find(item => item.id === id); if (!target) return; if (name === 'enabled') target.enabled = input.checked; else target[name] = input.value; }); void this.saved.save(); }); label.append(input); form.append(label);
     }
-    form.append(this.button(id === null ? 'Create global contact' : 'Save global contact', () => this.submit(id), !this.saved.writable || !this.ready || this.blocked(id)));
+    const save = this.button(id === null ? 'Create global contact' : 'Save global contact', () => this.submit(id), !this.saved.writable || !this.ready || this.blocked(id));
+    save.className = 'primary-action'; form.append(save);
     form.addEventListener('submit', event => { event.preventDefault(); this.submit(id); }); return form;
   }
   private draw() {

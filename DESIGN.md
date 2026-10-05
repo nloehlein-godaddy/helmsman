@@ -1,328 +1,275 @@
 ---
-name: Helmsman
-description: A navigation bridge for supervising a fleet of autonomous coding agents.
+name: "Helmsman — Field Guide"
+description: "Scientific field-guide classification for supervising coding-agent work."
 colors:
-  instrument-ground: "#08090c"
-  gutter: "#050506"
-  rack-rail: "#101216"
-  faceplate: "#16181e"
-  faceplate-raised: "#1b1e25"
-  faceplate-bevel: "#23262f"
-  signal-amber: "#f5a623"
-  signal-amber-bright: "#ffc65a"
-  signal-amber-dim: "rgba(245, 166, 35, 0.5)"
-  silkscreen: "#eee6d6"
-  silkscreen-dim: "#b7a488"
-  silkscreen-faint: "#94856d"
-  fault-red: "#ff6b57"
-  succeeded-green: "#46e2a0"
-  review-blue: "#58c7ff"
-  queued-amber: "#ffb02e"
-  live-green: "#57e39a"
-  lamp-idle: "#2a2d34"
-  hairline: "rgba(245, 166, 35, 0.15)"
-  hairline-strong: "rgba(245, 166, 35, 0.32)"
-  hairline-faint: "rgba(255, 255, 255, 0.06)"
+  nav-bg: "#153c3a"
+  nav-text: "#f2f6f3"
+  nav-muted: "#b9d0c8"
+  nav-active: "#285450"
+  bg: "#edf3ef"
+  gutter: "#e4eee8"
+  panel: "#ffffff"
+  panel-2: "#f5f8f6"
+  panel-hi: "#e4eee8"
+  control-bg: "#e6e6e6"
+  control-border: "#435951"
+  line: "rgba(70, 94, 85, 0.32)"
+  line-strong: "rgba(70, 94, 85, 0.76)"
+  line-faint: "rgba(70, 94, 85, 0.18)"
+  secondary: "#276b7a"
+  on-accent: "#ffffff"
+  on-good: "#ffffff"
+  accent: "#23665b"
+  accent-bright: "#1e574d"
+  accent-dim: "rgba(35, 102, 91, 0.55)"
+  accent-plate: "#23665b"
+  text: "#183a34"
+  text-dim: "#465e55"
+  text-faint: "#50675e"
+  bad: "#a33d35"
+  good: "#276148"
+  review: "#315f83"
+  queued: "#775616"
 typography:
-  display:
-    fontFamily: '"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace'
-    fontSize: "18px"
-    fontWeight: 700
+  page-title:
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+    fontSize: "24px"
+    fontWeight: 650
+    lineHeight: 1.25
     letterSpacing: "-0.02em"
-  label:
-    fontFamily: '"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace'
-    fontSize: "11px"
-    fontWeight: 700
-    letterSpacing: "0.14em"
-  label-fine:
-    fontFamily: '"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace'
-    fontSize: "10px"
-    fontWeight: 700
-    letterSpacing: "0.16em"
-  label-micro:
-    fontFamily: '"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace'
-    fontSize: "9px"
-    fontWeight: 700
-    letterSpacing: "0.2em"
-  data:
-    fontFamily: '"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace'
-    fontSize: "12px"
-    fontWeight: 500
-    fontFeature: "tabular-nums"
-  data-lg:
-    fontFamily: '"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace'
-    fontSize: "13px"
-    fontWeight: 500
-    fontFeature: "tabular-nums"
-  numeric:
-    fontFamily: '"DSEG7", "JetBrains Mono", ui-monospace, monospace'
-    fontSize: "17px"
-    fontWeight: 700
-    letterSpacing: "0.02em"
-  numeric-sm:
-    fontFamily: '"DSEG7", "JetBrains Mono", ui-monospace, monospace'
+  headline:
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+    fontSize: "18px"
+    lineHeight: 1.3
+    letterSpacing: "-0.02em"
+  subheading:
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+    fontSize: "16px"
+    lineHeight: 1.3
+    letterSpacing: "-0.02em"
+  panel-title:
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
     fontSize: "15px"
-    fontWeight: 700
-    letterSpacing: "0.02em"
+    fontWeight: 650
+    lineHeight: 1.5
+  work-title:
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+    fontSize: "15px"
+    fontWeight: 600
+    lineHeight: 1.45
   body:
-    fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
+  control:
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+    fontSize: "14px"
+    lineHeight: 1.4
+  navigation:
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+    fontSize: "13px"
+    fontWeight: 500
+    lineHeight: 1.4
+  evidence:
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+    fontSize: "12px"
+    lineHeight: 1.5
+  identifier:
+    fontFamily: "\"JetBrains Mono\", ui-monospace, \"SFMono-Regular\", Menlo, Consolas, monospace"
+    fontSize: "12px"
+  log:
+    fontFamily: "\"JetBrains Mono\", ui-monospace, \"SFMono-Regular\", Menlo, Consolas, monospace"
+    fontSize: "12px"
+    lineHeight: 1.6
 rounded:
-  sm: "3px"
+  control: "6px"
+  panel: "12px"
+  compact: "4px"
 spacing:
-  xs: "4px"
-  sm: "8px"
-  md: "14px"
-  lg: "16px"
-  xl: "22px"
+  tight: "4px"
+  small: "8px"
+  compact: "12px"
+  panel: "16px"
+  section: "20px"
+  shell: "24px"
+  workspace: "28px"
 components:
   button-primary:
-    backgroundColor: "transparent"
-    textColor: "{colors.signal-amber}"
-    typography: "{typography.label}"
-    rounded: "{rounded.sm}"
-    padding: "5px 12px"
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.on-accent}"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "6px 12px"
   button-primary-hover:
-    backgroundColor: "{colors.signal-amber}"
-    textColor: "#0a0805"
-  faceplate:
-    backgroundColor: "{colors.faceplate}"
-    textColor: "{colors.silkscreen}"
-    rounded: "{rounded.sm}"
-  faceplate-title:
-    textColor: "{colors.silkscreen}"
-    typography: "{typography.label}"
-  chip-outline:
-    backgroundColor: "transparent"
-    textColor: "{colors.signal-amber}"
-    typography: "{typography.label}"
-    padding: "2px 7px"
-  chip-done:
-    backgroundColor: "{colors.succeeded-green}"
-    textColor: "#05130c"
-    padding: "2px 7px"
+    backgroundColor: "{colors.accent-bright}"
+    textColor: "{colors.on-accent}"
+  button-secondary:
+    backgroundColor: "{colors.panel-hi}"
+    textColor: "{colors.text}"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "6px 12px"
+  button-launch:
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.on-accent}"
+    rounded: "{rounded.control}"
+    padding: "7px 16px"
   input:
-    backgroundColor: "{colors.faceplate-raised}"
-    textColor: "{colors.silkscreen}"
-    typography: "{typography.data}"
-    rounded: "{rounded.sm}"
-    padding: "6px 9px"
-  tuning-select:
-    backgroundColor: "{colors.faceplate-raised}"
-    textColor: "{colors.silkscreen}"
-    rounded: "{rounded.sm}"
-    padding: "6px 9px"
+    backgroundColor: "{colors.control-bg}"
+    textColor: "{colors.text}"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "6px 12px"
   page-tab:
-    backgroundColor: "{colors.rack-rail}"
-    textColor: "{colors.silkscreen-faint}"
-    typography: "{typography.label}"
-    padding: "7px 14px"
+    textColor: "{colors.nav-muted}"
+    typography: "{typography.navigation}"
+    rounded: "{rounded.control}"
+    padding: "10px 14px"
   page-tab-active:
-    backgroundColor: "{colors.faceplate}"
-    textColor: "{colors.signal-amber}"
-  nameplate-mark:
-    backgroundColor: "{colors.rack-rail}"
-    textColor: "{colors.signal-amber}"
-    rounded: "50%"
-    size: "52px"
+    backgroundColor: "{colors.nav-active}"
+    textColor: "{colors.nav-text}"
+  panel:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.panel}"
+  run-status:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.accent}"
+    rounded: "{rounded.control}"
+    padding: "2px 8px"
+  run-log:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.text}"
+    typography: "{typography.log}"
+    rounded: "{rounded.control}"
+    padding: "12px"
 ---
 
-# Design System: Helmsman
+# Design System: Helmsman — Field Guide
 
 ## Overview
 
-**Creative North Star: "The Navigation Bridge"**
+**Creative North Star: "Field Guide"**
 
-Helmsman is a ship's navigation bridge for an autonomous coding fleet. The **Helm** page puts launch controls, fleet state, review decisions, and the **Ship’s log** within reach. Brushed-graphite faceplates sit on dark mounting rails; the operator can drag panels to reorder, stack them into tabs, and collapse them. The arrangement persists across sessions.
+Field Guide uses scientific field-guide classification to make work identifiable at a glance: task titles, compact labeled states and subordinate evidence. Evergreen navigation frames cool neutral work surfaces; restrained teal marks selection and action. Controls and text use system sans, with JetBrains Mono reserved for identifiers and logs.
 
-The bridge defaults to Quarterdeck's sea-blue ground, wood-brown surfaces, and brass accents for legends, hairlines, and highlights. Run logs and seven-segment fleet counts follow the selected theme. State is told by **shape** first: filled, hollow, and crossed indicator lamps plus distinct lane-rail strokes carry meaning alongside color. The nameplate pairs the ship’s-wheel emblem with **Helmsman**, without a subtitle.
-
-The startup sequence establishes the nautical identity: a ship's wheel sits inside a compass bearing ring while a route trace plots a course. Navigation, heading, course, crew, and fleet-readiness messages accompany loading. Once the dashboard is ready, motion settles to the LIVE lamp and brief control feedback so the operator can focus on the fleet.
+Standard web controls and the plugin composition model remain intact. Panels share an index-like rhythm of identity, state and aligned evidence; tab selection and collapse occupy one header row. The default palette applies to fresh installs, while existing user-selected palettes retain their colors. Motion provides bounded state feedback with reduced-motion support.
 
 **Key Characteristics:**
-- Near-black instrument ground; brushed-graphite faceplates on black rack rails.
-- One themeable signal amber; all other hues are fixed instrument signals.
-- Two self-hosted voices only: JetBrains Mono (silkscreen labels + data) and DSEG7 (seven-segment numerics).
-- Shape, not hue, carries state — LED lamp silhouette and lane-rail stroke pattern.
-- Dockable rack: drag to reorder, stack into tabs, collapse; layout persists.
-- No merge switch anywhere on the helm.
+
+- Evergreen navigation, cool neutral work surfaces and restrained teal selection.
+- Task identity first, labeled state alongside it, supporting evidence below.
+- System sans for controls and text; JetBrains Mono for identifiers and logs.
+- Twelve-pixel panels and six-pixel controls, with native affordances.
+- Customizable panels, logs within reach and a single-column small-screen reading order.
 
 ## Colors
 
-A near-monochrome instrument palette: graphite grounds, one saturated signal amber, and a small set of fixed emissive signal colors that never bend to theming.
+Evergreen navigation, cool neutral work surfaces and restrained teal selection follow the selected Field Guide contract. Frontmatter records the resolved default palette from `src/data/themes.ts`; selecting a theme replaces the same semantic properties at runtime.
 
 ### Primary
-- **Signal Amber** (`#f5a623`): the one accent and the only themeable hue. It carries every hairline, active tab underline, chip outline, faceplate count, button text, brand plate, focus ring, and the sparkline. **Signal Amber Bright** (`#ffc65a`) is the hover/link-hot step; **Signal Amber Dim** (`rgba(245,166,35,0.5)`) is drop-target and disabled-accent tint.
 
-### Neutral (instrument ground + brushed metal)
-- **Instrument Ground** (`#08090c`): the helm substrate behind faceplates. **Gutter** (`#050506`) is the page edge behind the bordered helm slab.
-- **Rack Rail** (`#101216`): the black rail behind panels; the rest state of tabs and lamp bodies.
-- **Faceplate** (`#16181e`), **Faceplate Raised** (`#1b1e25`), **Faceplate Bevel** (`#23262f`): the three graphite steps that build a milled panel — body, input/raised surface, and top-bevel highlight.
-- **Silkscreen** (`#eee6d6` warm off-white), **Silkscreen Dim** (`#b7a488`), **Silkscreen Faint** (`#94856d`): screened label text, dimmed data, and faint legends — warm to read as printed ink on metal.
-- **Hairlines**: amber-tinted `hairline` (`rgba(245,166,35,0.15)`), `hairline-strong` (`0.32`), and white-tinted `hairline-faint` (`rgba(255,255,255,0.06)`) for interior panel divisions.
+- **Teal selection** (`accent`, `accent-plate`): primary actions, selected panel tabs, links and focus outlines. `accent-bright` supplies primary-action hover; `accent-dim` supplies subordinate accents.
+- **Evergreen navigation** (`nav-bg`, `nav-active`): navigation rail and selected destination; `nav-text` and `nav-muted` distinguish active and inactive destination text.
 
-### Fixed Instrument Signals (not expressive, not fully themed)
-- **Log output** uses theme variables for its plain background, readable text, syntax tokens, and event markers. No grid, glow, or fixed terminal palette.
-- **Live Green** (`#57e39a`): the LIVE lamp and the running lane-ring. Fixed across every theme.
-- **Succeeded Green** (`#46e2a0`), **Review Blue** (`#58c7ff`), **Queued Amber** (`#ffb02e`), **Fault Red** (`#ff6b57`): state signals for chips and lane rails. Fault Red is reserved for the failed-run crossed ring, the request-changes action, the fault lamp, and P1 priority — it never marks routine state.
+### Secondary
 
-### Named Rules
-**The Signal-Amber-Only Rule.** Exactly one accent carries the interface; all other hues are fixed instrument signals attached to a specific state, never used expressively or decoratively.
+- **Secondary teal** (`secondary`): supplementary links, including the terminology reference.
+- **Semantic states** (`good`, `bad`, `review`, `queued`): success, failure, review and waiting, accompanied by readable state text or explicit control meaning. `on-good` and `on-accent` are foregrounds for filled treatments.
 
-**The Theme-Surface Rule.** The `.helm` scope inherits the selected theme's surfaces and text. Dark and light themes apply to the entire app, including open voyage output.
+### Neutral
 
-**The Readable-Log Rule.** Logs use plain backgrounds and theme text. Syntax color adds structure; errors retain their severity color and a visible edge. Preserve output whitespace and bounded, batched rendering.
+- **Cool work ground** (`bg`, `gutter`): work area and outer ground.
+- **Work surfaces** (`panel`, `panel-2`, `panel-hi`): panels, subordinate areas and raised-tone controls or hover feedback.
+- **Text** (`text`, `text-dim`, `text-faint`): task identity, supporting text and quiet metadata.
+- **Field ground and boundary** (`control-bg`, `control-border`): native inputs, selects and textareas.
+- **Dividers** (`line`, `line-strong`, `line-faint`): panel boundaries, control boundaries and quiet row separation. Preserve source RGBA values.
+
+**The Theme Continuity Rule.** Use semantic CSS properties for surfaces, text, selection and state. Field Guide is the fresh-install default; a saved theme keeps its palette.
 
 ## Typography
 
-**Display / Data / Label Font:** JetBrains Mono (self-hosted `@font-face`, weights 500 and 700).
-**Numeric Font:** DSEG7 (self-hosted `@font-face`, weight 700) — a seven-segment LCD face.
-**Body Font:** system sans (`ui-sans-serif, system-ui, …`) for free prose only (textareas, long operator copy).
-
-**Character:** A single mono voice does nearly everything, printed as silkscreen small-caps on metal for labels and set tabular for data. The seven-segment face is the instrument's numeric readout — it appears only where a real helm display would glow. There is no condensed or system display face.
+**Text and controls:** the system sans stack in frontmatter. **Identifiers and logs:** self-hosted JetBrains Mono with platform monospace fallbacks. Functional page headings support this operating interface; no decorative display-type role is established.
 
 ### Hierarchy
-- **Display / Brand** (JetBrains Mono 700, 18px, letter-spacing 0.1em): the uppercase "Helmsman" wordmark. A 52px circular ship’s-wheel medallion with a compass needle anchors the header.
-- **Label / Silkscreen** (JetBrains Mono 700, ~11px, letter-spacing 0.10–0.22em, UPPERCASE): faceplate titles, page tabs, slot tabs, lamp captions, throughput label. Screened caps with wide tracking are the helm's default label voice.
-- **Data** (JetBrains Mono 500, 12–13px, tabular-nums): lane numbers (`01`..`NN`, zero-padded), ticket ids, repo names, costs, timestamps, config keys, PR badges.
-- **Numeric / Seven-Segment** (DSEG7 700, 15–17px, letter-spacing 0.02em): the fleet readout digits (run / queue / review) and faceplate counts — amber, glowing where an instrument would.
-- **Body** (system sans, 14px, line-height 1.5): free-form prose inside textareas only.
 
-### Named Rules
-**The Two-Voice Rule.** JetBrains Mono for all labels and data; DSEG7 for seven-segment numerics; system sans only inside free-text fields. No fourth face, and no condensed or system display type.
+- **Page title:** shell introductions; authored plugin page headings use the same size with their local heading line height.
+- **Headline / subheading:** authored plugin heading hierarchy, with inherited heading weights.
+- **Panel title:** local standalone panel heading; composed tabs use the smaller navigation/control rhythm.
+- **Work title:** linked task identity in running/recent work and PR rows.
+- **Body:** general plugin content. Prose typically caps at (75ch); shell introductions cap at (72ch).
+- **Control / navigation:** sentence-case labels. Global shell controls use (13px); authored plugin controls use the frontmatter control role.
+- **Evidence:** subordinate repository, elapsed-time and outcome text.
+- **Identifier / log:** technical identities and selectable log text; tabular numerals are used where present.
 
-**The Silkscreen Rule.** Panel, tab, and lamp labels are uppercase JetBrains Mono with wide letter-spacing — printed legend ink, not sentence text.
+**The Identity First Rule.** Give the task title priority, keep identifiers and evidence subordinate, and write the state as a label rather than relying on color alone.
+
+**The Named Panel Rule.** Within a named panel tab, visually hide a repeated local heading while keeping it available to assistive technology. Preserve the heading when the plugin is rendered standalone.
 
 ## Layout
 
-The helm is a bordered, centered slab (`max-width: 1720px`) with faint side rails, floated over the darker page gutter — nothing spans full width. A persistent viewport shell stacks vertically: **helm nameplate header** → **page tabs** → **scrolling page content** → **shared footer**. Header, repository selector, fleet counts, notifications, tabs, and footer retain their DOM identity across all seven views; only the content below the tabs changes. The Helm content contains the optional degraded banner, two-bay rack, and run drawer. The shared footer carries the merge-gate operator note and app metadata. Queue and review counts use the last Jira snapshot for the selected repository, or an em dash when unavailable, without extra external reads for the header.
+A full-width header carries identity, repository scope, readouts and notifications. A (200px) desktop navigation column sits beside the flexible work area; logs and the compact footer sit below that area. Desktop content padding is (28px), with (24px) shell gaps. At (1200px), readouts move to a second header row. At (840px), navigation becomes a horizontally scrolling row and content padding becomes (20px 16px).
 
-The **rack** (`.helm-rack`) is a two-column grid (`1fr 1fr`, 16px gutter) of columns; each column is a vertical stack of faceplates with a drop-endstop at the bottom. The layout is driven by a pure engine (`src/logic/rack.ts`): columns → slots → tab-stacked panels. Panels can be dragged to reorder, dragged onto each other to stack into a tabbed slot, collapsed to their headers, and the whole arrangement is serialized to `localStorage` (`helmsman.rackLayout`) so the operator's helm persists. Default layout: New voyage / Backlog queue / Active crew / Open PRs in the left bay; Recent voyages / Ship’s log / Out to sea in the right. Open PRs includes all authors in the selected repository; without a repository selection, the panel prompts the operator to choose one. Saved layouts migrate the former My open PRs panel in place, preserving stacks and collapse state.
+Authored Helm uses the saved column count, a (16px) grid gap and (16px) panel-body padding. At (760px), panel bodies use (12px) padding and saved columns interleave into one real DOM reading order: first stack from each column, then second stack from each column. Widening restores the columns without remounting panels or saving a layout change. The older rack has a separate (1080px) single-column breakpoint.
 
-The PR tab places **Review requests** and **My open PRs** in two adjacent graphite panels above the lookup and review controls, stacking them on narrow screens. Rows show the full repository, PR number, title, draft status, and review decision when available. Each list has its own loading, unavailable, empty, and partial-result state. Selecting a row opens the existing review controls; keyboard users can activate rows with Enter or Space.
-
-Other pages reuse the same helm shell. Panels fill the content width or sit in two equal columns. **Triage** uses three responsive peer columns for its unassigned and Mine groups; **Below Decks** pairs the tab list and screen detail in equal columns. Config and Voyages panels fill the content width. Config shows the selected theme's surface, text, and status swatches plus sample status chips; previews use the theme variables and update immediately.
-
-Spacing rhythm is tight and utilitarian: 14–16px between panels and around helm padding, 8px within control clusters, 4px micro-gaps in lamps and tallies. Helm padding is `16px 22px 30px`.
-
-Responsive: below **1080px** the Helm rack collapses to a single column; task packages define their own responsive panel grids; below **1100px** the centered fleet readout wraps beneath the nameplate; below **840px** form field grids stack and tabs scroll horizontally. The header and footer remain outside the content scroll area. Auto-claim has no header control; theme selection lives in Config’s UI customization panel. Lane titles truncate (`min-width:0` + ellipsis) so a long ticket title never overflows; the lane rail always keeps ≥48px.
-
-The E3 task packages own their panel markup and styles through public theme tokens. Authored Triage uses three responsive peer columns with group-specific quality/paging; Bugs distinguishes approximate, unavailable and sampled metrics; Todos and source settings preserve drafts and uncertain receipts across scope changes. Task aliases now use these compositions; core Config links to the separate Source settings page. Legacy Triage preferences initialize an absent layout with an atomic raw archive; existing and intentionally empty layouts remain authoritative. Cutover acceptance and exact-commit reviews passed; the checkpoint is pushed. Unknown saved-state versions remain preserved until explicit replacement. See [panel authoring](docs/panel-authoring.md), [package usage](docs/plugin-packages.md), and the [implementation ledger](docs/plugin-implementation-progress.md).
+Running-work identity and state occupy two columns, with evidence below. At (480px), state follows title and identifier in one column. Theme-preview groups stack at (900px); at (560px), settings controls stack and palette swatches use three columns. The footer keeps recovery and About access compact; About opens a bounded disclosure above it. The docked log-viewer host caps at (40dvh).
 
 ## Elevation & Depth
 
-Depth is **material, not ambient** — every surface is built to read as a physical rack-mounted metal panel, not as a floating card. The faceplate combines three cues at once: a top-bevel highlight (`inset 0 1px 0 rgba(255,255,255,0.08)`), an inset dark seating ring (`inset 0 0 0 1px rgba(0,0,0,0.35)`), and a real drop shadow (`0 3px 10px rgba(0,0,0,0.35)`), over a brushed-metal gradient (a 1px repeating vertical striping plus a top-lit graphite gradient). The helm header and run drawer carry the same inset-highlight + drop-shadow pair.
+Work panels are flat, separated by tone and thin borders. The notification popover uses a soft shadow (`0 12px 32px #0003`); its standalone communication-page rendering removes that shadow. Focus outlines communicate keyboard position rather than elevation. The default log is a neutral bordered surface.
 
-Glow is treated as **light emission, never elevation**: LED lamps cast a colored `box-shadow` halo, while the brand plate uses inset shadows to look domed and pressed. Log text has no glow.
-
-### Shadow Vocabulary
-- **Machined faceplate** (`box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 0 1px rgba(0,0,0,0.35), 0 3px 10px rgba(0,0,0,0.35)`): every rack unit and the run drawer.
-- **Header/helm strip** (`inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 8px rgba(0,0,0,0.4)`): the nameplate header.
-- **Helm medallion**: a dark radial metal ground, inset highlight, and amber wheel rim; the central compass needle carries a small light-facing edge.
-- **LED halo** (`0 0 5–7px <signal>`): live and queued lamps; a light, not a lift.
-
-### Named Rules
-**The Machined-Faceplate Rule.** Every rack unit carries the top-bevel highlight + inset dark ring + drop shadow so it reads as a seated metal panel. Colored shadow is reserved for lamps; it is never used to lift a surface.
+**The Flat Work Surface Rule.** Separate work panels with neutral surface tone, spacing and thin borders. Reserve floating depth for the notification popover.
 
 ## Shapes
 
-One small radius everywhere: **3px** (`--radius`), applied to faceplates, the header, buttons, chips, inputs, and the brand plate. The helm is milled, not rounded — corners are crisp and hardware-like, never soft. Divisions are drawn with 1px hairlines (amber-tinted between structural regions, white-tinted for interior rows). Recurring hardware silhouettes give the world its form: 5px screw-head dots at the top corners of each faceplate; small circular LED lamps; the round `.lane-ring` terminating each lane rail; and nautical wheel and compass details in the nameplate.
-
-### Named Rules
-**The 3px Rule.** All corners use the single 3px radius. Do not introduce a second radius; the helm is machined metal, not a soft card UI.
+Use panel and control radii for their corresponding surfaces. Compact preview badges, swatches and the alpha label use the smaller compact radius. These are role-specific sizes, not a one-radius system. Panel headers and list rows use thin dividers. Native select, checkbox, radio, details and summary affordances remain recognizable.
 
 ## Components
 
 ### Buttons
-- **Shape:** crisp 3px corners (`--radius`); uppercase JetBrains Mono, letter-spacing 0.08em.
-- **Default (momentary push-button):** transparent fill, amber text, `hairline-strong` border, padding `5px 12px`.
-- **Hover:** fills solid signal amber with near-black text (`#0a0805`) — the button "lights". Transition is fast (`background/color 90ms`).
-- **Request-changes:** hover fills Fault Red instead of amber — the one destructive push-button.
-- **Focus:** 2px solid amber outline, 1px offset.
 
-### Chips
-- **Style:** small uppercase mono, outline in `hairline-strong`, amber text; padding `2px 7px`. Chips **label**; the lane rail carries state.
-- **Variants:** `chip-done` knocks dark text out of a solid Succeeded-Green plate; `chip-review` (blue), `chip-blocked` (Fault Red), `chip-progress` (amber), `chip-queued` (dim). Priority chips (`pri-p1`/`p2`/`p3`) are tighter outline chips; P1 is Fault Red.
+Primary authored-plugin actions use teal fill, contrasting foreground and medium-bold text; hover uses the darker accent. Authored-plugin controls use (36px) minimum height; Helm and its task panels use (34px). Launch has (7px 16px) padding and a mixed accent/text hover. Secondary controls use raised neutral ground. The shell default uses panel ground and (8px 12px) padding. Disabled controls reduce opacity to (0.5). Focus is a (2px) accent outline, offset (1px) on shell buttons or (2px) in authored plugins.
 
-### Faceplate (signature — the rack unit)
-- **Corner Style:** 3px.
-- **Background:** brushed-graphite — a 1px repeating vertical striping over a top-lit `faceplate-bevel → faceplate` gradient.
-- **Header (34px):** a drag grip (grabbable), silkscreen title *or* a slot-tab strip when panels are stacked, a state lamp pushed to the right, an optional seven-segment count, and a collapse toggle. Screw-head dots sit at both top corners.
-- **States:** `is-dragging` (opacity 0.45), `is-drop-target` (amber-dim outline), `is-collapsed` (body hidden, header only).
-- **Elevation:** the Machined-Faceplate shadow.
-
-### Indicator Lamps (signature — shape carries state)
-LED caption + a 9px lamp dot whose **silhouette** is the tell, so hue is never the sole signal:
-- **Live:** filled green dot with a green halo (pulses on the header LIVE lamp).
-- **Queued:** hollow amber **ring**.
-- **Idle:** flat dark grey dot, no glow.
-- **Fault:** filled red dot clipped to a **crossed/asterisk** silhouette.
-
-Note: panel faceplate lamps light only **live / queued / idle**. Run **fault** is carried by the lane-rail crossed-ring (⊗), not by a panel lamp — `.lamp-fault` exists in the vocabulary but is not lit on rack panels.
-
-### Lane + Link Rail (signature — run state by stroke)
-Each row (`.lane`) is `NN` · id · label · **`.lane-rail`** (a flex amber hairline ending in a `.lane-ring` ○) · meta · chip · action. State is drawn on the rail by **stroke pattern**, never by hue alone:
-
-| Run state | Rail |
-| --- | --- |
-| running / live | solid line, filled ring (Live Green) |
-| queued | dotted line, hollow ring (Queued Amber) |
-| succeeded / selected | doubled line, filled ring (Succeeded Green) |
-| stopped | dashed line broken by a `//` gap |
-| failed / fault | dashed line, open **crossed** ring (Fault Red) |
+Global buttons transition background and color over (150ms); authored plugins use (160ms) state transitions. Reduced-motion rules remove them. Question-tab attention changes a boundary over (1.8s) and stops under reduced motion.
 
 ### Inputs / Fields
-- **Style:** raised-surface fill (`faceplate-raised`), 1px `hairline` border, 3px corners, mono 12px.
-- **Focus:** border shifts to solid amber; `:focus-visible` adds a 2px amber outline.
 
-### Tuning Controls (run preparation)
-- **Purpose:** the paired **Model + Effort** selects that configure a run before launch. They sit in the New-run faceplate (after the repo select) and in the PR review/re-run controls, grouped like paired controls on a navigation console.
-- **Style:** a `.tuning` flex row of two equal-width `.tuning-select` dropdowns (`flex: 1 1 0`), each an input-styled select — raised-surface fill (`faceplate-raised`), 1px `hairline` border, 3px corners — set in mono at a slightly finer 11px with normal casing (values are shown as written, not silkscreened).
-- **Focus:** same as inputs — border shifts to solid amber, `:focus-visible` adds a 2px amber outline.
+Inputs, selects and textareas share field ground, field boundary and control corners. Authored-plugin fields use (6px 12px) padding; launch uses (7px 9px), and global fields use (6px 9px). Keep labels visible, preserve native behavior, and use accent borders plus the visible focus outline. Launch textareas have a (110px) minimum height and resize vertically. Errors retain explicit alert text.
 
-### Navigation (page tabs)
-- **Primary page:** **Helm**, with the working fleet panels and Ship’s log.
-- **Style:** uppercase mono on rack-rail ground, 2px transparent bottom-border; hover lifts the text to dim.
-- **Active:** amber text on faceplate ground with a 2px amber bottom-border. Slot tabs (within a stacked faceplate) use the same pattern at a smaller size.
+### Navigation
 
-### Navigation Run Drawer (signature)
-The live run log uses a plain `--bg` surface with `--text` mono output. Tabs use `--panel-2` and show each voyage's short ID; the toolbar uses `--panel`. Commands, JSON, code snippets, headings, and diffs receive bounded syntax highlighting using theme colors. Tool events have a subtle edge; errors use `--bad` with a visible border; results and review verdicts use accent edges. No grid or text shadow. Tabs keep several voyages open, and a small dot marks a completed run.
+Desktop destinations form a vertical evergreen rail. Hover and selection use the active navigation surface; selection adds a boundary and stronger weight. Small-screen destinations form an overflowing horizontal row. Panel tabs share a header with collapse: selected tabs fill with the accent when multiple tabs exist; a single tab stays neutral. The collapse icon rotates over (160ms), with reduced-motion support.
 
-### Startup / Course Plotting
-The shared wheel-and-compass emblem (`public/helm-emblem.svg`) appears in both the header and loading screen. The loader uses its own Quarterdeck palette regardless of the saved app theme: sea-blue ground, a wooden brown wheel, brass compass fittings and readouts, sailcloth text, and a blue course trace. Loader-scoped emblem variables color the wood, rim, brass, hub, and needle without changing the header emblem. The background is a smooth sea-blue gradient with no scanlines. Loading messages refer to navigation, heading, course, crew, and fleet readiness. The sequence yields to the selected dashboard theme when loading completes; reduced-motion preferences suppress continuous animation.
+### Cards / Containers
 
-### Seven-Segment Readout
-The header fleet readout renders run / queue / review counts in DSEG7 amber digits beside silkscreen captions; faceplate counts reuse the same seven-segment face. This is the helm's only numeric display voice.
+Authored Helm stacks use panel ground, a thin semantic line and panel corners. Header padding is (8px 12px); body padding follows the responsive layout above. Repeated local plugin headings are visually hidden only under a named composed tabpanel. Standalone headings remain visible.
+
+### State labels and work rows
+
+Running/recent work uses a prominent linked title, technical identifier, compact outlined state and aligned evidence. State labels use (2px 8px) padding and control corners. Row separation uses the semantic line; the last row removes it. Titles wrap as needed, evidence wraps independently, and narrow-screen order keeps identity ahead of state and actions. Theme-preview status chips use sentence-case sans with compact corners.
+
+### Logs and disclosures
+
+Run logs use the mono log role, (12px) padding, control corners, neutral panel ground and a thin boundary. Their own viewport spans (100px) minimum to (420px) maximum height; the dock adds its host bound. Advanced launch settings, log docking and footer About use native disclosures with visible summary focus.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** carry every hairline, tab underline, count, and highlight in the single signal amber (`#f5a623`); let the theme recolor only the accent.
-- **Do** encode state by shape first — lane-rail stroke pattern and LED lamp silhouette — so the helm is legible without color.
-- **Do** build every panel as a machined faceplate: brushed gradient, top-bevel highlight, inset dark ring, drop shadow, 3px corners, screw-head dots.
-- **Do** set all labels in uppercase JetBrains Mono with wide tracking, and all counts in DSEG7 seven-segment.
-- **Do** keep the merge-gate operator note as screened helm content; it is load-bearing product truth, not decoration.
-- **Do** preserve the dockable-rack behavior (drag / stack / collapse / persist) and every behavior selector (`.launch-btn`, `.agent-row`, `.agent-stop`, `.repo-select`, `.auto-claim-toggle`, `.newrun-*`, `.config-*`, `.pr-*`, `.recent-run`, `.rack-handle`, `.panel-collapse`, `.run-*`).
+
+- Do use semantic theme properties so existing palettes continue to work.
+- Do present task titles, labeled states and subordinate evidence in the shared index-like rhythm.
+- Do preserve the accessible heading when suppressing a repeated visible panel heading.
+- Do keep tab selection and collapse together, and preserve saved panel order when adapting to a narrow screen.
+- Do use visible focus outlines and honor reduced-motion preferences.
 
 ### Don't:
-- **Don't** add a second expressive accent, or use a state hue (green/red/blue) for anything but its assigned instrument signal. Fault Red never marks routine state.
-- **Don't** hardcode terminal colors or add decorative grids behind log output.
-- **Don't** introduce a merge control anywhere on the helm — the agent never merges; merge is a human action on GitHub. (Hard product invariant.)
-- **Don't** override a selected theme's surfaces with a fixed palette.
-- **Don't** add a second corner radius or a condensed/system display face; one radius (3px) and two self-hosted voices only.
-- **Don't** blank a slice on missing data — degrade to sample data behind the banner, keeping the panel rendered.
 
+- Don't restore brushed-metal panels, seven-segment counts or the oscilloscope treatment as the default visual language.
+- Don't use monospace as the general control or prose face.
+- Don't use a status hue as the only way to identify state.
+- Don't turn a viewport change into a saved layout edit.
 
-## E4 presentation work in progress
+Source evidence: `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/render.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
 
-The authored run viewer owns a bounded tab set and log window; history owns bounded pages and labels totals with their observation time. Older log pages and live-follow cursors remain separate. Run-wide logs must not be labeled as belonging to the currently fenced attempt. Download copy distinguishes a saved writable file from delivery to the browser.
-
-Typed presentation selection carries only run or PR identity. A selected auxiliary page keeps a stable mounted DOM session across consumers, restores keyboard focus and text selection when rehomed, and suspends work while hidden or detached. Header scope remains unchanged; an explicit invoking-panel scope applies to the auxiliary session until the header changes. The provisional `/run-viewer` and `/run-history` pages do not retire the existing `/runs` drawer or its PR controls.
-
-Clarification forms expose server-provided answerability and run-wide publication obligations separately. Unknown attempt provenance is read-only. Draft text stays separate from unresolved commands; lost responses offer receipt checking and retry of the original intent. Contact errors do not disable question reads or answers. Accepted answers never claim downstream delivery, and contact saves never claim notifications. The `/clarifications` alias selects the authored composition. A page-level recovery link remains visible even with no panels or unavailable panel contributions; the original recovery page and caller remain available for retained evidence. The recovery package owns its styles and renderer; renamed copies have independent draft namespaces and cannot clean up legacy evidence.
-
-The authored forms use separate question and global-contact panels. An unavailable contact panel leaves questions usable. A conflicting saved-state update retains local text and original requests; the user reviews the latest stored state before discarding local edits. Saving a terminal result and dismissing its request is explicit, and every save checks its observed baseline even when local text is unchanged. Previous compatibility drafts and requests remain accessible through a scope-preserving recovery link until migration is proven.
-
-The canonical PR compatibility panel shares private status, diff, review/feedback/tuning drafts and pending request identities with legacy PR surfaces. Hidden owners release their read interest independently; the last reader cancels work. This session is memory-only. Disabling the contribution disables its canonical surface; legacy routes remain until cutover. Public PR inspection is separate: render incomplete checks/reviews as unknown and distinguish file enumeration from patch preview truncation.
+Not canonized or repaired: retained legacy lamp glow, uppercase mono status rules and hard-coded amber tints in `src/style.css`, plus glyph icons in compatibility/notification markup, fall outside the selected Field Guide language. Loaded DSEG7 assets do not establish a current type role. PRODUCT.md still describes the previous visual world; it is outside this documentation write boundary.

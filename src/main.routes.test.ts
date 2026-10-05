@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto';
 import { syncBuiltinFrontend } from './plugins/builtin-modules';
+import { compatibilityPrManifest, runsManifest } from './plugins/frontend-manifests';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { loadDashboard as loadMockSnapshot } from './data/mock';
@@ -69,7 +70,7 @@ beforeEach(() => {
   localStorage.clear();
   window.history.replaceState(null, '', '/');
   streams.length = 0;
-  syncBuiltinFrontend(['helmsman.runs', 'helmsman.compat-pr'].map(id => ({ id, version: '0.1.0', hash: 'a'.repeat(64), enabled: true })), false);
+  syncBuiltinFrontend([runsManifest, compatibilityPrManifest].map(({ id, version }) => ({ id, version, hash: 'a'.repeat(64), enabled: true })), false);
   vi.stubGlobal('EventSource', RunStream);
 });
 

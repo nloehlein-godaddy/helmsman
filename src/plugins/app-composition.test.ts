@@ -63,13 +63,13 @@ describe('Helm default composition', () => {
     expect(await store.read()).toMatchObject({ compositionId, instances: [], columns: [] });
   });
 
-  it('starts a fresh installation with all eight extracted panels in the original two columns', async () => {
+  it('starts a fresh installation with active work and launch leading its two columns', async () => {
     const store = await openCompositionLayoutStore({ indexedDB: new IDBFactory(), compositionId: HELM_PAGE_SLOT,
       initialLayout: initialCompositionLayout(helmManifest.pages[0]!.composition!) });
     stores.push(store);
     const layout = await store.read();
     expect(layout.columns.map(column => column.flatMap(stack => stack.instances))).toEqual([
-      ['underway', 'newrun', 'backlog', 'running', 'repoprs'], ['recent', 'activity', 'shipped'],
+      ['running', 'underway', 'backlog', 'repoprs'], ['newrun', 'recent', 'activity', 'shipped'],
     ]);
     expect(layout.instances.map(instance => instance.contributionId)).toEqual([
       'helmsman.underway/panel', 'helmsman.newrun/panel', 'helmsman.backlog/panel', 'helmsman.running/panel',

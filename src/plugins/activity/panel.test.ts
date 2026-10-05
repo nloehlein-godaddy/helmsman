@@ -19,6 +19,13 @@ function fixture() {
 }
 afterEach(() => { for (const lifetime of lifetimes.splice(0)) lifetime.abort(); document.body.replaceChildren(); vi.useRealTimers(); });
 describe('standalone source activity panel', () => {
+  it('refreshes source history from the footer with the standalone heading retained', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await instance.refresh?.();
+    expect(f.container.querySelector('header button')).toBeNull(); expect(f.container.querySelector('header h2')).not.toBeNull();
+    const reads = f.query.mock.calls.length; f.container.querySelector<HTMLButtonElement>('footer button')?.click();
+    await vi.waitFor(() => expect(f.query.mock.calls.length).toBeGreaterThan(reads));
+  });
+
   it('keeps source completion counts separate from actual PR events and does not invent review timestamps', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await instance.refresh?.();
     expect([...f.container.querySelectorAll('dd')].map(value => value.textContent)).toEqual(['0', '0', '0', '0', '0', '0', '3']);

@@ -34,6 +34,15 @@ function fixture(action: 'stop' | 'retry', pirateMode = false) {
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 describe.each([['running', running, 'stop', 'Stop', 100], ['recent', recent, 'retry', 'Retry', 10]] as const)('%s standalone panel', (_name, module, action, label, limit) => {
+  it('refreshes beside the full run history link without duplicating worker commands', async () => {
+    const f = fixture(action); await module.mount(f.container, f.context);
+    await vi.waitFor(() => expect(f.button(label).disabled).toBe(false));
+    expect(f.container.querySelector('header button')).toBeNull();
+    expect(f.container.querySelector('footer a')?.textContent).toBe('All runs');
+    expect(f.container.querySelector('footer button')).toBe(f.button('Refresh'));
+    f.button('Refresh').click(); await vi.waitFor(() => expect(f.watchList).toHaveBeenCalledTimes(2));
+    expect(f.submit).not.toHaveBeenCalled(); f.lifetime.abort();
+  });
   it.each([undefined, null, 'owner/header'])('preserves header scope %s when opening a run or accepted retry', async headerRepo => {
     const f = fixture(action);
     f.context = { ...f.context, state: { ...f.state, headerRepo } };

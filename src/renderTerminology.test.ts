@@ -64,6 +64,9 @@ describe('pirate interface wording', () => {
     const controls = button?.closest('.footer-controls');
     expect(controls?.parentElement).toBe(element.querySelector('.app-footer'));
     expect(controls?.querySelector('[data-feedback-footer]')).not.toBeNull();
+    expect(metadata?.querySelector<HTMLDetailsElement>('.footer-about')?.open).toBe(false);
+    expect(metadata?.querySelector('.footer-about-content .footer-attr')?.textContent).toBe('nloehlein@godaddy.com');
+    expect(metadata?.querySelector('[data-recovery-link]')?.closest('details')).toBeNull();
     expect(metadata?.compareDocumentPosition(button!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 });

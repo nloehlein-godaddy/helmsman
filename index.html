@@ -4,18 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#081721" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#edf3ef" />
     <title>↻ Helmsman</title>
     <style>
-      html { background: var(--bg, #08090c); }
+      html { background: var(--bg, #edf3ef); }
       body { margin: 0; }
       #boot {
         position: fixed;
         inset: 0;
         z-index: 100;
-        background: radial-gradient(120% 90% at 50% 42%, var(--panel-hi, #23262f) 0%, var(--bg, #08090c) 60%, var(--gutter, #050506) 100%);
-        color: var(--accent, #f5a623);
+        background: var(--bg, #edf3ef);
+        color: var(--text, #183a34);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -25,35 +25,11 @@
   <body>
     <div id="boot" role="status" aria-label="Helmsman is starting">
       <div class="boot-stage">
-        <svg class="boot-compass" viewBox="0 0 240 240" fill="none" aria-hidden="true">
-          <circle class="boot-bearing-ring" cx="120" cy="120" r="99" stroke="currentColor" />
-          <circle class="boot-bearing-ticks" cx="120" cy="120" r="91" stroke="currentColor" stroke-width="6" stroke-dasharray="1 10.91" />
-          <g class="boot-cardinals" fill="currentColor">
-            <text x="120" y="13">N</text><text x="232" y="123">E</text>
-            <text x="120" y="237">S</text><text x="8" y="123">W</text>
-          </g>
-          <path class="boot-heading" d="M120 28 L115 38 L125 38 Z" fill="currentColor" />
-          <g class="boot-wheel">
-            <use href="/helm-emblem.svg#helm-emblem" x="40" y="40" width="160" height="160" />
-          </g>
-          <path class="boot-course" d="M44 209 Q80 183 120 209 T196 209" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        <svg class="boot-emblem" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+          <use href="/helm-emblem.svg#helm-emblem" />
         </svg>
-        <div class="boot-brand">
-          <span class="boot-word" aria-hidden="true"><b>H</b><b>e</b><b>l</b><b>m</b><b>s</b><b>m</b><b>a</b><b>n</b></span>
-        </div>
-        <div class="boot-meta">
-          <span class="boot-pct seg7">0</span>
-          <span class="boot-lamps" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="boot-tag" data-boot-term="bootTagline">LOADING DASHBOARD · PREPARING WORKSPACE</span>
-        </div>
-        <div class="boot-rail" aria-hidden="true"><i></i></div>
-        <ul class="boot-log mono" aria-hidden="true">
-          <li data-boot-term="bootNavigation">navigation · ready</li>
-          <li data-boot-term="bootHeading">settings · loaded</li>
-          <li data-boot-term="bootCourse">workspace · ready</li>
-          <li data-boot-term="bootCrew">agents · standing by</li>
-          <li data-boot-term="bootReady">ready to start</li>
-        </ul>
+        <span class="boot-word">Helmsman</span>
+        <p class="boot-tag" data-boot-term="bootTagline">Loading your workspace…</p>
       </div>
     </div>
     <div id="app"></div>

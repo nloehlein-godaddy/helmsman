@@ -55,8 +55,8 @@ describe('THEMES data', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('lists Quarterdeck first as the default theme', () => {
-    expect(THEMES[0]?.id).toBe('quarterdeck');
+  it('lists Field Guide first as the default theme', () => {
+    expect(THEMES[0]?.id).toBe('field-guide');
     expect(THEMES[0]?.id).toBe(DEFAULT_THEME_ID);
   });
 
@@ -105,6 +105,14 @@ describe('THEMES data', () => {
     const modes: Set<string> = new Set(THEMES.map((t) => t.mode));
     expect(modes.has('dark')).toBe(true);
     expect(modes.has('light')).toBe(true);
+  });
+
+  it.each(THEMES.filter(theme => theme.id !== 'amber'))('$id keeps navigation labels readable on idle and selected surfaces', theme => {
+    for (const foreground of ['--nav-text', '--nav-muted']) {
+      for (const background of ['--nav-bg', '--nav-active']) {
+        expect(contrast(theme.vars[foreground] ?? '', theme.vars[background] ?? ''), `${theme.id}: ${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 
   it.each(themePalettes)(

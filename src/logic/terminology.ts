@@ -49,7 +49,7 @@ export const TERMINOLOGY = {
   missingRetryRunId: { plain: 'The server did not return a new run ID. Check recent runs before retrying.', pirate: 'The server did not return a new voyage ID. Check recent voyages before retrying.' },
   unavailableCheckout: { plain: 'Local checkout unavailable for this repository.', pirate: 'Local checkout unavailable for this galleon.' },
   bootStatus: { plain: 'Helmsman is starting', pirate: 'Helmsman preparing to get underway' },
-  bootTagline: { plain: 'LOADING DASHBOARD · PREPARING WORKSPACE', pirate: 'TAKING THE HELM · CHARTING THE COURSE' },
+  bootTagline: { plain: 'Loading your workspace…', pirate: 'Preparing your helm…' },
   bootNavigation: { plain: 'navigation · ready', pirate: 'navigation · ready' },
   bootHeading: { plain: 'settings · loaded', pirate: 'heading · set' },
   bootCourse: { plain: 'workspace · ready', pirate: 'course · plotted' },

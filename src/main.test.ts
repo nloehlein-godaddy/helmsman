@@ -237,7 +237,10 @@ describe('DashboardView settings interactions', () => {
     view.destroy();
   });
 
-  it('moves tab focus with arrows and Home/End without navigating until Space activates it', async () => {
+  it.each([1024, 390])('moves tab focus with orientation-aware arrows at %ipx without navigating until Space activates it', async width => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(width);
+    const forward = width > 840 ? 'ArrowDown' : 'ArrowRight';
+    const backward = width > 840 ? 'ArrowUp' : 'ArrowLeft';
     const response = await buildResponse();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => ({
       ok: true, status: 200,
@@ -250,6 +253,7 @@ describe('DashboardView settings interactions', () => {
     const tabs = Array.from(root.querySelectorAll<HTMLAnchorElement>('.page-tab'));
     const dashboard = tabs[0];
     if (!dashboard) throw new Error('Missing dashboard tab');
+    expect(root.querySelector('.page-tabs')?.getAttribute('aria-orientation')).toBe(width > 840 ? 'vertical' : 'horizontal');
     dashboard.focus();
     const callsBefore = fetchMock.mock.calls.length;
     const press = (key: string): void => {
@@ -258,13 +262,17 @@ describe('DashboardView settings interactions', () => {
       expect(event.defaultPrevented).toBe(true);
     };
 
-    press('ArrowRight');
-    expect(document.activeElement).toBe(tabs[1]);
-    press('ArrowLeft');
+    const perpendicular = new KeyboardEvent('keydown', { key: width > 840 ? 'ArrowRight' : 'ArrowDown', bubbles: true, cancelable: true });
+    dashboard.dispatchEvent(perpendicular);
+    expect(perpendicular.defaultPrevented).toBe(false);
     expect(document.activeElement).toBe(dashboard);
-    press('ArrowLeft');
+    press(forward);
+    expect(document.activeElement).toBe(tabs[1]);
+    press(backward);
+    expect(document.activeElement).toBe(dashboard);
+    press(backward);
     expect(document.activeElement).toBe(tabs.at(-1));
-    press('ArrowRight');
+    press(forward);
     expect(document.activeElement).toBe(dashboard);
     press('End');
     expect(document.activeElement).toBe(tabs.at(-1));
@@ -291,6 +299,7 @@ describe('DashboardView settings interactions', () => {
     expect(root.querySelector('#page-tab-config')?.getAttribute('aria-selected')).toBe('true');
     expect(root.querySelectorAll('.page-tab[tabindex="0"]')).toHaveLength(1);
     view.destroy();
+    vi.restoreAllMocks();
   });
 });
 

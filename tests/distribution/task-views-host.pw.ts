@@ -138,7 +138,9 @@ const page: PluginPageModule = { mount(container, context) {
     await page.getByLabel('Panel to add', { exact: true }).selectOption('example.underway-view/panel');
     await page.getByRole('button', { name: 'Add panel', exact: true }).click();
     const underway = page.locator('.plugin-underway').last();
-    await expect(underway).toContainText('TASK-1: Scoped org/a');
+    const scopedTask = underway.locator('li').filter({ has: page.getByText('TASK-1', { exact: true }) });
+    await expect(scopedTask.getByText('Scoped org/a', { exact: true })).toBeVisible();
+    await expect(scopedTask.getByText('TASK-1', { exact: true })).toBeVisible();
     await expect(underway.getByRole('link', { name: /^Open (run|voyage)$/ })).toHaveCount(1);
     await expect(underway.getByRole('link', { name: 'Open pull request', exact: true })).toHaveCount(1);
     await underway.getByRole('link', { name: /^Open (run|voyage)$/ }).click();
@@ -149,7 +151,9 @@ const page: PluginPageModule = { mount(container, context) {
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await page.locator('.repo-select').selectOption('org/b');
     await page.goto(`${origin}/helm?repo=org/b`);
-    await expect(underway).toContainText('OTHER-1: Scoped org/b');
+    const otherTask = underway.locator('li').filter({ has: page.getByText('OTHER-1', { exact: true }) });
+    await expect(otherTask.getByText('Scoped org/b', { exact: true })).toBeVisible();
+    await expect(otherTask.getByText('OTHER-1', { exact: true })).toBeVisible();
     await expect(underway.getByRole('link', { name: /^Open (run|voyage)$/ })).toHaveCount(0);
     await expect(underway.getByRole('link', { name: 'Open pull request', exact: true })).toHaveCount(0);
     await page.goto(`${origin}/outcomes?repo=org/b`); await expect(output).toContainText('Scoped org/b'); await expect(output).not.toContainText('Scoped org/a');

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { builtinCatalog } from './builtin-catalog';
 import type { FeedbackCommandV1 } from '../../src/plugins/feedback-command';
 for (const width of [1440, 390]) test(`feedback configuration, retained drafts and uncertain recovery at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 1000 });
@@ -9,7 +10,7 @@ for (const width of [1440, 390]) test(`feedback configuration, retained drafts a
   await page.route('**/*', async route => {
     const url = new URL(route.request().url()); if (url.origin !== 'http://127.0.0.1:4175') return route.abort(); if (!url.pathname.startsWith('/api/')) return route.continue();
     let body: unknown = {};
-    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [{ id: 'helmsman.product-feedback', version: '0.1.0', hash: 'a'.repeat(64), enabled: true }] };
+    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.product-feedback']) };
     if (url.pathname === '/api/context') body = { repos: ['org/project'], jiraEnabled: false, jiraBaseUrl: null };
     if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } };
     if (url.pathname === '/api/config') body = { config: {}, overridden: [] };
@@ -37,8 +38,19 @@ for (const width of [1440, 390]) test(`feedback configuration, retained drafts a
   await page.getByRole('button', { name: 'Check original submission' }).click(); await expect(page.getByRole('link', { name: 'Open submitted feedback' })).toBeVisible(); expect(sends).toBe(1); expect(retries).toBe(1); await expect(page.locator('img[src=x]')).toHaveCount(0);
   if (width <= 640) {
     const metadata = await page.locator('.footer-meta').boundingBox(); const controls = await page.locator('.footer-controls').boundingBox();
-    expect(metadata).not.toBeNull(); expect(controls).not.toBeNull(); expect(controls!.y).toBeGreaterThanOrEqual(metadata!.y + metadata!.height);
-    expect(metadata!.width).toBeGreaterThan(width * 0.75);
+    expect(metadata).not.toBeNull(); expect(controls).not.toBeNull(); expect(controls!.y).toBeLessThan(metadata!.y + metadata!.height);
+    expect(metadata!.x + metadata!.width).toBeLessThanOrEqual(controls!.x);
+    const footer = page.locator('.app-footer');
+    const before = await footer.boundingBox();
+    await expect(page.locator('.footer-about-content')).toBeHidden();
+    await page.locator('.footer-about > summary').click();
+    await expect(page.locator('.footer-about-content')).toBeVisible();
+    const about = await page.locator('.footer-about-content').boundingBox();
+    expect(about).not.toBeNull();
+    expect(about!.x).toBeGreaterThanOrEqual(0);
+    expect(about!.x + about!.width).toBeLessThanOrEqual(width);
+    expect((await footer.boundingBox())?.height).toBe(before?.height);
+    await page.locator('.footer-about > summary').click();
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); expect(errors).toEqual([]);
   await testInfo.attach('feedback-receipt', { body: await page.screenshot({ path: testInfo.outputPath('feedback-receipt.png'), fullPage: true }), contentType: 'image/png' });

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { builtinCatalog } from './builtin-catalog';
 
 const sourceId = '11111111-1111-4111-8111-111111111111';
 const builtinIds = ['helmsman.costs', 'helmsman.helm', 'helmsman.backlog', 'helmsman.newrun', 'helmsman.underway'];
@@ -13,7 +14,7 @@ async function setup(page: Page) {
     const url = new URL(route.request().url()); if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
     if (!url.pathname.startsWith('/api/')) return route.continue();
     let body: unknown = {};
-    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinIds.map(id => ({ id, version: '0.1.0', hash: 'a'.repeat(64), enabled: true })) };
+    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(builtinIds) };
     if (url.pathname === '/api/context') body = { repos: ['org/a', 'org/b'], jiraEnabled: false, jiraBaseUrl: null };
     if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } };
     if (url.pathname === '/api/config') body = { config: {}, overridden: [] };
@@ -56,11 +57,15 @@ test('authored launch panels retain scoped drafts and request identity through r
   await f.newrun.getByRole('button', { name: 'Find task', exact: true }).click();
   await expect(f.newrun.getByLabel('Task', { exact: true })).toHaveValue(JSON.stringify([sourceId, '10042']));
   await expect(f.newrun).toHaveScreenshot('source-launch-form.png', { animations: 'disabled' });
-  await expect(f.underway.getByText('TASK-42: Scoped work for org/a', { exact: true })).toBeVisible();
+  await expect(f.underway.getByText('Scoped work for org/a', { exact: true })).toBeVisible();
+  await expect(f.underway.getByText('TASK-42', { exact: true })).toBeVisible();
   await expect(f.underway).toHaveScreenshot('underway-source-tasks.png', { animations: 'disabled' });
+  await f.newrun.getByText('Model and effort', { exact: true }).click();
+  await f.newrun.getByLabel('Model (optional)', { exact: true }).fill('gpt-6-astra');
+  await f.newrun.getByLabel('Effort', { exact: true }).selectOption('high');
   f.state.loseNext = true; await f.newrun.getByRole('button', { name: 'Weigh anchor', exact: true }).click();
   await expect(f.newrun.getByText('org/a · source · delivery unconfirmed', { exact: true })).toBeVisible();
-  const first = f.commands[0]!; expect(first).toMatchObject({ repo: 'org/a', launch: { mode: 'source', workRef: { sourceId, externalId: '10042' }, sourceInstanceId: 'tasks', sourceInstanceRevision: 2 } });
+  const first = f.commands[0]!; expect(first).toMatchObject({ repo: 'org/a', launch: { mode: 'source', workRef: { sourceId, externalId: '10042' }, sourceInstanceId: 'tasks', sourceInstanceRevision: 2, model: 'gpt-6-astra', effort: 'high' } });
   await page.reload(); await expect(f.newrun.getByRole('button', { name: 'Retry delivery', exact: true })).toBeVisible();
   await f.newrun.getByRole('button', { name: 'Check request', exact: true }).click();
   await expect(f.newrun.getByText(/No recorded receipt is available/)).toBeVisible();

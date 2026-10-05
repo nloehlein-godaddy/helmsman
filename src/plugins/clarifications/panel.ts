@@ -157,7 +157,7 @@ class Questions implements PluginPanelInstance {
       const form = node('form'); const label = node('label', 'Answer'); const input = node('textarea'); input.maxLength = 4000; input.value = draft?.text ?? ''; input.name = 'answer'; input.dataset.focus = `answer:${key(identity(item))}`;
       input.disabled = !this.active() || !this.saved.writable || !draft && this.saved.value.drafts.length >= 64;
       input.addEventListener('input', () => { this.saved.edit(value => { const current = value.drafts.find(value => key(value) === key(identity(item))); if (current) current.text = input.value; else value.drafts.push({ ...identity(item), text: input.value }); }); void this.saved.save(); });
-      label.append(input); form.append(label); const submit = this.button('Accept answer', () => this.answer(item), !this.ready || !this.saved.writable || !item.answerability?.available || this.blocked(identity(item))); form.append(submit);
+      label.append(input); form.append(label); const submit = this.button('Accept answer', () => this.answer(item), !this.ready || !this.saved.writable || !item.answerability?.available || this.blocked(identity(item))); submit.className = 'primary-action'; form.append(submit);
       form.addEventListener('submit', event => { event.preventDefault(); this.answer(item); }); row.append(form); root.append(row);
     }
     const pages = node('div'); pages.className = 'question-tools'; pages.append(this.button('Previous page', () => { void this.loadPage(this.page - 1, this.cursors); }, this.loading || this.page === 0), node('span', `Page ${this.page + 1} · ${this.items.length} questions shown.`),

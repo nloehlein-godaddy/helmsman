@@ -18,22 +18,22 @@ test('independent page defaults seed only fresh layouts and survive replacement 
     await expect(page.getByText('This panel is unavailable. Enable or install its plugin to bring it aboard.', { exact: true })).toBeVisible();
     await host.installAuthorPackage('plugin-sources/backlog-alternative');
     await expect(page.locator('.alternative-helm .alternative-backlog')).toContainText('Package-owned initial layout', { timeout: 15_000 });
-    await expect(page.locator('[data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(1);
-    await expect(page.locator('[data-panel-instance]:not(:has([data-panel-instance]))')).toHaveAttribute('data-panel-instance', 'queue');
+    await expect(page.locator('#page-content [data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(1);
+    await expect(page.locator('#page-content [data-panel-instance]:not(:has([data-panel-instance]))')).toHaveAttribute('data-panel-instance', 'queue');
     await page.reload();
     await expect(page.locator('.alternative-backlog')).toBeVisible();
     await host.cli('select', 'helmsman/helm-page', 'default');
     await expect(page.locator('.plugin-helm .alternative-backlog')).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('[data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(1);
+    await expect(page.locator('#page-content [data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(1);
     await page.getByText('Manage panels', { exact: true }).click();
     await page.getByRole('button', { name: /^Remove(?: ·|$)/ }).click();
-    await expect(page.locator('[data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(0);
+    await expect(page.locator('#page-content [data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(0);
     await page.reload();
     await expect(page.locator('.plugin-helm')).toBeVisible();
-    await expect(page.locator('[data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(0);
+    await expect(page.locator('#page-content [data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(0);
     await host.cli('select', 'helmsman/helm-page', 'example.helm/page');
     await expect(page.locator('.alternative-helm')).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('[data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(0);
+    await expect(page.locator('#page-content [data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(0);
     expect(errors).toEqual([]);
   } finally { await host.close(); }
 });

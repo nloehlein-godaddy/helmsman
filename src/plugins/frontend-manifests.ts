@@ -1,3 +1,13 @@
+import costsPackage from './costs/plugin-package.json' with { type: 'json' };
+import helmPackage from './helm/plugin-package.json' with { type: 'json' };
+import backlogPackage from './backlog/plugin-package.json' with { type: 'json' };
+import runningPackage from './running/plugin-package.json' with { type: 'json' };
+import recentPackage from './recent/plugin-package.json' with { type: 'json' };
+import underwayPackage from './underway/plugin-package.json' with { type: 'json' };
+import newRunPackage from './newrun/plugin-package.json' with { type: 'json' };
+import repoPrsPackage from './repoprs/plugin-package.json' with { type: 'json' };
+import shippedPackage from './shipped/plugin-package.json' with { type: 'json' };
+import activityPackage from './activity/plugin-package.json' with { type: 'json' };
 import executionSettingsPackage from './execution-settings/plugin-package.json' with { type: 'json' };
 import productFeedbackPackage from './product-feedback/plugin-package.json' with { type: 'json' };
 import profilePackage from './profile/plugin-package.json' with { type: 'json' };
@@ -8,7 +18,7 @@ import campaignsPackage from './campaigns/plugin-package.json' with { type: 'jso
 import terminalPackage from './terminal/plugin-package.json' with { type: 'json' };
 import communicationPackage from './communication/plugin-package.json' with { type: 'json' };
 import type { PluginManifest, PluginPageDefinition } from './sdk';
-import { builtinPageSlots, COSTS_PAGE_SLOT, HELM_PAGE_SLOT, HELM_PANEL_CONTRACT } from './page-slots';
+import { builtinPageSlots } from './page-slots';
 export * from './page-slots';
 import todosPackage from './todos-ui/plugin-package.json' with { type: 'json' };
 import triagePackage from './triage/plugin-package.json' with { type: 'json' };
@@ -28,69 +38,16 @@ export function supportsPageSlot(page: PluginPageDefinition, slot: string): bool
     && page.composition.version === 1 && page.composition.accepts.some(contract => contract.id === definition.panelContract && contract.version === 1));
 }
 
-export const costsManifest: PluginManifest = {
-  manifestVersion: 1, id: 'helmsman.costs', version: '0.1.0', sdkVersion: 1,
-  pages: [{ id: 'page', title: 'Costs & Outcomes', slots: [COSTS_PAGE_SLOT], panes: ['summary', 'history'] }],
-};
-
-export const helmManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.helm', version: '0.1.0', sdkVersion: 1,
-  pages: [{ id: 'page', title: 'Helm', slots: [HELM_PAGE_SLOT], panes: [],
-    composition: { id: HELM_PAGE_SLOT, version: 1, accepts: [{ id: HELM_PANEL_CONTRACT, version: 1 }],
-      initialLayout: {
-        instances: ['underway', 'newrun', 'backlog', 'running', 'repoprs', 'recent', 'activity', 'shipped'].map(instanceId =>
-          ({ instanceId, contributionId: `helmsman.${instanceId}/panel` })),
-        columns: [['underway', 'newrun', 'backlog', 'running', 'repoprs'], ['recent', 'activity', 'shipped']].map(column =>
-          column.map(instanceId => ({ instances: [instanceId], activeInstanceId: instanceId, collapsed: false }))),
-      } },
-    requires: [{ id: 'helmsman/composition', version: 1 }] }], panels: [],
-};
-
-export const backlogManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.backlog', version: '0.1.0', sdkVersion: 1, pages: [],
-  panels: [{ id: 'panel', title: 'Backlog', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/task-read', version: 1 }, { id: 'helmsman/run-command', version: 1 }] }],
-};
-
-export const runningManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.running', version: '0.1.0', sdkVersion: 1, pages: [],
-  panels: [{ id: 'panel', title: 'Running', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/run-read', version: 1 }, { id: 'helmsman/run-command', version: 1 }] }],
-};
-export const recentManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.recent', version: '0.1.0', sdkVersion: 1, pages: [],
-  panels: [{ id: 'panel', title: 'Recent', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/run-read', version: 1 }, { id: 'helmsman/run-command', version: 1 }] }],
-};
-
-export const underwayManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.underway', version: '0.1.0', sdkVersion: 1, pages: [],
-  panels: [{ id: 'panel', title: 'Underway', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/task-read', version: 1 }, { id: 'helmsman/run-command', version: 1 }] }],
-};
-export const newRunManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.newrun', version: '0.1.0', sdkVersion: 1, pages: [],
-  panels: [{ id: 'panel', title: 'New run', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/task-read', version: 1 }, { id: 'helmsman/run-command', version: 1 }] }],
-};
-
-export const repoPrsManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.repoprs', version: '0.1.0', sdkVersion: 1, pages: [],
-  panels: [{ id: 'panel', title: 'Pull requests', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/pull-request-read', version: 1 }] }],
-};
-export const shippedManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.shipped', version: '0.1.0', sdkVersion: 1, pages: [],
-  panels: [{ id: 'panel', title: 'Shipped', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/pull-request-read', version: 1 }] }],
-};
-
-export const activityManifest: PluginManifest = {
-  manifestVersion: 2, id: 'helmsman.activity', version: '0.1.0', sdkVersion: 1, pages: [],
-  panels: [{ id: 'panel', title: 'Activity log', contract: { id: HELM_PANEL_CONTRACT, version: 1 },
-    requires: [{ id: 'helmsman/task-read', version: 1 }, { id: 'helmsman/activity-read', version: 1 },
-      { id: 'helmsman/pull-request-read', version: 1 }] }],
-};
+export const costsManifest = { ...costsPackage.manifest, id: 'helmsman.costs' } as PluginManifest;
+export const helmManifest = helmPackage.manifest as PluginManifest;
+export const backlogManifest = backlogPackage.manifest as PluginManifest;
+export const runningManifest = runningPackage.manifest as PluginManifest;
+export const recentManifest = recentPackage.manifest as PluginManifest;
+export const underwayManifest = underwayPackage.manifest as PluginManifest;
+export const newRunManifest = newRunPackage.manifest as PluginManifest;
+export const repoPrsManifest = repoPrsPackage.manifest as PluginManifest;
+export const shippedManifest = shippedPackage.manifest as PluginManifest;
+export const activityManifest = activityPackage.manifest as PluginManifest;
 
 export const todosManifest = todosPackage.manifest as PluginManifest;
 export const triageManifest = triagePackage.manifest as PluginManifest;

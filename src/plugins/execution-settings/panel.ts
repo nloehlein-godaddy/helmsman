@@ -50,7 +50,8 @@ const panel: PluginPanelModule = { mount(container, context) {
           const consent = node('label'); const check = node('input'); check.type = 'checkbox'; check.checked = confirmed; check.disabled = busy || !!pending;
           check.addEventListener('change', () => { confirmed = check.checked; draw(); }); consent.append(check, document.createTextNode(' Enable parallel runs with these limits')); root.append(consent);
         }
-        root.append(button(pending ? 'Retry saved change' : 'Save execution settings', () => { void save(); }, busy || storageError || !pending && (!Number.isSafeInteger(selected) || selected < 1 || selected > 20 || selected > 1 && (!parallelReady || !confirmed))));
+        const saveButton = button(pending ? 'Retry saved change' : 'Save execution settings', () => { void save(); }, busy || storageError || !pending && (!Number.isSafeInteger(selected) || selected < 1 || selected > 20 || selected > 1 && (!parallelReady || !confirmed)));
+        saveButton.className = 'primary-action'; root.append(saveButton);
         if (pending) root.append(node('p', `Saved request: limit ${pending.maxConcurrentRuns}, based on revision ${pending.expectedRevision}. Retry checks the same request without applying it twice.`));
         if (pending && conflicted) root.append(button('Discard conflicted request', () => { try { localStorage.removeItem(key(pending!.repo)); restore(); message = ''; void read(); } catch { storageError = true; draw(); } }, busy));
       }

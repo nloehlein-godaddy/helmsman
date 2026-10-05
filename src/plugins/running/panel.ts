@@ -12,7 +12,34 @@ const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null 
   return state === 'changes_remaining' ? 'Feedback remaining' : null;
 };
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
-const styles = `.plugin-run-list{display:grid;gap:10px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:15px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:7px;padding:10px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:var(--radius,4px);cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
+const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:15px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.plugin-run-list{line-height:1.5;overflow-wrap:anywhere}
+.plugin-run-list :is(h2,h3,p){margin:0}
+.plugin-run-list h2{font-size:15px;font-weight:650}
+.plugin-run-list h3{font-size:13px;font-weight:600;color:var(--text-dim)}
+.plugin-run-list :is(button,select,input:not([type=checkbox]):not([type=radio])){min-height:34px}
+.plugin-run-list :is(button,select,input,textarea){font-family:var(--sans,sans-serif);min-width:0}
+.plugin-run-list button{transition:background-color 160ms ease,color 160ms ease}
+.plugin-run-list button:not(:disabled):hover{background:var(--panel-hover,var(--panel));border-color:var(--accent)}
+.plugin-run-list button:disabled{cursor:not-allowed}
+.plugin-run-list :is(a,button){text-underline-offset:3px}
+.plugin-run-list small{font-size:12px;line-height:1.5}
+.plugin-run-list li:last-child{border-bottom:0}
+.plugin-run-list .work-identity{font-family:var(--mono,monospace);font-size:12px;overflow-wrap:anywhere}
+@media(prefers-reduced-motion:reduce){.plugin-run-list button{transition:none}}
+.plugin-run-list .run-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:start}
+.plugin-run-list .run-main>a{font-size:15px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
+.plugin-run-list .run-main>a:hover{color:var(--accent);text-decoration:underline}
+.plugin-run-list .run-main>small{grid-column:1;grid-row:2}
+.plugin-run-list .run-status{grid-column:2;grid-row:1/3;align-self:start;padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:var(--panel)}
+.plugin-run-list .run-status[data-status=running]{color:var(--accent)}
+.plugin-run-list .run-status[data-status=failed]{color:var(--bad)}
+.plugin-run-list .run-evidence{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--text-dim);font-size:12px}
+.plugin-run-list .run-actions{gap:8px}
+@media(max-width:480px){.plugin-run-list .run-main{grid-template-columns:minmax(0,1fr)}.plugin-run-list .run-status{grid-column:1;grid-row:3;justify-self:start}}
+[role=tabpanel][aria-labelledby][data-panel-instance] .plugin-run-list>header>h2{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+[role=tabpanel][aria-labelledby][data-panel-instance] .plugin-run-list>header{display:contents}
+`;
 
 class RunListPanel implements PluginPanelInstance {
   private readonly container: HTMLElement;
@@ -184,8 +211,7 @@ class RunListPanel implements PluginPanelInstance {
     const focus = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.runFocus : undefined;
     const root = node('section'); root.className = `plugin-run-list plugin-${presentation.name}`;
     root.setAttribute('aria-busy', String(this.loading)); root.append(node('style', styles));
-    const header = node('header'); header.append(node('h2', presentation.kind === 'running' ? this.state.pirateMode ? 'Deckhand tasks' : 'Agent tasks' : this.state.pirateMode ? 'Recent voyages' : 'Recent runs'),
-      this.button('Refresh', () => { void this.refresh(); }, !this.active())); root.append(header);
+    const header = node('header'); header.append(node('h2', presentation.kind === 'running' ? this.state.pirateMode ? 'Deckhand tasks' : 'Agent tasks' : this.state.pirateMode ? 'Recent voyages' : 'Recent runs')); root.append(header);
     for (const message of [this.error, this.commandError]) if (message) { const error = node('p', message); error.setAttribute('role', 'alert'); root.append(error); }
     const list = node('ul'); const visible = new Set<string>();
     for (const run of this.rows) {
@@ -194,11 +220,13 @@ class RunListPanel implements PluginPanelInstance {
       const main = node('div'); main.className = 'run-main';
       const title = run.prNumber ? `${run.displayKey} · ${this.state.pirateMode ? 'Bounty' : 'PR'} #${run.prNumber}` : run.displayKey;
       main.append(this.link(title, this.detail(run.id, run.repo)), node('small', run.repo), node('span', `Worker: ${run.status === 'running' && this.state.pirateMode ? 'Underway' : run.status}`));
-      const status = main.lastElementChild; if (status) status.className = 'run-status'; row.append(main);
+      const status = main.lastElementChild; if (status instanceof HTMLElement) { status.className = 'run-status'; status.dataset.status = run.status; } row.append(main);
       const timestamp = Number.isFinite(Date.parse(run.startedAt)) ? new Date(run.startedAt).toLocaleString() : 'Unknown start time';
       const elapsed = Math.max(0, Math.floor((Date.now() - Date.parse(run.startedAt)) / 60_000));
       if (run.status === 'running' && Number.isFinite(elapsed)) row.append(node('small', `${elapsed < 60 ? `${elapsed}m` : `${Math.floor(elapsed / 60)}h ${elapsed % 60}m`} elapsed`));
-      row.append(node('small', `${run.id} · Attempt ${run.attempt} · Started ${timestamp} · ${run.costUsd === null ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`}`));
+      const evidence = node('div'); evidence.className = 'run-evidence';
+      const identity = node('span', run.id); identity.className = 'work-identity';
+      evidence.append(identity, node('span', `Attempt ${run.attempt}`), node('span', `Started ${timestamp}`), node('span', run.costUsd === null ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`)); row.append(evidence);
       const feedback = feedbackLabel(run);
       if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = run.feedbackOutcome?.summary ?? ''; row.append(outcome); }
       if (run.review) row.append(node('p', `Review recommendation: ${{ APPROVE: 'Approve', REQUEST_CHANGES: 'Request changes', COMMENT: 'Comment' }[run.review.outcome]}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
@@ -221,7 +249,7 @@ class RunListPanel implements PluginPanelInstance {
     if (pending.length) { const saved = node('section'); saved.append(node('h3', `Saved requests (${pending.length})`)); for (const [, command] of pending) { const row = node('div', `${command.runId} · ${command.repo} · Attempt ${command.attempt}`); row.dataset.runKey = key({ repo: command.repo, id: command.runId, attempt: command.attempt }); this.commandFeedback(row, command); saved.append(row); } root.append(saved); }
     if (this.truncated) root.append(node('small', `Showing the first ${presentation.limit} ${presentation.kind === 'running' ? 'active' : 'recent'} runs.`));
     const history = new URLSearchParams({ pane: 'recent' }); if (this.state.repo) history.set('repo', this.state.repo);
-    root.append(this.link(this.state.pirateMode ? 'All voyages' : 'All runs', `/runs?${history}`));
+    const footer = node('footer'); footer.className = 'run-actions'; footer.append(this.link(this.state.pirateMode ? 'All voyages' : 'All runs', `/runs?${history}`), this.button('Refresh', () => { void this.refresh(); }, !this.active())); root.append(footer);
     const controls = Array.from(root.querySelectorAll<HTMLElement>('a,button'));
     for (const control of controls) control.dataset.runFocus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey ?? '', control.tagName, control.getAttribute('aria-label') ?? control.textContent, control.getAttribute('href')]);
     this.container.replaceChildren(root);
