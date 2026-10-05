@@ -33,19 +33,19 @@ export const styles = `
 .product-feedback button{margin:.75rem .5rem .25rem 0}
 .product-feedback pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .product-feedback a{overflow-wrap:anywhere}
-.product-feedback { font: 14px/1.5 var(--sans, sans-serif); color: var(--text); min-width: 0; }
+.product-feedback { font: 16px/1.5 var(--sans, sans-serif); color: var(--text); min-width: 0; }
 .product-feedback :is(h1,h2,h3) { font-family: var(--sans, sans-serif); line-height: 1.3; letter-spacing: -.02em; text-wrap: balance; }
-.product-feedback h1 { font-size: 24px; }
-.product-feedback h2 { font-size: 18px; }
-.product-feedback h3 { font-size: 16px; }
-.product-feedback :is(button,input:not([type=checkbox]):not([type=radio]),select,textarea) { box-sizing: border-box; border-radius: 6px; font: 14px/1.4 var(--sans, sans-serif); min-height: 36px; }
+.product-feedback h1 { font-size: 26px; }
+.product-feedback h2 { font-size: 20px; }
+.product-feedback h3 { font-size: 18px; }
+.product-feedback :is(button,input:not([type=checkbox]):not([type=radio]),select,textarea) { box-sizing: border-box; border-radius: 6px; font: 16px/1.4 var(--sans, sans-serif); min-height: 36px; }
 .product-feedback button { padding: 6px 12px; text-transform: none; letter-spacing: normal; transition: background-color 160ms ease-out, border-color 160ms ease-out; }
 .product-feedback button:hover:not(:disabled) { background-color: var(--face-hi); border-color: var(--line-strong); }
 .product-feedback button:disabled { cursor: default; opacity: .5; }
 .product-feedback :is(input:not([type=checkbox]):not([type=radio]),select,textarea) { padding: 6px 12px; color: var(--text); background: var(--control-bg, var(--face-hi)); border: 1px solid var(--control-border, var(--line-strong)); max-width: 100%; }
 .product-feedback :is(button,input,select,textarea,summary,a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .product-feedback :is(p,small) { line-height: 1.5; overflow-wrap: anywhere; }
-.product-feedback small { font-size: 12px; }
+.product-feedback small { font-size: 14px; }
 .product-feedback p { max-width: 75ch; }
 .product-feedback :is(button[type=submit],button.primary-action,button.campaign-primary) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .product-feedback :is(button[type=submit],button.primary-action,button.campaign-primary):hover:not(:disabled) { background: var(--accent-bright, var(--accent)); border-color: var(--accent-bright, var(--accent)); color: var(--on-accent); }

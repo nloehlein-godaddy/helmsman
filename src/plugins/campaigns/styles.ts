@@ -25,13 +25,13 @@ export const styles = `
 .campaign-page td:first-child { min-width: 10rem; max-width: 30rem; overflow-wrap: anywhere; }
 @media (max-width: 850px) { .campaign-layout { grid-template-columns: minmax(0, 1fr); }
  }
-.campaign-page h1 { margin: 0 0 7px; font-size: 18px; }
-.campaign-page > p:not(.campaign-error) { max-width: 75ch; margin: 0 0 18px; color: var(--text-dim); font-size: 12px; line-height: 1.6; }
-.campaign-page h2 { margin: 0 0 12px; font-size: 14px; overflow-wrap: anywhere; }
-.campaign-page h3 { margin: 0 0 8px; font-size: 14px; overflow-wrap: anywhere; }
+.campaign-page h1 { margin: 0 0 7px; font-size: 20px; }
+.campaign-page > p:not(.campaign-error) { max-width: 75ch; margin: 0 0 18px; color: var(--text-dim); font-size: 14px; line-height: 1.6; }
+.campaign-page h2 { margin: 0 0 12px; font-size: 16px; overflow-wrap: anywhere; }
+.campaign-page h3 { margin: 0 0 8px; font-size: 16px; overflow-wrap: anywhere; }
 .campaign-page form + h2 { margin-top: 24px; }
 .campaign-detail > form { margin: 18px 0; }
-.campaign-settings { font-size: 12px; margin: 0 0 8px; }
+.campaign-settings { font-size: 14px; margin: 0 0 8px; }
 .campaign-settings summary { cursor: pointer; color: var(--text-dim); }
 .campaign-settings > div { display: grid; gap: 12px; padding-top: 12px; }
 .campaign-hint { line-height: 1.6; }
@@ -42,19 +42,19 @@ export const styles = `
 .campaign-recovery {padding:1rem;}
 .campaign-recovery article {border-top:1px solid var(--line-faint);padding:.75rem 0;overflow-wrap:anywhere;}
 .campaign-scope {display:flex;gap:.5rem;flex-wrap:wrap;padding:1rem;}
-.campaign-page { font: 14px/1.5 var(--sans, sans-serif); color: var(--text); min-width: 0; }
+.campaign-page { font: 16px/1.5 var(--sans, sans-serif); color: var(--text); min-width: 0; }
 .campaign-page :is(h1,h2,h3) { font-family: var(--sans, sans-serif); line-height: 1.3; letter-spacing: -.02em; text-wrap: balance; }
-.campaign-page h1 { font-size: 24px; }
-.campaign-page h2 { font-size: 18px; }
-.campaign-page h3 { font-size: 16px; }
-.campaign-page :is(button,input:not([type=checkbox]):not([type=radio]),select,textarea) { box-sizing: border-box; border-radius: 6px; font: 14px/1.4 var(--sans, sans-serif); min-height: 36px; }
+.campaign-page h1 { font-size: 26px; }
+.campaign-page h2 { font-size: 20px; }
+.campaign-page h3 { font-size: 18px; }
+.campaign-page :is(button,input:not([type=checkbox]):not([type=radio]),select,textarea) { box-sizing: border-box; border-radius: 6px; font: 16px/1.4 var(--sans, sans-serif); min-height: 36px; }
 .campaign-page button { padding: 6px 12px; text-transform: none; letter-spacing: normal; transition: background-color 160ms ease-out, border-color 160ms ease-out; }
 .campaign-page button:hover:not(:disabled) { background-color: var(--face-hi); border-color: var(--line-strong); }
 .campaign-page button:disabled { cursor: default; opacity: .5; }
 .campaign-page :is(input:not([type=checkbox]):not([type=radio]),select,textarea) { padding: 6px 12px; color: var(--text); background: var(--control-bg, var(--face-hi)); border: 1px solid var(--control-border, var(--line-strong)); max-width: 100%; }
 .campaign-page :is(button,input,select,textarea,summary,a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .campaign-page :is(p,small) { line-height: 1.5; overflow-wrap: anywhere; }
-.campaign-page small { font-size: 12px; }
+.campaign-page small { font-size: 14px; }
 .campaign-page p { max-width: 75ch; }
 .campaign-page :is(button[type=submit],button.primary-action,button.campaign-primary) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .campaign-page :is(button[type=submit],button.primary-action,button.campaign-primary):hover:not(:disabled) { background: var(--accent-bright, var(--accent)); border-color: var(--accent-bright, var(--accent)); color: var(--on-accent); }
@@ -62,6 +62,6 @@ export const styles = `
  }
 .campaign-page .campaign-panel { padding: 16px 0; }
 .campaign-page :is(.campaign-preview,.campaign-confirm) { border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
-.campaign-page > p:not(.campaign-error) { font-size: 14px; }
-.campaign-page .campaign-settings { font-size: 14px; }
+.campaign-page > p:not(.campaign-error) { font-size: 16px; }
+.campaign-page .campaign-settings { font-size: 16px; }
 `;

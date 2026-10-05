@@ -12,29 +12,29 @@ const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null 
   return state === 'changes_remaining' ? 'Feedback remaining' : null;
 };
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
-const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:15px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:17px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .plugin-run-list{line-height:1.5;overflow-wrap:anywhere}
 .plugin-run-list :is(h2,h3,p){margin:0}
-.plugin-run-list h2{font-size:15px;font-weight:650}
-.plugin-run-list h3{font-size:13px;font-weight:600;color:var(--text-dim)}
+.plugin-run-list h2{font-size:17px;font-weight:650}
+.plugin-run-list h3{font-size:15px;font-weight:600;color:var(--text-dim)}
 .plugin-run-list :is(button,select,input:not([type=checkbox]):not([type=radio])){min-height:34px}
 .plugin-run-list :is(button,select,input,textarea){font-family:var(--sans,sans-serif);min-width:0}
 .plugin-run-list button{transition:background-color 160ms ease,color 160ms ease}
 .plugin-run-list button:not(:disabled):hover{background:var(--panel-hover,var(--panel));border-color:var(--accent)}
 .plugin-run-list button:disabled{cursor:not-allowed}
 .plugin-run-list :is(a,button){text-underline-offset:3px}
-.plugin-run-list small{font-size:12px;line-height:1.5}
+.plugin-run-list small{font-size:14px;line-height:1.5}
 .plugin-run-list li:last-child{border-bottom:0}
-.plugin-run-list .work-identity{font-family:var(--mono,monospace);font-size:12px;overflow-wrap:anywhere}
+.plugin-run-list .work-identity{font-family:var(--mono,monospace);font-size:14px;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){.plugin-run-list button{transition:none}}
 .plugin-run-list .run-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:start}
-.plugin-run-list .run-main>a{font-size:15px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
+.plugin-run-list .run-main>a{font-size:17px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
 .plugin-run-list .run-main>a:hover{color:var(--accent);text-decoration:underline}
 .plugin-run-list .run-main>small{grid-column:1;grid-row:2}
-.plugin-run-list .run-status{grid-column:2;grid-row:1/3;align-self:start;padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:var(--panel)}
+.plugin-run-list .run-status{grid-column:2;grid-row:1/3;align-self:start;padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:14px;background:var(--panel)}
 .plugin-run-list .run-status[data-status=running]{color:var(--accent)}
 .plugin-run-list .run-status[data-status=failed]{color:var(--bad)}
-.plugin-run-list .run-evidence{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--text-dim);font-size:12px}
+.plugin-run-list .run-evidence{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--text-dim);font-size:14px}
 .plugin-run-list .run-actions{gap:8px}
 @media(max-width:480px){.plugin-run-list .run-main{grid-template-columns:minmax(0,1fr)}.plugin-run-list .run-status{grid-column:1;grid-row:3;justify-self:start}}
 [role=tabpanel][aria-labelledby][data-panel-instance] .plugin-run-list>header>h2{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}

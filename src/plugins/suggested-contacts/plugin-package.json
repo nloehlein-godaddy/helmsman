@@ -3,7 +3,7 @@
   "manifest": {
     "manifestVersion": 2,
     "id": "helmsman.suggested-contacts",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "sdkVersion": 1,
     "pages": [],
     "panels": [

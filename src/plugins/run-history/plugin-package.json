@@ -3,7 +3,7 @@
   "manifest": {
     "manifestVersion": 2,
     "id": "helmsman.run-history",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "sdkVersion": 1,
     "pages": [
       {

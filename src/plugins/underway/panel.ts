@@ -12,24 +12,24 @@ const taskFocusKey = (source: TaskReadSourceV1, task: TaskReadTaskV1, control: s
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => {
   const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value;
 };
-const styles = `.plugin-underway{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-underway h2,.plugin-underway h3{font-size:14px;margin:0}.plugin-underway .underway-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}.plugin-underway :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:6px;max-width:100%}.plugin-underway select{background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}.plugin-underway button{cursor:pointer}.plugin-underway button:disabled{opacity:.5}.plugin-underway ul{list-style:none;padding:0;margin:0}.plugin-underway li{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-underway a{color:var(--accent)}.plugin-underway small{display:block;color:var(--text-dim)}.plugin-underway section{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0}.plugin-underway [role=alert]{color:var(--bad)}.plugin-underway :is(button,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+const styles = `.plugin-underway{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;color:var(--text);font:16px var(--sans,sans-serif);min-width:0}.plugin-underway h2,.plugin-underway h3{font-size:16px;margin:0}.plugin-underway .underway-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}.plugin-underway :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:6px;max-width:100%}.plugin-underway select{background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}.plugin-underway button{cursor:pointer}.plugin-underway button:disabled{opacity:.5}.plugin-underway ul{list-style:none;padding:0;margin:0}.plugin-underway li{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-underway a{color:var(--accent)}.plugin-underway small{display:block;color:var(--text-dim)}.plugin-underway section{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0}.plugin-underway [role=alert]{color:var(--bad)}.plugin-underway :is(button,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .plugin-underway{line-height:1.5;overflow-wrap:anywhere}
 .plugin-underway :is(h2,h3,p){margin:0}
-.plugin-underway h2{font-size:15px;font-weight:650}
-.plugin-underway h3{font-size:13px;font-weight:600;color:var(--text-dim)}
+.plugin-underway h2{font-size:17px;font-weight:650}
+.plugin-underway h3{font-size:15px;font-weight:600;color:var(--text-dim)}
 .plugin-underway :is(button,select,input:not([type=checkbox]):not([type=radio])){min-height:34px}
 .plugin-underway :is(button,select,input,textarea){font-family:var(--sans,sans-serif);min-width:0}
 .plugin-underway button{transition:background-color 160ms ease,color 160ms ease}
 .plugin-underway button:not(:disabled):hover{background:var(--panel-hover,var(--panel));border-color:var(--accent)}
 .plugin-underway button:disabled{cursor:not-allowed}
 .plugin-underway :is(a,button){text-underline-offset:3px}
-.plugin-underway small{font-size:12px;line-height:1.5}
+.plugin-underway small{font-size:14px;line-height:1.5}
 .plugin-underway li:last-child{border-bottom:0}
-.plugin-underway .work-state{display:inline-flex;align-items:center;justify-self:start;gap:4px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;font-weight:600;color:var(--text);background:var(--panel)}
-.plugin-underway .work-identity{font-family:var(--mono,monospace);font-size:12px;overflow-wrap:anywhere}
+.plugin-underway .work-state{display:inline-flex;align-items:center;justify-self:start;gap:4px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-weight:600;color:var(--text);background:var(--panel)}
+.plugin-underway .work-identity{font-family:var(--mono,monospace);font-size:14px;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){.plugin-underway button{transition:none}}
 .plugin-underway li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:start}
-.plugin-underway .task-title{grid-column:1/-1;font-size:15px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
+.plugin-underway .task-title{grid-column:1/-1;font-size:17px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
 .plugin-underway a.task-title:hover{color:var(--accent);text-decoration:underline}
 .plugin-underway .task-evidence{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;grid-column:1/-1}
 .plugin-underway li>small{grid-column:1/-1}

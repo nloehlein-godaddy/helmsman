@@ -33,54 +33,54 @@ colors:
 typography:
   page-title:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
-    fontSize: "24px"
+    fontSize: "26px"
     fontWeight: 650
     lineHeight: 1.25
     letterSpacing: "-0.02em"
   headline:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
-    fontSize: "18px"
+    fontSize: "20px"
     lineHeight: 1.3
     letterSpacing: "-0.02em"
   subheading:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
-    fontSize: "16px"
+    fontSize: "18px"
     lineHeight: 1.3
     letterSpacing: "-0.02em"
   panel-title:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
-    fontSize: "15px"
+    fontSize: "17px"
     fontWeight: 650
     lineHeight: 1.5
   work-title:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
-    fontSize: "15px"
+    fontSize: "17px"
     fontWeight: 600
     lineHeight: 1.45
   body:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
-    fontSize: "14px"
+    fontSize: "16px"
     fontWeight: 400
     lineHeight: 1.5
   control:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
-    fontSize: "14px"
+    fontSize: "16px"
     lineHeight: 1.4
   navigation:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
-    fontSize: "13px"
+    fontSize: "15px"
     fontWeight: 500
     lineHeight: 1.4
   evidence:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
-    fontSize: "12px"
+    fontSize: "14px"
     lineHeight: 1.5
   identifier:
     fontFamily: "\"JetBrains Mono\", ui-monospace, \"SFMono-Regular\", Menlo, Consolas, monospace"
-    fontSize: "12px"
+    fontSize: "14px"
   log:
     fontFamily: "\"JetBrains Mono\", ui-monospace, \"SFMono-Regular\", Menlo, Consolas, monospace"
-    fontSize: "12px"
+    fontSize: "14px"
     lineHeight: 1.6
 rounded:
   control: "6px"
@@ -199,7 +199,7 @@ Evergreen navigation, dark green-neutral work surfaces and restrained teal selec
 - **Panel title:** local standalone panel heading; composed tabs use the smaller navigation/control rhythm.
 - **Work title:** linked task identity in running/recent work and PR rows.
 - **Body:** general plugin content. Prose typically caps at (75ch); shell introductions cap at (72ch).
-- **Control / navigation:** sentence-case labels. Global shell controls use (13px); authored plugin controls use the frontmatter control role.
+- **Control / navigation:** sentence-case labels. Global shell controls use (15px); authored plugin controls use the frontmatter control role.
 - **Evidence:** subordinate repository, elapsed-time and outcome text.
 - **Identifier / log:** technical identities and selectable log text; tabular numerals are used where present.
 

@@ -10,24 +10,24 @@ const key = (source: Selection): string => JSON.stringify([source.repo, source.s
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => {
   const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value;
 };
-const styles = `.plugin-backlog{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;color:var(--text);font:14px var(--sans,sans-serif);min-width:0}.plugin-backlog h2,.plugin-backlog h3{font-size:14px;margin:0}.plugin-backlog .backlog-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}.plugin-backlog :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:6px;max-width:100%}.plugin-backlog select{background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}.plugin-backlog button{cursor:pointer}.plugin-backlog button:disabled{opacity:.5}.plugin-backlog ul{list-style:none;padding:0;margin:0}.plugin-backlog li{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-backlog a{color:var(--accent)}.plugin-backlog small{display:block;color:var(--text-dim)}.plugin-backlog section{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0}.plugin-backlog [role=alert]{color:var(--bad)}.plugin-backlog :is(button,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+const styles = `.plugin-backlog{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;color:var(--text);font:16px var(--sans,sans-serif);min-width:0}.plugin-backlog h2,.plugin-backlog h3{font-size:16px;margin:0}.plugin-backlog .backlog-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}.plugin-backlog :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:6px;max-width:100%}.plugin-backlog select{background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}.plugin-backlog button{cursor:pointer}.plugin-backlog button:disabled{opacity:.5}.plugin-backlog ul{list-style:none;padding:0;margin:0}.plugin-backlog li{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-backlog a{color:var(--accent)}.plugin-backlog small{display:block;color:var(--text-dim)}.plugin-backlog section{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0}.plugin-backlog [role=alert]{color:var(--bad)}.plugin-backlog :is(button,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .plugin-backlog{line-height:1.5;overflow-wrap:anywhere}
 .plugin-backlog :is(h2,h3,p){margin:0}
-.plugin-backlog h2{font-size:15px;font-weight:650}
-.plugin-backlog h3{font-size:13px;font-weight:600;color:var(--text-dim)}
+.plugin-backlog h2{font-size:17px;font-weight:650}
+.plugin-backlog h3{font-size:15px;font-weight:600;color:var(--text-dim)}
 .plugin-backlog :is(button,select,input:not([type=checkbox]):not([type=radio])){min-height:34px}
 .plugin-backlog :is(button,select,input,textarea){font-family:var(--sans,sans-serif);min-width:0}
 .plugin-backlog button{transition:background-color 160ms ease,color 160ms ease}
 .plugin-backlog button:not(:disabled):hover{background:var(--panel-hover,var(--panel));border-color:var(--accent)}
 .plugin-backlog button:disabled{cursor:not-allowed}
 .plugin-backlog :is(a,button){text-underline-offset:3px}
-.plugin-backlog small{font-size:12px;line-height:1.5}
+.plugin-backlog small{font-size:14px;line-height:1.5}
 .plugin-backlog li:last-child{border-bottom:0}
-.plugin-backlog .work-state{display:inline-flex;align-items:center;justify-self:start;gap:4px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;font-weight:600;color:var(--text);background:var(--panel)}
-.plugin-backlog .work-identity{font-family:var(--mono,monospace);font-size:12px;overflow-wrap:anywhere}
+.plugin-backlog .work-state{display:inline-flex;align-items:center;justify-self:start;gap:4px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-weight:600;color:var(--text);background:var(--panel)}
+.plugin-backlog .work-identity{font-family:var(--mono,monospace);font-size:14px;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){.plugin-backlog button{transition:none}}
 .plugin-backlog li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:start}
-.plugin-backlog .task-title{grid-column:1/-1;font-size:15px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
+.plugin-backlog .task-title{grid-column:1/-1;font-size:17px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
 .plugin-backlog a.task-title:hover{color:var(--accent);text-decoration:underline}
 .plugin-backlog .task-evidence{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;grid-column:1/-1}
 .plugin-backlog li>small{grid-column:1/-1}
