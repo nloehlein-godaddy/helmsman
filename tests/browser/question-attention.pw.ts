@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+const clarificationsManifest = JSON.parse(readFileSync(new URL('../../src/plugins/clarifications/plugin-package.json', import.meta.url), 'utf8')).manifest;
 
 for (const width of [1440, 390]) test(`question attention chimes once and follows the selected tab at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 1000 }); await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -26,7 +29,7 @@ for (const width of [1440, 390]) test(`question attention chimes once and follow
     if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
     if (!url.pathname.startsWith('/api/')) return route.continue();
     let body: unknown = {};
-    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [{ id: 'helmsman.clarifications', version: '0.2.0', hash: 'a'.repeat(64), enabled: true }] };
+    if (url.pathname === '/api/plugins/catalog') body = { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [{ id: clarificationsManifest.id, version: clarificationsManifest.version, hash: 'a'.repeat(64), enabled: true }] };
     else if (url.pathname === '/api/context') body = { repos: ['org/a', 'org/b'], jiraEnabled: false, jiraBaseUrl: null };
     else if (url.pathname === '/api/agents') body = { runs: [], autoClaim: [], caps: {} };
     else if (url.pathname === '/api/config') body = { config: {}, overridden: [] };
