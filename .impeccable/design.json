@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-05T23:04:37.577Z",
+  "generatedAt": "2026-10-05T23:59:29.889Z",
   "title": "Design System: Helmsman — Field Guide",
   "extensions": {
     "colorMeta": {
@@ -556,6 +556,14 @@
       "description": "Evergreen destination navigation.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Pages\"><a class=\"ds-nav-link ds-nav-active\" href=\"#helm\" aria-current=\"page\">Helm</a><a class=\"ds-nav-link\" href=\"#runs\">Runs</a></nav>",
       "css": ".ds-nav{display:flex;flex-direction:column;gap:4px;padding:24px 12px;background:var(--nav-bg);width:176px}.ds-nav-link{font:500 15px/1.4 var(--sans,system-ui,sans-serif);color:var(--nav-muted);border:1px solid transparent;border-radius:6px;padding:10px 14px;text-decoration:none}.ds-nav-link:hover,.ds-nav-active{color:var(--nav-text);background:var(--nav-active)}.ds-nav-active{border-color:var(--nav-muted);font-weight:650}.ds-nav-link:focus-visible{outline:2px solid var(--nav-text);outline-offset:1px}@media(max-width:840px){.ds-nav{flex-direction:row;overflow:auto;width:auto;padding:8px 12px}.ds-nav-link{padding:8px 12px;white-space:nowrap}}"
+    },
+    {
+      "name": "Section navigation",
+      "kind": "nav",
+      "refersTo": "section-link",
+      "description": "Persistent Config and Runs sibling links above the scrolling work area on parent and child pages; hidden elsewhere. The primary parent stays selected, while Overview or the exact child carries aria-current. Links preserve header scope and follow terminology and selected replacement pages; a directly opened alternative gets its own current link. Overflow scrolls horizontally, and navigation or resize reveals the current destination without moving page content.",
+      "html": "<nav class=\"ds-section-nav\" aria-label=\"Runs pages\"><a class=\"ds-section-link\" href=\"/runs\">Overview</a><a class=\"ds-section-link ds-section-active\" href=\"/run-history\" aria-current=\"page\">History</a><a class=\"ds-section-link\" href=\"/run-viewer\">Run details</a></nav>",
+      "css": ".ds-section-nav{position:relative;display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;padding:8px 28px;border-bottom:1px solid var(--line);background:var(--panel)}.ds-section-nav[hidden]{display:none}.ds-section-link{flex-shrink:0;padding:8px 12px;border-radius:6px;font:500 15px/1.4 var(--sans,system-ui,sans-serif);color:var(--text-dim);text-decoration:none;white-space:nowrap}.ds-section-link:hover{color:var(--text);background:var(--panel-hi)}.ds-section-link.ds-section-active{color:var(--accent);background:var(--panel-hi);font-weight:650}.ds-section-link:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}@media(max-width:840px){.ds-section-nav{padding:8px 12px}}"
     },
     {
       "name": "Labeled run state",

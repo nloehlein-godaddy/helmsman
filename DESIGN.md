@@ -129,6 +129,14 @@ components:
   page-tab-active:
     backgroundColor: "{colors.nav-active}"
     textColor: "{colors.nav-text}"
+  section-link:
+    textColor: "{colors.text-dim}"
+    typography: "{typography.navigation}"
+    rounded: "{rounded.control}"
+    padding: "8px 12px"
+  section-link-active:
+    backgroundColor: "{colors.panel-hi}"
+    textColor: "{colors.accent}"
   panel:
     backgroundColor: "{colors.panel}"
     textColor: "{colors.text}"
@@ -211,6 +219,8 @@ Evergreen navigation, dark green-neutral work surfaces and restrained teal selec
 
 A full-width header carries identity, repository scope, readouts and notifications. A (200px) desktop navigation column sits beside the flexible work area; logs and the compact footer sit below that area. Desktop content padding is (28px), with (24px) shell gaps. At (1200px), readouts move to a second header row. At (840px), navigation becomes a horizontally scrolling row and content padding becomes (20px 16px).
 
+Config and Runs keep a horizontal secondary navigation row above the independently scrolling work area on their parent and child pages. It uses panel ground, a thin bottom divider, a (4px) gap and (8px 28px) padding. At (840px), it sits below the primary navigation with (8px 12px) padding. Secondary links stay on one line and scroll horizontally when needed; navigation and resize reveal the current destination within that row. Unrelated pages hide the row.
+
 Authored Helm uses the saved column count, a (16px) grid gap and (16px) panel-body padding. At (760px), panel bodies use (12px) padding and saved columns interleave into one real DOM reading order: first stack from each column, then second stack from each column. Widening restores the columns without remounting panels or saving a layout change. The older rack has a separate (1080px) single-column breakpoint.
 
 Running-work identity and state occupy two columns, with evidence below. At (480px), state follows title and identifier in one column. Theme-preview groups stack at (900px); at (560px), settings controls stack and palette swatches use three columns. The footer keeps recovery and About access compact; About opens a bounded disclosure above it. The docked log-viewer host caps at (40dvh).
@@ -240,6 +250,10 @@ Inputs, selects and textareas share field ground, field boundary and control cor
 ### Navigation
 
 Desktop destinations form a vertical evergreen rail. Hover and selection use the active navigation surface; selection adds a boundary and stronger weight. Small-screen destinations form an overflowing horizontal row. Panel tabs share a header with collapse: selected tabs fill with the accent when multiple tabs exist; a single tab stays neutral. The collapse icon rotates over (160ms), with reduced-motion support.
+
+Config and Runs remain selected in primary navigation throughout their child pages. Their secondary navigation starts with Overview, followed by sibling destination links. Overview is current on the parent page; a child page marks its exact destination with `aria-current="page"` while its primary parent remains selected. Config includes Task sources, Execution, Product feedback, Jira, GitHub, Notifications and Local Git; Runs includes History and run details. Destination labels follow terminology settings and selected replacement pages. Links preserve the header scope; a directly opened alternative page receives its own current link when it differs from the selected destination.
+
+Secondary links use the navigation type role and control corners. Hover uses raised panel ground and primary text; the current destination uses the same ground with accent text and stronger weight (650). Keyboard focus uses a (2px) accent outline inset by (2px). These are native links in a named navigation region, with the current destination revealed by horizontal scrolling without moving page content.
 
 ### Cards / Containers
 
@@ -274,6 +288,6 @@ Run logs use the mono log role, (12px) padding, control corners, neutral panel g
 - Don't use a status hue as the only way to identify state.
 - Don't turn a viewport change into a saved layout edit.
 
-Source evidence: `index.html`, `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/render.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
+Source evidence: `index.html`, `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/render.ts`, `src/logic/navigation.ts`, `src/main.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
 
 Not canonized or repaired: retained legacy lamp glow, uppercase mono status rules and hard-coded amber tints in `src/style.css`, plus glyph icons in compatibility/notification markup, fall outside the selected Field Guide language. Loaded DSEG7 assets do not establish a current type role. PRODUCT.md still describes the previous visual world; it is outside this documentation write boundary.

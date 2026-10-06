@@ -1,6 +1,7 @@
 import { term, isPirateMode, TERMINOLOGY, TERMINOLOGY_REFERENCE_KEYS } from './logic/terminology';
 import { renderThemePreview } from './renderThemePreview';
 import { routeHref, type PageView } from './logic/routes';
+import { navigationSection, navigationChild } from './logic/navigation';
 import { appPages, builtinPageSlots, SOURCE_SETTINGS_PAGE_SLOT } from './plugins/builtins';
 import { escapeHtml as esc } from './logic/html';
 import { PRE_PR_CONFIG_KEYS } from './logic/prePrSettings';
@@ -58,6 +59,7 @@ export interface HelmHeadOpts {
 }
 
 function shippedPageTabs(opts: HelmHeadOpts) {
+  const section = navigationSection(opts);
   return PAGE_TABS.map(tab => {
     const href = routeHref({ view: tab.view, repo: opts.selectedRepo });
     const slot = builtinPageSlots.find(value => value.alias === href.split('?')[0]);
@@ -66,7 +68,7 @@ function shippedPageTabs(opts: HelmHeadOpts) {
       : opts.pluginPage ? opts.pluginPage === selected?.page?.contributionId : tab.view === opts.active;
     return { ...tab, id: `page-tab-${tab.view}`, contributionId: selected?.page?.contributionId ?? null,
       label: selected?.page && selected.contributionId !== slot?.defaultContributionId ? selected.page.title : tab.label,
-      active, href };
+      active: section ? tab.view === section.view : active, current: active && (!section || tab.view === section.view), href };
   });
 }
 
@@ -78,7 +80,7 @@ function pageTabs(opts: HelmHeadOpts) {
       const alias = routeHref({ view: tab.view }).split('?')[0];
       return builtinPageSlots.some(slot => slot.alias === alias && slot.defaultContributionId === page?.contributionId);
     });
-    tabs.push({ id: 'page-tab-plugin', view: opts.active, active: true, contributionId: opts.pluginPage ?? null,
+    tabs.push({ id: 'page-tab-plugin', view: opts.active, active: true, current: true, contributionId: opts.pluginPage ?? null,
       label: shipped?.label ?? page?.title ?? term('unavailablePluginPage'),
       href: routeHref({ view: opts.active, repo: opts.selectedRepo, pluginPage: opts.pluginPage, pluginSlot: opts.pluginSlot }),
     });
@@ -107,6 +109,29 @@ export function activePageTabId(opts: HelmHeadOpts): string {
   return pageTabs(opts).find(tab => tab.active)?.id ?? `page-tab-${opts.active}`;
 }
 
+export function renderSectionNavigation(opts: HelmHeadOpts): string {
+  const section = navigationSection(opts);
+  if (!section) return '<nav class="section-nav" hidden></nav>';
+  const child = navigationChild(opts);
+  const title = PAGE_TABS.find(tab => tab.view === section.view)?.label ?? section.view;
+  const currentHref = routeHref({ view: opts.active, repo: opts.selectedRepo, pluginSlot: opts.pluginSlot, pluginPage: opts.pluginPage });
+  const links = [{ id: 'overview', label: 'Overview', href: child ? routeHref({ view: section.view, repo: opts.selectedRepo }) : currentHref, active: !child },
+    ...section.children.map(item => {
+      const selected = appPages.selected(item.slot);
+      const slot = builtinPageSlots.find(value => value.id === item.slot);
+      const active = opts.pluginSlot ? opts.pluginSlot === item.slot : child?.slot === item.slot && opts.pluginPage === selected.page?.contributionId;
+      return { id: item.slot, active,
+        label: selected.page && selected.contributionId !== slot?.defaultContributionId ? selected.page.title : item.label,
+        href: active && !opts.pluginSlot ? currentHref : routeHref({ view: 'plugin', pluginSlot: item.slot, repo: opts.selectedRepo }),
+      };
+    })];
+  if (child && !links.some(link => link.active)) links.push({ id: 'current', active: true, href: currentHref,
+    label: (opts.pluginPage ? appPages.getPage(opts.pluginPage)?.title : null) ?? term('unavailablePluginPage') });
+  return `<nav class="section-nav" aria-label="${esc(title)} pages" data-section="${section.view}">${links.map(link =>
+    `<a class="section-link app-link${link.active ? ' is-active' : ''}" data-section-link="${esc(link.id)}" href="${esc(link.href)}"${link.active ? ' aria-current="page"' : ''}>${esc(link.label)}</a>`,
+  ).join('')}</nav>`;
+}
+
 export function renderHelmHead(opts: HelmHeadOpts): string {
   const sorted: string[] = [...new Set([...opts.repos, ...(opts.selectedRepo ? [opts.selectedRepo] : [])])]
     .sort((a, b) => shortRepo(a).localeCompare(shortRepo(b)));
@@ -119,7 +144,7 @@ export function renderHelmHead(opts: HelmHeadOpts): string {
     .join('');
   const tabs: string = pageTabs(opts).map(
     (t) =>
-      `<a class="page-tab view-toggle${t.active ? ' is-active' : ''}" href="${esc(t.href)}" data-view="${t.view}" role="tab" id="${t.id}" aria-selected="${t.active}" aria-controls="page-content" tabindex="${t.active ? 0 : -1}"${t.active ? ' aria-current="page"' : ''}>${esc(t.label)}</a>`,
+      `<a class="page-tab view-toggle${t.active ? ' is-active' : ''}" href="${esc(t.href)}" data-view="${t.view}" role="tab" id="${t.id}" aria-selected="${t.active}" aria-controls="page-content" tabindex="${t.active ? 0 : -1}"${t.current ? ' aria-current="page"' : ''}>${esc(t.label)}</a>`,
   ).join('');
   const readout = `<div class="helm-readout" aria-label="${term('systemStatus')}">
     ${(['running', 'queued', 'review'] as const).map((key) => {
@@ -144,7 +169,8 @@ export function renderHelmHead(opts: HelmHeadOpts): string {
         ${renderPagesMenu(opts)}
       </div>
     </header>
-    <nav class="page-tabs" role="tablist" aria-label="Views" aria-orientation="vertical">${tabs}</nav>`;
+    <nav class="page-tabs" role="tablist" aria-label="Views" aria-orientation="vertical">${tabs}</nav>
+    ${renderSectionNavigation(opts)}`;
 }
 
 export function renderAppShell(opts: HelmHeadOpts, content: string): string {

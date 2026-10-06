@@ -65,6 +65,74 @@ afterEach(() => {
 });
 
 describe('persistent app shell', () => {
+  it('keeps Config sibling links and keyboard focus through navigation and refresh', async () => {
+    const { root } = await setup('/config?repo=org/a');
+    const section = root.querySelector<HTMLElement>('.section-nav')!;
+    const links = [...section.querySelectorAll<HTMLAnchorElement>('a')];
+    const source = links.find(link => new URL(link.href).pathname === '/source-settings')!;
+    const github = links.find(link => new URL(link.href).pathname === '/github-settings')!;
+    source.focus();
+    source.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(window.location.pathname).toBe('/source-settings');
+    expect(root.querySelector('.section-nav')).toBe(section);
+    expect([...section.querySelectorAll('a')]).toEqual(links);
+    expect(section.querySelector('[aria-current="page"]')).toBe(source);
+    expect(root.querySelector('.page-tab.is-active')?.id).toBe('page-tab-config');
+    expect(document.activeElement).toBe(source);
+    github.focus();
+    await vi.advanceTimersByTimeAsync(LOCAL_POLL_MS);
+    expect(document.activeElement).toBe(github);
+    expect([...section.querySelectorAll('a')]).toEqual(links);
+    github.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(window.location.pathname).toBe('/github-settings');
+    expect(window.location.search).toBe('?repo=org%2Fa');
+    expect(section.querySelector('[aria-current="page"]')).toBe(github);
+    expect(document.activeElement).toBe(github);
+    links[0]?.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(window.location.pathname).toBe('/config');
+    expect(section.querySelector('[aria-current="page"]')).toBe(links[0]);
+    expect([...section.querySelectorAll('a')]).toEqual(links);
+  });
+
+  it('restores section selection on history navigation and updates sibling scope', async () => {
+    const { root, switchTo } = await setup('/local-git?repo=org/a');
+    const section = root.querySelector<HTMLElement>('.section-nav')!;
+    expect(section.hidden).toBe(false);
+    expect(section.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/local-git?repo=org%2Fa');
+    const repo = root.querySelector<HTMLSelectElement>('.repo-select')!;
+    repo.value = 'org/b';
+    repo.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(0);
+    for (const link of section.querySelectorAll<HTMLAnchorElement>('a')) expect(new URL(link.href).searchParams.get('repo')).toBe('org/b');
+    await switchTo('bugs');
+    expect(section.hidden).toBe(true);
+    window.history.replaceState(null, '', '/run-viewer?repo=org/a&run=run-a&runRepo=org/b');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(root.querySelector('.section-nav')).toBe(section);
+    expect(section.hidden).toBe(false);
+    expect(root.querySelector('.page-tab.is-active')?.id).toBe('page-tab-runs');
+    expect(section.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/run-viewer?repo=org%2Fa');
+    expect([...section.querySelectorAll<HTMLAnchorElement>('a')].map(link => new URL(link.href).pathname)).toEqual(['/runs', '/run-history', '/run-viewer']);
+    for (const link of section.querySelectorAll<HTMLAnchorElement>('a')) expect([...new URL(link.href).searchParams]).toEqual([['repo', 'org/a']]);
+  });
+
+  it('reveals the active section link on resize without moving keyboard focus', async () => {
+    const { root } = await setup('/local-git?repo=org/a');
+    const section = root.querySelector<HTMLElement>('.section-nav')!;
+    const current = section.querySelector<HTMLElement>('[aria-current="page"]')!;
+    const focused = section.querySelector<HTMLAnchorElement>('a')!;
+    Object.defineProperty(section, 'clientWidth', { value: 320 });
+    Object.defineProperties(current, { offsetLeft: { value: 800 }, offsetWidth: { value: 100 } });
+    focused.focus();
+    window.dispatchEvent(new Event('resize'));
+    expect(section.scrollLeft).toBe(580);
+    expect(document.activeElement).toBe(focused);
+  });
+
   it('changes navigation orientation on resize while retaining focus and revealing the active destination', async () => {
     const width = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1024);
     const { root } = await setup('/config?repo=org/a');

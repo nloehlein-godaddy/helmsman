@@ -508,6 +508,13 @@ export class DashboardView {
   }
 
   private revealActiveTab(): void {
+    const section = this.root.querySelector<HTMLElement>('.section-nav');
+    const current = section?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (section && current) {
+      const right = current.offsetLeft + current.offsetWidth;
+      if (right > section.scrollLeft + section.clientWidth) section.scrollLeft = right - section.clientWidth;
+      else if (current.offsetLeft < section.scrollLeft) section.scrollLeft = current.offsetLeft;
+    }
     const tabs = this.root.querySelector<HTMLElement>('.page-tabs');
     const activeTab = tabs?.querySelector<HTMLElement>('.page-tab.is-active');
     if (!tabs) return;
@@ -608,6 +615,30 @@ export class DashboardView {
         else tab.setAttribute(name, value);
       }
       if (!shell.querySelector('.page-tabs')?.contains(document.activeElement)) tab.tabIndex = next.tabIndex;
+    }
+    const section = shell.querySelector<HTMLElement>('.section-nav');
+    const nextSection = template.content.querySelector<HTMLElement>('.section-nav');
+    if (section && nextSection) {
+      const retained = new Map(Array.from(section.querySelectorAll<HTMLAnchorElement>('[data-section-link]'), link => [link.dataset.sectionLink, link]));
+      const nextNodes = Array.from(nextSection.querySelectorAll<HTMLAnchorElement>('[data-section-link]'), next => {
+        const link = retained.get(next.dataset.sectionLink);
+        if (!link) return next;
+        link.className = next.className;
+        if (link.textContent !== next.textContent) link.textContent = next.textContent;
+        link.href = next.href;
+        if (next.hasAttribute('aria-current')) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+        return link;
+      });
+      if (section.contains(document.activeElement) && !nextNodes.includes(document.activeElement as HTMLAnchorElement)) {
+        shell.querySelector<HTMLElement>('.page-tab.is-active')?.focus({ preventScroll: true });
+      }
+      for (const name of ['hidden', 'aria-label', 'data-section']) {
+        const value = nextSection.getAttribute(name);
+        if (value === null) section.removeAttribute(name); else section.setAttribute(name, value);
+      }
+      nextNodes.forEach((node, index) => { if (section.children[index] !== node) section.insertBefore(node, section.children[index] ?? null); });
+      for (const node of Array.from(section.children)) if (!nextNodes.includes(node as HTMLAnchorElement)) node.remove();
     }
     this.syncQuestionsAttention();
     const menu = shell.querySelector<HTMLDetailsElement>('[data-pages-menu]');

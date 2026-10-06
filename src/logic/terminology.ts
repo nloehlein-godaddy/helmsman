@@ -30,6 +30,7 @@ export const TERMINOLOGY = {
   repository: { plain: 'Repository', pirate: 'Galleon' },
   repositories: { plain: 'Repositories', pirate: 'Galleons' },
   run: { plain: 'Run', pirate: 'Voyage' },
+  runDetails: { plain: 'Run details', pirate: 'Voyage details' },
   runs: { plain: 'Runs', pirate: 'Voyages' },
   runLogs: { plain: 'Run logs', pirate: 'Voyage logs' },
   dashboard: { plain: 'Dashboard', pirate: 'Helm' },

@@ -36,7 +36,7 @@ describe('application views', () => {
   it.each([false, true])('keeps a scoped Source settings link when core config unavailable is %s', unavailable => {
     const el = root();
     el.innerHTML = renderConfigView({ config: {}, overridden: [] }, { repos: ['org/a'], selectedRepo: 'org/a', themeId: DEFAULT_THEME_ID, unavailable });
-    expect(el.querySelector('a[href="/source-settings?repo=org%2Fa"]')?.textContent).toBe('Source settings');
+    expect(el.querySelector('#page-content a[href="/source-settings?repo=org%2Fa"]')?.textContent).toBe('Source settings');
     expect(el.querySelector('[data-task-source-settings]')).toBeNull();
     expect(el.querySelector('.ui-customization-panel')).not.toBeNull();
     expect(el.querySelectorAll('.operator-note')).toHaveLength(1);
@@ -206,7 +206,8 @@ describe('plugin page shell', () => {
     expect(panel?.getAttribute('aria-labelledby')).toBe(selected?.id);
     expect(panel?.getAttribute('role')).toBe('tabpanel');
     expect(el.querySelector('.helm-head')?.nextElementSibling).toBe(tabs);
-    expect(tabs?.nextElementSibling).toBe(panel);
+    expect(tabs?.nextElementSibling?.matches('.section-nav[hidden]')).toBe(true);
+    expect(tabs?.nextElementSibling?.nextElementSibling).toBe(panel);
     for (const tab of tabs?.querySelectorAll('[role="tab"]') ?? []) expect(tab.getAttribute('aria-controls')).toBe(panel?.id);
   });
 });

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { activePageTabId, renderHelmHead, renderPagesMenu, type HelmHeadOpts } from './render';
 import { appPages, builtinPageSlots, COSTS_PAGE_ID, COSTS_PAGE_SLOT, SOURCE_SETTINGS_PAGE_SLOT } from './plugins/builtins';
 import { setPirateMode, term } from './logic/terminology';
+import { parseRoute } from './logic/routes';
 
 const opts: HelmHeadOpts = { active: 'config', repos: ['org/a'], selectedRepo: 'org/a', themeId: 'dracula', readout: null };
 const disposers: (() => void)[] = [];
@@ -120,5 +121,76 @@ describe('installed page discovery', () => {
     expect(root.querySelector('summary')?.textContent).toBe('Pages');
     expect(root.querySelector('nav')?.textContent).toBe('No additional pages are enabled.');
     expect(root.querySelector('[data-page-link]')).toBeNull();
+  });
+});
+
+describe('section navigation', () => {
+  const configPaths = ['/config', '/source-settings', '/execution-settings', '/feedback-settings', '/jira-settings', '/github-settings', '/communication', '/local-git'];
+  const runPaths = ['/runs', '/run-history', '/run-viewer'];
+  function head(path: string) {
+    const route = parseRoute(new URL(path, window.location.origin));
+    return mount(renderHelmHead({ ...opts, active: route.view, selectedRepo: route.repo, pluginPage: route.pluginPage, pluginSlot: route.pluginSlot }));
+  }
+  function paths(root: HTMLElement) {
+    return [...root.querySelectorAll<HTMLAnchorElement>('.section-nav a')].map(anchor => new URL(anchor.href).pathname);
+  }
+
+  it.each([...configPaths, ...runPaths])('keeps the full section available on direct navigation to %s', path => {
+    const expected = configPaths.includes(path) ? configPaths : runPaths;
+    const parent = configPaths.includes(path) ? 'config' : 'runs';
+    const root = head(`${path}?repo=org/a&run=old&runRepo=org/b&prRepo=org/b&pr=17&pane=recent&panel=old&ticket=TASK-1`);
+    const nav = root.querySelector<HTMLElement>('.section-nav');
+    expect(nav?.hidden).toBe(false);
+    expect(paths(root)).toEqual(expected);
+    expect(root.querySelectorAll('.page-tab.is-active')).toHaveLength(1);
+    expect(root.querySelector('.page-tab.is-active')?.id).toBe(`page-tab-${parent}`);
+    expect(nav?.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe(`${path}?repo=org%2Fa`);
+    for (const anchor of root.querySelectorAll<HTMLAnchorElement>('.section-nav a')) {
+      expect([...new URL(anchor.href).searchParams]).toEqual([['repo', 'org/a']]);
+    }
+    if (path !== expected[0]) expect(root.querySelector('.page-tab.is-active')?.hasAttribute('aria-current')).toBe(false);
+  });
+
+  it('keeps a canonical alternative current without claiming its selected alias is open', () => {
+    register('example.source', 'Source alternative', [SOURCE_SETTINGS_PAGE_SLOT]);
+    register('example.selected', 'Selected source', [SOURCE_SETTINGS_PAGE_SLOT]);
+    appPages.select(SOURCE_SETTINGS_PAGE_SLOT, 'example.selected/page');
+    const root = head('/plugins/example.source/page?repo=org/a');
+    const nav = root.querySelector('.section-nav');
+    expect(root.querySelector('.page-tab.is-active')?.id).toBe('page-tab-config');
+    expect(nav?.querySelector('a[href="/source-settings?repo=org%2Fa"]')?.textContent).toBe('Selected source');
+    expect(nav?.querySelector('a[href="/source-settings?repo=org%2Fa"]')?.hasAttribute('aria-current')).toBe(false);
+    expect(nav?.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/plugins/example.source/page?repo=org%2Fa');
+    expect(nav?.querySelector('[aria-current="page"]')?.textContent).toBe('Source alternative');
+    expect(appPages.selected(SOURCE_SETTINGS_PAGE_SLOT).contributionId).toBe('example.selected/page');
+  });
+
+  it('preserves canonical routes for selected child implementations', () => {
+    register('example.source', 'Source alternative', [SOURCE_SETTINGS_PAGE_SLOT]);
+    appPages.select(SOURCE_SETTINGS_PAGE_SLOT, 'example.source/page');
+    const root = head('/plugins/example.source/page');
+    expect(root.querySelector('.section-nav [aria-current="page"]')?.getAttribute('href')).toBe('/plugins/example.source/page');
+    expect(root.querySelectorAll('.section-nav a')).toHaveLength(configPaths.length);
+  });
+
+  it('retains the section and alias when a selected child implementation is unavailable', () => {
+    appPages.select(SOURCE_SETTINGS_PAGE_SLOT, 'example.missing/page');
+    const root = head('/source-settings?repo=org/a');
+    expect(paths(root)).toEqual(configPaths);
+    expect(root.querySelector('.page-tab.is-active')?.id).toBe('page-tab-config');
+    expect(root.querySelector('.section-nav [aria-current="page"]')?.getAttribute('href')).toBe('/source-settings?repo=org%2Fa');
+    expect(appPages.selected(SOURCE_SETTINGS_PAGE_SLOT)).toMatchObject({ contributionId: 'example.missing/page', page: null });
+  });
+
+  it('keeps unrelated plugins independent even when selected incompatibly for a child slot', () => {
+    register('example.source', 'External source');
+    appPages.restoreSelection(SOURCE_SETTINGS_PAGE_SLOT, 'example.source/page');
+    const root = head('/plugins/example.source/page');
+    expect(root.querySelector<HTMLElement>('.section-nav')?.hidden).toBe(true);
+    expect(root.querySelector('.section-nav a')).toBeNull();
+    expect(root.querySelector('.page-tab.is-active')?.id).toBe('page-tab-plugin');
+    expect(root.querySelector('.page-tab.is-active')?.textContent).toBe('External source');
   });
 });
