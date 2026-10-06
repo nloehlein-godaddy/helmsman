@@ -46,7 +46,7 @@ describe('GitHub settings composition page', () => {
   it('retries failed route reveal only when the operator refreshes', async () => {
     const f = await fixture(false, { hidden: true, collapsed: true }); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce()); const update = vi.mocked(f.composition.updateLayout); update.mockRejectedValueOnce(new Error('Temporarily unavailable'));
     await f.instance.update({ ...state, panelContribution: 'helmsman.github-settings/panel' }); await vi.waitFor(() => expect(f.container.textContent).toContain('could not be revealed')); expect(f.layout.instances[0]?.hidden).toBe(true); expect(update).toHaveBeenCalledOnce();
-    await f.instance.refresh?.(); expect(update).toHaveBeenCalledOnce(); button(f.container, 'Refresh').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false)); expect(update).toHaveBeenCalledTimes(2); expect(f.layout.columns[0]?.[0]?.collapsed).toBe(false);
+    await f.instance.refresh?.(); expect(update).toHaveBeenCalledOnce(); button(f.container, 'Refresh page').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false)); expect(update).toHaveBeenCalledTimes(2); expect(f.layout.columns[0]?.[0]?.collapsed).toBe(false);
   });
   it('honors exact missing instances without falling back to a matching contribution', async () => {
     const f = await fixture(false, { hidden: true, state: { ...state, panelInstance: 'missing' } });
@@ -113,4 +113,20 @@ describe('GitHub settings composition page', () => {
     expect(f.container.textContent).toContain('Some panels could not be refreshed'); expect(f.container.textContent).toContain('Retained panel');
     expect(f.container.textContent).not.toContain('Private provider failure'); expect(f.composition.updateLayout).not.toHaveBeenCalled(); expect(dispose).not.toHaveBeenCalled();
   });
+});
+
+it('keeps customization disclosed through redraws and exposes empty-layout recovery', async () => {
+  const f = await fixture(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
+  const details = f.container.querySelector<HTMLDetailsElement>('.page-customization')!;
+  expect(details.open).toBe(false);
+  expect(button(f.container, 'Hide GitHub settings').closest('details')).toBe(details);
+  details.open = true;
+  await f.instance.update({ ...state, themeId: 'light' });
+  expect(f.container.querySelector<HTMLDetailsElement>('.page-customization')?.open).toBe(true);
+  const refresh = button(f.container, 'Refresh page'); refresh.focus(); refresh.click();
+  await vi.waitFor(() => expect(f.refresh).toHaveBeenCalledOnce());
+  expect(document.activeElement?.textContent).toBe('Refresh page');
+  button(f.container, 'Hide GitHub settings').click();
+  await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
+  expect(f.container.querySelector<HTMLDetailsElement>('.page-customization')?.open).toBe(true);
 });

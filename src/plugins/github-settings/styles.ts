@@ -3,6 +3,9 @@ export const styles = `
 .plugin-github-settings label { display: grid; gap: .4rem; margin: 1rem 0; max-width: 44rem; }
 .plugin-github-settings input, .plugin-github-settings select { width: 100%; box-sizing: border-box; min-width: 0; padding: .65rem; color: var(--text); background-color: var(--control-bg, var(--panel)); border: 1px solid var(--control-border, var(--line)); border-radius: 6px; font: inherit; }
 .plugin-github-settings .settings-tools { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+.plugin-github-settings [hidden] { display: none !important; }
+.plugin-github-settings .settings-note { color: var(--text-dim, var(--text)); }
+.plugin-github-settings [data-rebase] { margin: 0 0 .5rem; }
 .plugin-github-settings button { white-space: normal; min-height: 2.25rem; }
 .plugin-github-settings p { max-width: 60rem; line-height: 1.6; overflow-wrap: anywhere; }
 .plugin-github-settings [role="alert"] { color: var(--bad); }

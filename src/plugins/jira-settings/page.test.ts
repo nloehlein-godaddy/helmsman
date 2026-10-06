@@ -46,7 +46,7 @@ describe('Jira settings composition page', () => {
   it('retries failed route reveal only when the operator refreshes', async () => {
     const f = await fixture(false, { hidden: true, collapsed: true }); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce()); const update = vi.mocked(f.composition.updateLayout); update.mockRejectedValueOnce(new Error('Temporarily unavailable'));
     await f.instance.update({ ...state, panelContribution: 'helmsman.jira-settings/panel' }); await vi.waitFor(() => expect(f.container.textContent).toContain('could not be revealed')); expect(f.layout.instances[0]?.hidden).toBe(true); expect(update).toHaveBeenCalledOnce();
-    await f.instance.refresh?.(); expect(update).toHaveBeenCalledOnce(); button(f.container, 'Refresh').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false)); expect(update).toHaveBeenCalledTimes(2); expect(f.layout.columns[0]?.[0]?.collapsed).toBe(false);
+    await f.instance.refresh?.(); expect(update).toHaveBeenCalledOnce(); button(f.container, 'Refresh page').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false)); expect(update).toHaveBeenCalledTimes(2); expect(f.layout.columns[0]?.[0]?.collapsed).toBe(false);
   });
   it('honors exact missing instances without falling back to a matching contribution', async () => {
     const f = await fixture(false, { hidden: true, state: { ...state, panelInstance: 'missing' } });

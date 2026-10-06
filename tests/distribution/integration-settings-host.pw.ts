@@ -32,8 +32,8 @@ test('independent global settings preserve scope, reconcile conflicts and redact
     await expect(page.locator('[data-status]')).toContainText('not confirmed');
     await expect(author).toHaveValue('draft-author');
     await page.getByRole('button', { name: 'Refresh settings', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Use latest revision and keep edits', exact: true })).toBeEnabled();
-    await page.getByRole('button', { name: 'Use latest revision and keep edits', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Keep my changes', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Keep my changes', exact: true }).click();
     await page.getByRole('button', { name: 'Save GitHub settings', exact: true }).click();
     await expect(page.locator('[data-status]')).toContainText('saved');
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
@@ -75,7 +75,7 @@ test('independent global settings preserve scope, reconcile conflicts and redact
     await page.getByRole('button', { name: 'Refresh settings', exact: true }).click();
     await expect(page.locator('[data-token-status]')).toHaveText('API token: set.');
     await expect(token).toHaveValue(fakeToken);
-    await page.getByRole('button', { name: 'Discard token draft', exact: true }).click();
+    await page.getByRole('button', { name: 'Clear entered token', exact: true }).click();
     expect(posts).toBe(1);
     await token.fill('second-isolated-fake-token');
     await page.getByRole('button', { name: 'Update Jira token', exact: true }).click();

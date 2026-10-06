@@ -91,7 +91,7 @@ globalThis.fetch = async (input, init) => {
     await expect(review).toContainText('Destination: T123 · #C456 · S456');
     await settings.getByLabel('Review request channel', { exact: true }).fill('G789');
     await settings.getByLabel('Review group ID (Companion) or handle (browser)', { exact: true }).fill('S789');
-    await settings.getByRole('button', { name: 'Save settings', exact: true }).click();
+    await settings.getByRole('button', { name: 'Save communication settings', exact: true }).click();
     await expect(settings).toContainText('Settings saved. No message was sent.');
     const calls = async (): Promise<{ path: string; body?: { messages?: { content?: string }[] } }[]> => JSON.parse(await readFile(callsPath, 'utf8'));
     const sends = async () => (await calls()).filter(call => call.path === '/api/chat/completions' && call.body?.messages?.[0]?.content?.includes('slack_send_message'));

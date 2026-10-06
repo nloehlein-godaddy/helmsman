@@ -243,6 +243,8 @@ Use panel and control radii for their corresponding surfaces. Compact preview ba
 
 Primary authored-plugin actions use teal fill, contrasting foreground and medium-bold text; hover uses the brighter accent. Authored-plugin controls use (36px) minimum height; Helm and its task panels use (34px). Launch has (7px 16px) padding and a mixed accent/text hover. Secondary controls use raised neutral ground. The shell default uses panel ground and (8px 12px) padding. Disabled controls reduce opacity to (0.5). Focus is a (2px) accent outline, offset (1px) on shell buttons or (2px) in authored plugins.
 
+Settings panels keep Refresh settings above the fields and place the teal Save GitHub settings or Update Jira token action below them. Secondary Discard changes or Clear entered token appears only while there is a draft to remove. Revision conflicts reveal Keep my changes or Keep entered token beside the conflict text; choosing it uses the latest revision and still requires the primary action. GitHub edits save locally as a draft while typing, with Retry saving draft shown only after a storage error. Communication settings uses a teal Save communication settings action, contextual Discard changes or Use saved settings, and Retry saving draft only after a storage error. Source settings likewise save drafts automatically, then use teal Apply source configuration and Save automatic source selection actions at the ends of their respective sections. Execution settings uses a primary Save execution settings action, or Retry saved change for a pending request.
+
 Global buttons transition background and color over (150ms); authored plugins use (160ms) state transitions. Reduced-motion rules remove them. Question-tab attention changes a boundary over (1.8s) and stops under reduced motion.
 
 When any pointer is coarse, shell buttons, disclosures, selects and non-checkbox/radio inputs have a minimum target of (44px) in both dimensions. Primary, secondary, installed-page and recovery navigation links have a minimum height of (44px). Helm controls follow the same target size; its collapse button and run-viewer icon controls use (44px) squares. Fine-pointer-only layouts retain their compact sizes.
@@ -283,6 +285,8 @@ The startup repository selector uses the semantic panel background directly, inc
 
 Run logs use the mono log role, (12px) padding, control corners, neutral panel ground and a thin boundary. Their own viewport spans (100px) minimum to (420px) maximum height; the dock adds its host bound. Advanced launch settings, log docking and footer About use native disclosures with visible summary focus.
 
+GitHub, Jira, Communication, Source and Execution composed settings pages put Refresh page above a native Customize page disclosure. The closed disclosure keeps panel implementation, Add panel and per-panel Hide/Open controls available without crowding the settings task; it opens when no visible panel remains. Its open state and the focused action survive page redraws.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -303,5 +307,7 @@ Run logs use the mono log role, (12px) padding, control corners, neutral panel g
 - Don't turn a viewport change into a saved layout edit.
 
 Source evidence: `index.html`, `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/render.ts`, `src/logic/navigation.ts`, `src/main.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/campaigns/panel.ts`, `src/plugins/lazy-modules.ts`, `src/plugins/page-host.ts`, `src/plugins/panel-host.ts`, `src/plugins/composition-host.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
+
+Settings evidence: `src/plugins/github-settings/page.ts`, `src/plugins/github-settings/panel.ts`, `src/plugins/jira-settings/page.ts`, `src/plugins/jira-settings/panel.ts`, `src/plugins/communication/page.ts`, `src/plugins/communication/settings.ts`, `src/plugins/execution-settings/page.ts`, `src/plugins/execution-settings/panel.ts`, and `src/plugins/source-settings/panel.ts`.
 
 Not canonized or repaired: retained legacy lamp glow, uppercase mono status rules and hard-coded amber tints in `src/style.css`, plus glyph icons in compatibility/notification markup, fall outside the selected Field Guide language. Loaded DSEG7 assets do not establish a current type role. PRODUCT.md still describes the previous visual world; it is outside this documentation write boundary.

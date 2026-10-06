@@ -65,6 +65,17 @@ describe('source settings authored panel', () => {
     await panel.mount(f.container, f.context); await vi.waitFor(() => expect(button(f, 'Accept outcome and dismiss').disabled).toBe(false)); f.saveState.mockRejectedValue(new Error('offline')); button(f, 'Accept outcome and dismiss').click();
     await vi.waitFor(() => expect(f.container.textContent).toContain('Drafts could not be saved')); expect(f.acknowledge).not.toHaveBeenCalled(); expect(f.submit).not.toHaveBeenCalled();
   });
+  it('shows draft retry only after an asynchronous save failure and emphasizes live save actions', async () => {
+    const f = fixture(); await panel.mount(f.container, f.context); await open(f);
+    const retry = button(f, 'Retry saving drafts'); expect(retry.hidden).toBe(true); expect(f.container.textContent).toContain('saved as drafts automatically');
+    expect(button(f, 'Apply source configuration').classList.contains('primary-action')).toBe(true);
+    expect(button(f, 'Save automatic source selection').classList.contains('primary-action')).toBe(true);
+    f.saveState.mockRejectedValueOnce(new Error('offline')); edit(f, 'Source label', 'Retained edit');
+    await vi.waitFor(() => expect(retry.hidden).toBe(false)); expect(f.container.textContent).toContain('Drafts could not be saved');
+    let hidden = retry.hidden; Object.defineProperty(retry, 'hidden', { configurable: true, get: () => hidden, set: value => { if (value && document.activeElement === retry) retry.blur(); hidden = value; } });
+    retry.focus(); retry.click(); await vi.waitFor(() => expect(retry.hidden).toBe(true));
+    expect(document.activeElement).toBe(button(f, 'Refresh source settings'));
+  });
   it('shows historical enabled receipts separately from current disabled runtime and never reenables automatically', async () => {
     const f = fixture(); const input = { version: 1 as const, kind: 'runtime' as const, repo, epoch: '55555555-5555-4555-8555-555555555555', expectedRevision: 0, enabled: true }; const requestId = '33333333-3333-4333-8333-333333333333';
     f.journal.push({ command: { ...input, requestId }, receipt: { version: 1, requestId, input, status: 'succeeded', result: { kind: 'runtime', runtime: { repo, epoch: input.epoch, revision: 1, enabled: true } }, message: null } });

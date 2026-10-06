@@ -52,12 +52,30 @@ writeFileSync(root+'/plugin-package.json',JSON.stringify({packageVersion:1,manif
     await page.unroute(commandRoute); await page.reload();
     await review.getByRole('button', { name: 'Check original receipt', exact: true }).click();
     await expect(review).toContainText('succeeded'); expect(JSON.parse(await readFile(sends, 'utf8')).count).toBe(1);
-    const settings = page.locator('.communication-settings'); await settings.getByLabel('Review request channel').fill('C789'); await settings.getByRole('button', { name: 'Save settings', exact: true }).click();
+    const settings = page.locator('.communication-settings');
+    await page.evaluate(() => {
+      const storage = Storage.prototype as Storage & { restoreSetItem?: Storage['setItem'] };
+      storage.restoreSetItem = storage.setItem;
+      storage.setItem = () => { throw new Error('Test storage unavailable'); };
+    });
+    await settings.getByLabel('Review request channel').fill('C789');
+    await expect(settings.getByRole('button', { name: 'Retry saving draft', exact: true })).toBeVisible();
+    await expect(settings.getByRole('button', { name: 'Save communication settings', exact: true })).toBeDisabled();
+    await settings.getByRole('button', { name: 'Retry saving draft', exact: true }).focus();
+    await page.evaluate(() => {
+      const storage = Storage.prototype as Storage & { restoreSetItem?: Storage['setItem'] };
+      if (storage.restoreSetItem) storage.setItem = storage.restoreSetItem;
+      delete storage.restoreSetItem;
+    });
+    await page.keyboard.press('Enter');
+    await expect(settings.getByRole('button', { name: 'Retry saving draft', exact: true })).toBeHidden();
+    await expect(settings.getByRole('button', { name: 'Save communication settings', exact: true })).toBeFocused();
+    await settings.getByRole('button', { name: 'Save communication settings', exact: true }).click();
     await expect(settings).toContainText('Settings saved. No message was sent.'); expect(JSON.parse(await readFile(sends, 'utf8')).count).toBe(1); await expect(page.locator('.repo-select')).toHaveValue('org/a');
     const settingsHeaders = { 'x-helmsman-contribution': 'example.authored-communication/settings' };
     const revisionResponse = await request.get(`${origin}/api/communication/settings`, { headers: settingsHeaders }); expect(revisionResponse.status()).toBe(200); const revision = await revisionResponse.json();
     const changed = await request.post(`${origin}/api/communication/settings`, { headers: settingsHeaders, data: { expectedRevision: revision.revision, values: { ...revision.values, reviewChannel: 'C999' }, scopeRepo: null } }); expect(changed.status()).toBe(200);
-    await settings.getByLabel('Review request channel').fill('C888'); await settings.getByRole('button', { name: 'Save settings', exact: true }).click(); await expect(settings).toContainText('conflict'); await expect(settings.getByLabel('Review request channel')).toHaveValue('C888');
+    await settings.getByLabel('Review request channel').fill('C888'); await settings.getByRole('button', { name: 'Save communication settings', exact: true }).click(); await expect(settings).toContainText('conflict'); await expect(settings.getByLabel('Review request channel')).toHaveValue('C888');
     await page.locator('.slack-toggle').click();
     const headerNotifications = page.locator('.plugin-communication:not(.communication-page) > .slack-popover');
     await expect(headerNotifications).toContainText('No notifications yet'); await expect(headerNotifications).not.toContainText('Notifications unavailable');

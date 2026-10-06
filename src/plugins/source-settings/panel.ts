@@ -62,13 +62,13 @@ class Administration implements PluginPanelInstance {
   private change() { if (this.unsupported) return; this.dirty = true; ++this.revision; void this.save(); }
   private save(): Promise<boolean> {
     if (this.unsupported || this.disposed) return Promise.resolve(false);
-    let value; try { value = saveValue(this.saved); } catch (error) { this.saveError = error instanceof Error ? error.message : 'Settings could not be saved.'; this.saveMessage.textContent = this.saveError; return Promise.resolve(false); }
+    let value; try { value = saveValue(this.saved); } catch (error) { this.saveError = error instanceof Error ? error.message : 'Settings could not be saved.'; this.updateSaveRecovery(); return Promise.resolve(false); }
     const revision = this.revision; this.snapshots.add(JSON.stringify(value)); if (this.snapshots.size > 32) this.snapshots.delete(this.snapshots.values().next().value!);
     this.queue = this.queue.catch(() => false).then(async () => {
       if (this.disposed || revision !== this.revision) return false;
       try { await this.context.saveState(value); if (revision === this.revision) { this.dirty = false; this.saveError = ''; } return true; }
       catch { this.saveError = 'Drafts could not be saved. Your edits are kept; save them before submitting.'; return false; }
-      finally { this.saveMessage.textContent = this.saveError; }
+      finally { this.updateSaveRecovery(); }
     }); return this.queue;
   }
   async refresh() {
@@ -114,7 +114,8 @@ class Administration implements PluginPanelInstance {
     const snapshot = await this.service.snapshot(this.state.activity.signal);
     if (this.active(generation) && snapshot.status === 'available') this.snapshot = snapshot.value;
   }
-  private button(label: string, action: () => void, disabled = false) { const value = node('button', label); value.type = 'button'; value.disabled = disabled || this.busy || this.unsupported || !this.active(); value.addEventListener('click', () => { if (!value.disabled) action(); }); return value; }
+  private updateSaveRecovery() { this.saveMessage.textContent = this.saveError; const retry = this.container.querySelector<HTMLButtonElement>('[data-retry-drafts]'); if (!retry) return; const restoreFocus = !this.saveError && document.activeElement === retry; retry.hidden = !this.saveError; retry.disabled = retry.hidden || this.busy || this.unsupported || !this.active(); if (restoreFocus) this.container.querySelector<HTMLButtonElement>('[data-refresh-source]')?.focus({ preventScroll: true }); }
+  private button(label: string, action: () => void, disabled = false, primary = false) { const value = node('button', label); value.type = 'button'; value.disabled = disabled || this.busy || this.unsupported || !this.active(); if (primary) value.className = 'primary-action'; value.addEventListener('click', () => { if (!value.disabled) action(); }); return value; }
   private text(label: string, value: string, change: (value: string) => void, multiline = false, max = 64000) {
     const wrapper = node('label', label); const input = multiline ? node('textarea') : node('input'); input.setAttribute('aria-label', label); input.value = value; input.maxLength = max; input.dataset.focus = label; input.disabled = this.busy || this.unsupported;
     input.addEventListener('input', () => { if (!input.disabled) { change(input.value); this.change(); } }); wrapper.append(input); return wrapper;
@@ -131,8 +132,8 @@ class Administration implements PluginPanelInstance {
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
     const focusKey = focused?.dataset.focus; const selection = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement ? [focused.selectionStart, focused.selectionEnd] : null;
     const root = node('div'); root.className = 'plugin-source-settings'; root.append(node('style', styles));
-    const tools = node('div'); tools.className = 'source-settings-tools'; tools.append(this.button('Refresh source settings', () => { void this.refresh(); }), this.button('Save settings drafts', () => { void this.save(); }));
-    root.append(tools); this.message.textContent = this.error; this.saveMessage.textContent = this.saveError; root.append(this.message, this.saveMessage);
+    const tools = node('div'); tools.className = 'source-settings-tools'; const refresh = this.button('Refresh source settings', () => { void this.refresh(); }); refresh.dataset.refreshSource = ''; const retry = this.button('Retry saving drafts', () => { void this.save(); }, !this.saveError); retry.dataset.retryDrafts = ''; retry.hidden = !this.saveError; tools.append(refresh, retry);
+    root.append(tools, node('p', 'Edits are saved as drafts automatically. Apply or save each section to update live settings.')); this.message.textContent = this.error; this.saveMessage.textContent = this.saveError; root.append(this.message, this.saveMessage);
     if (this.unsupported) root.append(node('p', 'This saved settings version is unsupported. Its drafts have been kept; use a compatible panel version.'));
     else if (!this.snapshot) root.append(node('p', this.busy ? 'Loading source settings…' : 'Source settings are unavailable.'));
     else {
@@ -171,7 +172,7 @@ class Administration implements PluginPanelInstance {
     }
     const stale = !sameTarget(selected.target, source.target);
     if (stale) section.append(node('p', 'The source revision changed. Reconcile to keep your edits and update untouched fields.'), this.button('Reconcile configuration', () => { this.saved.configurations = this.saved.configurations.map(value => value === selected ? reconcileConfiguration(selected, source) : value); this.validation = null; this.change(); this.draw(); }, this.blocked('configure', source.target.instanceId)));
-    section.append(this.button('Apply source configuration', () => { void this.act(async () => { await this.submit({ version: 1, repo: this.state.activity.repo, kind: 'configure', target: selected.target, changes: configuration(selected, source) }); }); }, stale || !source.current || this.blocked('configure', source.target.instanceId))); root.append(section); this.drawReplacement(root, source);
+    section.append(this.button('Apply source configuration', () => { void this.act(async () => { await this.submit({ version: 1, repo: this.state.activity.repo, kind: 'configure', target: selected.target, changes: configuration(selected, source) }); }); }, stale || !source.current || this.blocked('configure', source.target.instanceId), true)); root.append(section); this.drawReplacement(root, source);
   }
   private drawAutomatic(root: HTMLElement) {
     const section = node('section'); section.append(node('h2', 'Automatic starts')); root.append(section);
@@ -192,7 +193,7 @@ class Administration implements PluginPanelInstance {
       const added = selected.instances.filter(id => !selected.baseline.includes(id)); const removed = selected.baseline.filter(id => !selected.instances.includes(id));
       selected.instances = [...new Set([...schedule.instanceIds.filter(id => !removed.includes(id)), ...added])]; selected.baseline = [...schedule.instanceIds]; selected.revision = schedule.revision; this.change(); this.draw();
     }, this.blocked('schedule', repo)));
-    section.append(this.button('Save automatic source selection', () => { void this.act(() => this.submit({ version: 1, kind: 'schedule', repo, expectedRevision: selected.revision, instanceIds: [...selected.instances] })); }, stale || this.blocked('schedule', repo)));
+    section.append(this.button('Save automatic source selection', () => { void this.act(() => this.submit({ version: 1, kind: 'schedule', repo, expectedRevision: selected.revision, instanceIds: [...selected.instances] })); }, stale || this.blocked('schedule', repo), true));
     section.append(node('p', `Current process automatic starts: ${runtime.enabled ? 'enabled' : 'disabled'}.`), this.button(runtime.enabled ? 'Disable automatic starts' : 'Enable automatic starts', () => { void this.act(() => this.submit({ version: 1, kind: 'runtime', repo, epoch: runtime.epoch, expectedRevision: runtime.revision, enabled: !runtime.enabled })); }, this.blocked('runtime', repo)));
   }
   private drawReplacement(root: HTMLElement, source: SourceAdminSourceV1) {

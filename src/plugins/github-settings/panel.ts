@@ -22,7 +22,7 @@ class GithubSettingsPanel implements PluginPanelInstance {
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.container = container; this.context = context; this.state = context.state; this.storage = new DraftStorage(context.contributionId,context.state.instanceId);
     try { this.draft = this.storage.read(); } catch (error) { this.unsupported = true; this.storageError = message(error,'Saved GitHub settings draft is unavailable. Original data is kept.'); }
-    container.innerHTML = `<section class="plugin-github-settings"><style>${styles}</style><h2>Global GitHub settings</h2><p data-global-scope></p><p data-token-status></p><p data-watch-help></p><div class="settings-tools"><button data-refresh>Refresh settings</button><button data-rebase>Use latest revision and keep edits</button><button data-discard>Discard edits and use latest settings</button></div><form><label><span data-repo-label></span><input data-setting="defaultRepo" maxlength="${schema.fields.defaultRepo.maxLength}" placeholder="owner/name" autocomplete="off"></label><label><span data-author-label></span><input data-setting="author" maxlength="${schema.fields.author.maxLength}" autocomplete="off"></label><label><span data-watch-label></span><select data-setting="reviewWatchEnabled"><option value="false">Disabled</option><option value="true">Enabled</option></select></label><p role="alert" data-conflict></p><p role="alert" data-storage-error></p><p role="status" data-status></p><div class="settings-tools"><button type="submit" data-save>Save GitHub settings</button><button type="button" data-save-draft>Save draft</button></div></form></section>`;
+    container.innerHTML = `<section class="plugin-github-settings"><style>${styles}</style><h2>Global GitHub settings</h2><p data-global-scope></p><p data-token-status></p><p data-watch-help></p><div class="settings-tools"><button type="button" data-refresh title="Reload saved settings while keeping your edits">Refresh settings</button></div><form><label><span data-repo-label></span><input data-setting="defaultRepo" maxlength="${schema.fields.defaultRepo.maxLength}" placeholder="owner/name" autocomplete="off"></label><label><span data-author-label></span><input data-setting="author" maxlength="${schema.fields.author.maxLength}" autocomplete="off"></label><label><span data-watch-label></span><select data-setting="reviewWatchEnabled"><option value="false">Disabled</option><option value="true">Enabled</option></select></label><p class="settings-note" data-auto-save>Edits are saved locally as you type. Select Save GitHub settings to apply them.</p><p role="alert" data-conflict></p><button type="button" data-rebase hidden>Keep my changes</button><p role="alert" data-storage-error></p><p role="status" data-status></p><div class="settings-tools"><button type="submit" data-save>Save GitHub settings</button><button type="button" data-discard hidden>Discard changes</button><button type="button" data-save-draft hidden>Retry saving draft</button></div></form></section>`;
     container.addEventListener('input',this.edit); container.addEventListener('change',this.edit); container.addEventListener('click',this.click); container.addEventListener('submit',this.submit);
     context.onDispose(this.dispose); context.signal.addEventListener('abort',this.dispose,{once:true}); this.state.activity.signal.addEventListener('abort',this.cancel,{once:true});
     if (context.signal.aborted) this.dispose(); else { this.draw(); void this.refresh(); }
@@ -46,11 +46,19 @@ class GithubSettingsPanel implements PluginPanelInstance {
   };
   private click = (event: MouseEvent) => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null; if (!button || button.disabled || !this.active()) return; event.stopPropagation();
+    const hadFocus = document.activeElement === button;
     if (button.hasAttribute('data-refresh')) void this.refresh();
-    else if (button.hasAttribute('data-save-draft')) { this.persist(); this.draw(); }
-    else if (button.hasAttribute('data-rebase') && this.snapshot && this.draft && !this.unsupported) { this.draft = {...this.draft,revision:this.snapshot.revision}; this.persist(); this.error = ''; this.saved = false; this.draw(); }
-    else if (button.hasAttribute('data-discard') && this.snapshot && !this.unsupported) { this.draft = fromSnapshot(this.snapshot); this.persist(); this.error = ''; this.saved = false; this.draw(); }
+    else if (button.hasAttribute('data-save-draft')) { this.persist(); this.draw(); this.focusAfterHiddenAction(button,'[data-save]',hadFocus); }
+    else if (button.hasAttribute('data-rebase') && this.snapshot && this.draft && !this.unsupported) { this.draft = {...this.draft,revision:this.snapshot.revision}; this.persist(); this.error = 'Your changes now use the latest revision. Select Save GitHub settings to apply them.'; this.saved = false; this.draw(); this.focusAfterHiddenAction(button,'[data-save]',hadFocus); }
+    else if (button.hasAttribute('data-discard') && this.snapshot && !this.unsupported) { this.draft = fromSnapshot(this.snapshot); this.persist(); this.error = ''; this.saved = false; this.draw(); this.focusAfterHiddenAction(button,'[data-setting="defaultRepo"]',hadFocus); }
   };
+  private focusAfterHiddenAction(button: HTMLButtonElement, selector: string, hadFocus: boolean) {
+    if (!hadFocus || !button.hidden) return;
+    for (const candidate of [selector,'[data-setting="defaultRepo"]','[data-refresh]']) {
+      const target = this.container.querySelector<HTMLInputElement | HTMLButtonElement>(candidate);
+      if (target && !target.disabled && !target.hidden) { target.focus(); return; }
+    }
+  }
   private submit = (event: Event) => { event.preventDefault(); event.stopPropagation(); void this.save(); };
   private async save() {
     if (!this.active() || this.busy || !this.readReady || !this.draft || this.unsupported || !valuesReady(this.draft.values) || !this.persist()) { this.draw(); return; }
@@ -73,14 +81,18 @@ class GithubSettingsPanel implements PluginPanelInstance {
     set('[data-watch-label]',this.state.pirateMode ? 'Watch GitHub inspection requests' : schema.fields.reviewWatchEnabled.label);
     set('[data-watch-help]',`Automatic ${review} status is read-only here. Configure the selected github-review trigger in plugin settings; restart after changing its settings.`);
     set('[data-token-status]',this.snapshot ? `GitHub credential: ${this.snapshot.tokenSet ? 'configured' : 'not configured'}. Credentials are managed by the host.` : 'GitHub credential status unavailable.');
-    set('[data-conflict]',this.snapshot && this.draft && this.draft.revision !== this.snapshot.revision ? 'Settings changed since these edits began. Their original revision is retained; use the latest revision explicitly to rebase.' : '');
+    const conflict = !!(this.snapshot && this.draft && this.draft.revision !== this.snapshot.revision);
+    const changed = !!(this.snapshot && this.draft && (conflict || !sameValues(this.draft.values,this.snapshot.values)));
+    set('[data-conflict]',conflict ? 'Saved settings changed since these edits began. The original revision is retained. Keep my changes uses the latest revision; select Save GitHub settings afterward to apply them.' : '');
     set('[data-status]',this.saved ? `Global GitHub settings saved. The header ${repo} is unchanged.` : this.error); set('[data-storage-error]',this.storageError);
+    const note = this.container.querySelector<HTMLElement>('[data-auto-save]'); if (note) note.hidden = this.unsupported || !!this.storageError || !this.draft;
     for (const input of this.container.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-setting]')) { const key = input.dataset.setting as keyof GithubSettingsValuesV1; const value = key === 'reviewWatchEnabled' ? this.snapshot?.values.reviewWatchEnabled : this.draft?.values[key]; const text = value === undefined ? '' : String(value); if (input.value !== text) input.value = text; input.disabled = key === 'reviewWatchEnabled' || !this.active() || this.unsupported || !this.draft; }
     const disabled = !this.active() || this.busy; for (const button of this.container.querySelectorAll<HTMLButtonElement>('button')) button.disabled = disabled;
-    const save = this.container.querySelector<HTMLButtonElement>('[data-save]'); if (save) save.disabled ||= this.unsupported || !this.readReady || !this.draft || !!this.storageError || !valuesReady(this.draft.values);
+    const save = this.container.querySelector<HTMLButtonElement>('[data-save]'); if (save) { save.textContent = this.busy ? 'Saving GitHub settings…' : 'Save GitHub settings'; save.disabled ||= this.unsupported || !this.readReady || !this.draft || !!this.storageError || !valuesReady(this.draft.values); }
     for (const button of this.container.querySelectorAll<HTMLButtonElement>('[data-discard],[data-rebase]')) button.disabled ||= this.unsupported || !this.readReady || !this.snapshot;
-    const rebase = this.container.querySelector<HTMLButtonElement>('[data-rebase]'); if (rebase) rebase.disabled ||= !this.draft || this.draft.revision === this.snapshot?.revision;
-    const draft = this.container.querySelector<HTMLButtonElement>('[data-save-draft]'); if (draft) draft.disabled ||= this.unsupported || !this.draft;
+    const rebase = this.container.querySelector<HTMLButtonElement>('[data-rebase]'); if (rebase) { rebase.hidden = !conflict || this.unsupported; rebase.disabled ||= !this.draft; }
+    const discard = this.container.querySelector<HTMLButtonElement>('[data-discard]'); if (discard) { discard.hidden = !changed || this.unsupported; discard.textContent = conflict ? 'Use saved settings' : 'Discard changes'; }
+    const draft = this.container.querySelector<HTMLButtonElement>('[data-save-draft]'); if (draft) { draft.hidden = !this.storageError || this.unsupported; draft.disabled ||= this.unsupported || !this.draft; }
   }
 }
 const panel: PluginPanelModule = {mount(container,context) { if (context.services.githubSettings?.version !== 1) throw new Error('GitHub settings require version 1 public settings services.'); return new GithubSettingsPanel(container,context); }};

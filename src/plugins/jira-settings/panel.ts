@@ -20,7 +20,7 @@ class JiraSettingsPanel implements PluginPanelInstance {
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.container = container; this.context = context; this.state = context.state;
     const helpId = `jira-token-help-${crypto.randomUUID()}`;
-    container.innerHTML = `<section class="plugin-jira-settings"><style>${styles}</style><h2>Global Jira settings</h2><p data-global-scope></p><p data-token-status></p><p data-source-status></p><p>Manage live project, JQL, assignee and source enablement in <a data-source-settings>Source settings</a>. Updating the token does not provision or enable a source.</p><div class="settings-tools"><button data-refresh>Refresh settings</button><button data-rebase>Use latest revision and keep token</button><button data-discard>Discard token draft</button></div><form><label>${schema.fields.token.label}<input data-token type="password" autocomplete="new-password" spellcheck="false" maxlength="${schema.fields.token.maxLength}" aria-describedby="${helpId}"></label><p id="${helpId}">Write-only. The token stays in memory until submitted or discarded and is never saved in browser storage. Existing tokens are never displayed.</p><p role="alert" data-conflict></p><p role="status" data-status></p><button type="submit" data-save>Update Jira token</button></form></section>`;
+    container.innerHTML = `<section class="plugin-jira-settings"><style>${styles}</style><h2>Global Jira settings</h2><p data-global-scope></p><p data-token-status></p><p data-source-status></p><p>Manage live project, JQL, assignee and source enablement in <a data-source-settings>Source settings</a>. Updating the token does not provision or enable a source.</p><div class="settings-tools"><button type="button" data-refresh title="Reload saved settings while keeping the entered token">Refresh settings</button></div><form><label>${schema.fields.token.label}<input data-token type="password" autocomplete="new-password" spellcheck="false" maxlength="${schema.fields.token.maxLength}" aria-describedby="${helpId}"></label><p id="${helpId}">Write-only. The token stays in memory until submitted or discarded and is never saved in browser storage. Existing tokens are never displayed.</p><p role="alert" data-conflict></p><button type="button" data-rebase hidden>Keep entered token</button><p role="status" data-status></p><div class="settings-tools"><button type="submit" data-save>Update Jira token</button><button type="button" data-discard hidden>Clear entered token</button></div></form></section>`;
     this.input = container.querySelector<HTMLInputElement>('[data-token]')!;
     container.addEventListener('input',this.edit); container.addEventListener('change',this.edit); container.addEventListener('click',this.click); container.addEventListener('submit',this.submit);
     context.onDispose(this.dispose); context.signal.addEventListener('abort',this.dispose,{once:true}); this.state.activity.signal.addEventListener('abort',this.cancel,{once:true});
@@ -39,10 +39,18 @@ class JiraSettingsPanel implements PluginPanelInstance {
   private edit = (event: Event) => { if (event.target !== this.input || !this.active()) return; this.token = this.input.value; this.draw(); };
   private click = (event: MouseEvent) => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null; if (!button || button.disabled || !this.active()) return; event.stopPropagation();
+    const hadFocus = document.activeElement === button;
     if (button.hasAttribute('data-refresh')) void this.refresh();
-    else if (button.hasAttribute('data-rebase') && this.snapshot) { this.revision = this.snapshot.revision; this.error = ''; this.draw(); }
-    else if (button.hasAttribute('data-discard')) { this.token = ''; this.input.value = ''; this.revision = this.snapshot?.revision ?? null; this.error = ''; this.draw(); }
+    else if (button.hasAttribute('data-rebase') && this.snapshot) { this.revision = this.snapshot.revision; this.error = 'The entered token now uses the latest revision. Select Update Jira token to apply it.'; this.draw(); this.focusAfterHiddenAction(button,'[data-save]',hadFocus); }
+    else if (button.hasAttribute('data-discard')) { this.token = ''; this.input.value = ''; this.revision = this.snapshot?.revision ?? null; this.error = ''; this.draw(); this.focusAfterHiddenAction(button,'[data-token]',hadFocus); }
   };
+  private focusAfterHiddenAction(button: HTMLButtonElement, selector: string, hadFocus: boolean) {
+    if (!hadFocus || !button.hidden) return;
+    for (const candidate of [selector,'[data-token]','[data-refresh]']) {
+      const target = this.container.querySelector<HTMLInputElement | HTMLButtonElement>(candidate);
+      if (target && !target.disabled && !target.hidden) { target.focus(); return; }
+    }
+  }
   private submit = (event: Event) => { event.preventDefault(); event.stopPropagation(); void this.save(); };
   private async save() {
     if (!this.active() || this.busy || !this.readReady || !this.revision || !this.token.trim() || this.token.length > schema.fields.token.maxLength) return;
@@ -61,13 +69,14 @@ class JiraSettingsPanel implements PluginPanelInstance {
     set('[data-global-scope]',`These settings apply to the shared Jira connection across all ${repos}. The header ${repo} stays unchanged.`);
     set('[data-token-status]',this.snapshot ? `API token: ${this.snapshot.tokenSet ? 'set' : 'not set'}.` : 'API token status unavailable.');
     set('[data-source-status]',this.snapshot ? this.snapshot.sourceConfigured ? 'A Jira source is configured. Manage its live settings in Source settings.' : `No Jira source is configured. Initial Jira setup is ${this.snapshot.bootstrapEnabled ? 'enabled' : 'disabled'}. Configure the initial Jira connection and restart Helmsman to provision a source; saving a token alone does not create one.` : 'Initial source setup status unavailable.');
-    set('[data-conflict]',this.snapshot && this.revision !== this.snapshot.revision && this.token ? 'Settings changed since this token draft began. Its original revision is retained. Use the latest revision explicitly to rebase this draft.' : '');
+    const conflict = !!(this.snapshot && this.revision !== this.snapshot.revision && this.token);
+    set('[data-conflict]',conflict ? 'Saved settings changed since this token was entered. The original revision is retained. Keep entered token uses the latest revision; select Update Jira token afterward to apply it.' : '');
     set('[data-status]',this.error); const header = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo; const link = this.container.querySelector<HTMLAnchorElement>('[data-source-settings]'); if (link) link.href = '/source-settings' + (header ? `?repo=${encodeURIComponent(header)}` : '');
     this.input.disabled = !this.active(); const disabled = !this.active() || this.busy;
     for (const button of this.container.querySelectorAll<HTMLButtonElement>('button')) button.disabled = disabled;
-    const save = this.container.querySelector<HTMLButtonElement>('[data-save]'); if (save) save.disabled ||= !this.readReady || !this.revision || !this.token.trim() || this.token.length > schema.fields.token.maxLength;
-    const rebase = this.container.querySelector<HTMLButtonElement>('[data-rebase]'); if (rebase) rebase.disabled ||= !this.readReady || !this.snapshot || !this.token || this.revision === this.snapshot.revision;
-    const discard = this.container.querySelector<HTMLButtonElement>('[data-discard]'); if (discard) discard.disabled ||= !this.token;
+    const save = this.container.querySelector<HTMLButtonElement>('[data-save]'); if (save) { save.textContent = this.busy ? 'Updating Jira token…' : 'Update Jira token'; save.disabled ||= !this.readReady || !this.revision || !this.token.trim() || this.token.length > schema.fields.token.maxLength; }
+    const rebase = this.container.querySelector<HTMLButtonElement>('[data-rebase]'); if (rebase) { rebase.hidden = !conflict; rebase.disabled ||= !this.readReady || !this.snapshot; }
+    const discard = this.container.querySelector<HTMLButtonElement>('[data-discard]'); if (discard) { discard.hidden = !this.token; discard.disabled ||= !this.token; }
   }
 }
 const panel: PluginPanelModule = {mount(container,context) { if (context.services.jiraSettings?.version !== 1) throw new Error('Jira settings require version 1 public settings services.'); return new JiraSettingsPanel(container,context); }};

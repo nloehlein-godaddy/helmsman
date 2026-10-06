@@ -7,10 +7,11 @@ const page: PluginPageModule = { mount(container, context) {
   let state = context.state;
   let layout: CompositionLayoutV1 | null = null;
   let disposed = false; let generation = 0; let saving = false; let error = '';
+  let customizeOpen = false;
   let located: string | null = null; let pendingFocus: string | null = null; let failedRoute: string | null = null;
   const mounted = new Map<string, { node: HTMLElement; handle: ManagedPanelInstanceV1 | null; retired: boolean; active: boolean; contribution: string }>();
   function node<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; }
-  function button(label: string, action: () => void) { const value = node('button', label); value.type = 'button'; value.disabled = saving; value.addEventListener('click', action); return value; }
+  function button(label: string, action: () => void) { const value = node('button', label); value.type = 'button'; value.dataset.pageAction = label; value.disabled = saving; value.addEventListener('click', action); return value; }
   async function read() {
     const current = ++generation;
     try {
@@ -52,17 +53,24 @@ const page: PluginPageModule = { mount(container, context) {
   function draw() {
     if (disposed) return;
     const focused = document.activeElement instanceof HTMLElement && container.contains(document.activeElement) ? document.activeElement : null;
+    customizeOpen = container.querySelector<HTMLDetailsElement>('.page-customization')?.open ?? customizeOpen;
     let routedFocus: HTMLElement | null = null;
     const root = node('div'); root.className = 'plugin-source-settings'; root.append(node('style', styles), node('h1', 'Source settings'));
-    const toolbar = node('div'); toolbar.className = 'source-settings-tools'; toolbar.append(button('Refresh', () => { if (failedRoute === located) { located = null; failedRoute = null; } void refresh(); }));
-    const options = node('select'); options.setAttribute('aria-label', 'source settings panel implementation');
+    const toolbar = node('div'); toolbar.className = 'source-settings-tools'; toolbar.append(button('Refresh page', () => { if (failedRoute === located) { located = null; failedRoute = null; } void refresh(); }));
+    root.append(toolbar);
+    const customization = node('details'); customization.className = 'page-customization'; customization.open = customizeOpen;
+    customization.addEventListener('toggle', () => { if (customization.isConnected) customizeOpen = customization.open; });
+    const summary = node('summary', 'Customize page'); summary.dataset.pageAction = 'customize'; customization.append(summary);
+    const controls = node('div'); controls.className = 'source-settings-tools'; customization.append(controls);
+    const options = node('select'); options.dataset.pageAction = 'implementation'; options.setAttribute('aria-label', 'source settings panel implementation');
     for (const candidate of composition!.discover()) { const option = node('option', candidate.title); option.value = candidate.contributionId; options.append(option); }
-    toolbar.append(options, button('Add panel', () => {
+    controls.append(options, button('Add panel', () => {
       if (!layout || !options.value) return;
       const id = crypto.randomUUID();
       void save({ ...layout, instances: [...layout.instances, { instanceId: id, contributionId: options.value, scope: { kind: 'inherit' }, state: {}, hidden: false }],
         columns: [...layout.columns, ...(layout.columns.length ? [] : [[]])].map((column, index) => index ? column : [...column, { instances: [id], activeInstanceId: id, collapsed: false }]) });
-    })); root.append(toolbar);
+    })); root.append(customization);
+    if (layout && !layout.instances.some(instance => !instance.hidden)) customization.open = true;
     if (error) { const message = node('p', error); message.setAttribute('role', 'alert'); root.append(message); }
     if (!layout) root.append(node('p', 'Loading source settings panels…'));
     else {
@@ -82,7 +90,9 @@ const page: PluginPageModule = { mount(container, context) {
           }), button(`Open ${title}`, () => {
             if (layout) void save({ ...layout, instances: layout.instances.map(value => value.instanceId === id ? { ...value, hidden: false } : value),
               columns: layout.columns.map(column => column.map(value => value.instances.includes(id) ? { ...value, activeInstanceId: id, collapsed: false } : value)) });
-          })); section.append(tools);
+          }));
+          for (const [index, action] of [...tools.querySelectorAll('button')].entries()) action.dataset.pageAction = `${id}:${index}`;
+          customization.append(tools);
           let child = mounted.get(id);
           if (!child) {
             child = { node: node('div'), handle: null, retired: false, active: false, contribution: instance.contributionId }; child.node.tabIndex = -1; child.node.dataset.panelInstance = id; mounted.set(id, child);
@@ -104,6 +114,10 @@ const page: PluginPageModule = { mount(container, context) {
     const target = pendingFocus ? mounted.get(pendingFocus) : null;
     if (target?.active && target.node.isConnected) { pendingFocus = null; const control = routedFocus ?? (focused && target.node.contains(focused) ? focused : target.node); control.focus({ preventScroll: true }); target.node.scrollIntoView?.({ block: 'start' }); }
     else if (focused?.isConnected) focused.focus({ preventScroll: true });
+    else if (focused?.dataset.pageAction) {
+      const replacement = [...root.querySelectorAll<HTMLElement>('[data-page-action]')].find(value => value.dataset.pageAction === focused.dataset.pageAction);
+      (replacement instanceof HTMLButtonElement && replacement.disabled ? summary : replacement)?.focus({ preventScroll: true });
+    }
   }
   async function refresh() { await read(); await Promise.all([...mounted.values()].filter(value => value.active).map(value => value.handle?.refresh())); }
   const unsubscribe = composition.subscribe(() => { void read(); });
