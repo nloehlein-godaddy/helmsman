@@ -31,7 +31,7 @@ New server module `server/helmsman/postmortem/`. It is not a run: no `runs` row,
 
 | Unit | Responsibility | Depends on |
 |---|---|---|
-| `evidence.ts` | Pure builder of `PostmortemEvidence` from a failed run: run row, redacted `taskJson`, `run_events` (last 200), log tail (last 64 KB), exit code/signal, spec summary (cmd + per-argument lengths + first 40 chars of non-input args), host kind, worktree presence + reason, helmsman commit SHA, derived **signatures** | db, fs (read) |
+| `evidence.ts` | Pure builder of `PostmortemEvidence` from a failed run: run row, redacted `taskJson`, `run_events` (last 200), log tail (last 64 KB), exit code (from `.exit`, integer only) and signal (parsed from the `run-wrapper: agent terminated by signal …` log/event line), spec summary (cmd + per-argument lengths + first 40 chars of non-input args), host kind, worktree presence + reason, helmsman commit SHA, derived **signatures** | db, fs (read) |
 | `sandbox.ts` | Builds the `sandbox-exec` (Seatbelt) profile and wraps `{cmd,args,env}`; preflight probe; env scrubbing | — |
 | `prompt.ts` | Seed prompt: role, evidence summary, artifact paths, patch contract, helmsman source + worktree paths, empty-output guidance | evidence |
 | `session-store.ts` | Tables `postmortem_sessions`, `postmortem_messages`; status transitions; idempotent message submission; restart sweep | persistence |
@@ -39,7 +39,9 @@ New server module `server/helmsman/postmortem/`. It is not a run: no `runs` row,
 | `patches.ts` | Patch contract: list, validate (`git apply --check --cached` against a temp index at `baseSha`); never applies | git (read) |
 | `routes.ts` | HTTP + SSE endpoints | runner, store, patches |
 
-Frontend in `src/plugins/run-viewer/`:
+Public capability: the run-viewer is a separately built plugin that never calls `fetch`; it reaches the server only through declared host services. Post-mortem is therefore exposed as a public `helmsman/postmortem@1` capability (SDK types + host service), registered the same way `run-instructions` was (commit `f4997e0`), including `scripts/sdk-compatibility.mjs` and `scripts/build-distribution.mjs`.
+
+Frontend in `src/plugins/run-viewer/` (consumes `helmsman/postmortem@1`):
 
 - `panel.ts`: **Ask about this failure** button beside **Retry run** (`panel.ts:373`), shown when `status ∈ {failed, stopped}`, using the same `commandDisabled`/`evidenceReady` guard pattern.
 - New `postmortem-chat.ts`: transcript, composer, provider/model/effort selects before the first message, status line (starting / thinking / resuming / idle / capped / error), stop button, proposed-patch list with copy-path and copy-`git apply` actions plus valid/invalid badge.
@@ -86,7 +88,11 @@ On disk, per failed run: `<runsDir>/<runId>.postmortem/` (mode 0700) containing 
 | `POST /api/postmortem/:sid/stop` | Graceful stop; session stays resumable |
 | `GET /api/postmortem/:sid/events` | SSE: message items, status changes, patch list updates |
 
-Error statuses shared by start/message/resume: `412` sandbox unavailable, `429` concurrency limit reached.
+Error statuses shared by start/message/resume: `412` sandbox unavailable, `429` concurrency limit reached, `503` GoCaaS model routing not configured. User message text is limited to 8000 chars (same as live instructions).
+
+`fresh` semantics: a new session is created whenever the run has no open session. `fresh: true` additionally seeds the new session with the latest prior session's transcript and is rejected with 409 if an open session exists. If a session's seed turn never completed (`turns === 0`), the next launch starts a new provider session (claude gets a new `--session-id`) instead of resuming, and its first turn is the seed followed by the user's text.
+
+Limits are env-configurable: `HELMSMAN_POSTMORTEM_MAX_TURNS` (30), `HELMSMAN_POSTMORTEM_MAX_COST_USD` (5), `HELMSMAN_POSTMORTEM_IDLE_MINUTES` (15), `HELMSMAN_POSTMORTEM_MAX_LIVE` (2).
 
 ## Data flow
 
@@ -94,7 +100,11 @@ Error statuses shared by start/message/resume: `412` sandbox unavailable, `429` 
 
 1. Validate run eligibility; reuse the open session if present.
 2. `evidence.ts` builds the bundle → `evidence.json`; `prompt.ts` writes `seed.md`; insert session (`starting`).
-3. `runner.ts` prepares model routing exactly as normal runs do (`prepareModelRouting`, GoCaaS credentials), builds the provider's interactive command, wraps it with `sandbox.ts`, spawns with cwd = the post-mortem directory.
+3. `runner.ts` prepares GoCaaS model routing via `prepareModelRouting` with two post-mortem-specific differences:
+   - **Persistent provider home.** Normal runs get a temp `CODEX_HOME` / `CLAUDE_CONFIG_DIR` that cleanup deletes (`model-routing-cli.ts`), which would destroy the provider session and make resume impossible. `prepareModelRouting` gains an optional `{ home }`; post-mortems pass `<runsDir>/<runId>.postmortem/provider-home/<provider>`, which is reused across processes and never deleted by cleanup. Existing callers are unchanged.
+   - **Session-scoped gateway token.** The model gateway only admits tokens whose run is `running` (`application.ts` `active`), and the failed run is not. Tokens are issued for the id `pm-<sessionId>`; the gateway's `active` predicate also admits `pm-*` ids while that session has a live process. `pm-*` ids have no `runs` row, so publication, `git/push` and GitHub reads stay denied — only model endpoints are reachable.
+
+   It then builds the provider's interactive command, wraps it with `sandbox.ts`, and spawns with cwd = the post-mortem directory.
 4. Protocol init: codex `initialize` → `thread/start` (store threadId); claude started with `--session-id <uuid>` generated and stored up front.
 5. First turn = seed prompt, ending: "Give your diagnosis first — likely cause, evidence, confidence — then what you would check next."
 6. Each agent item is persisted to `postmortem_messages` and broadcast over SSE. On turn completion: `ready`, idle timer (15 min) starts, patches rescanned.
@@ -179,4 +189,6 @@ Live verification before done: recreate an exec-kill run (or use a copy of the o
 ## Open risks
 
 - Seatbelt (`sandbox-exec`) is deprecated by Apple but functional and used by codex itself; if removed in a future macOS, start returns 412 until an alternative sandbox is added.
-- Resuming depends on provider session storage under `~/.codex` / `~/.claude`; if the provider prunes it, resume fails → session `error`; the UI offers **Start new post-mortem** (`fresh: true`), seeded with the same evidence plus the prior transcript; the old transcript stays readable.
+- Codex cost after resume = stored cost + the new process's running total; restored usage may be counted twice. This over-estimates and trips the cap early (safe direction).
+- Unverified until live check: whether the real codex app-server accepts `thread/resume` with start-time overrides (`cwd`, `model`, …) alongside `threadId`.
+- Resuming depends on provider session storage in the persistent provider home (`<pmDir>/provider-home/<provider>`); if the provider prunes it, resume fails → session `error`; the UI offers **Start new post-mortem** (`fresh: true`), seeded with the same evidence plus the prior transcript; the old transcript stays readable.
