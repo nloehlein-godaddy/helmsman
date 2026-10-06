@@ -32,19 +32,26 @@ export function createHostPostmortemService(lifetime: AbortSignal, options: { ca
     catch { return unavailable(response.status, 'Invalid post-mortem response.'); }
   }
   const session = (sessionId: string) => `/api/postmortem/${encodeURIComponent(sessionId)}`;
+  const scopeRepo = () => options.scope().repo;
+  const scoped = (repo: string) => ({ repo, scopeRepo: scopeRepo() });
+  const query = (repo: string) => {
+    const params = new URLSearchParams({ repo }); const scope = scopeRepo();
+    if (scope !== null) params.set('scopeRepo', scope);
+    return `?${params}`;
+  };
   return Object.freeze<PostmortemServiceV1>({
     version: 1,
     start: (input, signal) => {
       const { repo, runId, ...body } = input;
-      return request(repo, `/api/runs/${encodeURIComponent(runId)}/postmortem`, body, signal);
+      return request(repo, `/api/runs/${encodeURIComponent(runId)}/postmortem`, { ...body, ...scoped(repo) }, signal);
     },
-    read: (input, signal) => request(input.repo, session(input.sessionId), undefined, signal),
-    send: (input, signal) => request(input.repo, `${session(input.sessionId)}/messages`, { clientId: input.clientId, text: input.text }, signal),
-    stop: (input, signal) => request(input.repo, `${session(input.sessionId)}/stop`, {}, signal),
+    read: (input, signal) => request(input.repo, `${session(input.sessionId)}${query(input.repo)}`, undefined, signal),
+    send: (input, signal) => request(input.repo, `${session(input.sessionId)}/messages`, { clientId: input.clientId, text: input.text, ...scoped(input.repo) }, signal),
+    stop: (input, signal) => request(input.repo, `${session(input.sessionId)}/stop`, scoped(input.repo), signal),
     async watch(input, listener, signal) {
       if (!allowed(input.repo)) throw new TypeError('This run is outside the current galleon scope.');
       const combined = AbortSignal.any([lifetime, options.scope().signal, signal]);
-      const response = await fetcher(`${session(input.sessionId)}/events`, { credentials: 'same-origin', signal: combined, headers: headers('text/event-stream', false) });
+      const response = await fetcher(`${session(input.sessionId)}/events${query(input.repo)}`, { credentials: 'same-origin', signal: combined, headers: headers('text/event-stream', false) });
       if (!response.ok || !response.body) throw new Error(`Post-mortem events are unavailable (${response.status}).`);
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
       try {

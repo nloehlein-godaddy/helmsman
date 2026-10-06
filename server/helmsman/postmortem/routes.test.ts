@@ -10,12 +10,17 @@ const snapshot = { session: { id: SID, status: 'ready' }, activity: null, messag
 function service(overrides: Partial<PostmortemRunner> = {}) {
   let listener: ((event: PostmortemEvent) => void) | undefined;
   const value = { start: vi.fn(async () => snapshot), read: vi.fn(async () => snapshot), send: vi.fn(async () => snapshot), stop: vi.fn(async () => snapshot),
-    subscribe: vi.fn((_id: string, next: (event: PostmortemEvent) => void) => { listener = next; return () => { listener = undefined; }; }),
+    repoOf: vi.fn(() => 'org/app'), subscribe: vi.fn((_id: string, next: (event: PostmortemEvent) => void) => { listener = next; return () => { listener = undefined; }; }),
     isLiveCapability: vi.fn(() => false), dispose: vi.fn(async () => {}), ...overrides } as unknown as PostmortemRunner;
   return { value, emit: (event: PostmortemEvent) => listener?.(event), listening: () => listener !== undefined };
 }
+const REPOS = () => ['org/app', 'org/other'];
+const SCOPE = { repo: 'org/app', scopeRepo: null };
+const EVENT_QUERY = new URLSearchParams({ repo: 'org/app' });
+const scoped = (method: string, body: unknown) => method === 'GET' || body === undefined ? body
+  : body === null ? SCOPE : typeof body === 'object' && !Array.isArray(body) ? { ...SCOPE, ...body } : body;
 const call = (method: string, path: string, body: unknown, value: PostmortemRunner, caller: string | undefined = 'helmsman.run-viewer/panel') =>
-  handlePostmortemApi({ method, path, body, caller, service: value });
+  handlePostmortemApi({ method, path, query: new URLSearchParams(method === 'GET' ? { repo: 'org/app' } : {}), body: scoped(method, body), caller, service: value, repos: REPOS });
 const failing = (status: number) => vi.fn(async () => { throw new PostmortemError(status, `status ${status}`); });
 const servers: Server[] = [];
 afterEach(async () => { for (const server of servers.splice(0)) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } });
@@ -24,19 +29,22 @@ describe('post-mortem routes', () => {
   it('ignores unrelated paths and requires a valid contribution caller', async () => {
     const f = service();
     expect(await call('GET', '/api/runs/abc/feedback-snapshot', null, f.value)).toBeNull();
-    expect(await handlePostmortemApi({ method: 'POST', path: '/api/runs/run-1/postmortem', body: null, service: f.value })).toEqual({ status: 403, json: { error: 'forbidden' } });
-    expect(await handlePostmortemApi({ method: 'GET', path: `/api/postmortem/${SID}`, caller: 'x' })).toMatchObject({ status: 403 });
-    expect(await handlePostmortemApi({ method: 'GET', path: `/api/postmortem/${SID}`, caller: 'helmsman.run-viewer/panel' })).toMatchObject({ status: 503 });
+    const query = new URLSearchParams({ repo: 'org/app' });
+    expect(await handlePostmortemApi({ method: 'POST', path: '/api/runs/run-1/postmortem', query, body: null, service: f.value, repos: REPOS })).toEqual({ status: 403, json: { error: 'forbidden' } });
+    expect(await handlePostmortemApi({ method: 'GET', path: `/api/postmortem/${SID}`, query, caller: 'x' })).toMatchObject({ status: 403 });
+    expect(await handlePostmortemApi({ method: 'GET', path: `/api/postmortem/${SID}`, query, caller: 'helmsman.run-viewer/panel' })).toMatchObject({ status: 503 });
+    expect(await handlePostmortemApi({ method: 'GET', path: `/api/postmortem/${SID}`, query, caller: 'helmsman.run-viewer/panel', service: f.value })).toMatchObject({ status: 503 });
   });
 
   it('rejects malformed contribution ids and callers the authorize hook denies', async () => {
     const f = service();
     expect(await call('GET', `/api/postmortem/${SID}`, null, f.value, 'not-a-contribution-id')).toEqual({ status: 403, json: { error: 'forbidden' } });
     expect(await call('GET', `/api/postmortem/${SID}`, null, f.value, 'no-slash')).toEqual({ status: 403, json: { error: 'forbidden' } });
-    expect(await handlePostmortemApi({ method: 'GET', path: `/api/postmortem/${SID}`, caller: 'helmsman.run-viewer/panel', service: f.value,
+    const query = new URLSearchParams({ repo: 'org/app' });
+    expect(await handlePostmortemApi({ method: 'GET', path: `/api/postmortem/${SID}`, query, caller: 'helmsman.run-viewer/panel', service: f.value, repos: REPOS,
       authorize: () => { throw new PostmortemError(403, 'forbidden'); } })).toEqual({ status: 403, json: { error: 'forbidden' } });
     const authorize = vi.fn();
-    expect(await handlePostmortemApi({ method: 'GET', path: `/api/postmortem/${SID}`, caller: 'helmsman.run-viewer/panel', service: f.value, authorize })).toEqual({ status: 200, json: snapshot });
+    expect(await handlePostmortemApi({ method: 'GET', path: `/api/postmortem/${SID}`, query, caller: 'helmsman.run-viewer/panel', service: f.value, repos: REPOS, authorize })).toEqual({ status: 200, json: snapshot });
     expect(authorize).toHaveBeenCalledWith('helmsman.run-viewer/panel');
   });
 
@@ -71,16 +79,60 @@ describe('post-mortem routes', () => {
     expect(await call('GET', `/api/postmortem/${SID}`, null, f.value)).toEqual({ status: 200, json: snapshot });
     await call('POST', `/api/postmortem/${SID}/messages`, { clientId: SID, text: 'Why?' }, f.value);
     expect(f.value.send).toHaveBeenCalledWith(SID, { clientId: SID, text: 'Why?' });
+    expect(f.value.repoOf).toHaveBeenCalledWith({ sessionId: SID });
     expect(await call('POST', `/api/postmortem/${SID}/stop`, null, f.value)).toEqual({ status: 200, json: snapshot });
     expect(await call('DELETE', `/api/postmortem/${SID}`, null, f.value)).toMatchObject({ status: 405 });
     expect(await call('GET', '/api/postmortem/not-a-uuid', null, f.value)).toBeNull();
     expect(await call('GET', `/api/postmortem/${SID}`, null, service({ read: vi.fn(async () => { throw new Error('boom'); }) }).value)).toMatchObject({ status: 500 });
   });
 
+  it('binds every call to the run repo and the galleon scope', async () => {
+    const f = service();
+    const api = (method: string, path: string, query: Record<string, string>, body?: unknown) =>
+      handlePostmortemApi({ method, path, query: new URLSearchParams(query), body, caller: 'helmsman.run-viewer/panel', service: f.value, repos: REPOS });
+    expect(await api('POST', '/api/runs/run-1/postmortem', {}, { repo: 'org/app', scopeRepo: 'org/app', effort: 'high' })).toMatchObject({ status: 200 });
+    expect(f.value.start).toHaveBeenLastCalledWith('run-1', { effort: 'high' });
+    expect(f.value.repoOf).toHaveBeenLastCalledWith({ runId: 'run-1' });
+    expect(await api('POST', '/api/runs/run-1/postmortem', {}, { repo: 'org/other', scopeRepo: null })).toMatchObject({ status: 404 });
+    expect(await api('POST', '/api/runs/run-1/postmortem', {}, { repo: 'org/app', scopeRepo: 'org/other' })).toMatchObject({ status: 404 });
+    expect(await api('POST', '/api/runs/run-1/postmortem', {}, { repo: 'org/app', scopeRepo: 'org/unknown' })).toMatchObject({ status: 403 });
+    expect(await api('POST', '/api/runs/run-1/postmortem', {}, { repo: 'org/unconfigured', scopeRepo: null })).toMatchObject({ status: 404 });
+    expect(await api('POST', '/api/runs/run-1/postmortem', {}, { effort: 'high' })).toMatchObject({ status: 400 });
+    expect(await api('POST', '/api/runs/run-1/postmortem', {}, { repo: 'not a repo', scopeRepo: null })).toMatchObject({ status: 400 });
+    expect(f.value.start).toHaveBeenCalledTimes(1);
+    expect(await api('GET', `/api/postmortem/${SID}`, { repo: 'org/other' })).toMatchObject({ status: 404 });
+    expect(await api('GET', `/api/postmortem/${SID}`, { repo: 'org/app', scopeRepo: 'org/other' })).toMatchObject({ status: 404 });
+    expect(await api('GET', `/api/postmortem/${SID}`, {})).toMatchObject({ status: 400 });
+    expect(await api('GET', `/api/postmortem/${SID}`, { repo: 'org/app', extra: 'x' })).toMatchObject({ status: 400 });
+    expect(await api('POST', `/api/postmortem/${SID}/messages`, {}, { clientId: SID, text: 'x', repo: 'org/other', scopeRepo: null })).toMatchObject({ status: 404 });
+    expect(await api('POST', `/api/postmortem/${SID}/stop`, {}, { repo: 'org/other', scopeRepo: null })).toMatchObject({ status: 404 });
+    expect(await api('POST', `/api/postmortem/${SID}/stop`, {}, { repo: 'org/app', scopeRepo: null, extra: 1 })).toMatchObject({ status: 400 });
+    expect(f.value.read).not.toHaveBeenCalled(); expect(f.value.send).not.toHaveBeenCalled(); expect(f.value.stop).not.toHaveBeenCalled();
+    f.value.repoOf = vi.fn(() => null);
+    expect(await api('GET', `/api/postmortem/${SID}`, { repo: 'org/app' })).toMatchObject({ status: 404 });
+  });
+
+  it('binds the events stream to the run repo and the galleon scope', async () => {
+    const f = service();
+    const server = createServer((req, res) => { const url = new URL(req.url ?? '/', 'http://x'); void handlePostmortemEvents(req, res, url.pathname,
+      { caller: 'helmsman.run-viewer/panel', service: f.value, query: url.searchParams, repos: REPOS }); });
+    servers.push(server); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no port');
+    const url = `http://127.0.0.1:${address.port}/api/postmortem/${SID}/events`;
+    expect((await fetch(`${url}?repo=org%2Fother`)).status).toBe(404);
+    expect((await fetch(`${url}?repo=org%2Fapp&scopeRepo=org%2Fother`)).status).toBe(404);
+    expect((await fetch(url)).status).toBe(400);
+    expect(f.listening()).toBe(false);
+    const abort = new AbortController();
+    const response = await fetch(`${url}?repo=org%2Fapp&scopeRepo=org%2Fapp`, { signal: abort.signal });
+    expect(response.status).toBe(200);
+    abort.abort();
+  });
+
   it('streams a snapshot then live events over SSE and unsubscribes on close', async () => {
     const f = service();
     const server = createServer((req, res) => { void handlePostmortemEvents(req, res, new URL(req.url ?? '/', 'http://x').pathname,
-      { caller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined, service: f.value }); });
+      { caller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined, service: f.value, query: EVENT_QUERY, repos: REPOS }); });
     servers.push(server); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = server.address(); if (!address || typeof address === 'string') throw new Error('no port');
     const url = `http://127.0.0.1:${address.port}/api/postmortem/${SID}/events`;
@@ -100,14 +152,14 @@ describe('post-mortem routes', () => {
     expect(await new Promise<boolean>(resolve => {
       const req = { method: 'GET', on: vi.fn() } as never;
       const res = { writeHead: vi.fn(() => res), end: vi.fn(() => resolve(true)), on: vi.fn() } as never;
-      void handlePostmortemEvents(req, res, `/api/postmortem/${SID}/events`, { caller: 'helmsman.run-viewer/panel', service: missing.value });
+      void handlePostmortemEvents(req, res, `/api/postmortem/${SID}/events`, { caller: 'helmsman.run-viewer/panel', service: missing.value, query: EVENT_QUERY, repos: REPOS });
     })).toBe(true);
   });
 
   it('rejects malformed contribution ids and authorize-denied callers on the events route', async () => {
     const f = service();
     const server = createServer((req, res) => { void handlePostmortemEvents(req, res, new URL(req.url ?? '/', 'http://x').pathname,
-      { caller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined, service: f.value,
+      { caller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined, service: f.value, query: EVENT_QUERY, repos: REPOS,
         authorize: caller => { if (caller === 'helmsman.denied/panel') throw new PostmortemError(403, 'forbidden'); } }); });
     servers.push(server); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = server.address(); if (!address || typeof address === 'string') throw new Error('no port');
@@ -122,7 +174,7 @@ describe('post-mortem routes', () => {
     const readGate = new Promise<PostmortemSnapshot>(resolve => { resolveRead = resolve; });
     const f = service({ read: vi.fn(() => readGate) });
     const server = createServer((req, res) => { void handlePostmortemEvents(req, res, new URL(req.url ?? '/', 'http://x').pathname,
-      { caller: 'helmsman.run-viewer/panel', service: f.value }); });
+      { caller: 'helmsman.run-viewer/panel', service: f.value, query: EVENT_QUERY, repos: REPOS }); });
     servers.push(server); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = server.address(); if (!address || typeof address === 'string') throw new Error('no port');
     const url = `http://127.0.0.1:${address.port}/api/postmortem/${SID}/events`;

@@ -26,14 +26,17 @@ describe('host post-mortem service', () => {
     expect(await service.start({ repo: 'org/app', runId: 'run-1', effort: 'high' })).toMatchObject({ status: 'available', value: { session: { id: SID } } });
     const [path, init] = fetch.mock.calls[0]!;
     expect(path).toBe('/api/runs/run-1/postmortem');
-    expect(init).toMatchObject({ method: 'POST', body: JSON.stringify({ effort: 'high' }), headers: expect.objectContaining({ 'X-Helmsman-Contribution': 'helmsman.run-viewer/panel' }) });
+    expect(init).toMatchObject({ method: 'POST', body: JSON.stringify({ effort: 'high', repo: 'org/app', scopeRepo: 'org/app' }), headers: expect.objectContaining({ 'X-Helmsman-Contribution': 'helmsman.run-viewer/panel' }) });
     fetch.mockResolvedValueOnce(json({ error: 'Post-mortem sandbox requires macOS' }, 412));
     expect(await service.send({ repo: 'org/app', sessionId: SID, clientId: SID, text: 'Why?' })).toEqual({ status: 'unavailable', code: 412, message: 'Post-mortem sandbox requires macOS' });
     expect(fetch.mock.calls[1]?.[0]).toBe(`/api/postmortem/${SID}/messages`);
+    expect(fetch.mock.calls[1]?.[1]?.body).toBe(JSON.stringify({ clientId: SID, text: 'Why?', repo: 'org/app', scopeRepo: 'org/app' }));
     fetch.mockRejectedValueOnce(new Error('offline'));
     expect(await service.stop({ repo: 'org/app', sessionId: SID })).toMatchObject({ status: 'unavailable', code: 0 });
+    expect(fetch.mock.calls[2]?.[1]?.body).toBe(JSON.stringify({ repo: 'org/app', scopeRepo: 'org/app' }));
     fetch.mockResolvedValueOnce(json({ nonsense: true }));
     expect(await service.read({ repo: 'org/app', sessionId: SID })).toMatchObject({ status: 'unavailable', message: 'Invalid post-mortem response.' });
+    expect(fetch.mock.calls[3]?.[0]).toBe(`/api/postmortem/${SID}?repo=org%2Fapp&scopeRepo=org%2Fapp`);
   });
 
   it('refuses runs outside the galleon scope without a request', async () => {
@@ -48,6 +51,15 @@ describe('host post-mortem service', () => {
     const events: PostmortemEventV1[] = [];
     await setup(fetch).watch({ repo: 'org/app', sessionId: SID }, event => events.push(event), new AbortController().signal);
     expect(events.map(event => event.type)).toEqual(['snapshot', 'patches']);
-    expect(fetch.mock.calls[0]?.[0]).toBe(`/api/postmortem/${SID}/events`);
+    expect(fetch.mock.calls[0]?.[0]).toBe(`/api/postmortem/${SID}/events?repo=org%2Fapp&scopeRepo=org%2Fapp`);
+  });
+
+  it('sends a null scope and omits the scope query outside a galleon', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => json(snapshot));
+    const service = setup(fetch, null);
+    await service.stop({ repo: 'org/app', sessionId: SID });
+    expect(fetch.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ repo: 'org/app', scopeRepo: null }));
+    await service.read({ repo: 'org/app', sessionId: SID });
+    expect(fetch.mock.calls[1]?.[0]).toBe(`/api/postmortem/${SID}?repo=org%2Fapp`);
   });
 });

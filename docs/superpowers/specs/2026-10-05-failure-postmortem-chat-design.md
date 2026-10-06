@@ -88,6 +88,8 @@ On disk, per failed run: the sandbox profile `<runsDir>/<runId>.postmortem.sb` (
 | `POST /api/postmortem/:sid/stop` | Graceful stop; session stays resumable |
 | `GET /api/postmortem/:sid/events` | SSE: message items, status changes, patch list updates |
 
+Every call is bound to a repository the same way run instructions are: POST bodies carry `repo` and `scopeRepo` (`null` outside a galleon), GET/SSE calls carry `?repo=` and optional `&scopeRepo=`. The server checks them against the configured repositories (`403` scope not permitted, `404` repo not permitted or outside the scope) and `404`s when the run's (or the session's run's) repo differs from `repo`.
+
 Error statuses shared by start/message/resume: `412` sandbox unavailable, `429` concurrency limit reached, `503` GoCaaS model routing not configured. User message text is limited to 8000 chars (same as live instructions).
 
 `fresh` semantics: a new session is created whenever the run has no open session. `fresh: true` additionally seeds the new session with the latest prior session's transcript and is rejected with 409 if an open session exists. If a session's seed turn never completed (`turns === 0`), the next launch starts a new provider session (claude gets a new `--session-id`) instead of resuming, and its first turn is the seed followed by the user's text.

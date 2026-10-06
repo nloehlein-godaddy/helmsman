@@ -110,6 +110,7 @@ export interface RouterDeps {
   postmortem?: PostmortemRunner;
   postmortemCaller?: string;
   postmortemAuthorize?: (caller: string) => void;
+  postmortemRepos?: () => readonly string[];
   runRead?: RunReadServerService;
   taskContext?: TaskContextServerService;
   taskContextSignal?: AbortSignal;
@@ -181,7 +182,7 @@ export async function handleApi(
 ): Promise<ApiResult | null> {
   const instructionsResult = await handleRunInstructionApi({ method, path, query, body: _body, caller: deps.clarificationCaller, service: deps.runInstructions });
   if (instructionsResult) return instructionsResult;
-  const postmortemResult = await handlePostmortemApi({ method, path, body: _body, caller: deps.postmortemCaller, service: deps.postmortem, authorize: deps.postmortemAuthorize });
+  const postmortemResult = await handlePostmortemApi({ method, path, query, body: _body, caller: deps.postmortemCaller, service: deps.postmortem, authorize: deps.postmortemAuthorize, repos: deps.postmortemRepos });
   if (postmortemResult) return postmortemResult;
   const clarificationResult = handleClarificationServiceApi({ method, path, query, body: _body, caller: deps.clarificationCaller, ...deps.publicClarifications });
   if (clarificationResult) return clarificationResult;

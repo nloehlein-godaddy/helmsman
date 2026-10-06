@@ -255,6 +255,10 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
       } catch (error) { slots.delete(slot); throw error; }
     },
     read: snapshot,
+    repoOf(target: { runId: string } | { sessionId: string }): string | null {
+      const runId = 'runId' in target ? target.runId : deps.store.get(target.sessionId)?.runId;
+      return runId ? deps.getRun(runId)?.repo ?? null : null;
+    },
     async send(sessionId: string, input: { clientId: unknown; text: unknown }): Promise<PostmortemSnapshot> {
       if (disposed) throw new PostmortemError(503, 'Post-mortem runner is shutting down.');
       const session = required(sessionId);

@@ -1958,7 +1958,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     }
     if (await handleRunInspectExport(req, res, url, runInspect)) return;
     if (await handleRunLog(req, res, url.pathname, db, bus)) return;
-    if (await handlePostmortemEvents(req, res, url.pathname, { service: postmortems, authorize: postmortemAuthorize,
+    if (await handlePostmortemEvents(req, res, url.pathname, { service: postmortems, authorize: postmortemAuthorize, query: url.searchParams, repos: applicationRepos,
       caller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined })) return;
     const hasBody: boolean = req.method === 'POST' || req.method === 'PUT';
     const commandBodyLimit = url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/local-git/') || url.pathname.startsWith('/api/terminal/') ? 3 * 1024 * 1024 + 4096 : undefined;
@@ -1991,7 +1991,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       feedbackSettings, feedbackCommands, communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, runInstructions, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      postmortem: postmortems, postmortemAuthorize, postmortemCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      postmortem: postmortems, postmortemAuthorize, postmortemRepos: applicationRepos, postmortemCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,
       sourceSchedule: taskSourceRuntime.schedule,

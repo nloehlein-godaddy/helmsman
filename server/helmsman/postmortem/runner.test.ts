@@ -89,6 +89,15 @@ describe('post-mortem runner', () => {
     expect(snapshot.messages.map(message => [message.role, message.kind])).toEqual([['agent', 'text']]);
   });
 
+  it('reports the repo a run or session belongs to', async () => {
+    const f = setup();
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'ready');
+    expect(f.runner.repoOf({ runId: 'run-1' })).toBe('org/app');
+    expect(f.runner.repoOf({ sessionId: session.id })).toBe('org/app');
+    expect(f.runner.repoOf({ runId: 'missing' })).toBeNull();
+    expect(f.runner.repoOf({ sessionId: UUID(99) })).toBeNull();
+  });
+
   it('defaults claude runs to claude-code with a pre-assigned session id', async () => {
     const f = setup();
     const started = await f.runner.start('claude');
