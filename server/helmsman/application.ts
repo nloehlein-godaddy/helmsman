@@ -566,9 +566,6 @@ const retainedIsolation = (persistence.sql.prepare('SELECT taskJson FROM runs WH
 let selectedIsolation = false;
 try { selectedIsolation = selectExecutionHost().record.metadata.stageExecution === 'isolated'; } catch {}
 const gatewayAllowsIsolation = selectedIsolation || retainedIsolation;
-const gatewayPort = await listenScopedGateway(gatewayServer, { runsDir: RUNS_DIR, docker: gatewayAllowsIsolation,
-  configuredPort: process.env.HELMSMAN_GATEWAY_PORT === undefined ? undefined : Number(process.env.HELMSMAN_GATEWAY_PORT) });
-const gatewayUrl = `http://host.docker.internal:${gatewayPort}`;
 const helmsmanCommit = (() => {
   try { return execFileSync('git', ['-C', applicationRoot(), 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 5000 }).trim() || null; } catch { return null; }
 })();
@@ -578,6 +575,9 @@ const postmortems = createPostmortemRunner({ store: postmortemStore, runsDir: RU
   helmsmanCommit: () => helmsmanCommit,
   modelGateway: id => ({ url: `http://127.0.0.1:${gatewayPort}`, token: gateway.issue(id, 86_400_000).token }),
   revokeGateway: id => gateway.revokeRun(id), assertModelReady: () => goCaas.assertReady(), limits: postmortemLimitsFromEnv(process.env) });
+const gatewayPort = await listenScopedGateway(gatewayServer, { runsDir: RUNS_DIR, docker: gatewayAllowsIsolation,
+  configuredPort: process.env.HELMSMAN_GATEWAY_PORT === undefined ? undefined : Number(process.env.HELMSMAN_GATEWAY_PORT) });
+const gatewayUrl = `http://host.docker.internal:${gatewayPort}`;
 function postmortemAuthorize(caller: string): void {
   if (!clarificationContributionEnabled(pluginSnapshot.catalog, caller, 'postmortem')) throw new PostmortemError(403, 'forbidden');
 }
