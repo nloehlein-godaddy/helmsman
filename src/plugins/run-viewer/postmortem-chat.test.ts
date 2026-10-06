@@ -107,6 +107,20 @@ describe('post-mortem chat', () => {
     await vi.waitFor(() => expect(f.chat.element.textContent).toContain('idle'));
   });
 
+  it('disables the composer, send and stop while a stop request is in flight', async () => {
+    const f = setup(); await started(f);
+    let resolveStop: (value: Awaited<ReturnType<PostmortemServiceV1['stop']>>) => void = () => {};
+    vi.mocked(f.service.stop).mockImplementationOnce(() => new Promise(resolve => { resolveStop = resolve; }));
+    f.button('Stop')!.click();
+    await vi.waitFor(() => expect(f.editor().disabled).toBe(true));
+    expect(f.button('Send')?.disabled).toBe(true);
+    expect(f.button('Stop')?.disabled).toBe(true);
+    resolveStop(available(snapshot({ session: { ...session, status: 'idle' } })));
+    await vi.waitFor(() => expect(f.chat.element.textContent).toContain('idle'));
+    expect(f.editor().disabled).toBe(false);
+    expect(f.button('Stop')?.disabled).toBe(true);
+  });
+
   it('resets and aborts the stream when the target or scope changes', async () => {
     const f = setup(); await started(f);
     const signal = vi.mocked(f.service.watch).mock.calls[0]?.[2];

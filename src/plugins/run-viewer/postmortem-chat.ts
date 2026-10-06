@@ -111,10 +111,15 @@ export class PostmortemChat {
   }
   private async stop() {
     const service = this.service; const target = this.target; const snapshot = this.snapshot; const signal = this.controller.signal;
-    if (!service || !target || !snapshot) return;
-    const result = await service.stop({ repo: target.repo, sessionId: snapshot.session.id }, signal).catch(() => null);
-    if (signal.aborted) return;
-    if (result?.status === 'available') this.apply({ type: 'snapshot', snapshot: result.value }); else { this.error = result?.message ?? 'Post-mortem service is unreachable.'; this.draw(); }
+    if (!service || !target || !snapshot || this.busy) return;
+    this.busy = true; this.error = ''; this.draw();
+    try {
+      const result = await service.stop({ repo: target.repo, sessionId: snapshot.session.id }, signal).catch(() => null);
+      if (signal.aborted) return;
+      if (result?.status === 'available') this.apply({ type: 'snapshot', snapshot: result.value }); else this.error = result?.message ?? 'Post-mortem service is unreachable.';
+    } finally {
+      if (!signal.aborted) { this.busy = false; this.draw(); }
+    }
   }
   private copy(text: string) {
     const signal = this.controller.signal;
@@ -153,7 +158,7 @@ export class PostmortemChat {
       this.editor.disabled = this.busy || COMPOSER_BLOCKED.has(status ?? '');
       const tools = node('div'); tools.className = 'run-tools';
       tools.append(this.button('Send', () => { void this.send(); }, this.editor.disabled || !this.editor.value.trim()),
-        this.button('Stop', () => { void this.stop(); }, !STOPPABLE.has(status ?? '')));
+        this.button('Stop', () => { void this.stop(); }, this.busy || !STOPPABLE.has(status ?? '')));
       if (status === 'capped' || status === 'error') tools.append(this.button('Start new post-mortem', () => { void this.start(true); }, this.busy));
       children.push(this.editor, tools);
     }
