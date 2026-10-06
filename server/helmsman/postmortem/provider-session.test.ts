@@ -78,6 +78,14 @@ describe('post-mortem provider session', () => {
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
+  it('kills a provider that ignores SIGTERM while initializing', async () => {
+    const stubborn = node(`process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);`);
+    const started = Date.now();
+    await expect(openProviderSession({ provider: 'codex', command: stubborn, env: process.env, cwd: process.cwd(), model: 'gpt-6-astra', effort: 'high',
+      providerSessionId: null, resume: false, onItem: () => {}, requestTimeoutMs: 50, stopGraceMs: 200 })).rejects.toThrow('Agent protocol request timed out');
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it('builds provider commands with pre-assigned or resumed claude sessions', () => {
     const id = randomUUID();
     expect(providerCommand({ provider: 'claude-code', model: 'opus', effort: 'high', repo: 'org/app', sessionId: id, resume: false }).args.slice(-2)).toEqual(['--session-id', id]);

@@ -184,4 +184,37 @@ describe('persistent provider home', () => {
       expect(existsSync(join(home, codex ? 'config.toml' : 'settings.json'))).toBe(true);
     } finally { rmSync(home, { recursive: true, force: true }); }
   });
+
+  it.each(['openai-responses', 'anthropic-messages'] as const)('tolerates a pre-existing real skills directory in a reused %s home', async transport => {
+    const home = mkdtempSync(join(tmpdir(), 'hm-routing-home-'));
+    try {
+      const codex = transport === 'openai-responses';
+      const command = codex ? { cmd: 'codex', args: ['app-server', '--stdio'] } : { cmd: 'claude', args: ['-p'] };
+      mkdirSync(join(home, 'skills', 'nested'), { recursive: true });
+      writeFileSync(join(home, 'skills', 'nested', 'file.txt'), 'x');
+      const routed = await prepareModelRouting({ version: 1, command, transport, modelGateway: gateway, skillsPath: null }, { home });
+      expect(routed.environment[codex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR']).toBe(home);
+      await routed.cleanup();
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  it.each(['openai-responses', 'anthropic-messages'] as const)('overwrites the %s token across preparations instead of reusing a stale one', async transport => {
+    const home = mkdtempSync(join(tmpdir(), 'hm-routing-home-'));
+    try {
+      const codex = transport === 'openai-responses';
+      const command = codex ? { cmd: 'codex', args: ['app-server', '--stdio'] } : { cmd: 'claude', args: ['-p'] };
+      const firstToken = 'a'.repeat(64);
+      const secondToken = 'b'.repeat(64);
+      const first = await prepareModelRouting({ version: 1, command, transport, modelGateway: { url: gateway.url, token: firstToken }, skillsPath: null }, { home });
+      await first.cleanup();
+      const second = await prepareModelRouting({ version: 1, command, transport, modelGateway: { url: gateway.url, token: secondToken }, skillsPath: null }, { home });
+      expect(second.environment[codex ? 'HELMSMAN_MODEL_CAPABILITY' : 'ANTHROPIC_API_KEY']).toBe(secondToken);
+      if (!codex) {
+        const settings = readFileSync(join(home, 'settings.json'), 'utf8');
+        expect(settings).toContain(secondToken);
+        expect(settings).not.toContain(firstToken);
+      }
+      await second.cleanup();
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
 });

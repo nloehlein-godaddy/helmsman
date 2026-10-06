@@ -7,6 +7,14 @@ import { estimateUnreportedUsage } from '../cost-estimates';
 import type { PostmortemKind, PostmortemProvider } from './session-store';
 
 export interface ProviderItem { role: 'agent' | 'system'; kind: PostmortemKind; text: string }
+/**
+ * `turn()`'s `costUsd` is the running total the provider reports for this process, never a
+ * per-turn delta. For Codex, that total is read off `thread/tokenUsage/updated`, which itself
+ * accumulates thread-wide: after a `thread/resume`, it can include usage already incurred by an
+ * earlier process on the same thread, so this process's own contribution may be overestimated.
+ * Callers that persist a running cost should add this value to their stored total rather than
+ * treat it as an increment.
+ */
 export interface ProviderSession {
   readonly providerSessionId: string;
   turn(text: string): Promise<{ costUsd: number | null }>;
@@ -59,6 +67,7 @@ export async function openProviderSession(input: OpenProviderSessionInput): Prom
   let exited = false;
   let stderr = '';
   let closingPromise: Promise<void> | undefined;
+  let stopTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveClosed!: (error: Error | null) => void;
   const closed = new Promise<Error | null>(resolve => { resolveClosed = resolve; });
   const codexCost = () => usage ? estimateUnreportedUsage({ runId: 'postmortem', attempt: 1, eventId: 'postmortem', provider: 'codex', model,
@@ -68,10 +77,15 @@ export async function openProviderSession(input: OpenProviderSessionInput): Prom
     if (!turn) return;
     if (error) turn.reject(error); else turn.resolve(value ?? { costUsd: null });
   };
+  const stop = () => {
+    if (exited) return;
+    child.kill('SIGTERM');
+    if (!stopTimer) { stopTimer = setTimeout(() => child.kill('SIGKILL'), input.stopGraceMs ?? 5000); stopTimer.unref(); }
+  };
   const fail = (error: Error) => {
     failure ??= error;
     settle(error);
-    if (!exited) child.kill('SIGTERM');
+    stop();
   };
   const codexMessage = (message: ProtocolRecord) => {
     const params = protocolRecord(message.params);
@@ -83,7 +97,7 @@ export async function openProviderSession(input: OpenProviderSessionInput): Prom
     if (message.method === 'error') {
       const error = protocolRecord(params.error); const text = typeof error?.message === 'string' ? error.message : 'Agent reported an error';
       input.onItem({ role: 'system', kind: 'error', text });
-      if (params.willRetry !== true) turnError ??= new Error(text);
+      if (current && params.willRetry !== true) turnError ??= new Error(text);
     }
     if (message.method === 'turn/completed') {
       const turn = protocolRecord(params.turn);
@@ -120,13 +134,14 @@ export async function openProviderSession(input: OpenProviderSessionInput): Prom
   const finish = (code: number | null, signal: NodeJS.Signals | null) => {
     if (exited) return;
     exited = true;
+    clearTimeout(stopTimer);
     const detail = stderr.trim().split('\n').pop();
     const error = closing ? null : failure ?? new Error(`Agent exited ${signal ?? code}${detail ? `: ${detail}` : ''}`);
     connection.rejectPending(error ?? new Error('Agent stopped'));
     settle(error ?? new Error('Agent stopped'));
     resolveClosed(error);
   };
-  child.once('error', error => { fail(error); if (child.pid === undefined) finish(null, null); });
+  child.on('error', error => { fail(error); if (child.pid === undefined) finish(null, null); });
   child.once('close', finish);
   const session: ProviderSession = {
     get providerSessionId() { return threadId; },
@@ -149,11 +164,9 @@ export async function openProviderSession(input: OpenProviderSessionInput): Prom
     close() {
       closingPromise ??= (async () => {
         closing = true;
-        if (exited) return;
-        child.stdin.end();
-        child.kill('SIGTERM');
-        const timer = setTimeout(() => child.kill('SIGKILL'), input.stopGraceMs ?? 5000); timer.unref();
-        await closed; clearTimeout(timer);
+        if (!exited) child.stdin.end();
+        stop();
+        await closed;
       })();
       return closingPromise;
     },

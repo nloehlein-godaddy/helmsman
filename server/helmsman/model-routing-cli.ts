@@ -55,7 +55,7 @@ async function providerHome(prefix: string, home: string | undefined): Promise<{
     return { path, cleanup: async () => { await rm(path, { recursive: true, force: true }); } };
   }
   await mkdir(home, { recursive: true, mode: 0o700 });
-  await rm(join(home, 'skills'), { force: true });
+  await rm(join(home, 'skills'), { recursive: true, force: true });
   return { path: home, cleanup: async () => undefined };
 }
 
