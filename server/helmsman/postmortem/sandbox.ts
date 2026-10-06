@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
-import { readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export class SandboxUnavailableError extends Error {}
-export interface SandboxPaths { directory: string; tmpdir: string; home: string; helmsmanRoot: string }
+export interface SandboxPaths { directory: string; home: string; helmsmanRoot: string }
 export const SANDBOX_ARGUMENT_LIMIT = 1024;
 const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 const ROUTING_VARIABLES = new Set(['HELMSMAN_MODEL_CAPABILITY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR']);
@@ -32,13 +32,16 @@ function denyEnvSymlinkTerms(helmsmanRoot: string): string {
   const terms = entries.filter(entry => entry.startsWith('.env')).flatMap(entry => {
     const path = join(helmsmanRoot, entry);
     const real = tryRealpath(path);
-    return real && real !== path ? [`(literal ${seatbeltString(real)})`] : [];
+    if (!real || real === path) return [];
+    let directory = false;
+    try { directory = statSync(real).isDirectory(); } catch {}
+    return [`(${directory ? 'subpath' : 'literal'} ${seatbeltString(real)})`];
   });
   return terms.length ? ` ${terms.join(' ')}` : '';
 }
 
 export function resolveSandboxPaths(directory: string, helmsmanRoot: string): SandboxPaths {
-  return { directory: realpathSync(directory), tmpdir: realpathSync(tmpdir()), home: realpathSync(homedir()), helmsmanRoot: realpathSync(helmsmanRoot) };
+  return { directory: realpathSync(directory), home: realpathSync(homedir()), helmsmanRoot: realpathSync(helmsmanRoot) };
 }
 
 export function sandboxProfile(paths: SandboxPaths): string {
@@ -48,7 +51,7 @@ export function sandboxProfile(paths: SandboxPaths): string {
   const awsTerm = denyTerm('subpath', join(paths.home, '.aws'));
   const envTerm = `(regex ${seatbeltString(`^${regexLiteral(paths.helmsmanRoot)}/\\.env`)})${denyEnvSymlinkTerms(paths.helmsmanRoot)}`;
   return ['(version 1)', '(allow default)', '(deny file-write*)',
-    `(allow file-write* (subpath ${seatbeltString(paths.directory)}) (subpath ${seatbeltString(paths.tmpdir)}) (subpath "/dev"))`,
+    `(allow file-write* (subpath ${seatbeltString(paths.directory)}) (subpath "/dev"))`,
     `(deny file-read* ${sshTerm} ${ghTerm} ${netrcTerm}`,
     `                 ${awsTerm} ${envTerm})`, ''].join('\n');
 }

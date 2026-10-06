@@ -21,7 +21,7 @@ const fs = require('node:fs'); const os = require('node:os'); const path = requi
 const argv = fs.existsSync(process.env.TEST_ARGS_FILE) ? fs.readFileSync(process.env.TEST_ARGS_FILE, 'utf8').split('\\0').filter(Boolean) : [];
 const log = value => fs.appendFileSync(process.env.TEST_TRANSCRIPT, JSON.stringify({ id: process.env.TEST_ID, pid: process.pid, ...value }) + '\\n');
 const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
-log({ argv });
+log({ argv, tmpdir: process.env.TMPDIR });
 const act = text => {
   if (!text.includes('write a patch')) return 'noted';
   const denied = path.join(os.homedir(), '.hm-pm-denied-' + process.pid);
@@ -59,18 +59,19 @@ function setup(limits: { maxTurns?: number; idleMs?: number } = {}) {
   const git = (...args: string[]) => execFileSync(gitBin(), ['-C', repo, ...args], { encoding: 'utf8' }).trim();
   git('init', '-b', 'main'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 'T');
   writeFileSync(join(repo, 'a.txt'), 'one\n'); git('add', '.'); git('commit', '-m', 'base');
-  const transcript = join(root, 'transcript.jsonl');
-  vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`); vi.stubEnv('TEST_TRANSCRIPT', transcript); vi.stubEnv('TEST_BASE_SHA', git('rev-parse', 'HEAD'));
+  const runsDir = join(root, 'runs');
+  vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`); vi.stubEnv('TEST_TRANSCRIPT', 'transcript.jsonl'); vi.stubEnv('TEST_BASE_SHA', git('rev-parse', 'HEAD'));
   const persistence = openPersistence(':memory:'); cleanups.push(() => persistence.close());
   const runs = new Map<string, RunRow>(['codex', 'claude-code'].map(adapter => [adapter, { id: adapter, ticketId: 'T-1', repo: 'org/app', adapter, status: 'failed', attempt: 1,
     prNumber: null, startedAt: '2026-10-02T19:44:05.235Z', endedAt: '2026-10-02T19:44:09.706Z', costUsd: null, worktreePath: null, taskJson: '{}' }]));
-  const runner = createPostmortemRunner({ store: openPostmortemStore(persistence), runsDir: join(root, 'runs'), helmsmanRoot: root, getRun: id => runs.get(id) ?? null,
+  const runner = createPostmortemRunner({ store: openPostmortemStore(persistence), runsDir, helmsmanRoot: root, getRun: id => runs.get(id) ?? null,
     listEvents: () => [], targetRepoPath: () => repo, helmsmanCommit: () => null, modelGateway: () => ({ url: 'http://127.0.0.1:9/', token: 'a'.repeat(64) }),
     revokeGateway: () => {}, assertModelReady: () => {}, git: gitBin(), limits: { idleMs: limits.idleMs ?? 60_000, maxTurns: limits.maxTurns ?? 30, stopGraceMs: 500 } });
-  mkdirSync(join(root, 'runs')); runners.push(runner);
+  mkdirSync(runsDir); runners.push(runner);
   const status = (id: string, expected: PostmortemStatus) => vi.waitFor(async () => expect((await runner.read(id)).session.status).toBe(expected), { timeout: 15_000, interval: 50 });
-  const entries = () => existsSync(transcript) ? readFileSync(transcript, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : [];
-  return { runner, status, entries };
+  const transcript = (runId: string) => join(runsDir, `${runId}.postmortem`, 'transcript.jsonl');
+  const entries = (runId: string) => existsSync(transcript(runId)) ? readFileSync(transcript(runId), 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : [];
+  return { runner, status, entries, runsDir };
 }
 
 describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem runner with sandboxed fake providers', () => {
@@ -80,13 +81,16 @@ describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem 
     await f.runner.send(session.id, { clientId: UUID(1), text: 'Why?' }); await f.status(session.id, 'ready');
     await f.status(session.id, 'idle');
     await f.runner.send(session.id, { clientId: UUID(2), text: 'Now write a patch' }); await f.status(session.id, 'ready');
-    const resumed = f.entries().filter(entry => entry.method === 'thread/resume');
+    const resumed = f.entries('codex').filter(entry => entry.method === 'thread/resume');
     expect(resumed).toHaveLength(1);
     expect(resumed[0]?.params).toMatchObject({ threadId: 'thread-fake-1' });
     const snapshot = await f.runner.read(session.id);
     expect(snapshot.messages.map(message => message.text)).toContain('outside write denied');
     expect(snapshot.patches).toEqual([expect.objectContaining({ file: '1-target.patch', valid: true })]);
     expect((await f.runner.stop(session.id)).session.status).toBe('idle');
+    const temps = f.entries('codex').filter(entry => 'tmpdir' in entry).map(entry => entry.tmpdir);
+    expect(temps.length).toBeGreaterThan(0);
+    for (const value of temps) expect(value).toBe(join(f.runsDir, 'codex.postmortem', 'tmp'));
   }, 60_000);
 
   it('runs claude with --session-id first and --resume after idle', async () => {
@@ -94,7 +98,7 @@ describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem 
     const { session } = await f.runner.start('claude-code'); await f.status(session.id, 'ready');
     await f.status(session.id, 'idle');
     await f.runner.send(session.id, { clientId: UUID(1), text: 'Still there?' }); await f.status(session.id, 'ready');
-    const argvs = f.entries().filter(entry => Array.isArray(entry.argv)).map(entry => entry.argv as string[]);
+    const argvs = f.entries('claude-code').filter(entry => Array.isArray(entry.argv)).map(entry => entry.argv as string[]);
     expect(argvs[0]?.slice(argvs[0].indexOf('--session-id'), argvs[0].indexOf('--session-id') + 2)).toEqual(['--session-id', session.providerSessionId]);
     expect(argvs[1]?.slice(argvs[1].indexOf('--resume'), argvs[1].indexOf('--resume') + 2)).toEqual(['--resume', session.providerSessionId]);
   }, 60_000);

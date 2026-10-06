@@ -63,7 +63,8 @@ export async function launchSandboxedProvider(input: LaunchProviderInput): Promi
   const home = ensureOwnedDirectory(input.directory, 'provider-home', input.provider);
   const routed = await prepareModelRouting({ version: 1, command, transport: providerTransport(input.provider), modelGateway: input.gateway, skillsPath: null },
     { home, homeRoot: input.directory });
-  return openProviderSession({ provider: input.provider, command: sandboxCommand(routed.command, input.profilePath), env: scrubEnvironment(routed.environment),
+  const env = { ...scrubEnvironment(routed.environment), TMPDIR: ensureOwnedDirectory(input.directory, 'tmp') };
+  return openProviderSession({ provider: input.provider, command: sandboxCommand(routed.command, input.profilePath), env,
     cwd: input.directory, model: input.model, effort: input.effort, providerSessionId: input.providerSessionId, resume: input.resume, onItem: input.onItem,
     stopGraceMs: input.stopGraceMs });
 }

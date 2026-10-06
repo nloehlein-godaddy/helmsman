@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { preflightSandbox, resolveSandboxPaths, sandboxCommand, sandboxProfile, sandboxProfilePath, scrubEnvironment, seatbeltString, writeSandboxProfile, SandboxUnavailableError } from './sandbox';
@@ -10,9 +10,9 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 describe('post-mortem sandbox', () => {
   it('emits the spec profile with allow and deny lists, without granting write access to provider config dirs', () => {
-    expect(sandboxProfile({ directory: '/r/run.postmortem', tmpdir: '/private/var/T', home: '/Users/me', helmsmanRoot: '/src/helmsman' })).toBe([
+    expect(sandboxProfile({ directory: '/r/run.postmortem', home: '/Users/me', helmsmanRoot: '/src/helmsman' })).toBe([
       '(version 1)', '(allow default)', '(deny file-write*)',
-      '(allow file-write* (subpath "/r/run.postmortem") (subpath "/private/var/T") (subpath "/dev"))',
+      '(allow file-write* (subpath "/r/run.postmortem") (subpath "/dev"))',
       '(deny file-read* (subpath "/Users/me/.ssh") (subpath "/Users/me/.config/gh") (literal "/Users/me/.netrc")',
       '                 (subpath "/Users/me/.aws") (regex "^/src/helmsman/\\\\.env"))', '',
     ].join('\n'));
@@ -20,11 +20,22 @@ describe('post-mortem sandbox', () => {
 
   it('escapes and realpaths every path', () => {
     expect(seatbeltString('/a "b"\\c')).toBe('"/a \\"b\\"\\\\c"');
-    expect(sandboxProfile({ directory: '/x', tmpdir: '/t', home: '/h', helmsmanRoot: '/src/my.app (1)' })).toContain('(regex "^/src/my\\\\.app \\\\(1\\\\)/\\\\.env")');
+    expect(sandboxProfile({ directory: '/x', home: '/h', helmsmanRoot: '/src/my.app (1)' })).toContain('(regex "^/src/my\\\\.app \\\\(1\\\\)/\\\\.env")');
     const root = mkdtempSync(join(tmpdir(), 'hm-pm-sandbox-')); roots.push(root);
     const target = join(root, 'real'); mkdirSync(target); symlinkSync(target, join(root, 'link'));
     const paths = resolveSandboxPaths(join(root, 'link'), join(root, 'link'));
-    expect(paths).toMatchObject({ directory: realpathSync(target), helmsmanRoot: realpathSync(target), tmpdir: realpathSync(tmpdir()) });
+    expect(paths).toEqual({ directory: realpathSync(target), helmsmanRoot: realpathSync(target), home: realpathSync(homedir()) });
+  });
+
+  it('never grants writes to the global temp dir and denies symlinked .env directories as a subpath', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'hm-pm-sandbox-'))); roots.push(root);
+    const helmsmanRoot = join(root, 'helmsman'); const envDir = join(root, 'env-dir'); const envFile = join(root, 'env-file');
+    mkdirSync(helmsmanRoot); mkdirSync(envDir); writeFileSync(envFile, 'TOKEN=1');
+    symlinkSync(envDir, join(helmsmanRoot, '.env.d')); symlinkSync(envFile, join(helmsmanRoot, '.env.local'));
+    const profile = sandboxProfile({ directory: join(root, 'run.postmortem'), home: '/h', helmsmanRoot });
+    expect(profile).not.toContain(`(subpath ${seatbeltString(realpathSync(tmpdir()))})`);
+    expect(profile).toContain(`(subpath ${seatbeltString(envDir)})`);
+    expect(profile).toContain(`(literal ${seatbeltString(envFile)})`);
   });
 
   it('scrubs credentials but keeps model routing and disables git credentials', () => {

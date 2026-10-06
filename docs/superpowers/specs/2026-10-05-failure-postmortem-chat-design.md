@@ -76,7 +76,7 @@ CREATE TABLE postmortem_messages (
 );
 ```
 
-On disk, per failed run: the sandbox profile `<runsDir>/<runId>.postmortem.sb` (0600, Helmsman-owned, outside the agent-writable dir) and `<runsDir>/<runId>.postmortem/` (mode 0700) containing `evidence.json` (0600), `seed.md`, `provider-home/<provider>/`, and `patches/<n>-<repo>.patch` + `patches/<n>-<repo>.json` (`{repo, baseSha, summary}`).
+On disk, per failed run: the sandbox profile `<runsDir>/<runId>.postmortem.sb` (0600, Helmsman-owned, outside the agent-writable dir) and `<runsDir>/<runId>.postmortem/` (mode 0700) containing `evidence.json` (0600), `seed.md`, `tmp/` (the agent's `TMPDIR`), `provider-home/<provider>/`, and `patches/<n>-<repo>.patch` + `patches/<n>-<repo>.json` (`{repo, baseSha, summary}`).
 
 ## Endpoints
 
@@ -133,12 +133,12 @@ State machine: `starting → busy → ready ⇄ busy → idle → (resume) busy 
 (version 1)
 (allow default)
 (deny file-write*)
-(allow file-write* (subpath "<runsDir>/<runId>.postmortem") (subpath "<TMPDIR>") (subpath "/dev"))
+(allow file-write* (subpath "<runsDir>/<runId>.postmortem") (subpath "/dev"))
 (deny file-read* (subpath "<HOME>/.ssh") (subpath "<HOME>/.config/gh") (literal "<HOME>/.netrc")
                  (subpath "<HOME>/.aws") (regex "^<helmsmanRoot>/\\.env"))
 ```
 
-Every path is `realpath`ed and escaped for Seatbelt string literals. Each credential path that exists is denied both as joined and as its realpath (symlinked `~/.ssh` etc.), and symlinked `<helmsmanRoot>/.env*` entries additionally deny their realpath targets. `~/.codex` and `~/.claude` are **not** writable: provider state lives in the persistent provider home inside the post-mortem directory, and a writable `~/.claude`/`~/.codex` would let the agent plant settings or hooks that run in the user's next unsandboxed session. Git commands that need index locks degrade to warnings; acceptable.
+Every path is `realpath`ed and escaped for Seatbelt string literals. Each credential path that exists is denied both as joined and as its realpath (symlinked `~/.ssh` etc.), and symlinked `<helmsmanRoot>/.env*` entries additionally deny their realpath targets (`literal` for a file, `subpath` for a directory). The global per-user `$TMPDIR` is **not** writable — it holds cmux CLI shims that sit first on `PATH` and the temp provider homes of normal runs, so writing there would be a persistence escape; the agent instead gets `TMPDIR=<runsDir>/<runId>.postmortem/tmp`. Tools that ignore `TMPDIR` in favour of `confstr(_CS_DARWIN_USER_TEMP_DIR)` (e.g. macOS `mktemp` without an explicit template path) fail with `Operation not permitted`; acceptable. Before every start/resume Helmsman re-walks every path it owns inside the post-mortem directory (the directory itself, `patches/`, `tmp/`, `provider-home/<provider>/`) with `lstat`, replacing any symlink or non-directory with a fresh 0700 directory, and writes `seed.md`, `evidence.json` and provider config by removing the entry and creating it exclusively after proving its parent's realpath stays inside the directory, so an agent-planted symlink is never written or removed through. `~/.codex` and `~/.claude` are **not** writable: provider state lives in the persistent provider home inside the post-mortem directory, and a writable `~/.claude`/`~/.codex` would let the agent plant settings or hooks that run in the user's next unsandboxed session. Git commands that need index locks degrade to warnings; acceptable.
 
 **Remote-mutation guard.** The write jail does not stop network actions. Mitigations: strip from the agent env, except the model-routing allowlist: `SSH_AUTH_SOCK` (blocks ssh-agent `git push`), any `*ASKPASS`, any `VSCODE_GIT_*`, and any key matching `/(?:^|_)(?:TOKEN|SECRET|PASSWORD|API_KEY|ACCESS_KEY)(?:_|$)/i` (covers `GITHUB_TOKEN`, `GH_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `AWS_ACCESS_KEY_ID`, …); disable git credentials (`GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=credential.helper`, `GIT_CONFIG_VALUE_0=`) and `GIT_TERMINAL_PROMPT=0`; deny reads of credential files (above); prompt instructs diagnosis only, no external system contact. **Residual risk:** this is not a hard boundary against a hostile model (credentials elsewhere on disk, keychain; `(allow default)` permits mach/IPC, so `launchctl submit` or `open` via LaunchServices could start processes outside the sandbox — untested). It is strictly tighter than normal runs, which execute with `--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`.
 

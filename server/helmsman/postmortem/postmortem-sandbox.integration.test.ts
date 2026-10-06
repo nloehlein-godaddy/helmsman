@@ -21,7 +21,7 @@ function fixture() {
   const directory = join(root, 'run.postmortem'); const home = join(root, 'home'); const helmsmanRoot = join(root, 'helmsman');
   for (const path of [directory, join(home, '.ssh'), join(home, '.claude'), join(home, '.codex'), helmsmanRoot]) mkdirSync(path, { recursive: true });
   writeFileSync(join(home, '.ssh', 'id_test'), 'secret'); writeFileSync(join(helmsmanRoot, '.env'), 'TOKEN=1');
-  const profile = writeSandboxProfile({ directory, tmpdir: realpathSync(tmpdir()), home, helmsmanRoot });
+  const profile = writeSandboxProfile({ directory, home, helmsmanRoot });
   const run = (cmd: string, args: string[]) => { const wrapped = sandboxCommand({ cmd, args }, profile); return exec(wrapped.cmd, wrapped.args); };
   return { directory, home, helmsmanRoot, profile, run };
 }
@@ -30,7 +30,7 @@ function fixtureWithRealHomeOutsideTmpdirAllowance() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hm-pm-seatbelt-'))); cleanups.push(root);
   const directory = join(root, 'run.postmortem'); const helmsmanRoot = join(root, 'helmsman'); const home = realpathSync(homedir());
   mkdirSync(directory, { recursive: true }); mkdirSync(helmsmanRoot, { recursive: true });
-  const profile = writeSandboxProfile({ directory, tmpdir: realpathSync(tmpdir()), home, helmsmanRoot });
+  const profile = writeSandboxProfile({ directory, home, helmsmanRoot });
   const run = (cmd: string, args: string[]) => { const wrapped = sandboxCommand({ cmd, args }, profile); return exec(wrapped.cmd, wrapped.args); };
   return { directory, home, helmsmanRoot, profile, run };
 }
@@ -41,9 +41,20 @@ function fixtureWithSymlinkedSsh() {
   for (const path of [directory, home, helmsmanRoot, sshReal]) mkdirSync(path, { recursive: true });
   writeFileSync(join(sshReal, 'id_test'), 'secret');
   symlinkSync(sshReal, join(home, '.ssh'));
-  const profile = writeSandboxProfile({ directory, tmpdir: realpathSync(tmpdir()), home, helmsmanRoot });
+  const profile = writeSandboxProfile({ directory, home, helmsmanRoot });
   const run = (cmd: string, args: string[]) => { const wrapped = sandboxCommand({ cmd, args }, profile); return exec(wrapped.cmd, wrapped.args); };
   return { directory, home, helmsmanRoot, sshReal, profile, run };
+}
+
+function fixtureWithEnvDirectory() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hm-pm-seatbelt-'))); cleanups.push(root);
+  const directory = join(root, 'run.postmortem'); const home = join(root, 'home'); const helmsmanRoot = join(root, 'helmsman'); const envDir = join(root, 'env-dir');
+  for (const path of [directory, home, helmsmanRoot, envDir]) mkdirSync(path, { recursive: true });
+  writeFileSync(join(envDir, 'secret'), 'TOKEN=1');
+  symlinkSync(envDir, join(helmsmanRoot, '.env.d'));
+  const profile = writeSandboxProfile({ directory, home, helmsmanRoot });
+  const run = (cmd: string, args: string[]) => { const wrapped = sandboxCommand({ cmd, args }, profile); return exec(wrapped.cmd, wrapped.args); };
+  return { directory, home, helmsmanRoot, envDir, profile, run };
 }
 
 describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem Seatbelt profile', () => {
@@ -55,6 +66,21 @@ describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem 
     expect(readFileSync(join(f.directory, 'inside.txt'), 'utf8')).toBe('ok\n');
     await expect(f.run('/bin/sh', ['-c', `echo no > '${outside}'`])).rejects.toThrow();
     expect(existsSync(outside)).toBe(false);
+  });
+
+  it('denies writes to the global temp dir but allows the post-mortem tmp dir', async () => {
+    const f = fixture(); const globalProbe = join(realpathSync(tmpdir()), `helmsman-pm-probe-${randomUUID()}`); cleanups.push(globalProbe);
+    const local = join(f.directory, 'tmp'); mkdirSync(local);
+    await expect(f.run('/bin/sh', ['-c', `echo no > '${globalProbe}'`])).rejects.toThrow();
+    expect(existsSync(globalProbe)).toBe(false);
+    await f.run('/bin/sh', ['-c', `echo ok > '${join(local, 'probe')}'`]);
+    expect(readFileSync(join(local, 'probe'), 'utf8')).toBe('ok\n');
+  });
+
+  it('denies reads inside a symlinked .env directory via its real target', async () => {
+    const f = fixtureWithEnvDirectory();
+    await expect(f.run('/bin/cat', [join(f.helmsmanRoot, '.env.d', 'secret')])).rejects.toThrow(OPERATION_NOT_PERMITTED);
+    await expect(f.run('/bin/cat', [join(f.envDir, 'secret')])).rejects.toThrow(OPERATION_NOT_PERMITTED);
   });
 
   it('denies writes under the provider config dirs (no persistence escape via ~/.claude or ~/.codex)', async () => {
@@ -86,7 +112,8 @@ describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem 
     writeFileSync(script, `const fs = require('node:fs'); const args = fs.readFileSync(process.env.TEST_ARGS_FILE, 'utf8').split('\\0').filter(Boolean);
       fs.writeFileSync(${JSON.stringify(join(f.directory, 'length.txt'))}, String(args[0].length));`);
     const shim = join(f.directory, 'fake'); writeFileSync(shim, bashShimPassingLongArgvViaFile(script), { mode: 0o755 });
-    await exec('/usr/bin/sandbox-exec', ['-f', f.profile, shim, 'y'.repeat(5000)]);
+    mkdirSync(join(f.directory, 'tmp'));
+    await exec('/usr/bin/sandbox-exec', ['-f', f.profile, shim, 'y'.repeat(5000)], { env: { ...process.env, TMPDIR: join(f.directory, 'tmp') } });
     expect(readFileSync(join(f.directory, 'length.txt'), 'utf8')).toBe('5000');
   });
 });
