@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -196,6 +196,39 @@ describe('persistent provider home', () => {
       expect(routed.environment[codex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR']).toBe(home);
       await routed.cleanup();
     } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  it.each(['openai-responses', 'anthropic-messages'] as const)('never follows a symlinked %s home or config file out of its owning root', async transport => {
+    const base = mkdtempSync(join(tmpdir(), 'hm-routing-owned-'));
+    try {
+      const codex = transport === 'openai-responses';
+      const command = codex ? { cmd: 'codex', args: ['app-server', '--stdio'] } : { cmd: 'claude', args: ['-p'] };
+      const root = join(base, 'pm'); const outside = join(base, 'outside');
+      mkdirSync(join(root, 'provider-home'), { recursive: true }); mkdirSync(join(outside, 'skills'), { recursive: true });
+      writeFileSync(join(outside, 'skills', 'keep.txt'), 'keep'); writeFileSync(join(outside, 'settings.json'), 'user'); writeFileSync(join(outside, 'config.toml'), 'user');
+      const home = join(root, 'provider-home', 'p');
+      symlinkSync(outside, home);
+      const first = await prepareModelRouting({ version: 1, command, transport, modelGateway: gateway, skillsPath: null }, { home, homeRoot: root });
+      await first.cleanup();
+      expect(lstatSync(home).isDirectory()).toBe(true);
+      rmSync(join(home, codex ? 'config.toml' : 'settings.json'));
+      symlinkSync(join(outside, codex ? 'config.toml' : 'settings.json'), join(home, codex ? 'config.toml' : 'settings.json'));
+      const second = await prepareModelRouting({ version: 1, command, transport, modelGateway: gateway, skillsPath: null }, { home, homeRoot: root });
+      await second.cleanup();
+      expect(readFileSync(join(outside, 'skills', 'keep.txt'), 'utf8')).toBe('keep');
+      expect(readFileSync(join(outside, 'settings.json'), 'utf8')).toBe('user');
+      expect(readFileSync(join(outside, 'config.toml'), 'utf8')).toBe('user');
+      expect(lstatSync(join(home, codex ? 'config.toml' : 'settings.json')).isFile()).toBe(true);
+    } finally { rmSync(base, { recursive: true, force: true }); }
+  });
+
+  it('rejects a persistent home outside its owning root', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'hm-routing-owned-'));
+    try {
+      await expect(prepareModelRouting({ version: 1, command: { cmd: 'codex', args: ['app-server'] }, transport: 'openai-responses', modelGateway: gateway, skillsPath: null },
+        { home: join(base, 'elsewhere'), homeRoot: join(base, 'pm') })).rejects.toThrow(/owned path/i);
+      expect(existsSync(join(base, 'elsewhere'))).toBe(false);
+    } finally { rmSync(base, { recursive: true, force: true }); }
   });
 
   it.each(['openai-responses', 'anthropic-messages'] as const)('overwrites the %s token across preparations instead of reusing a stale one', async transport => {

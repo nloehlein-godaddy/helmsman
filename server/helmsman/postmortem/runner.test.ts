@@ -1,5 +1,5 @@
 /** @vitest-environment node */
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -329,6 +329,62 @@ describe('post-mortem runner', () => {
     await f.runner.send(session.id, { clientId: UUID(1), text: 'again' });
     await f.status(session.id, 'ready');
     expect((await f.runner.read(session.id)).session.costUsd).toBeCloseTo(0.8);
+  });
+});
+
+describe('post-mortem owned paths', () => {
+  function plant(directory: string) {
+    const outside = mkdtempSync(join(tmpdir(), 'hm-pm-outside-')); cleanups.push(() => rmSync(outside, { recursive: true, force: true }));
+    mkdirSync(join(outside, 'skills')); writeFileSync(join(outside, 'skills', 'keep.txt'), 'keep'); writeFileSync(join(outside, 'zshenv'), 'original');
+    mkdirSync(join(directory, 'provider-home'), { recursive: true });
+    for (const name of ['seed.md', 'evidence.json', 'provider-home/codex', 'patches', 'tmp']) rmSync(join(directory, name), { recursive: true, force: true });
+    symlinkSync(outside, join(directory, 'provider-home', 'codex'));
+    symlinkSync(join(outside, 'zshenv'), join(directory, 'seed.md'));
+    symlinkSync(join(outside, 'zshenv'), join(directory, 'evidence.json'));
+    symlinkSync(outside, join(directory, 'patches'));
+    symlinkSync(outside, join(directory, 'tmp'));
+    return outside;
+  }
+  const untouched = (outside: string) => {
+    expect(readFileSync(join(outside, 'zshenv'), 'utf8')).toBe('original');
+    expect(readFileSync(join(outside, 'skills', 'keep.txt'), 'utf8')).toBe('keep');
+  };
+  const real = (directory: string) => {
+    for (const name of ['provider-home/codex', 'patches', 'tmp']) expect(lstatSync(join(directory, name)).isDirectory()).toBe(true);
+  };
+
+  it('replaces planted symlinks before start without writing through them', async () => {
+    const f = setup();
+    const directory = join(f.root, 'run-1.postmortem');
+    const outside = plant(directory);
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'ready');
+    untouched(outside); real(directory);
+    for (const name of ['seed.md', 'evidence.json']) expect(lstatSync(join(directory, name)).isFile()).toBe(true);
+    expect(f.launches[0]?.turns[0]).toBe(readFileSync(join(directory, 'seed.md'), 'utf8'));
+  });
+
+  it('replaces a swapped post-mortem directory before start', async () => {
+    const f = setup();
+    const outside = mkdtempSync(join(tmpdir(), 'hm-pm-outside-')); cleanups.push(() => rmSync(outside, { recursive: true, force: true }));
+    writeFileSync(join(outside, 'zshenv'), 'original');
+    symlinkSync(outside, join(f.root, 'run-1.postmortem'));
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'ready');
+    expect(lstatSync(join(f.root, 'run-1.postmortem')).isDirectory()).toBe(true);
+    expect(readFileSync(join(outside, 'zshenv'), 'utf8')).toBe('original');
+    expect(existsSync(join(outside, 'seed.md'))).toBe(false);
+  });
+
+  it('re-sanitizes planted symlinks before a resume and never reads the seed through one', async () => {
+    let failed = false;
+    const f = setup({ behavior: (text, process) => { if (!failed) { failed = true; throw new Error('seed failed'); } return echo(text, process); } });
+    const directory = join(f.root, 'run-1.postmortem');
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'error');
+    const outside = plant(directory);
+    await f.runner.send(session.id, { clientId: UUID(1), text: 'retry' });
+    await f.status(session.id, 'ready');
+    untouched(outside); real(directory);
+    expect(f.launches[1]?.turns[0]).not.toContain('original');
+    expect(lstatSync(join(directory, 'seed.md')).isFile()).toBe(true);
   });
 });
 

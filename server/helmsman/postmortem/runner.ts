@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { RunEventRow, RunRow } from '../db';
 import { prepareModelRouting } from '../model-routing-cli';
+import { ensureOwnedDirectory, ensureOwnedRoot, readOwnedFile, writeOwnedFile } from '../owned-paths';
 import { buildEvidence, readEvidenceInput, writeEvidenceFile } from './evidence';
 import { listPatches, type PostmortemPatch } from './patches';
 import { seedPrompt } from './prompt';
@@ -46,11 +47,22 @@ export function postmortemLimitsFromEnv(env: NodeJS.ProcessEnv): Partial<Postmor
     ...(idleMinutes === null ? {} : { idleMs: idleMinutes * 60_000 }), ...(maxLive === null ? {} : { maxLive }) };
 }
 
+/**
+ * Makes every Helmsman-owned path inside the agent-writable post-mortem directory a real
+ * directory again (the directory itself, `patches/`, `tmp/`, `provider-home/<provider>/`),
+ * replacing anything the agent swapped for a symlink or file. Call before every start/resume.
+ */
+export function secureOwnedDirectory(directory: string, provider: PostmortemProvider): void {
+  ensureOwnedRoot(directory); chmodSync(directory, 0o700);
+  ensureOwnedDirectory(directory, 'patches'); ensureOwnedDirectory(directory, 'tmp'); ensureOwnedDirectory(directory, 'provider-home', provider);
+}
+
 export async function launchSandboxedProvider(input: LaunchProviderInput): Promise<ProviderSession> {
   const command = providerCommand({ provider: input.provider, model: input.model, effort: input.effort, repo: input.repo,
     sessionId: input.provider === 'claude-code' ? input.providerSessionId : null, resume: input.resume });
+  const home = ensureOwnedDirectory(input.directory, 'provider-home', input.provider);
   const routed = await prepareModelRouting({ version: 1, command, transport: providerTransport(input.provider), modelGateway: input.gateway, skillsPath: null },
-    { home: join(input.directory, 'provider-home', input.provider) });
+    { home, homeRoot: input.directory });
   return openProviderSession({ provider: input.provider, command: sandboxCommand(routed.command, input.profilePath), env: scrubEnvironment(routed.environment),
     cwd: input.directory, model: input.model, effort: input.effort, providerSessionId: input.providerSessionId, resume: input.resume, onItem: input.onItem,
     stopGraceMs: input.stopGraceMs });
@@ -98,22 +110,22 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
   function modelReady(): void {
     try { deps.assertModelReady(); } catch (error) { throw new PostmortemError(503, errorText(error)); }
   }
-  async function sandboxReady(directory: string): Promise<string> {
-    mkdirSync(join(directory, 'patches'), { recursive: true, mode: 0o700 });
+  async function sandboxReady(directory: string, provider: PostmortemProvider): Promise<string> {
+    secureOwnedDirectory(directory, provider);
     const profilePath = writeSandboxProfile(resolveSandboxPaths(directory, deps.helmsmanRoot));
     try { await preflight(profilePath); }
     catch (error) { throw new PostmortemError(412, error instanceof SandboxUnavailableError ? error.message : `Sandbox unavailable: ${errorText(error)}`); }
     return profilePath;
   }
-  function prepare(run: RunRow, priorTranscript?: PostmortemMessage[]): string {
+  function prepare(run: RunRow, provider: PostmortemProvider, priorTranscript?: PostmortemMessage[]): string {
     const directory = directoryFor(run.id);
-    mkdirSync(join(directory, 'patches'), { recursive: true, mode: 0o700 }); chmodSync(directory, 0o700);
+    secureOwnedDirectory(directory, provider);
     const evidence = buildEvidence(readEvidenceInput(run, { listEvents: deps.listEvents, helmsmanRoot: deps.helmsmanRoot, helmsmanCommit: deps.helmsmanCommit(), targetRepoPath: deps.targetRepoPath(run) }));
     const seed = seedPrompt({ evidence, directory, evidencePath: writeEvidenceFile(directory, evidence), priorTranscript });
-    writeFileSync(join(directory, 'seed.md'), seed, { mode: 0o600 });
+    writeOwnedFile(directory, join(directory, 'seed.md'), seed);
     return seed;
   }
-  const seedFor = (run: RunRow) => { try { return readFileSync(join(directoryFor(run.id), 'seed.md'), 'utf8'); } catch { return prepare(run); } };
+  const seedFor = (run: RunRow, provider: PostmortemProvider) => readOwnedFile(join(directoryFor(run.id), 'seed.md')) ?? prepare(run, provider);
   async function patches(session: PostmortemSession): Promise<PostmortemPatch[]> {
     const cached = patchCache.get(session.id); if (cached) return cached;
     const run = deps.getRun(session.runId);
@@ -181,7 +193,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
         session = deps.store.update(sessionId, { providerSessionId: spawned.providerSessionId });
         if (stopRequested.delete(sessionId)) { await shutdown(sessionId); return; }
       } else if (slot) slots.delete(slot);
-      const prompt = session.turns === 0 ? [seedFor(run), text].filter(Boolean).join('\n\n---\n\n') : text ?? '';
+      const prompt = session.turns === 0 ? [seedFor(run, session.provider), text].filter(Boolean).join('\n\n---\n\n') : text ?? '';
       if (session.status === 'starting') session = setStatus(sessionId, 'busy', {}, 'thinking'); else announce(sessionId, 'thinking');
       const result = await entry.process.turn(prompt);
       session = deps.store.update(sessionId, { turns: required(sessionId).turns + 1, costUsd: result.costUsd === null ? session.costUsd : entry.baseCost + result.costUsd });
@@ -224,8 +236,8 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
       const slot = reserve();
       try {
         const prior = input.fresh ? deps.store.latest(runId) : null;
-        prepare(run, prior ? deps.store.messages(prior.id) : undefined);
-        await sandboxReady(directoryFor(runId));
+        prepare(run, provider, prior ? deps.store.messages(prior.id) : undefined);
+        await sandboxReady(directoryFor(runId), provider);
         if (disposed) throw new PostmortemError(503, 'Post-mortem runner is shutting down.');
         let session: PostmortemSession;
         try { session = deps.store.create({ runId, provider, model, effort, providerSessionId: provider === 'claude-code' ? randomUUID() : null }); }
@@ -258,7 +270,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
       if (resuming) {
         modelReady();
         slot = reserve();
-        try { await sandboxReady(directoryFor(runOf(session).id)); } catch (error) { slots.delete(slot); throw error; }
+        try { await sandboxReady(directoryFor(runOf(session).id), session.provider); } catch (error) { slots.delete(slot); throw error; }
         if (disposed) { slots.delete(slot); throw new PostmortemError(503, 'Post-mortem runner is shutting down.'); }
         const retried = deps.store.messages(sessionId).find(message => message.clientId === clientId);
         if (retried && retried.text !== text) { slots.delete(slot); throw new PostmortemError(409, 'Message ID already belongs to a different message'); }

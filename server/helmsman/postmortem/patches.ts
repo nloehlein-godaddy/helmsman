@@ -44,6 +44,7 @@ async function sidecar(path: string, repo: PatchRepo): Promise<{ baseSha: string
 
 export async function listPatches(directory: string, repos: Record<PatchRepo, string | null>, git = 'git'): Promise<PostmortemPatch[]> {
   const folder = join(directory, 'patches');
+  if (!(await lstat(folder).catch(() => null))?.isDirectory()) return [];
   let names: string[];
   try { names = await readdir(folder); } catch { return []; }
   const candidates = names.flatMap(name => { const match = name.match(PATCH_NAME); return match ? [{ name, number: Number(match[1]), repo: match[2] as PatchRepo }] : []; })

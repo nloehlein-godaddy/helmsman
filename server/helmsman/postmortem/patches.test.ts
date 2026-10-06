@@ -74,4 +74,14 @@ describe('post-mortem patches', () => {
   it('returns an empty list when no patches directory exists', async () => {
     expect(await listPatches(join(tmpdir(), 'hm-pm-missing-dir'), { helmsman: null, target: null }, GIT)).toEqual([]);
   });
+
+  it('ignores a patches directory swapped for a symlink', async () => {
+    const f = fixture();
+    const elsewhere = join(f.root, 'elsewhere'); mkdirSync(elsewhere);
+    writeFileSync(join(elsewhere, '1-target.patch'), diff('one', 'three'));
+    writeFileSync(join(elsewhere, '1-target.json'), JSON.stringify({ repo: 'target', baseSha: f.base, summary: 's' }));
+    rmSync(join(f.directory, 'patches'), { recursive: true });
+    symlinkSync(elsewhere, join(f.directory, 'patches'));
+    expect(await listPatches(f.directory, { helmsman: null, target: f.repo }, GIT)).toEqual([]);
+  });
 });

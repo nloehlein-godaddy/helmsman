@@ -1,7 +1,8 @@
-import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import type { RunEventRow, RunRow } from '../db';
 import { protocolRecord } from '../agent-protocol';
+import { writeOwnedFile } from '../owned-paths';
 
 export type PostmortemSignature = 'exec-kill' | 'spawn-failed' | 'stage-timeout' | 'cost-cap' | 'clarification-unanswered' | 'snapshot-mismatch' | 'gate-blocked';
 export interface PostmortemEvidence {
@@ -139,6 +140,6 @@ export function readEvidenceInput(run: RunRow, deps: { listEvents(runId: string)
 
 export function writeEvidenceFile(directory: string, evidence: PostmortemEvidence): string {
   const path = join(directory, 'evidence.json');
-  writeFileSync(path, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+  writeOwnedFile(directory, path, `${JSON.stringify(evidence, null, 2)}\n`);
   return path;
 }
