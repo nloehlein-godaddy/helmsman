@@ -264,6 +264,18 @@ describe('post-mortem runner', () => {
     await expect(f.runner.send(started.session.id, { clientId: UUID(1), text: 'x' })).rejects.toMatchObject({ status: 503 });
   });
 
+  it('memoizes dispose so repeat calls (SIGTERM plus server close) share one shutdown', async () => {
+    const f = setup();
+    const started = await f.runner.start('run-1'); await f.status(started.session.id, 'ready');
+    const first = f.runner.dispose();
+    const second = f.runner.dispose();
+    expect(second).toBe(first);
+    await second;
+    expect(f.launches[0]?.closedCalls).toBe(1);
+    expect(await f.runner.dispose()).toBeUndefined();
+    expect(f.launches[0]?.closedCalls).toBe(1);
+  });
+
   it('rejects a start parked in sandboxReady once dispose fires, without leaking its slot', async () => {
     let releasePreflight!: () => void;
     const gate = new Promise<void>(resolve => { releasePreflight = resolve; });

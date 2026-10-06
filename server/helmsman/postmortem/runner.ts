@@ -69,6 +69,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
   const listeners = new Map<string, Set<(event: PostmortemEvent) => void>>();
   const pending = new Map<string, Promise<void>>();
   let disposed = false;
+  let disposePromise: Promise<void> | undefined;
   deps.store.sweep();
 
   function background(sessionId: string, promise: Promise<void>): void {
@@ -292,11 +293,13 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
       const sessionId = capabilityId.startsWith('pm-') ? capabilityId.slice(3) : '';
       return Boolean(sessionId) && (live.has(sessionId) || spawning.has(sessionId));
     },
-    async dispose(): Promise<void> {
-      disposed = true;
-      await Promise.all([...live.keys()].map(shutdown));
-      await Promise.all([...pending.values()]);
-      await Promise.all([...live.keys()].map(shutdown));
+    dispose(): Promise<void> {
+      return disposePromise ??= (async () => {
+        disposed = true;
+        await Promise.all([...live.keys()].map(shutdown));
+        await Promise.all([...pending.values()]);
+        await Promise.all([...live.keys()].map(shutdown));
+      })();
     },
   };
 }

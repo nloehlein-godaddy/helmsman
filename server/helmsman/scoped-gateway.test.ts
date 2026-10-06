@@ -148,6 +148,32 @@ describe('scoped gateway', () => {
   });
 });
 
+describe('post-mortem capability scoping', () => {
+  it('admits a pm- capability for model routing while denying publication, push and GitHub reads because it has no run scope', async () => {
+    const liveSessions = new Set(['session-1']);
+    const isLiveCapability = (id: string) => id.startsWith('pm-') && liveSessions.has(id.slice(3));
+    const runStatus = new Map<string, string>();
+    const push = vi.fn(async () => {});
+    const publication = vi.fn(async () => ({ ok: true as const, prNumber: 1 }));
+    const fetcher = vi.fn(async () => new Response('{}'));
+    const { gateway, base } = await open({ modelUpstream: modelUpstream(), githubKey: () => 'github-key', fetcher: fetcher as typeof fetch,
+      active: runId => isLiveCapability(runId) || runStatus.get(runId) === 'running',
+      scope: runId => runStatus.has(runId) ? { repo: 'owner/repo', branch: 'work', readOnly: false } : null,
+      push, publication, clarificationReady: () => true });
+    const cap = gateway.issue('pm-session-1', 60_000);
+    const pubCap = gateway.issuePublication('pm-session-1', 60_000);
+    expect((await request(base, cap.token, '/openai/v1/responses', { method: 'POST', body: '{}' })).status).toBe(200);
+    expect(fetcher).toHaveBeenCalled();
+    expect((await request(base, cap.token, '/git/push', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ headSha: 'a'.repeat(40) }) })).status).toBe(403);
+    expect(push).not.toHaveBeenCalled();
+    expect((await request(base, pubCap.token, '/publication/v1', { method: 'POST', body: JSON.stringify({}) })).status).toBe(403);
+    expect(publication).not.toHaveBeenCalled();
+    expect((await request(base, cap.token, '/github/repos/owner/repo/pulls')).status).toBe(403);
+    liveSessions.delete('session-1');
+    expect((await request(base, cap.token, '/openai/v1/responses', { method: 'POST', body: '{}' })).status).toBe(401);
+  });
+});
+
 describe('attempt-bound clarification gateway', () => {
   it('forwards channel evidence and rejects stale channels under a reusable run credential', async () => {
     const gate = vi.fn((_runId: string, query: URLSearchParams) => query.get('attempt') === '2' && query.get('channel') === 'current');

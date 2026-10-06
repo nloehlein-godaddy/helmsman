@@ -166,7 +166,7 @@ import { RunBus } from './event-bus';
 import { handleRunLog } from './run-log';
 import { createPostmortemRunner, postmortemLimitsFromEnv } from './postmortem/runner';
 import { handlePostmortemEvents } from './postmortem/routes';
-import { openPostmortemStore } from './postmortem/session-store';
+import { openPostmortemStore, PostmortemError } from './postmortem/session-store';
 import { startRun, reattachRun, type RunnerDeps } from './runner';
 import { resumeFailedPrePrRun, ResumeError } from './resume';
 import { cmuxHost, weztermHost, detachedHost, type RunHost } from './run-host';
@@ -557,6 +557,7 @@ const webhooks = openWebhookIntake(persistence.sql, {
   canStart: repo => pm.canStart(repo).ok, getRun: triggerRun, isRunActive: id => pm.hasRun(id), launch,
 });
 await taskSourceRuntime.recoverAdmissions();
+const postmortemStore = openPostmortemStore(persistence);
 applicationStartup.ready();
 const gatewayServer = gateway.server();
 const retainedIsolation = (persistence.sql.prepare('SELECT taskJson FROM runs WHERE taskJson IS NOT NULL').all() as Array<{ taskJson: string }>).some(row => {
@@ -571,12 +572,15 @@ const gatewayUrl = `http://host.docker.internal:${gatewayPort}`;
 const helmsmanCommit = (() => {
   try { return execFileSync('git', ['-C', applicationRoot(), 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 5000 }).trim() || null; } catch { return null; }
 })();
-const postmortems = createPostmortemRunner({ store: openPostmortemStore(persistence), runsDir: RUNS_DIR, helmsmanRoot: applicationRoot(),
+const postmortems = createPostmortemRunner({ store: postmortemStore, runsDir: RUNS_DIR, helmsmanRoot: applicationRoot(),
   getRun: id => db.getRun(id), listEvents: id => db.listEvents(id),
   targetRepoPath: run => { const path = join(AGENTS_ROOT, repoBasename(run.repo)); return existsSync(path) ? path : null; },
   helmsmanCommit: () => helmsmanCommit,
   modelGateway: id => ({ url: `http://127.0.0.1:${gatewayPort}`, token: gateway.issue(id, 86_400_000).token }),
   revokeGateway: id => gateway.revokeRun(id), assertModelReady: () => goCaas.assertReady(), limits: postmortemLimitsFromEnv(process.env) });
+function postmortemAuthorize(caller: string): void {
+  if (!clarificationContributionEnabled(pluginSnapshot.catalog, caller, 'postmortem')) throw new PostmortemError(403, 'forbidden');
+}
 function publicationConnection(runId: string) {
   return { url: `http://127.0.0.1:${gatewayPort}/publication/v1`, token: gateway.issuePublication(runId, 86_400_000).token };
 }
@@ -1954,7 +1958,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     }
     if (await handleRunInspectExport(req, res, url, runInspect)) return;
     if (await handleRunLog(req, res, url.pathname, db, bus)) return;
-    if (await handlePostmortemEvents(req, res, url.pathname, { service: postmortems,
+    if (await handlePostmortemEvents(req, res, url.pathname, { service: postmortems, authorize: postmortemAuthorize,
       caller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined })) return;
     const hasBody: boolean = req.method === 'POST' || req.method === 'PUT';
     const commandBodyLimit = url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/local-git/') || url.pathname.startsWith('/api/terminal/') ? 3 * 1024 * 1024 + 4096 : undefined;
@@ -1987,7 +1991,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       feedbackSettings, feedbackCommands, communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, runInstructions, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      postmortem: postmortems, postmortemCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      postmortem: postmortems, postmortemAuthorize, postmortemCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,
       sourceSchedule: taskSourceRuntime.schedule,
