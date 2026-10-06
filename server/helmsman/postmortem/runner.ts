@@ -147,18 +147,20 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
         if (providerSessionId !== session.providerSessionId) session = deps.store.update(sessionId, { providerSessionId });
         const directory = directoryFor(run.id);
         spawning.add(sessionId);
-        const gateway = deps.modelGateway(postmortemCapabilityId(sessionId));
-        granted = true;
         let spawned: ProviderSession;
         try {
+          const gateway = deps.modelGateway(postmortemCapabilityId(sessionId));
+          granted = true;
           spawned = await launch({ provider: session.provider, model: session.model, effort: session.effort, repo: run.repo, directory,
             profilePath: writeSandboxProfile(resolveSandboxPaths(directory, deps.helmsmanRoot)), providerSessionId, resume: !fresh,
             gateway, stopGraceMs: limits.stopGraceMs, onItem: item => record(sessionId, item) });
         } finally { spawning.delete(sessionId); }
         if (live.get(sessionId) || disposed) {
           if (slot) slots.delete(slot);
-          if (!live.get(sessionId)) deps.revokeGateway(postmortemCapabilityId(sessionId));
-          await spawned.close();
+          const alreadyLive = Boolean(live.get(sessionId));
+          if (!alreadyLive) deps.revokeGateway(postmortemCapabilityId(sessionId));
+          if (disposed && !alreadyLive) { try { setStatus(sessionId, 'idle'); } catch {} }
+          try { await spawned.close(); } catch {}
           return;
         }
         const created: LiveProcess = { process: spawned, idle: null, stopping: false, baseCost: session.costUsd ?? 0 };
@@ -214,6 +216,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
         const prior = input.fresh ? deps.store.latest(runId) : null;
         prepare(run, prior ? deps.store.messages(prior.id) : undefined);
         await sandboxReady(directoryFor(runId));
+        if (disposed) throw new PostmortemError(503, 'Post-mortem runner is shutting down.');
         let session: PostmortemSession;
         try { session = deps.store.create({ runId, provider, model, effort, providerSessionId: provider === 'claude-code' ? randomUUID() : null }); }
         catch (error) {
@@ -246,6 +249,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
         modelReady();
         slot = reserve();
         try { await sandboxReady(directoryFor(runOf(session).id)); } catch (error) { slots.delete(slot); throw error; }
+        if (disposed) { slots.delete(slot); throw new PostmortemError(503, 'Post-mortem runner is shutting down.'); }
         const retried = deps.store.messages(sessionId).find(message => message.clientId === clientId);
         if (retried && retried.text !== text) { slots.delete(slot); throw new PostmortemError(409, 'Message ID already belongs to a different message'); }
         if (retried) { slots.delete(slot); return snapshot(sessionId); }

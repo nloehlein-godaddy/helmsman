@@ -259,8 +259,40 @@ describe('post-mortem runner', () => {
     expect(f.launches[0]?.turns).toHaveLength(0);
     expect(f.launches[0]?.closedCalls).toBe(1);
     expect(f.runner.isLiveCapability(postmortemCapabilityId(started.session.id))).toBe(false);
+    expect((await f.runner.read(started.session.id)).session.status).toBe('idle');
     await expect(f.runner.start('run-2')).rejects.toMatchObject({ status: 503 });
     await expect(f.runner.send(started.session.id, { clientId: UUID(1), text: 'x' })).rejects.toMatchObject({ status: 503 });
+  });
+
+  it('rejects a start parked in sandboxReady once dispose fires, without leaking its slot', async () => {
+    let releasePreflight!: () => void;
+    const gate = new Promise<void>(resolve => { releasePreflight = resolve; });
+    const f = setup({ limits: { maxLive: 1 }, preflight: async () => { await gate; } });
+    const starting = f.runner.start('run-1');
+    await expect(f.runner.start('run-2')).rejects.toMatchObject({ status: 429 });
+    const disposing = f.runner.dispose();
+    releasePreflight();
+    await expect(starting).rejects.toMatchObject({ status: 503 });
+    await disposing;
+    expect(f.launches).toHaveLength(0);
+  });
+
+  it('rejects a send resume parked in sandboxReady once dispose fires, without leaking its slot', async () => {
+    let gateSend = false;
+    let releasePreflight!: () => void;
+    let preflightGate = Promise.resolve();
+    const f = setup({ limits: { idleMs: 20, maxLive: 1 }, preflight: async () => { if (gateSend) await preflightGate; } });
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'idle');
+    preflightGate = new Promise(resolve => { releasePreflight = resolve; });
+    gateSend = true;
+    const sending = f.runner.send(session.id, { clientId: UUID(1), text: 'hi' });
+    await expect(f.runner.start('run-2')).rejects.toMatchObject({ status: 429 });
+    const disposing = f.runner.dispose();
+    releasePreflight();
+    await expect(sending).rejects.toMatchObject({ status: 503 });
+    await disposing;
+    expect(f.launches).toHaveLength(1);
+    expect(f.launches[0]?.turns).toHaveLength(1);
   });
 
   it('keeps a fresh subscriber alive after a stale unsubscribe double-call', async () => {
