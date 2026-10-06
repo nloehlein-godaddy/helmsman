@@ -1,26 +1,106 @@
 {
   "packageVersion": 1,
   "manifest": {
-    "manifestVersion": 2, "id": "helmsman.todos-ui", "version": "0.1.3", "sdkVersion": 1,
-    "pages": [{
-      "id": "page", "title": "Todos", "slots": ["helmsman/todos-page"], "panes": ["list", "new"],
-      "composition": {
-        "id": "helmsman/todos-page", "version": 1, "accepts": [{ "id": "helmsman/todos-panel", "version": 1 }],
-        "initialLayout": {
-          "instances": [{ "instanceId": "todos", "contributionId": "helmsman.todos-ui/panel" },
-            { "instanceId": "automatic", "contributionId": "helmsman.source-settings/automatic" }],
-          "columns": [[{ "instances": ["todos"], "activeInstanceId": "todos", "collapsed": false },
-            { "instances": ["automatic"], "activeInstanceId": "automatic", "collapsed": false }]]
-        }
-      },
-      "requires": [{ "id": "helmsman/composition", "version": 1 }]
-    }],
-    "panels": [{
-      "id": "panel", "title": "Todo editor", "contract": { "id": "helmsman/todos-panel", "version": 1 },
-      "requires": [{ "id": "helmsman/task-edit", "version": 1 }, { "id": "helmsman/source-command", "version": 1 }, { "id": "helmsman/run-command", "version": 1 }, { "id": "helmsman/todo-legacy-recovery", "version": 1 }]
-    }]
+    "manifestVersion": 2,
+    "id": "helmsman.todos-ui",
+    "version": "0.1.4",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Todos",
+        "slots": [
+          "helmsman/todos-page"
+        ],
+        "panes": [
+          "list",
+          "new"
+        ],
+        "composition": {
+          "id": "helmsman/todos-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/todos-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "todos",
+                "contributionId": "helmsman.todos-ui/panel"
+              },
+              {
+                "instanceId": "automatic",
+                "contributionId": "helmsman.source-settings/automatic"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "todos"
+                  ],
+                  "activeInstanceId": "todos",
+                  "collapsed": false
+                },
+                {
+                  "instances": [
+                    "automatic"
+                  ],
+                  "activeInstanceId": "automatic",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        },
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ]
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Todo editor",
+        "contract": {
+          "id": "helmsman/todos-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/task-edit",
+            "version": 1
+          },
+          {
+            "id": "helmsman/source-command",
+            "version": 1
+          },
+          {
+            "id": "helmsman/run-command",
+            "version": 1
+          },
+          {
+            "id": "helmsman/todo-legacy-recovery",
+            "version": 1
+          }
+        ]
+      }
+    ]
   },
-  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
-  "entries": { "page": "page.js" },
-  "panelEntries": { "panel": "panel.js" }
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
 }

@@ -46,9 +46,10 @@ it('keeps a disabled Local Git selection unavailable without restoring shell con
   expect(root.querySelector('.local-git-panel')).toBeNull();
   expect(requests).not.toContain('/api/repo/local');
 });
-it('Config links to Local Git without reading the legacy endpoint', async () => {
+it('Config section navigation links to Local Git without reading the legacy endpoint', async () => {
   history.replaceState(null, '', '/config?repo=org/a');
   const root = document.querySelector<HTMLElement>('#app')!; view = new DashboardView(root); await view.start();
-  await vi.waitFor(() => expect(root.querySelector<HTMLAnchorElement>('a[href="/local-git?repo=org%2Fa"]')).not.toBeNull());
+  await vi.waitFor(() => expect(root.querySelector<HTMLAnchorElement>('.section-nav a[href="/local-git?repo=org%2Fa"]')?.textContent).toBe('Local Git'));
+  expect(root.querySelector('#page-content a[href="/local-git?repo=org%2Fa"]')).toBeNull();
   expect(requests).not.toContain('/api/repo/local');
 });

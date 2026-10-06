@@ -33,10 +33,12 @@ describe('application views', () => {
     }
   });
 
-  it.each([false, true])('keeps a scoped Source settings link when core config unavailable is %s', unavailable => {
+  it.each([false, true])('keeps subpage links only in navigation when core config unavailable is %s', unavailable => {
     const el = root();
     el.innerHTML = renderConfigView({ config: {}, overridden: [] }, { repos: ['org/a'], selectedRepo: 'org/a', themeId: DEFAULT_THEME_ID, unavailable });
-    expect(el.querySelector('#page-content a[href="/source-settings?repo=org%2Fa"]')?.textContent).toBe('Source settings');
+    expect(el.querySelector('.section-nav a[href="/source-settings?repo=org%2Fa"]')?.textContent).toBe('Task sources');
+    expect(el.querySelectorAll('#page-content .app-link')).toHaveLength(0);
+    expect(el.querySelector('.config-links')).toBeNull();
     expect(el.querySelector('[data-task-source-settings]')).toBeNull();
     expect(el.querySelector('.ui-customization-panel')).not.toBeNull();
     expect(el.querySelectorAll('.operator-note')).toHaveLength(1);
@@ -125,15 +127,19 @@ describe('application views', () => {
       { repos: ['org/a'], selectedRepo: 'org/a', themeId: DEFAULT_THEME_ID, unavailable });
     expect(el.textContent).not.toContain('do-not-render');
     expect(el.querySelector('[data-key^="JIRA_"], [data-key^="GITHUB_"]')).toBeNull();
-    for (const path of ['jira-settings', 'github-settings', 'communication', 'local-git']) expect(el.querySelector(`a[href="/${path}?repo=org%2Fa"]`)).not.toBeNull();
+    for (const [path, label] of [['jira-settings', 'Jira'], ['github-settings', 'GitHub'], ['communication', 'Notifications'], ['local-git', 'Local Git']]) {
+      expect(el.querySelector(`.section-nav a[href="/${path}?repo=org%2Fa"]`)?.textContent).toBe(label);
+      expect(el.querySelector(`#page-content a[href="/${path}?repo=org%2Fa"]`)).toBeNull();
+    }
   });
 
 });
 
-it('links to authored communication settings with the header scope', () => {
+it('keeps authored communication settings in the scoped section navigation', () => {
   const root = document.createElement('div');
   root.innerHTML = renderConfigView({ config: { SLACK_ENABLED: 'false' }, overridden: [] }, { repos: ['org/repo'], selectedRepo: 'org/repo', themeId: DEFAULT_THEME_ID });
-  expect(root.querySelector('a[href="/communication?repo=org%2Frepo"]')).not.toBeNull();
+  expect(root.querySelector('.section-nav a[href="/communication?repo=org%2Frepo"]')?.textContent).toBe('Notifications');
+  expect(root.querySelector('#page-content a[href="/communication?repo=org%2Frepo"]')).toBeNull();
   expect(root.querySelector('[data-key^="SLACK_"]')).toBeNull();
 });
 

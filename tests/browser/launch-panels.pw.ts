@@ -32,12 +32,12 @@ async function setup(page: Page) {
     await route.fulfill({ json: body }).catch(() => {});
   });
   await page.goto('/helm?repo=org/a'); await expect(page.locator('.plugin-helm')).toBeVisible();
-  await page.getByText('Manage panels', { exact: true }).click();
+  await page.locator('[data-helm-focus="page:edit"]').click();
   for (const name of ['newrun', 'underway']) {
     await page.getByLabel('Panel to add', { exact: true }).selectOption(`helmsman.${name}/panel`);
     await page.getByRole('button', { name: 'Add panel', exact: true }).click(); await expect(page.locator(`.plugin-${name}`)).toBeVisible();
   }
-  await page.getByText('Manage panels', { exact: true }).click();
+  await page.locator('[data-helm-focus="page:edit"]').click();
   return { commands, state, newrun: page.locator('.plugin-newrun'), underway: page.locator('.plugin-underway') };
 }
 

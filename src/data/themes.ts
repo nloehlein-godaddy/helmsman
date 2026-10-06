@@ -249,6 +249,7 @@ export function applyThemeToDocument(theme: Theme, keys: readonly string[], fall
     else root.style.removeProperty(key);
   }
   root.dataset.theme = theme.id;
+  root.dataset.themeMode = theme.mode;
   root.style.colorScheme = theme.mode;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.vars['--bg'] ?? fallbackBackground);
 }

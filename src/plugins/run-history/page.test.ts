@@ -18,7 +18,7 @@ async function fixture(empty = false, options: { state?: PluginPageState; hidden
   const instance = await page.mount(container, { state: options.state ?? state, signal: lifetime.signal, composition, onDispose: vi.fn(), navigate: vi.fn() });
   return { container, instance, composition, mount, active, dispose, refresh, lifetime, listeners, get layout() { return layout; } };
 }
-const button = (container: HTMLElement, label: string) => [...container.querySelectorAll('button')].find(value => value.textContent === label)!;
+const button = (container: HTMLElement, label: string) => [...container.querySelectorAll('button')].find(value => value.getAttribute('aria-label') === label || value.textContent === label)!;
 describe('Run history composition page', () => {
   it('mounts through the public composition service and retains the instance through refresh/theme changes', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
@@ -28,9 +28,9 @@ describe('Run history composition page', () => {
     f.lifetime.abort(); expect(f.dispose).toHaveBeenCalledOnce(); expect(f.listeners.size).toBe(0);
   });
   it('preserves deliberately empty layouts until a user adds an implementation', async () => {
-    const f = await fixture(true); await vi.waitFor(() => expect(f.container.textContent).toContain('Add a panel to view'));
+    const f = await fixture(true); await vi.waitFor(() => expect(f.container.textContent).toContain('No visible panels. Choose Edit page'));
     expect(f.composition.updateLayout).not.toHaveBeenCalled(); expect(f.mount).not.toHaveBeenCalled();
-    button(f.container, 'Add panel').click(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
+    button(f.container, 'Edit page').click(); button(f.container, 'Add panel').click(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
     expect(f.layout.instances[0]).toMatchObject({ contributionId: 'helmsman.run-history/panel', state: {}, scope: { kind: 'inherit' } });
   });
   it('reveals and focuses a hidden collapsed route target while retaining its instance', async () => {
@@ -46,7 +46,7 @@ describe('Run history composition page', () => {
   it('retries failed route reveal only when the operator refreshes', async () => {
     const f = await fixture(false, { hidden: true, collapsed: true }); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce()); const update = vi.mocked(f.composition.updateLayout); update.mockRejectedValueOnce(new Error('Temporarily unavailable'));
     await f.instance.update({ ...state, panelContribution: 'helmsman.run-history/panel' }); await vi.waitFor(() => expect(f.container.textContent).toContain('could not be revealed')); expect(f.layout.instances[0]?.hidden).toBe(true); expect(update).toHaveBeenCalledOnce();
-    await f.instance.refresh?.(); expect(update).toHaveBeenCalledOnce(); button(f.container, 'Refresh').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false)); expect(update).toHaveBeenCalledTimes(2); expect(f.layout.columns[0]?.[0]?.collapsed).toBe(false);
+    await f.instance.refresh?.(); expect(update).toHaveBeenCalledOnce(); button(f.container, 'Refresh page').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false)); expect(update).toHaveBeenCalledTimes(2); expect(f.layout.columns[0]?.[0]?.collapsed).toBe(false);
   });
   it('honors exact missing instances without falling back to a matching contribution', async () => {
     const f = await fixture(false, { hidden: true, state: { ...state, panelInstance: 'missing', panelContribution: 'helmsman.run-history/panel' } });
@@ -58,14 +58,14 @@ describe('Run history composition page', () => {
   });
   it('lets explicit user hiding win over refresh until another route visit', async () => {
     const routed = { ...state, pane: 'list', panelContribution: 'helmsman.run-history/panel', panelRouteState: { 'helmsman.run-history/panel': { version: 1, value: { pane: 'list' } } } };
-    const f = await fixture(false, { state: routed }); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce()); button(f.container, 'Hide Run history').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
+    const f = await fixture(false, { state: routed }); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce()); button(f.container, 'Edit page').click(); button(f.container, 'Hide Run history').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
     await f.instance.refresh?.(); expect(f.layout.instances[0]?.hidden).toBe(true); await f.instance.update(state); await f.instance.update(routed); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false));
   });
   it('hides and explicitly restores a panel without deleting its saved drafts', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
-    button(f.container, 'Hide Run history').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
+    button(f.container, 'Edit page').click(); button(f.container, 'Hide Run history').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
     await vi.waitFor(() => expect(f.active).toHaveBeenLastCalledWith(false)); expect(f.dispose).not.toHaveBeenCalled();
-    button(f.container, 'Open Run history').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false));
+    button(f.container, 'Show Run history').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false));
     await vi.waitFor(() => expect(f.active).toHaveBeenLastCalledWith(true)); expect(f.mount).toHaveBeenCalledOnce();
   });
 });

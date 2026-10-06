@@ -36,7 +36,7 @@ test('selected source-settings package preserves header scope, drafts and durabl
     return route.fulfill({ json: body });
   });
   await page.goto('/config?repo=org/a');
-  await page.locator('#page-content a[href="/source-settings?repo=org%2Fa"]').click();
+  await page.locator('.section-nav a[href="/source-settings?repo=org%2Fa"]').click();
   const panel = page.locator('.plugin-source-settings').first(); await panel.getByLabel('Source instance', { exact: true }).selectOption('todos');
   await expect(panel.getByRole('button', { name: 'Apply source configuration', exact: true })).toBeEnabled();
   for (const path of ['/todos', '/triage', '/bugs']) await expect(page.locator(`.page-tabs a[href="${path}?repo=org%2Fa"]`)).toBeVisible();

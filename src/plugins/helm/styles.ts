@@ -2,7 +2,8 @@ export const styles = `
 .plugin-helm {font:16px/1.5 var(--sans,sans-serif);color:var(--text);display:grid;gap:16px;min-width:0}
 .plugin-helm h1 {font-size:22px;font-weight:650;margin:0}.plugin-helm h2 {font-size:17px;margin:0}
 .plugin-helm .helm-tools,.plugin-helm .helm-config-row {display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.plugin-helm .helm-tools {justify-content:space-between}.plugin-helm .helm-columns {display:grid;grid-template-columns:repeat(var(--helm-columns,2),minmax(0,1fr));gap:16px;align-items:start}
+.plugin-helm .helm-tools {justify-content:space-between}.plugin-helm .composition-page-actions {display:flex;align-items:center;gap:8px}.plugin-helm .composition-page-editor[hidden] {display:none}.plugin-helm .helm-columns {display:grid;grid-template-columns:repeat(var(--helm-columns,2),minmax(0,1fr));gap:16px;align-items:start}
+.plugin-helm .composition-icon-button {display:inline-grid;place-items:center;width:36px;height:36px;min-width:36px;min-height:36px;padding:7px}.plugin-helm .composition-icon-button svg {width:18px;height:18px}.plugin-helm .composition-page-edit[aria-pressed=true] {border-color:var(--accent);color:var(--accent)}
 .plugin-helm .helm-column {display:grid;gap:16px;min-width:0}.plugin-helm .helm-stack {border:1px solid var(--line);border-radius:12px;background:var(--panel);min-width:0;overflow:hidden}
 .plugin-helm .helm-stack-header {display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--line);min-width:0}
 .plugin-helm .helm-tabs {display:flex;gap:4px;min-width:0;overflow-x:auto;align-items:center}.plugin-helm .helm-tabs button {flex-shrink:0;background:transparent;border-color:transparent;color:var(--text-dim);font-size:15px;font-weight:600}
@@ -13,10 +14,10 @@ export const styles = `
 .plugin-helm .helm-panel-body {padding:16px;min-width:0}.plugin-helm .helm-panel-body[hidden] {display:none}
 .plugin-helm button,.plugin-helm select,.plugin-helm input {font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;padding:6px 10px;max-width:100%;min-height:34px;box-sizing:border-box}.plugin-helm :is(input,select){background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}
 .plugin-helm button {cursor:pointer}.plugin-helm button:not(:disabled):hover {border-color:var(--accent)}.plugin-helm button:disabled {opacity:.5;cursor:not-allowed}.plugin-helm label {display:flex;gap:8px;align-items:center}
-.plugin-helm > details {padding:0}.plugin-helm > details > summary {cursor:pointer;color:var(--text-dim);font-size:15px;min-height:32px;align-content:center;width:fit-content}.plugin-helm .helm-config {display:grid;gap:12px;margin-top:12px}
+.plugin-helm .composition-page-editor {padding:12px 0;border-top:1px solid var(--line)}.plugin-helm .helm-config {display:grid;gap:12px}
 .plugin-helm .helm-config-row {padding-bottom:12px;border-bottom:1px solid var(--line)}.plugin-helm .helm-config-row strong {overflow-wrap:anywhere}
 .plugin-helm [role=alert] {color:var(--bad)}.plugin-helm :is(button,select,input,summary):focus-visible {outline:2px solid var(--accent);outline-offset:2px}
 @media(max-width:760px) {.plugin-helm .helm-columns {grid-template-columns:1fr}.plugin-helm .helm-panel-body {padding:12px}}
-@media(any-pointer:coarse) {.plugin-helm :is(button,select,input,summary) {min-height:44px;min-width:44px}.plugin-helm .helm-collapse {width:44px;height:44px}}
+@media(any-pointer:coarse) {.plugin-helm :is(button,select,input,summary) {min-height:44px;min-width:44px}.plugin-helm .helm-collapse,.plugin-helm .composition-icon-button {width:44px;height:44px}}
 @media(prefers-reduced-motion:reduce) {.plugin-helm .helm-collapse svg {transition:none}}
 `;

@@ -155,12 +155,14 @@ html, body {
 .page-tab { flex-shrink: 0; text-decoration: none; font: 500 15px/1.4 var(--sans); color: var(--nav-muted, var(--text-dim)); border: 1px solid transparent; border-radius: var(--radius); padding: 10px 14px; cursor: pointer; }
 .page-tab:hover { color: var(--nav-text, var(--text)); background: var(--nav-active, var(--panel-hi)); }
 .page-tab.is-active { color: var(--nav-text, var(--text)); background: var(--nav-active, var(--panel-hi)); border-color: var(--nav-muted, var(--line)); font-weight: 650; }
-.section-nav { grid-area: section; position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; padding: 8px 28px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.section-nav { --section-nav-bg: #b894e5; --section-nav-hover: #cbb0ee; --section-nav-text: #241035; --section-nav-selected: #38214f; --section-nav-ink: #f7efff; grid-area: section; position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; padding: 8px 28px; border-bottom: 1px solid var(--section-nav-selected); background: var(--section-nav-bg); scrollbar-color: var(--section-nav-selected) var(--section-nav-bg); }
+[data-theme-mode="light"] .section-nav { --section-nav-bg: #503469; --section-nav-hover: #684780; --section-nav-text: #f7efff; --section-nav-selected: #ead5ff; --section-nav-ink: #291639; }
 .section-nav[hidden] { display: none; }
-.section-nav .section-link { flex-shrink: 0; padding: 8px 12px; border-radius: var(--radius); font: 500 15px/1.4 var(--sans); color: var(--text-dim); text-decoration: none; white-space: nowrap; }
-.section-nav .section-link:hover { color: var(--text); background: var(--panel-hi); }
-.section-nav .section-link.is-active { color: var(--accent); background: var(--panel-hi); font-weight: 650; }
-.section-nav .section-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.section-nav .section-link { flex-shrink: 0; padding: 8px 12px; border-radius: var(--radius); font: 500 15px/1.4 var(--sans); color: var(--section-nav-text); text-decoration: none; white-space: nowrap; }
+.section-nav .section-link:hover { color: var(--section-nav-text); background: var(--section-nav-hover); }
+.section-nav .section-link.is-active { color: var(--section-nav-ink); background: var(--section-nav-selected); font-weight: 650; }
+.section-nav .section-link:focus-visible { outline: 2px solid var(--section-nav-text); outline-offset: -2px; }
+.section-nav .section-link.is-active:focus-visible { outline-color: var(--section-nav-ink); }
 .page-content { grid-area: content; position: relative; display: flex; flex-direction: column; gap: 24px; min-width: 0; min-height: 0; overflow: auto; padding: 28px; background: var(--bg); }
 .page-content > * { flex-shrink: 0; }
 .page-content:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -430,8 +432,6 @@ select { text-transform: none; }
 .config-section { padding: 20px; }
 .config-section h2 { margin: 0 0 12px; font: 650 18px/1.4 var(--sans); color: var(--text); }
 .config-section p { margin: 0; max-width: 75ch; color: var(--text-dim); line-height: 1.6; overflow-wrap: anywhere; }
-.config-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 4px 24px; padding: 0; margin: 0; list-style: none; }
-.config-links a { display: block; padding: 8px 0; line-height: 1.5; }
 .config-section a, .app-footer [data-recovery-link] { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .config-section a:hover, .app-footer [data-recovery-link]:hover { color: var(--accent-bright); text-decoration-thickness: 2px; }
 .config-section a:focus-visible, .app-footer [data-recovery-link]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }

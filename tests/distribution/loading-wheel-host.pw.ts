@@ -18,12 +18,12 @@ test('source-denied copied run panels retain accessible loading and unavailable 
       held.push(pending); await pending;
     });
     await page.goto(`${origin}/helm?repo=org/a`); await expect(page.locator('.plugin-helm')).toBeVisible();
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     for (const contribution of ['example.loading-running/panel', 'example.loading-recent/panel']) {
       await page.getByLabel('Panel to add', { exact: true }).selectOption(contribution);
       await page.getByRole('button', { name: 'Add panel', exact: true }).click();
     }
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     await expect.poll(() => held.length).toBeGreaterThanOrEqual(2);
     const running = page.locator('.plugin-running').last(); const recent = page.locator('.plugin-recent').last();
     for (const panel of [running, recent]) {

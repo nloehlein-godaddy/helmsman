@@ -40,8 +40,27 @@ async function fixture(page: PluginPageModule = helm, panel: PluginPanelModule =
   return { container, instance, lifetime, tasks, composition, mounts, updates, listeners, childInstances, get layout() { return layout; } };
 }
 afterEach(() => { document.body.replaceChildren(); });
+function editPage(container: HTMLElement) { const edit = container.querySelector<HTMLButtonElement>('[aria-label="Edit page"]'); if (!edit) throw new Error('Missing Edit page'); edit.click(); }
 
 describe.each([['shipped Helm', helm], ['independent Helm', workspace]] as const)('%s public composition', (_name, page) => {
+  it('keeps layout controls in Edit page and removes the last instance without recreating it', async () => {
+    const f = await fixture(page); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledOnce());
+    expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Refresh page"]')).not.toBeNull();
+    expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Edit page"]')?.getAttribute('aria-pressed')).toBe('false');
+    expect(f.container.querySelector('[aria-label^="Remove · "]')).toBeNull();
+    editPage(f.container);
+    expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Done editing page"]')?.getAttribute('aria-pressed')).toBe('true');
+    const remove = f.container.querySelector<HTMLButtonElement>('[aria-label^="Remove · "]')!;
+    remove.focus(); remove.click();
+    await vi.waitFor(() => expect(f.layout.instances).toHaveLength(0));
+    expect(f.layout.columns.flat()).toHaveLength(0);
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Done editing page');
+    expect(f.container.querySelector('[data-panel-instance="first"]')).toBeNull();
+    f.container.querySelector<HTMLButtonElement>('[aria-label="Done editing page"]')!.click();
+    expect(f.container.querySelector('[aria-label^="Remove · "]')).toBeNull();
+    expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Edit page"]')?.getAttribute('aria-pressed')).toBe('false');
+    f.lifetime.abort();
+  });
   it.each([['shipped backlog', backlog], ['independent backlog', taskTable]] as const)('mounts %s using only host composition and task reads', async (_label, panel) => {
     const f = await fixture(page, panel);
     await vi.waitFor(() => expect(f.container.textContent).toContain('Read public services'));
@@ -53,7 +72,7 @@ describe.each([['shipped Helm', helm], ['independent Helm', workspace]] as const
   it('reveals a deep-linked instance once while preserving subsequent explicit hiding', async () => {
     const f = await fixture(page); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
     await f.composition.updateLayout({ ...f.layout, instances: f.layout.instances.map(value => ({ ...value, hidden: true })), columns: f.layout.columns.map(column => column.map(stack => ({ ...stack, collapsed: true }))) }, f.layout.revision);
-    await vi.waitFor(() => expect(f.container.textContent).toContain('Show'));
+    editPage(f.container); await vi.waitFor(() => expect(f.container.querySelector('.composition-page-editor')?.textContent).toContain('Show'));
     await f.instance.update({ ...state, panelInstance: 'first' });
     await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false));
     expect(f.layout.columns[0]?.[0]?.collapsed).toBe(false);
@@ -142,6 +161,7 @@ describe('shipped Helm composition controls', () => {
 
   it('gives duplicate instances distinguishable groups and action names while preserving the targeted state', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
+    editPage(f.container);
     await f.composition.updateLayout({ ...f.layout, instances: [...f.layout.instances, { ...f.layout.instances[0]!, instanceId: 'second' }], columns: [[{ instances: ['first', 'second'], activeInstanceId: 'first', collapsed: false }]] }, f.layout.revision);
     await vi.waitFor(() => expect(f.container.querySelectorAll('.helm-config-row[role="group"]')).toHaveLength(2));
     const groups = [...f.container.querySelectorAll('.helm-config-row[role="group"]')];
@@ -157,6 +177,7 @@ describe('shipped Helm composition controls', () => {
   });
   it('distinguishes stack targets whose instance IDs share the same prefix', async () => {
     const f = await fixture();
+    editPage(f.container);
     const ids = ['shared-prefix-first', 'shared-prefix-second'];
     await f.composition.updateLayout({ ...f.layout,
       instances: [...f.layout.instances, ...ids.map(instanceId => ({ ...f.layout.instances[0]!, instanceId }))],
@@ -170,6 +191,7 @@ describe('shipped Helm composition controls', () => {
   });
   it('duplicates, hides and stacks without overwriting other implementation state', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.container.textContent).toContain('Read public services'));
+    editPage(f.container);
     const click = (label: string) => { const value = Array.from(f.container.querySelectorAll('button')).find(button => button.textContent === label); if (!value) throw new Error(`Missing ${label}`); value.click(); };
     click('Duplicate'); await vi.waitFor(() => expect(f.layout.instances).toHaveLength(2));
     expect(f.layout.instances[0]?.state).toEqual({ 'example.missing/panel': { version: 2, value: { draft: 'kept' } } });
@@ -183,6 +205,7 @@ describe('shipped Helm composition controls', () => {
   });
   it('reports compare-and-swap conflict without discarding saved layout', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.container.textContent).toContain('Read public services'));
+    editPage(f.container);
     f.updates.mockRejectedValueOnce(new Error('Conflict'));
     Array.from(f.container.querySelectorAll('button')).find(button => button.textContent === 'Remove')?.click();
     await vi.waitFor(() => expect(f.container.textContent).toContain('Review the current layout and retry'));
@@ -190,6 +213,7 @@ describe('shipped Helm composition controls', () => {
   });
   it('disposes late panel mounts after page disposal', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
+    editPage(f.container);
     const dispose = vi.fn(); let finish!: (value: Awaited<ReturnType<CompositionServiceV1['mount']>>) => void;
     f.mounts.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     Array.from(f.container.querySelectorAll('button')).find(button => button.textContent === 'Duplicate')?.click();
@@ -199,6 +223,7 @@ describe('shipped Helm composition controls', () => {
   });
   it('retains unsaved scope text and focus through a presentation refresh', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
+    editPage(f.container);
     const scope = f.container.querySelector<HTMLSelectElement>('[aria-label^="Scope for Tasks · "]')!;
     scope.value = 'galleon'; scope.dispatchEvent(new Event('change'));
     const repo = f.container.querySelector<HTMLInputElement>('[aria-label^="Panel repository · "]')!;
@@ -259,6 +284,7 @@ describe.each([['shipped Helm', helm], ['independent Helm', workspace]] as const
 describe('Helm movement controls', () => {
   it('preserves panel state and control focus while moving between columns', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledTimes(1));
+    editPage(f.container);
     const stateBefore = structuredClone(f.layout.instances[0]?.state);
     const move = f.container.querySelector<HTMLButtonElement>('[data-helm-focus="first:move-right"]')!;
     move.focus(); move.click();

@@ -247,6 +247,7 @@ describe('applyTheme (DOM)', () => {
     const root: HTMLElement = document.documentElement;
     expect(root.style.getPropertyValue('--accent')).toBe(getTheme('dracula')?.vars['--accent']);
     expect(root.dataset.theme).toBe('dracula');
+    expect(root.dataset.themeMode).toBe('dark');
     expect(root.style.colorScheme).toBe('dark');
   });
 
@@ -254,6 +255,7 @@ describe('applyTheme (DOM)', () => {
     applyTheme('github-light');
     expect(document.documentElement.style.colorScheme).toBe('light');
     expect(document.documentElement.dataset.theme).toBe('github-light');
+    expect(document.documentElement.dataset.themeMode).toBe('light');
   });
 
   it('clears all inline role vars and sets dataset.theme=amber when applying amber', () => {

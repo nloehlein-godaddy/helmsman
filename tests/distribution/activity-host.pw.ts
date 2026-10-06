@@ -27,12 +27,12 @@ test('source-denied Activity and PR packages preserve real source counts and tru
     expect(snapshot.history.events.some((event: { ref: { externalId: string }; kind: string }) => event.ref.externalId === task.id && event.kind === 'completed')).toBe(true);
     expect(snapshot.history.events.every((event: { ref: { externalId: string } }) => event.ref.externalId !== other.id)).toBe(true);
     await page.goto(`${origin}/helm?repo=org/a`); await expect(page.locator('.plugin-helm')).toBeVisible();
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     for (const name of ['activity', 'repoprs', 'shipped']) {
       await page.getByLabel('Panel to add', { exact: true }).selectOption(`example.${name}/panel`);
       await page.getByRole('button', { name: 'Add panel', exact: true }).click(); await expect(page.locator(`.plugin-${name}`)).toBeVisible();
     }
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     const activity = page.locator('.plugin-activity'); const repoprs = page.locator('.plugin-repoprs'); const shipped = page.locator('.plugin-shipped');
     await expect(activity.locator('dd')).toHaveCount(7); await expect(activity.locator('dd').last()).toHaveText('1');
     await expect(activity.getByText(new RegExp(`${task.id} completed`))).toBeVisible(); await expect(activity.getByText(new RegExp(other.id))).toHaveCount(0);

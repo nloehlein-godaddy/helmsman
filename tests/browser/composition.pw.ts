@@ -29,7 +29,7 @@ test('fresh Helm composes all eight panels and preserves deliberate removals', a
   await expect(page).toHaveScreenshot('default-helm.png', { animations: 'disabled' });
   await page.locator('#helm-body-repoprs').scrollIntoViewIfNeeded();
   await expect(page.locator('#helm-body-repoprs')).toBeInViewport();
-  await page.getByText('Manage panels', { exact: true }).click();
+  await page.locator('[data-helm-focus="page:edit"]').click();
   const backlog = page.locator('.helm-config-row').filter({ has: page.getByLabel('Scope for Backlog', { exact: false }) });
   await backlog.getByRole('button', { name: /^Remove(?: ·|$)/ }).click();
   await expect(page.locator('#helm-body-backlog')).toHaveCount(0);
@@ -79,7 +79,7 @@ test('Helm keeps independent panel scopes and layout through disablement and rel
   await expect(page.getByRole('heading', { name: 'Helm', exact: true })).toBeVisible();
   await expect(page.locator('#helm-body-legacy-0-0-0').getByText('Work for org/a', { exact: true })).toBeVisible();
   await expect(page.locator('#helm-body-legacy-0-0-0').getByText('TASK-1', { exact: true })).toBeVisible();
-  await page.getByText('Manage panels', { exact: true }).click();
+  await page.locator('[data-helm-focus="page:edit"]').click();
   await page.getByRole('button', { name: /^Duplicate(?: ·|$)/ }).click();
   await expect(page.getByRole('button', { name: /^Duplicate(?: ·|$)/ })).toHaveCount(2);
   const row = page.locator('.helm-config-row').filter({ has: page.getByRole('button', { name: /^Duplicate(?: ·|$)/ }) }).last();
@@ -90,7 +90,7 @@ test('Helm keeps independent panel scopes and layout through disablement and rel
   await expect(page.getByText('Work for org/b', { exact: true })).toBeVisible();
   await expect(page.locator('.repo-select')).toHaveValue('org/a');
   await expect(page).toHaveURL(url => url.searchParams.get('repo') === 'org/a' && url.searchParams.get('panel') === 'legacy-0-0-0');
-  await page.getByText('Manage panels', { exact: true }).click();
+  await page.locator('[data-helm-focus="page:edit"]').click();
   await expect(page.locator('.plugin-helm')).toHaveScreenshot('composed-helm.png', { animations: 'disabled' });
   enabled.delete('helmsman.backlog');
   await expect(page.getByText('This panel is unavailable. Enable or install its plugin to bring it aboard.')).toHaveCount(2);

@@ -8,6 +8,11 @@ const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): 
 const button = (text: string, action: () => void, disabled = false) => {
   const value = element('button', text); value.type = 'button'; value.disabled = disabled; value.addEventListener('click', action); return value;
 };
+const iconButton = (label: string, path: string, action: () => void, disabled = false) => {
+  const value = button('', action, disabled); value.className = 'composition-icon-button'; value.setAttribute('aria-label', label); value.title = label;
+  value.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+  return value;
+};
 interface Mounted { element: HTMLElement; handle: ManagedPanelInstanceV1 | null; contributionId: string; active: boolean; retired: boolean; }
 
 class HelmPage implements PluginPageInstance {
@@ -22,6 +27,7 @@ class HelmPage implements PluginPageInstance {
   private generation = 0;
   private saving = false;
   private error = '';
+  private editing = false;
   private located: string | null = null;
   private pendingFocus: string | null = null;
   private scopeDrafts = new Map<string, { kind: string; repo: string }>();
@@ -103,7 +109,7 @@ class HelmPage implements PluginPageInstance {
       }
     } finally { if (!this.disposed) {
       this.saving = false; this.revealLocator(); this.draw();
-      if (focusedControl && document.activeElement === document.body) Array.from(this.container.querySelectorAll<HTMLElement>('[data-helm-focus]')).find(control => control.dataset.helmFocus === focusedControl)?.focus({ preventScroll: true });
+      if (focusedControl && document.activeElement === document.body) (Array.from(this.container.querySelectorAll<HTMLElement>('[data-helm-focus]')).find(control => control.dataset.helmFocus === focusedControl) ?? this.container.querySelector<HTMLButtonElement>('[data-helm-focus="page:edit"]'))?.focus({ preventScroll: true });
     } }
     return saved;
   }
@@ -128,11 +134,15 @@ class HelmPage implements PluginPageInstance {
   }
   private draw(): void {
     if (this.disposed) return;
-    const open = this.container.querySelector('details')?.open ?? false;
     const focusedElement = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
     const focused = focusedElement?.dataset.helmFocus;
     const page = element('div'); page.className = 'plugin-helm'; const style = element('style', styles); page.append(style);
-    const toolbar = element('div'); toolbar.className = 'helm-tools'; toolbar.append(element('h1', this.state.pirateMode ? 'Helm' : 'Dashboard'), button('Refresh', () => { void this.refresh(); }, this.saving)); page.append(toolbar);
+    const toolbar = element('header'); toolbar.className = 'helm-tools composition-page-header'; toolbar.append(element('h1', this.state.pirateMode ? 'Helm' : 'Dashboard'));
+    const actions = element('div'); actions.className = 'composition-page-actions';
+    const refresh = iconButton('Refresh page', 'M20 11a8 8 0 0 0-14.5-4.5L3 9m0-6v6h6 M4 13a8 8 0 0 0 14.5 4.5L21 15m0 6v-6h-6', () => { void this.refresh(); }, this.saving); refresh.dataset.helmFocus = 'page:refresh'; actions.append(refresh);
+    const edit = this.editing ? button('Done', () => { this.editing = false; this.draw(); }, this.saving)
+      : iconButton('Edit page', 'M12 20h9 M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z', () => { this.editing = true; this.draw(); }, this.saving);
+    edit.classList.add('composition-page-edit'); edit.setAttribute('aria-label', this.editing ? 'Done editing page' : 'Edit page'); edit.setAttribute('aria-pressed', String(this.editing)); edit.title = this.editing ? 'Done editing page' : 'Edit page'; edit.dataset.helmFocus = 'page:edit'; actions.append(edit); toolbar.append(actions); page.append(toolbar);
     if (this.error) { const message = element('p', this.error); message.setAttribute('role', 'alert'); page.append(message); }
     const layout = this.layout;
     if (!layout) { page.append(element('p', this.error ? 'Your layout is kept.' : 'Loading panels…')); this.container.replaceChildren(page); return; }
@@ -140,7 +150,7 @@ class HelmPage implements PluginPageInstance {
     const retained = new Set(layout.instances.map(instance => instance.instanceId));
     for (const id of this.scopeDrafts.keys()) if (!retained.has(id)) this.scopeDrafts.delete(id);
     for (const [id, mounted] of this.mounted) if (!retained.has(id)) { mounted.retired = true; mounted.handle?.dispose(); this.mounted.delete(id); }
-    const manager = element('details'); manager.open = open; manager.append(element('summary', 'Manage panels'));
+    const manager = element('section'); manager.className = 'composition-page-editor'; manager.setAttribute('role', 'region'); manager.setAttribute('aria-label', 'Page customization'); manager.hidden = !this.editing;
     const controls = element('div'); controls.className = 'helm-config';
     const add = element('select'); add.setAttribute('aria-label', 'Panel to add');
     for (const panel of this.composition.discover()) { const option = element('option', panel.title); option.value = panel.contributionId; add.append(option); }
@@ -151,8 +161,8 @@ class HelmPage implements PluginPageInstance {
       row.setAttribute('role', 'group'); row.setAttribute('aria-label', identity);
       const focus = (control: HTMLElement, suffix: string) => { control.dataset.helmFocus = `${instance.instanceId}:${suffix}`; return control; };
       row.append(focus(button(instance.hidden ? 'Show' : 'Hide', () => { void this.save(value => changeInstance(value, instance.instanceId, { hidden: !instance.hidden })); }, this.saving), 'hidden'));
-      row.append(button('Duplicate', () => { void this.save(value => addInstance(value, instance.contributionId, instance.scope)); }, this.saving));
-      row.append(button('Remove', () => { void this.save(value => removeInstance(value, instance.instanceId)); }, this.saving));
+      row.append(focus(button('Duplicate', () => { void this.save(value => addInstance(value, instance.contributionId, instance.scope)); }, this.saving), 'duplicate'));
+      row.append(focus(button('Remove', () => { void this.save(value => removeInstance(value, instance.instanceId)); }, this.saving), 'remove'));
       const replacement = element('select'); replacement.setAttribute('aria-label', `Implementation for ${this.title(instance.contributionId)}`);
       const contributions = [...new Set([instance.contributionId, ...this.composition.discover().map(panel => panel.contributionId)])];
       for (const id of contributions) { const option = element('option', this.title(id)); option.value = id; replacement.append(option); }
@@ -185,7 +195,7 @@ class HelmPage implements PluginPageInstance {
       }
       controls.append(row);
     }
-    manager.append(controls); page.append(manager);
+    if (this.editing) manager.append(controls); page.append(manager);
     const grid = element('div'); grid.className = 'helm-columns'; grid.style.setProperty('--helm-columns', String(Math.max(1, layout.columns.length)));
     this.grid = grid; this.columns = [];
     for (const column of layout.columns) {
@@ -239,7 +249,7 @@ class HelmPage implements PluginPageInstance {
       ? Array.from(this.container.querySelectorAll<HTMLElement>('[role="tab"]')).find(tab => tab.dataset.helmFocus === `${this.pendingFocus}:tab`) : null;
     if (target && !this.saving) { target.focus({ preventScroll: true }); this.pendingFocus = null; }
     else if (focusedElement?.isConnected && this.container.contains(focusedElement)) focusedElement.focus({ preventScroll: true });
-    else if (focused) Array.from(this.container.querySelectorAll<HTMLElement>('[data-helm-focus]')).find(control => control.dataset.helmFocus === focused)?.focus({ preventScroll: true });
+    else if (focused) (Array.from(this.container.querySelectorAll<HTMLElement>('[data-helm-focus]')).find(control => control.dataset.helmFocus === focused) ?? edit)?.focus({ preventScroll: true });
   }
   update(state: PluginPageState): void { if (!this.disposed) { this.state = state; this.revealLocator(); this.draw(); } }
   async refresh(): Promise<void> { if (!this.disposed) { await this.read(); await Promise.all([...this.mounted.values()].filter(value => value.active).map(value => value.handle?.refresh())); } }

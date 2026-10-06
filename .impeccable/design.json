@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-06T15:52:06.653Z",
+  "generatedAt": "2026-10-06T21:44:36.993Z",
   "title": "Design System: Helmsman — Field Guide",
   "extensions": {
     "colorMeta": {
@@ -561,9 +561,9 @@
       "name": "Section navigation",
       "kind": "nav",
       "refersTo": "section-link",
-      "description": "Persistent Config and Runs sibling links above the scrolling work area on parent and child pages; hidden elsewhere. The primary parent stays selected, while Overview or the exact child carries aria-current. Links preserve header scope and follow terminology and selected replacement pages; a directly opened alternative gets its own current link. Overflow scrolls horizontally, and navigation or resize reveals the current destination without moving page content.",
-      "html": "<nav class=\"ds-section-nav\" aria-label=\"Runs pages\"><a class=\"ds-section-link\" href=\"/runs\">Overview</a><a class=\"ds-section-link ds-section-active\" href=\"/run-history\" aria-current=\"page\">History</a><a class=\"ds-section-link\" href=\"/run-viewer\">Run details</a></nav>",
-      "css": ".ds-section-nav{position:relative;display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;padding:8px 28px;border-bottom:1px solid var(--line);background:var(--panel)}.ds-section-nav[hidden]{display:none}.ds-section-link{flex-shrink:0;padding:8px 12px;border-radius:6px;font:500 15px/1.4 var(--sans,system-ui,sans-serif);color:var(--text-dim);text-decoration:none;white-space:nowrap}.ds-section-link:hover{color:var(--text);background:var(--panel-hi)}.ds-section-link.ds-section-active{color:var(--accent);background:var(--panel-hi);font-weight:650}.ds-section-link:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}@media(max-width:840px){.ds-section-nav{padding:8px 12px}}@media(any-pointer:coarse){.ds-section-link{display:inline-flex;align-items:center;min-height:44px;box-sizing:border-box}}"
+      "description": "Persistent Config and Runs sibling links above the scrolling work area; Config Overview uses this row as its single destination location. A lavender default-dark band switches to deep violet under an explicit light theme mode, with an inverted selected link. Hidden on unrelated pages; links retain header scope, follow selected replacements and reveal the current destination when the row scrolls.",
+      "html": "<div data-theme-mode=\"dark\"><nav class=\"ds-section-nav\" aria-label=\"Config pages\"><a class=\"ds-section-link\" href=\"/config\">Overview</a><a class=\"ds-section-link\" href=\"/jira-settings\">Jira</a><a class=\"ds-section-link ds-section-active\" href=\"/github-settings\" aria-current=\"page\">GitHub</a></nav></div>",
+      "css": ".ds-section-nav{--section-nav-bg:#b894e5;--section-nav-hover:#cbb0ee;--section-nav-text:#241035;--section-nav-selected:#38214f;--section-nav-ink:#f7efff;position:relative;display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;padding:8px 28px;border-bottom:1px solid var(--section-nav-selected);background:var(--section-nav-bg);scrollbar-color:var(--section-nav-selected) var(--section-nav-bg)}[data-theme-mode=\"light\"] .ds-section-nav{--section-nav-bg:#503469;--section-nav-hover:#684780;--section-nav-text:#f7efff;--section-nav-selected:#ead5ff;--section-nav-ink:#291639}.ds-section-nav[hidden]{display:none}.ds-section-link{flex-shrink:0;padding:8px 12px;border-radius:6px;font:500 15px/1.4 var(--sans,system-ui,sans-serif);color:var(--section-nav-text);text-decoration:none;white-space:nowrap}.ds-section-link:hover{color:var(--section-nav-text);background:var(--section-nav-hover)}.ds-section-link.ds-section-active{color:var(--section-nav-ink);background:var(--section-nav-selected);font-weight:650}.ds-section-link:focus-visible{outline:2px solid var(--section-nav-text);outline-offset:-2px}.ds-section-link.ds-section-active:focus-visible{outline-color:var(--section-nav-ink)}@media(max-width:840px){.ds-section-nav{padding:8px 12px}}@media(any-pointer:coarse){.ds-section-link{display:inline-flex;align-items:center;min-height:44px;box-sizing:border-box}}"
     },
     {
       "name": "Labeled run state",
@@ -606,7 +606,8 @@
       "Task identity first, labeled state alongside it, supporting evidence below.",
       "System sans for controls and text; JetBrains Mono for identifiers and logs.",
       "Twelve-pixel panels and six-pixel controls, with native affordances.",
-      "Customizable panels, logs within reach and a single-column small-screen reading order."
+      "Customizable panels, logs within reach and a single-column small-screen reading order.",
+      "Across 16 generic composition pages and both Helm implementations, compact header Refresh and Edit icon buttons leave stacked tabs usable. Edit becomes Done and reveals the named Page customization region with Add, Hide/Show and Remove controls; removal saves the layout and disposes only the removed panel without stopping underlying work."
     ],
     "rules": [
       {

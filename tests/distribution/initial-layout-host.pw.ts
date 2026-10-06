@@ -25,7 +25,7 @@ test('independent page defaults seed only fresh layouts and survive replacement 
     await host.cli('select', 'helmsman/helm-page', 'default');
     await expect(page.locator('.plugin-helm .alternative-backlog')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('#page-content [data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(1);
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     await page.getByRole('button', { name: /^Remove(?: ·|$)/ }).click();
     await expect(page.locator('#page-content [data-panel-instance]:not(:has([data-panel-instance]))')).toHaveCount(0);
     await page.reload();

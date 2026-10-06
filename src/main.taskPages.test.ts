@@ -60,7 +60,8 @@ describe('task pages through the shared shell', () => {
   });
   it('keeps core configuration reachable and links source administration without mounting its retired controller', async () => {
     const root = await start('/config?repo=org/a');
-    expect(root.querySelector('a[href="/source-settings?repo=org%2Fa"]')).not.toBeNull();
+    expect(root.querySelector('.section-nav a[href="/source-settings?repo=org%2Fa"]')?.textContent).toBe('Authored /source-settings');
+    expect(root.querySelector('#page-content a[href="/source-settings?repo=org%2Fa"]')).toBeNull();
     expect(root.querySelector('[data-task-source-settings]')).toBeNull(); expect(requests).not.toContain('/api/task-sources'); expect(requests).toContain('/api/config');
   });
 });

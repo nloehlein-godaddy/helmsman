@@ -130,7 +130,7 @@ test('installed duplicate panel controls and same-key run tabs retain distinguis
     await expect(page.locator('#boot')).toHaveCount(0);
     const helm = page.locator('.plugin-helm');
     await expect(helm).toBeVisible();
-    await helm.getByText('Manage panels', { exact: true }).click();
+    await helm.locator('[data-helm-focus="page:edit"]').click();
     const groups = helm.locator('.helm-config-row[role="group"]');
     await expect(groups).toHaveCount(1);
     const original = await groups.first().getAttribute('aria-label');
@@ -152,7 +152,7 @@ test('installed duplicate panel controls and same-key run tabs retain distinguis
     await expect(groups.first()).toHaveAttribute('aria-label', original!);
     await page.reload();
     await expect(helm).toBeVisible();
-    await helm.getByText('Manage panels', { exact: true }).click();
+    await helm.locator('[data-helm-focus="page:edit"]').click();
     await expect(groups).toHaveCount(1);
     await expect(groups.first()).toHaveAttribute('aria-label', original!);
     await page.goto(`${origin}/run-history?repo=org/a`);

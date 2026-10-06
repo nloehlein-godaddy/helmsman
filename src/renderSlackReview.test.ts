@@ -10,8 +10,8 @@ function mount(html: string): HTMLDivElement {
 describe('Config communication navigation', () => {
   it.each([null, 'org/a'])('links to authored Communication settings with header scope %s', selectedRepo => {
     const root = mount(renderConfigView({ config: {}, overridden: [] }, { repos: ['org/a'], selectedRepo, themeId: 'quarterdeck' }));
-    const link = [...root.querySelectorAll<HTMLAnchorElement>('a.app-link')]
-      .find(item => item.textContent === 'Notifications and Slack settings');
+    const link = [...root.querySelectorAll<HTMLAnchorElement>('.section-nav a.app-link')]
+      .find(item => item.textContent === 'Notifications');
     expect(link?.getAttribute('href')).toBe(selectedRepo ? '/communication?repo=org%2Fa' : '/communication');
     expect(root.querySelector('.slack-review-config, #slack-review-setup')).toBeNull();
   });

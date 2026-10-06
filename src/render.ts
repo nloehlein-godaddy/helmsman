@@ -2,7 +2,7 @@ import { term, isPirateMode, TERMINOLOGY, TERMINOLOGY_REFERENCE_KEYS } from './l
 import { renderThemePreview } from './renderThemePreview';
 import { routeHref, type PageView } from './logic/routes';
 import { navigationSection, navigationChild } from './logic/navigation';
-import { appPages, builtinPageSlots, SOURCE_SETTINGS_PAGE_SLOT } from './plugins/builtins';
+import { appPages, builtinPageSlots } from './plugins/builtins';
 import { escapeHtml as esc } from './logic/html';
 import { PRE_PR_CONFIG_KEYS } from './logic/prePrSettings';
 
@@ -260,20 +260,13 @@ function configCustomizationPanel(themeId: string): string {
 
 export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): string {
   const customization = configCustomizationPanel(opts.themeId);
-  const sources = `<section class="panel config-panel config-section"><h2>Task sources</h2><p><a class="app-link" href="${esc(routeHref({ view: 'plugin', pluginSlot: SOURCE_SETTINGS_PAGE_SLOT, repo: opts.selectedRepo }))}">Source settings</a></p></section>`;
-  const integrations = `<section class="panel config-panel config-section"><h2>Integrations and workspace</h2><ul class="config-links">${[
-    ['/feedback-settings', 'Product feedback settings'], ['/jira-settings', 'Jira connection'], ['/github-settings', 'GitHub settings'],
-    ['/communication', 'Notifications and Slack settings'], ['/local-git', 'Local branches and worktrees'],
-  ].map(([path, label]) => `<li><a class="app-link" href="${path}${opts.selectedRepo ? `?repo=${encodeURIComponent(opts.selectedRepo)}` : ''}">${label}</a></li>`).join('')}</ul></section>`;
   const intro = `<header class="page-intro"><h1>Config</h1><p>Configure work sources, integrations, and ${term('agent').toLowerCase()} defaults. Save each setting separately.</p><div class="operator-note">${ICON_LOCK}<span>${term('operatorNote')}</span></div></header>`;
   const status = `${opts.error ? `<div class="config-load-error degraded-banner" role="alert">${esc(opts.error)}${opts.unavailable ? '' : ' Showing the last loaded settings.'} <button type="button" data-config-retry${opts.loading ? ' disabled' : ''}>Try again</button></div>` : ''}${opts.loading ? '<p class="empty-note" role="status">Loading configuration…</p>' : ''}`;
   if (opts.unavailable) {
-    return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `${intro}<section class="panel config-loading" aria-label="Configuration" aria-busy="${Boolean(opts.loading)}">${status || '<p class="empty-note">Configuration is unavailable. <button type="button" data-config-retry>Try again</button></p>'}</section>${sources}${integrations}${customization}`);
+    return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `${intro}<section class="panel config-loading" aria-label="Configuration" aria-busy="${Boolean(opts.loading)}">${status || '<p class="empty-note">Configuration is unavailable. <button type="button" data-config-retry>Try again</button></p>'}</section>${customization}`);
   }
   return renderAppShell({ active: 'config', repos: opts.repos, selectedRepo: opts.selectedRepo, themeId: opts.themeId, readout: null }, `
       ${intro}${status}
-      ${sources}
-      ${integrations}
       ${customization}
       <section class="panel config-panel">
         <div class="panel-head"><span class="panel-title">Runtime settings</span></div>

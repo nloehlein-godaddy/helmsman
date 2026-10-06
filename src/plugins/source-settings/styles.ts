@@ -5,8 +5,6 @@ export const styles = `
 .plugin-source-settings :is(h1,h2){font-size:20px}
 .plugin-source-settings :is(.source-settings-tools,.admin-actions){display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .plugin-source-settings section,.plugin-source-settings fieldset{display:grid;gap:12px;border:1px solid var(--line);padding:12px;border-radius:6px;min-width:0}
-.plugin-source-settings .page-customization > summary{cursor:pointer;width:fit-content;padding:.5rem 0;color:var(--text-dim)}
-.plugin-source-settings .page-customization .source-settings-tools{margin:.5rem 0}
 .plugin-source-settings label{display:grid;gap:5px}
 .plugin-source-settings .admin-toggle{display:flex;gap:8px;align-items:center}
 .plugin-source-settings :is(button,input,select,textarea){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:8px;min-width:0;border-radius:6px;max-width:100%;box-sizing:border-box}

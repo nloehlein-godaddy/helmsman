@@ -110,7 +110,8 @@ describe('URL navigation', () => {
     root.querySelector<HTMLInputElement>('input.config-input')!.value = 'unsaved';
     const select = root.querySelector<HTMLSelectElement>('.repo-select')!;
     select.value = 'org/b'; select.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(root.querySelector<HTMLAnchorElement>('a[href="/local-git?repo=org%2Fb"]')).not.toBeNull());
+    await vi.waitFor(() => expect(root.querySelector<HTMLAnchorElement>('.section-nav a[href="/local-git?repo=org%2Fb"]')?.textContent).toBe('Local Git'));
+    expect(root.querySelector('#page-content a[href="/local-git?repo=org%2Fb"]')).toBeNull();
     expect(root.querySelector<HTMLInputElement>('input.config-input')?.value).toBe('unsaved');
     expect(requests.some(({ url }) => url.pathname === '/api/repo/local')).toBe(false);
   });

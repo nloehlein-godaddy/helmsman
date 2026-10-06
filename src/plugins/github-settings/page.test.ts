@@ -18,7 +18,7 @@ async function fixture(empty = false, options: { state?: PluginPageState; hidden
   const instance = await page.mount(container, { state: options.state ?? state, signal: lifetime.signal, composition, onDispose: vi.fn(), navigate: vi.fn() });
   return { container, instance, composition, mount, active, dispose, refresh, lifetime, listeners, get layout() { return layout; } };
 }
-const button = (container: HTMLElement, label: string) => [...container.querySelectorAll('button')].find(value => value.textContent === label)!;
+const button = (container: HTMLElement, label: string) => [...container.querySelectorAll('button')].find(value => value.getAttribute('aria-label') === label || value.textContent === label)!;
 describe('GitHub settings composition page', () => {
   it('mounts through the public composition service and retains the instance through refresh/theme changes', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
@@ -28,9 +28,9 @@ describe('GitHub settings composition page', () => {
     f.lifetime.abort(); expect(f.dispose).toHaveBeenCalledOnce(); expect(f.listeners.size).toBe(0);
   });
   it('preserves deliberately empty layouts until a user adds an implementation', async () => {
-    const f = await fixture(true); await vi.waitFor(() => expect(f.container.textContent).toContain('Add a panel to view'));
+    const f = await fixture(true); await vi.waitFor(() => expect(f.container.textContent).toContain('No visible panels. Choose Edit page'));
     expect(f.composition.updateLayout).not.toHaveBeenCalled(); expect(f.mount).not.toHaveBeenCalled();
-    button(f.container, 'Add panel').click(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
+    button(f.container, 'Edit page').click(); button(f.container, 'Add panel').click(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
     expect(f.layout.instances[0]).toMatchObject({ contributionId: 'helmsman.github-settings/panel', state: {}, scope: { kind: 'inherit' } });
   });
   it('reveals and focuses a hidden collapsed route target while retaining its instance', async () => {
@@ -67,14 +67,14 @@ describe('GitHub settings composition page', () => {
   });
   it('lets explicit user hiding win over refresh until another route visit', async () => {
     const routed = { ...state, pane: 'list', panelContribution: 'helmsman.github-settings/panel', panelRouteState: { 'helmsman.github-settings/panel': { version: 1, value: { pane: 'list' } } } };
-    const f = await fixture(false, { state: routed }); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce()); button(f.container, 'Hide GitHub settings').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
+    const f = await fixture(false, { state: routed }); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce()); button(f.container, 'Edit page').click(); button(f.container, 'Hide GitHub settings').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
     await f.instance.refresh?.(); expect(f.layout.instances[0]?.hidden).toBe(true); await f.instance.update(state); await f.instance.update(routed); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false));
   });
   it('hides and explicitly restores a panel without deleting its saved drafts', async () => {
     const f = await fixture(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
-    button(f.container, 'Hide GitHub settings').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
+    button(f.container, 'Edit page').click(); button(f.container, 'Hide GitHub settings').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
     await vi.waitFor(() => expect(f.active).toHaveBeenLastCalledWith(false)); expect(f.dispose).not.toHaveBeenCalled();
-    button(f.container, 'Open GitHub settings').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false));
+    button(f.container, 'Show GitHub settings').click(); await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(false));
     await vi.waitFor(() => expect(f.active).toHaveBeenLastCalledWith(true)); expect(f.mount).toHaveBeenCalledOnce();
   });
 
@@ -115,18 +115,20 @@ describe('GitHub settings composition page', () => {
   });
 });
 
-it('keeps customization disclosed through redraws and exposes empty-layout recovery', async () => {
+it('keeps edit mode and focus through redraws while exposing empty-layout recovery', async () => {
   const f = await fixture(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
-  const details = f.container.querySelector<HTMLDetailsElement>('.page-customization')!;
-  expect(details.open).toBe(false);
-  expect(button(f.container, 'Hide GitHub settings').closest('details')).toBe(details);
-  details.open = true;
+  const editor = () => f.container.querySelector<HTMLElement>('[aria-label="Page customization"]')!;
+  expect(editor().hidden).toBe(true);
+  const edit = button(f.container, 'Edit page'); expect(edit.title).toBe('Edit page'); expect(edit.getAttribute('aria-pressed')).toBe('false'); edit.click();
+  expect(editor().hidden).toBe(false); expect(button(f.container, 'Done').getAttribute('aria-pressed')).toBe('true');
+  expect(button(f.container, 'Hide GitHub settings').closest('.composition-panel-row')?.getAttribute('data-instance-id')).toBe('github-settings');
   await f.instance.update({ ...state, themeId: 'light' });
-  expect(f.container.querySelector<HTMLDetailsElement>('.page-customization')?.open).toBe(true);
+  expect(editor().hidden).toBe(false);
   const refresh = button(f.container, 'Refresh page'); refresh.focus(); refresh.click();
   await vi.waitFor(() => expect(f.refresh).toHaveBeenCalledOnce());
-  expect(document.activeElement?.textContent).toBe('Refresh page');
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('Refresh page');
   button(f.container, 'Hide GitHub settings').click();
   await vi.waitFor(() => expect(f.layout.instances[0]?.hidden).toBe(true));
-  expect(f.container.querySelector<HTMLDetailsElement>('.page-customization')?.open).toBe(true);
+  expect(editor().hidden).toBe(false); expect(f.container.textContent).toContain('No visible panels. Choose Edit page');
+  button(f.container, 'Done').click(); expect(editor().hidden).toBe(true);
 });

@@ -32,7 +32,7 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
     return route.fulfill({ json: body });
   });
   await page.goto('/helm?repo=org/a'); await expect(page.locator('.plugin-helm')).toBeVisible();
-  await page.getByText('Manage panels', { exact: true }).click();
+  await page.locator('[data-helm-focus="page:edit"]').click();
   for (const name of ['running', 'recent']) {
     if (await page.locator(`.plugin-${name}`).count() === 0) {
       await page.getByLabel('Panel to add', { exact: true }).selectOption(`helmsman.${name}/panel`);
@@ -40,7 +40,7 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
     }
     await expect(page.locator(`.plugin-${name}`)).toBeVisible();
   }
-  await page.getByText('Manage panels', { exact: true }).click();
+  await page.locator('[data-helm-focus="page:edit"]').click();
   const active = page.locator('.plugin-running'); const recent = page.locator('.plugin-recent');
   await expect(active.getByText('TASK-41', { exact: true })).toBeVisible();
   await expect(recent.getByText('Worker: succeeded', { exact: true })).toBeVisible();

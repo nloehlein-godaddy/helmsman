@@ -43,7 +43,8 @@ describe('pirate interface wording', () => {
       ['Agents', 'Crew'], ['Running', 'Underway'], ['System status', 'Fleet status'],
       ['Completed work', 'Out to sea'], ['Activity log', "Ship's log"],
     ]));
-    expect(element.querySelector('#page-content a[href="/communication?repo=org%2Fagent-review"]')?.textContent).toBe('Notifications and Slack settings');
+    expect(element.querySelector('.section-nav a[href="/communication?repo=org%2Fagent-review"]')?.textContent).toBe('Notifications');
+    expect(element.querySelector('#page-content a[href="/communication?repo=org%2Fagent-review"]')).toBeNull();
     expect(element.querySelector('#slack-review-setup')).toBeNull();
     expect(element.textContent).toContain('Task sources');
     expect(element.querySelector('[data-key=JIRA_ENABLED]')).toBeNull();

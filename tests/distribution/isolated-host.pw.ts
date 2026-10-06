@@ -86,7 +86,7 @@ test('independent Helm and backlog packages compose in all four pairings with li
 
     await selectHelm('default');
     await expect(page.locator('.plugin-helm')).toBeVisible({ timeout: 15_000 });
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     await page.getByLabel('Implementation for Backlog', { exact: false }).selectOption('example.backlog/panel');
     await expect(page.locator('.plugin-helm .alternative-backlog').getByText(taskTitle, { exact: true })).toBeVisible();
     await expect(page.locator('.plugin-backlog')).toHaveCount(0);
@@ -452,7 +452,7 @@ const persistence=openPersistence(process.env.HELMSMAN_DB);try{
   console.log(openExecutionOwnership(persistence).get(runId)?.state);
 }finally{persistence.close();}`)).toBe('released\n');
     await page.goto(`${origin}/helm?repo=org/a`); await expect(page.locator('.plugin-helm')).toBeVisible();
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     for (const name of ['running', 'recent']) {
       if (await page.locator(`.plugin-${name}`).count() === 0) {
         await page.getByLabel('Panel to add', { exact: true }).selectOption(`helmsman.${name}/panel`);
@@ -466,7 +466,7 @@ const persistence=openPersistence(process.env.HELMSMAN_DB);try{
     await page.getByLabel('Implementation for Running', { exact: false }).selectOption('example.running/panel');
     await page.getByLabel('Implementation for Recent', { exact: false }).selectOption('example.recent/panel');
     await page.getByLabel(`Scope for ${recentPackage.manifest.panels[0].title}`, { exact: false }).selectOption('all');
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     await expect(page.locator('.plugin-running').getByText('TASK-1', { exact: true })).toBeVisible();
     await expect(page.locator('.plugin-recent').getByText('Review recommendation: Request changes — Verdict: Request changes — Add a regression test.', { exact: true })).toBeVisible();
     await page.locator('.plugin-running').getByRole('button', { name: /^Stop / }).click();
@@ -526,12 +526,12 @@ test('source-denied New Run and Underway packages preserve typed task identity, 
       if (loseNext) { loseNext = false; await route.abort('failed'); } else await route.fulfill({ response });
     });
     await page.goto(`${origin}/helm?repo=org/a`); await expect(page.locator('.plugin-helm')).toBeVisible();
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     for (const name of ['newrun', 'underway']) {
       await page.getByLabel('Panel to add', { exact: true }).selectOption(`example.${name}/panel`);
       await page.getByRole('button', { name: 'Add panel', exact: true }).click(); await expect(page.locator(`.plugin-${name}`)).toBeVisible();
     }
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     const newrun = page.locator('.plugin-newrun'); const underway = page.locator('.plugin-underway');
     const unfinishedTask = underway.getByRole('listitem').filter({ has: page.getByText('Unfinished isolated task', { exact: true }) });
     await expect(unfinishedTask.getByText('Unfinished isolated task', { exact: true })).toBeVisible();

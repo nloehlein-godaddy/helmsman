@@ -134,7 +134,7 @@ const page: PluginPageModule = { mount(container, context) {
     await expect(bugs).not.toContainText('Bug description for org/b');
     await expect(bugs.getByRole('button', { name: /description/i })).toHaveAttribute('aria-expanded', 'false');
     await page.goto(`${origin}/helm?repo=org/a`);
-    await page.getByText('Manage panels', { exact: true }).click();
+    await page.locator('[data-helm-focus="page:edit"]').click();
     await page.getByLabel('Panel to add', { exact: true }).selectOption('example.underway-view/panel');
     await page.getByRole('button', { name: 'Add panel', exact: true }).click();
     const underway = page.locator('.plugin-underway').last();

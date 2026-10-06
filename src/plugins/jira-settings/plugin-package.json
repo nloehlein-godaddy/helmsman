@@ -3,7 +3,7 @@
   "manifest": {
     "manifestVersion": 2,
     "id": "helmsman.jira-settings",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "sdkVersion": 1,
     "pages": [
       {
