@@ -61,7 +61,6 @@ function messageInput(body: unknown): { clientId: unknown; text: unknown } {
   return { clientId: value.clientId, text: value.text };
 }
 
-
 export async function handlePostmortemApi(input: { method: string; path: string; body?: unknown; caller?: string; service?: PostmortemRunner; authorize?: (caller: string) => void } & ScopeOptions): Promise<ApiResult | null> {
   const run = input.path.match(RUN_PATH); const session = input.path.match(SESSION_PATH);
   if (!run && !session) return null;
