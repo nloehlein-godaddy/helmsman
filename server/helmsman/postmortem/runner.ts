@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { RunEventRow, RunRow } from '../db';
 import { prepareModelRouting } from '../model-routing-cli';
 import { buildEvidence, readEvidenceInput, writeEvidenceFile } from './evidence';
@@ -59,6 +59,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
   const patchCache = new Map<string, PostmortemPatch[]>();
   const listeners = new Map<string, Set<(event: PostmortemEvent) => void>>();
   const pending = new Map<string, Promise<void>>();
+  let disposed = false;
   deps.store.sweep();
 
   function background(sessionId: string, promise: Promise<void>): void {
@@ -66,7 +67,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
     void promise.finally(() => { if (pending.get(sessionId) === promise) pending.delete(sessionId); });
   }
 
-  const directoryFor = (runId: string) => join(deps.runsDir, `${runId}.postmortem`);
+  const directoryFor = (runId: string) => resolve(deps.runsDir, `${runId}.postmortem`);
   const emit = (sessionId: string, event: PostmortemEvent) => { for (const listener of listeners.get(sessionId) ?? []) { try { listener(event); } catch {} } };
   const required = (sessionId: string) => { const session = deps.store.get(sessionId); if (!session) throw new PostmortemError(404, 'Post-mortem not found'); return session; };
   const runOf = (session: PostmortemSession) => { const run = deps.getRun(session.runId); if (!run) throw new PostmortemError(404, 'Run not found'); return run; };
@@ -136,6 +137,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
   }
   async function drive(sessionId: string, text: string | null, slot: symbol | null, firstLaunch: boolean): Promise<void> {
     let entry = live.get(sessionId);
+    let granted = false;
     try {
       let session = required(sessionId);
       const run = runOf(session);
@@ -145,12 +147,20 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
         if (providerSessionId !== session.providerSessionId) session = deps.store.update(sessionId, { providerSessionId });
         const directory = directoryFor(run.id);
         spawning.add(sessionId);
+        const gateway = deps.modelGateway(postmortemCapabilityId(sessionId));
+        granted = true;
         let spawned: ProviderSession;
         try {
           spawned = await launch({ provider: session.provider, model: session.model, effort: session.effort, repo: run.repo, directory,
             profilePath: writeSandboxProfile(resolveSandboxPaths(directory, deps.helmsmanRoot)), providerSessionId, resume: !fresh,
-            gateway: deps.modelGateway(postmortemCapabilityId(sessionId)), stopGraceMs: limits.stopGraceMs, onItem: item => record(sessionId, item) });
+            gateway, stopGraceMs: limits.stopGraceMs, onItem: item => record(sessionId, item) });
         } finally { spawning.delete(sessionId); }
+        if (live.get(sessionId) || disposed) {
+          if (slot) slots.delete(slot);
+          if (!live.get(sessionId)) deps.revokeGateway(postmortemCapabilityId(sessionId));
+          await spawned.close();
+          return;
+        }
         const created: LiveProcess = { process: spawned, idle: null, stopping: false, baseCost: session.costUsd ?? 0 };
         entry = created;
         live.set(sessionId, created);
@@ -163,8 +173,13 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
       if (session.status === 'starting') session = setStatus(sessionId, 'busy', {}, 'thinking'); else announce(sessionId, 'thinking');
       const result = await entry.process.turn(prompt);
       session = deps.store.update(sessionId, { turns: required(sessionId).turns + 1, costUsd: result.costUsd === null ? session.costUsd : entry.baseCost + result.costUsd });
+      if (capReached(session, limits)) {
+        try { await rescan(session); } catch {}
+        setStatus(sessionId, 'capped');
+        await shutdown(sessionId);
+        return;
+      }
       await rescan(session);
-      if (capReached(session, limits)) { setStatus(sessionId, 'capped'); await shutdown(sessionId); return; }
       setStatus(sessionId, 'ready');
       const idleEntry = entry;
       idleEntry.idle = setTimeout(() => { void shutdown(sessionId); }, limits.idleMs);
@@ -172,6 +187,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
     } catch (error) {
       if (slot) slots.delete(slot);
       stopRequested.delete(sessionId);
+      if (!entry && granted) deps.revokeGateway(postmortemCapabilityId(sessionId));
       const current = deps.store.get(sessionId);
       if (entry?.stopping || !current || current.status === 'idle' || current.status === 'capped') return;
       setStatus(sessionId, 'error', { error: errorText(error) });
@@ -181,6 +197,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
   }
   return {
     async start(runId: string, input: StartPostmortemInput = {}): Promise<PostmortemSnapshot> {
+      if (disposed) throw new PostmortemError(503, 'Post-mortem runner is shutting down.');
       const run = deps.getRun(runId);
       if (!run) throw new PostmortemError(404, 'Run not found');
       if (run.status !== 'failed' && run.status !== 'stopped') throw new PostmortemError(409, 'Only failed or stopped runs can be investigated');
@@ -211,6 +228,7 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
     },
     read: snapshot,
     async send(sessionId: string, input: { clientId: unknown; text: unknown }): Promise<PostmortemSnapshot> {
+      if (disposed) throw new PostmortemError(503, 'Post-mortem runner is shutting down.');
       const session = required(sessionId);
       const { clientId, text } = input;
       if (typeof clientId !== 'string' || !UUID.test(clientId) || typeof text !== 'string' || !text.trim() || text.length > POSTMORTEM_TEXT_LIMIT) {
@@ -219,14 +237,18 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
       const previous = deps.store.messages(sessionId).find(message => message.clientId === clientId);
       if (previous && previous.text !== text) throw new PostmortemError(409, 'Message ID already belongs to a different message');
       if (previous) return snapshot(sessionId);
-      if (session.status === 'capped') throw new PostmortemError(423, 'This post-mortem reached its cap. Start a new post-mortem to continue.');
+      if (session.status === 'capped' || capReached(session, limits)) throw new PostmortemError(423, 'This post-mortem reached its cap. Start a new post-mortem to continue.');
       if (session.status === 'busy' || session.status === 'starting') throw new PostmortemError(409, 'Wait for the current turn to finish.');
+      if (pending.has(sessionId) || live.get(sessionId)?.stopping) throw new PostmortemError(409, 'Wait for the current turn to finish.');
       const resuming = !live.has(sessionId);
       let slot: symbol | null = null;
       if (resuming) {
         modelReady();
         slot = reserve();
         try { await sandboxReady(directoryFor(runOf(session).id)); } catch (error) { slots.delete(slot); throw error; }
+        const retried = deps.store.messages(sessionId).find(message => message.clientId === clientId);
+        if (retried && retried.text !== text) { slots.delete(slot); throw new PostmortemError(409, 'Message ID already belongs to a different message'); }
+        if (retried) { slots.delete(slot); return snapshot(sessionId); }
       }
       try {
         const current = required(sessionId);
@@ -251,12 +273,17 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
     subscribe(sessionId: string, listener: (event: PostmortemEvent) => void): () => void {
       required(sessionId);
       const set = listeners.get(sessionId) ?? new Set(); set.add(listener); listeners.set(sessionId, set);
-      return () => { set.delete(listener); if (!set.size) listeners.delete(sessionId); };
+      return () => { set.delete(listener); if (!set.size && listeners.get(sessionId) === set) listeners.delete(sessionId); };
     },
     isLiveCapability(capabilityId: string): boolean {
       const sessionId = capabilityId.startsWith('pm-') ? capabilityId.slice(3) : '';
       return Boolean(sessionId) && (live.has(sessionId) || spawning.has(sessionId));
     },
-    async dispose(): Promise<void> { await Promise.all([...live.keys()].map(shutdown)); await Promise.all([...pending.values()]); },
+    async dispose(): Promise<void> {
+      disposed = true;
+      await Promise.all([...live.keys()].map(shutdown));
+      await Promise.all([...pending.values()]);
+      await Promise.all([...live.keys()].map(shutdown));
+    },
   };
 }

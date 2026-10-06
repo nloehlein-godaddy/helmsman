@@ -17,15 +17,18 @@ class FakeProcess implements ProviderSession {
   readonly providerSessionId: string;
   closedCalls = 0;
   private readonly behavior: Behavior;
+  private readonly closeGate?: Promise<void>;
   private reject: ((error: Error) => void) | null = null;
   private settle!: (error: Error | null) => void;
   readonly closed = new Promise<Error | null>(resolve => { this.settle = resolve; });
-  constructor(input: LaunchProviderInput, behavior: Behavior) { this.input = input; this.behavior = behavior; this.providerSessionId = input.providerSessionId ?? 'thread-1'; }
+  constructor(input: LaunchProviderInput, behavior: Behavior, closeGate?: Promise<void>) {
+    this.input = input; this.behavior = behavior; this.closeGate = closeGate; this.providerSessionId = input.providerSessionId ?? 'thread-1';
+  }
   turn(text: string) {
     this.turns.push(text);
     return new Promise<{ costUsd: number | null }>((resolve, reject) => { this.reject = reject; Promise.resolve(this.behavior(text, this)).then(resolve, reject); });
   }
-  async close() { this.closedCalls += 1; this.reject?.(new Error('Agent stopped')); this.settle(null); }
+  async close() { this.closedCalls += 1; if (this.closeGate) await this.closeGate; this.reject?.(new Error('Agent stopped')); this.settle(null); }
   crash(error: Error) { this.reject?.(error); this.settle(error); }
 }
 const UUID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -36,7 +39,8 @@ const runners: PostmortemRunner[] = [];
 afterEach(async () => { await Promise.all(runners.splice(0).map(runner => runner.dispose())); for (const cleanup of cleanups.splice(0)) cleanup(); });
 const echo: Behavior = (text, process) => { process.input.onItem({ role: 'agent', kind: 'text', text: `reply to ${text.slice(-12)}` }); return { costUsd: 0.1 }; };
 
-function setup(options: { limits?: Partial<PostmortemLimits>; behavior?: Behavior; preflight?: () => Promise<void>; persistence?: Persistence } = {}) {
+function setup(options: { limits?: Partial<PostmortemLimits>; behavior?: Behavior; preflight?: () => Promise<void>; persistence?: Persistence;
+  launchGate?: Promise<void>; closeGate?: Promise<void> } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'hm-pm-runner-'));
   const persistence = options.persistence ?? openPersistence(':memory:');
   cleanups.push(() => { rmSync(root, { recursive: true, force: true }); if (!options.persistence) persistence.close(); });
@@ -47,7 +51,12 @@ function setup(options: { limits?: Partial<PostmortemLimits>; behavior?: Behavio
   let behavior = options.behavior ?? echo;
   const runner = createPostmortemRunner({ store, runsDir: root, helmsmanRoot: root, getRun: id => runs.get(id) ?? null, listEvents: () => [],
     targetRepoPath: () => null, helmsmanCommit: () => 'abc123', modelGateway: id => ({ url: 'http://127.0.0.1:1/', token: id }), revokeGateway: id => revoked.push(id),
-    assertModelReady: () => {}, launch: async input => { const process = new FakeProcess(input, (text, self) => behavior(text, self)); launches.push(process); return process; },
+    assertModelReady: () => {},
+    launch: async input => {
+      if (options.launchGate) await options.launchGate;
+      const process = new FakeProcess(input, (text, self) => behavior(text, self), options.closeGate);
+      launches.push(process); return process;
+    },
     preflight: options.preflight ?? (async () => {}), limits: { idleMs: 60_000, stopGraceMs: 10, ...options.limits } });
   runners.push(runner);
   const status = (id: string, expected: PostmortemStatus) => vi.waitFor(async () => expect((await runner.read(id)).session.status).toBe(expected));
@@ -194,5 +203,87 @@ describe('post-mortem runner', () => {
     store.transition(stale.id, 'busy');
     const f = setup({ persistence });
     expect((await f.runner.read(stale.id)).session.status).toBe('idle');
+  });
+
+  it('rejects a send racing a stop during spawn and never launches a second process', async () => {
+    let releaseLaunch!: () => void;
+    const gate = new Promise<void>(resolve => { releaseLaunch = resolve; });
+    const f = setup({ launchGate: gate });
+    const started = await f.runner.start('run-1');
+    expect(started.session.status).toBe('starting');
+    expect((await f.runner.stop(started.session.id)).session.status).toBe('idle');
+    await expect(f.runner.send(started.session.id, { clientId: UUID(1), text: 'hi' })).rejects.toMatchObject({ status: 409 });
+    releaseLaunch();
+    await f.status(started.session.id, 'idle');
+    expect(f.launches).toHaveLength(1);
+    expect(f.launches[0]?.turns).toHaveLength(0);
+    expect(f.launches[0]?.closedCalls).toBe(1);
+  });
+
+  it('rejects send while the live process is still closing', async () => {
+    let releaseClose!: () => void;
+    const gate = new Promise<void>(resolve => { releaseClose = resolve; });
+    const f = setup({ closeGate: gate });
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'ready');
+    const stopping = f.runner.stop(session.id);
+    await vi.waitFor(() => expect(f.launches[0]?.closedCalls).toBe(1));
+    expect((await f.runner.read(session.id)).session.status).toBe('ready');
+    await expect(f.runner.send(session.id, { clientId: UUID(1), text: 'hi' })).rejects.toMatchObject({ status: 409 });
+    releaseClose();
+    await stopping;
+  });
+
+  it('rejects send once the cap is reached while status drifted to idle', async () => {
+    const f = setup({ limits: { idleMs: 20 } });
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'idle');
+    f.store.update(session.id, { turns: 30 });
+    await expect(f.runner.send(session.id, { clientId: UUID(1), text: 'x' })).rejects.toMatchObject({ status: 423 });
+  });
+
+  it('rejects send once the cap is reached while status drifted to error', async () => {
+    const f = setup({ behavior: () => { throw new Error('boom'); } });
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'error');
+    f.store.update(session.id, { turns: 30 });
+    await expect(f.runner.send(session.id, { clientId: UUID(1), text: 'x' })).rejects.toMatchObject({ status: 423 });
+  });
+
+  it('closes a process launched during dispose and never adopts it', async () => {
+    let releaseLaunch!: () => void;
+    const gate = new Promise<void>(resolve => { releaseLaunch = resolve; });
+    const f = setup({ launchGate: gate });
+    const started = await f.runner.start('run-1');
+    const disposing = f.runner.dispose();
+    releaseLaunch();
+    await disposing;
+    expect(f.launches).toHaveLength(1);
+    expect(f.launches[0]?.turns).toHaveLength(0);
+    expect(f.launches[0]?.closedCalls).toBe(1);
+    expect(f.runner.isLiveCapability(postmortemCapabilityId(started.session.id))).toBe(false);
+    await expect(f.runner.start('run-2')).rejects.toMatchObject({ status: 503 });
+    await expect(f.runner.send(started.session.id, { clientId: UUID(1), text: 'x' })).rejects.toMatchObject({ status: 503 });
+  });
+
+  it('keeps a fresh subscriber alive after a stale unsubscribe double-call', async () => {
+    const f = setup();
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'ready');
+    const oldEvents: PostmortemEvent[] = [];
+    const unsubOld = f.runner.subscribe(session.id, event => oldEvents.push(event));
+    unsubOld();
+    const newEvents: PostmortemEvent[] = [];
+    f.runner.subscribe(session.id, event => newEvents.push(event));
+    unsubOld();
+    await f.runner.send(session.id, { clientId: UUID(1), text: 'hi' });
+    await f.status(session.id, 'ready');
+    expect(newEvents.length).toBeGreaterThan(0);
+  });
+
+  it('accumulates cost across a resume on top of the stored base', async () => {
+    const f = setup({ behavior: () => ({ costUsd: 0.4 }) });
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'ready');
+    expect((await f.runner.read(session.id)).session.costUsd).toBe(0.4);
+    await f.runner.stop(session.id);
+    await f.runner.send(session.id, { clientId: UUID(1), text: 'again' });
+    await f.status(session.id, 'ready');
+    expect((await f.runner.read(session.id)).session.costUsd).toBeCloseTo(0.8);
   });
 });
