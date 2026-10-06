@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { realpathSync, writeFileSync } from 'node:fs';
+import { readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,7 +8,7 @@ export interface SandboxPaths { directory: string; tmpdir: string; home: string;
 export const SANDBOX_ARGUMENT_LIMIT = 1024;
 const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 const ROUTING_VARIABLES = new Set(['HELMSMAN_MODEL_CAPABILITY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR']);
-const CREDENTIAL_VARIABLE = /^(?:GITHUB_TOKEN|GH_TOKEN|JIRA_.*|SLACK_.*|GIT_CONFIG_.*|.*_TOKEN|.*_SECRET)$/;
+const CREDENTIAL_VARIABLE = /^(?:JIRA_.*|SLACK_.*|GIT_CONFIG_.*|SSH_AUTH_SOCK|.*ASKPASS|VSCODE_GIT_.*)$|(?:^|_)(?:TOKEN|SECRET|PASSWORD|API_KEY|ACCESS_KEY)(?:_|$)/i;
 
 export function seatbeltString(value: string): string {
   return `"${value.replace(/[\\"]/g, match => `\\${match}`)}"`;
@@ -16,22 +16,61 @@ export function seatbeltString(value: string): string {
 
 const regexLiteral = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+function tryRealpath(path: string): string | null {
+  try { return realpathSync(path); } catch { return null; }
+}
+
+function denyTerm(kind: 'subpath' | 'literal', path: string): string {
+  const real = tryRealpath(path);
+  const extra = real && real !== path ? ` (${kind} ${seatbeltString(real)})` : '';
+  return `(${kind} ${seatbeltString(path)})${extra}`;
+}
+
+function denyEnvSymlinkTerms(helmsmanRoot: string): string {
+  let entries: string[];
+  try { entries = readdirSync(helmsmanRoot); } catch { return ''; }
+  const terms = entries.filter(entry => entry.startsWith('.env')).flatMap(entry => {
+    const path = join(helmsmanRoot, entry);
+    const real = tryRealpath(path);
+    return real && real !== path ? [`(literal ${seatbeltString(real)})`] : [];
+  });
+  return terms.length ? ` ${terms.join(' ')}` : '';
+}
+
 export function resolveSandboxPaths(directory: string, helmsmanRoot: string): SandboxPaths {
   return { directory: realpathSync(directory), tmpdir: realpathSync(tmpdir()), home: realpathSync(homedir()), helmsmanRoot: realpathSync(helmsmanRoot) };
 }
 
 export function sandboxProfile(paths: SandboxPaths): string {
-  const home = (suffix: string) => seatbeltString(`${paths.home}/${suffix}`);
+  const sshTerm = denyTerm('subpath', join(paths.home, '.ssh'));
+  const ghTerm = denyTerm('subpath', join(paths.home, '.config/gh'));
+  const netrcTerm = denyTerm('literal', join(paths.home, '.netrc'));
+  const awsTerm = denyTerm('subpath', join(paths.home, '.aws'));
+  const envTerm = `(regex ${seatbeltString(`^${regexLiteral(paths.helmsmanRoot)}/\\.env`)})${denyEnvSymlinkTerms(paths.helmsmanRoot)}`;
   return ['(version 1)', '(allow default)', '(deny file-write*)',
-    `(allow file-write* (subpath ${seatbeltString(paths.directory)}) (subpath ${seatbeltString(paths.tmpdir)}) (subpath "/dev")`,
-    `                   (subpath ${home('.codex')}) (subpath ${home('.claude')}))`,
-    `(deny file-read* (subpath ${home('.ssh')}) (subpath ${home('.config/gh')}) (literal ${home('.netrc')})`,
-    `                 (subpath ${home('.aws')}) (regex ${seatbeltString(`^${regexLiteral(paths.helmsmanRoot)}/\\.env`)}))`, ''].join('\n');
+    `(allow file-write* (subpath ${seatbeltString(paths.directory)}) (subpath ${seatbeltString(paths.tmpdir)}) (subpath "/dev"))`,
+    `(deny file-read* ${sshTerm} ${ghTerm} ${netrcTerm}`,
+    `                 ${awsTerm} ${envTerm})`, ''].join('\n');
 }
 
+export function sandboxProfilePath(directory: string): string {
+  return `${directory}.sb`;
+}
+
+/**
+ * Writes the Seatbelt profile as a sibling of the agent-writable directory, never inside it,
+ * so the sandboxed agent can neither read nor replace its own profile. Any pre-existing file
+ * or symlink at that path is removed first (the removal itself cannot be redirected by a
+ * symlink there, since it unlinks the path entry rather than following it), then the file is
+ * created with `wx` so a race recreating a dangling symlink after the removal still fails
+ * closed instead of writing through it. Call this again immediately before every
+ * `preflightSandbox`, since the profile must always reflect the current paths and must never
+ * be reused from a previous turn.
+ */
 export function writeSandboxProfile(paths: SandboxPaths): string {
-  const path = join(paths.directory, 'profile.sb');
-  writeFileSync(path, sandboxProfile(paths), { mode: 0o600 });
+  const path = sandboxProfilePath(paths.directory);
+  rmSync(path, { force: true });
+  writeFileSync(path, sandboxProfile(paths), { mode: 0o600, flag: 'wx' });
   return path;
 }
 

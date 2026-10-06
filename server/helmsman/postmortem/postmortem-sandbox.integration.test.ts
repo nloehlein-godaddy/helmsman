@@ -1,7 +1,7 @@
 /** @vitest-environment node */
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -14,14 +14,36 @@ const exec = promisify(execFile);
 const cleanups: string[] = [];
 afterEach(() => { for (const path of cleanups.splice(0)) rmSync(path, { recursive: true, force: true }); });
 
+const OPERATION_NOT_PERMITTED = /Operation not permitted/;
+
 function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hm-pm-seatbelt-'))); cleanups.push(root);
   const directory = join(root, 'run.postmortem'); const home = join(root, 'home'); const helmsmanRoot = join(root, 'helmsman');
-  for (const path of [directory, join(home, '.ssh'), helmsmanRoot]) mkdirSync(path, { recursive: true });
+  for (const path of [directory, join(home, '.ssh'), join(home, '.claude'), join(home, '.codex'), helmsmanRoot]) mkdirSync(path, { recursive: true });
   writeFileSync(join(home, '.ssh', 'id_test'), 'secret'); writeFileSync(join(helmsmanRoot, '.env'), 'TOKEN=1');
   const profile = writeSandboxProfile({ directory, tmpdir: realpathSync(tmpdir()), home, helmsmanRoot });
   const run = (cmd: string, args: string[]) => { const wrapped = sandboxCommand({ cmd, args }, profile); return exec(wrapped.cmd, wrapped.args); };
   return { directory, home, helmsmanRoot, profile, run };
+}
+
+function fixtureWithRealHomeOutsideTmpdirAllowance() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hm-pm-seatbelt-'))); cleanups.push(root);
+  const directory = join(root, 'run.postmortem'); const helmsmanRoot = join(root, 'helmsman'); const home = realpathSync(homedir());
+  mkdirSync(directory, { recursive: true }); mkdirSync(helmsmanRoot, { recursive: true });
+  const profile = writeSandboxProfile({ directory, tmpdir: realpathSync(tmpdir()), home, helmsmanRoot });
+  const run = (cmd: string, args: string[]) => { const wrapped = sandboxCommand({ cmd, args }, profile); return exec(wrapped.cmd, wrapped.args); };
+  return { directory, home, helmsmanRoot, profile, run };
+}
+
+function fixtureWithSymlinkedSsh() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hm-pm-seatbelt-'))); cleanups.push(root);
+  const directory = join(root, 'run.postmortem'); const home = join(root, 'home'); const helmsmanRoot = join(root, 'helmsman'); const sshReal = join(root, 'ssh-real');
+  for (const path of [directory, home, helmsmanRoot, sshReal]) mkdirSync(path, { recursive: true });
+  writeFileSync(join(sshReal, 'id_test'), 'secret');
+  symlinkSync(sshReal, join(home, '.ssh'));
+  const profile = writeSandboxProfile({ directory, tmpdir: realpathSync(tmpdir()), home, helmsmanRoot });
+  const run = (cmd: string, args: string[]) => { const wrapped = sandboxCommand({ cmd, args }, profile); return exec(wrapped.cmd, wrapped.args); };
+  return { directory, home, helmsmanRoot, sshReal, profile, run };
 }
 
 describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem Seatbelt profile', () => {
@@ -35,10 +57,27 @@ describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem 
     expect(existsSync(outside)).toBe(false);
   });
 
+  it('denies writes under the provider config dirs (no persistence escape via ~/.claude or ~/.codex)', async () => {
+    const f = fixtureWithRealHomeOutsideTmpdirAllowance();
+    mkdirSync(join(f.home, '.claude'), { recursive: true }); mkdirSync(join(f.home, '.codex'), { recursive: true });
+    const claudeTarget = join(f.home, '.claude', `helmsman-pm-probe-${randomUUID()}.json`); cleanups.push(claudeTarget);
+    const codexTarget = join(f.home, '.codex', `helmsman-pm-probe-${randomUUID()}.json`); cleanups.push(codexTarget);
+    await expect(f.run('/bin/sh', ['-c', `echo no > '${claudeTarget}'`])).rejects.toThrow();
+    await expect(f.run('/bin/sh', ['-c', `echo no > '${codexTarget}'`])).rejects.toThrow();
+    expect(existsSync(claudeTarget)).toBe(false);
+    expect(existsSync(codexTarget)).toBe(false);
+  });
+
   it('denies credential and helmsman .env reads', async () => {
     const f = fixture();
-    await expect(f.run('/bin/cat', [join(f.home, '.ssh', 'id_test')])).rejects.toThrow();
-    await expect(f.run('/bin/cat', [join(f.helmsmanRoot, '.env')])).rejects.toThrow();
+    await expect(f.run('/bin/cat', [join(f.home, '.ssh', 'id_test')])).rejects.toThrow(OPERATION_NOT_PERMITTED);
+    await expect(f.run('/bin/cat', [join(f.helmsmanRoot, '.env')])).rejects.toThrow(OPERATION_NOT_PERMITTED);
+  });
+
+  it('denies reads of a symlinked ~/.ssh via its real target path too', async () => {
+    const f = fixtureWithSymlinkedSsh();
+    await expect(f.run('/bin/cat', [join(f.home, '.ssh', 'id_test')])).rejects.toThrow(OPERATION_NOT_PERMITTED);
+    await expect(f.run('/bin/cat', [join(f.sshReal, 'id_test')])).rejects.toThrow(OPERATION_NOT_PERMITTED);
   });
 
   it('runs a node fake behind a bash shim with a long argument', async () => {
