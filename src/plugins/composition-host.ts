@@ -1,4 +1,5 @@
 import { createHostRunInstructionService } from './run-instruction-service';
+import { createHostPostmortemService } from './postmortem-service';
 import { createHostExecutionPolicyService } from './execution-policy-service';
 import { createHostFeedbackSettingsService } from './feedback-settings-service';
 import { createHostFeedbackCommandService } from './feedback-command-service';
@@ -247,6 +248,7 @@ export class PluginCompositionHost {
         clarifications: createHostClarificationReadService(lifetime, { scope: activity, caller: instance.contributionId }),
         clarificationCommands: createHostClarificationCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         runInstructions: createHostRunInstructionService(lifetime, { scope: activity, caller: instance.contributionId }),
+        postmortem: createHostPostmortemService(lifetime, { scope: activity, caller: instance.contributionId }),
         pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         terminal: createHostTerminalService(lifetime, { scope: activity, caller: instance.contributionId }),
         campaigns: createHostCampaignService(lifetime, { scope: activity, caller: instance.contributionId }),
