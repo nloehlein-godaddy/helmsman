@@ -251,11 +251,11 @@ class NewRunPanel implements PluginPanelInstance {
     } catch { if (this.active(generation)) this.error = 'The saved request could not be updated. Its identity is kept.'; }
     finally { if (this.active(generation)) { this.busy = false; this.draw(); } }
   }
-  private button(text: string, callback: () => void, disabled = false): HTMLButtonElement {
-    const button = node('button', text); button.type = 'button'; button.disabled = disabled; button.addEventListener('click', callback); return button;
+  private button(text: string, callback: () => void, disabled = false, focusKey = text): HTMLButtonElement {
+    const button = node('button', text); button.type = 'button'; button.dataset.focusKey = focusKey; button.disabled = disabled; button.addEventListener('click', callback); return button;
   }
   private link(text: string, href: string): HTMLAnchorElement {
-    const link = node('a', text); link.href = href;
+    const link = node('a', text); link.href = href; link.dataset.focusKey = href;
     link.addEventListener('click', event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); this.context.navigate(href); } }); return link;
   }
   private field(parent: HTMLElement, label: string, value: string, change: (value: string) => void, multiline = false): void {
@@ -270,8 +270,10 @@ class NewRunPanel implements PluginPanelInstance {
   }
   private draw(): void {
     if (this.disposed) return;
-    const focused = this.container.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
-    const focusLabel = focused?.getAttribute('aria-label');
+    const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
+    const focusKey = focused?.dataset.focusKey ?? focused?.getAttribute('aria-label');
+    const focusedRequest = focused?.closest<HTMLElement>('[data-request-id]')?.dataset.requestId;
+    const focusedRepo = focused?.closest<HTMLElement>('.plugin-newrun')?.dataset.repo;
     const selection = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement
       ? { start: focused.selectionStart, end: focused.selectionEnd } : null;
     const root = node('section'); root.className = 'plugin-newrun'; root.append(node('style', styles));
@@ -281,7 +283,7 @@ class NewRunPanel implements PluginPanelInstance {
       if (text) { const error = node('p', text); error.setAttribute('role', 'alert'); root.append(error); }
     }
     const saving = node('p', this.saveMessage); saving.className = 'newrun-save-message'; saving.setAttribute('role', 'alert'); root.append(saving);
-    const repo = this.repo(); const draft = this.draft();
+    const repo = this.repo(); const draft = this.draft(); root.dataset.repo = repo ?? '';
     const linked = this.linkedTicket();
     if (linked) {
       const prompt = node('section'); prompt.className = 'newrun-linked-task'; prompt.setAttribute('role', 'status');
@@ -317,13 +319,13 @@ class NewRunPanel implements PluginPanelInstance {
             draft.lookupKey = value; draft.ref = null;
             const selected = this.container.querySelector<HTMLSelectElement>('select[aria-label="Task"]'); if (selected) selected.value = '';
           });
-          form.append(this.button(this.lookupBusy ? 'Looking up task…' : 'Find task', () => { void this.lookupTask(); }, this.lookupBusy || this.busy || !this.selectedSource() || !this.active()));
+          form.append(this.button(this.lookupBusy ? 'Looking up task…' : 'Find task', () => { void this.lookupTask(); }, this.lookupBusy || this.busy || !this.selectedSource() || !this.active(), 'find-task'));
         }
         const tasks = [{ value: '', label: this.loadingTasks ? 'Loading tasks…' : 'Choose a ready task' }, ...this.tasks.map(task => ({ value: refKey(task.ref), label: `${task.displayKey}: ${task.title}` }))];
         const chosen = draft.ref ? refKey(draft.ref) : '';
         if (chosen && !this.tasks.some(task => refKey(task.ref) === chosen)) tasks.push({ value: chosen, label: `Saved task ${draft.ref?.externalId}; verified again at launch` });
         this.select(form, 'Task', tasks, chosen, value => { const task = this.tasks.find(task => refKey(task.ref) === value); draft.ref = task ? { ...task.ref } : null; this.change(); });
-        if (this.cursor) form.append(this.button(this.pages >= 10 ? 'Task page limit reached' : 'Load more tasks', () => { void this.loadTasks(this.generation, true); }, this.loadingTasks || this.pages >= 10 || this.busy));
+        if (this.cursor) form.append(this.button(this.pages >= 10 ? 'Task page limit reached' : 'Load more tasks', () => { void this.loadTasks(this.generation, true); }, this.loadingTasks || this.pages >= 10 || this.busy, 'load-tasks'));
         form.append(node('small', typeof this.context.services.tasks?.lookup === 'function'
           ? 'Browse ready tasks or find a key within the selected source and galleon.' : 'Choose a task returned by its source. Task-key lookup is unavailable from this host.'));
       } else {
@@ -339,7 +341,7 @@ class NewRunPanel implements PluginPanelInstance {
       form.append(advanced);
       const actions = node('div'); actions.className = 'newrun-actions';
       actions.append(this.button(this.state.pirateMode ? 'Weigh anchor' : 'Start run', () => { void this.launch(); }, this.busy || this.lookupBusy || !this.active() || !this.pendingReady
-        || this.pending.some(entry => entry.command.repo === repo) || this.state.repo === null && !this.galleons.includes(repo)),
+        || this.pending.some(entry => entry.command.repo === repo) || this.state.repo === null && !this.galleons.includes(repo), 'launch'),
       this.button('Save draft', () => { void this.save(); }, this.busy || !this.active()), refresh); form.append(actions); root.append(form);
     }
     if (!repo || this.unsupported) root.append(refresh);
@@ -348,7 +350,7 @@ class NewRunPanel implements PluginPanelInstance {
       if (this.pending.length > 100) section.append(node('p', `Showing 100 of ${this.pending.length} saved requests. Dismiss handled requests to reveal the remaining ${this.pending.length - 100}.`));
       for (const entry of this.pending.slice(0, 100)) {
         if (entry.command.action !== 'launch') continue;
-        const row = node('section'); const receipt = entry.receipt;
+        const row = node('section'); row.dataset.requestId = entry.command.requestId; const receipt = entry.receipt;
         row.append(node('p', `${entry.command.repo} · ${entry.command.launch.mode} · ${receipt?.status ?? 'delivery unconfirmed'}`));
         if (receipt?.message) row.append(node('p', receipt.message));
         if (receipt?.status === 'accepted' && receipt.runId) row.append(this.link(this.state.pirateMode ? 'Open voyage' : 'Open run', `/runs?${new URLSearchParams({ repo: entry.command.repo, run: receipt.runId })}`));
@@ -363,11 +365,14 @@ class NewRunPanel implements PluginPanelInstance {
       root.append(section);
     }
     this.container.replaceChildren(root);
-    if (focusLabel) {
-      const replacement = Array.from(root.querySelectorAll<HTMLElement>('[aria-label]')).find(value => value.getAttribute('aria-label') === focusLabel);
-      replacement?.focus({ preventScroll: true });
+    if (focused) {
+      const replacement = (focusedRepo === root.dataset.repo || focusKey === 'Galleon') && focusKey
+        ? Array.from(root.querySelectorAll<HTMLElement>('[data-focus-key],[aria-label]')).find(value => (value.dataset.focusKey ?? value.getAttribute('aria-label')) === focusKey
+          && value.closest<HTMLElement>('[data-request-id]')?.dataset.requestId === focusedRequest) : null;
+      const target = replacement && !replacement.matches(':disabled') ? replacement : !refresh.disabled ? refresh : root;
+      if (target === root) target.tabIndex = -1; target.focus({ preventScroll: true });
       if (selection?.start !== null && selection?.start !== undefined && selection.end !== null
-        && (replacement instanceof HTMLInputElement || replacement instanceof HTMLTextAreaElement)) replacement.setSelectionRange(selection.start, selection.end);
+        && target === replacement && (replacement instanceof HTMLInputElement || replacement instanceof HTMLTextAreaElement)) replacement.setSelectionRange(selection.start, selection.end);
     }
   }
 }

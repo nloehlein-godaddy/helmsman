@@ -322,7 +322,8 @@ export class DashboardView {
     const pane = this.route.pane;
     const target = pane ? this.root.querySelector<HTMLElement>(`[data-pane="${pane}"]`) : null;
     target?.scrollIntoView?.({ block: 'start' });
-    if (this.route.run && !this.isRunViewerPage() && this.auxiliary.element.isConnected) {
+    if (this.route.run && !this.isRunViewerPage() && this.auxiliary.element.isConnected
+      && !this.auxiliary.element.contains(document.activeElement)) {
       this.auxiliary.element.tabIndex = -1;
       this.auxiliary.element.focus({ preventScroll: true });
     }

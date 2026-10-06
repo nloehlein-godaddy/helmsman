@@ -367,3 +367,59 @@ it.each(['missing', 'newer', 'unsupported'] as const)('does not create a launch 
   }
   expect(f.submit).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled(); expect(field(f.container, 'Task instructions').value).toBe('New unsent task');
 });
+
+describe('New Run keyboard focus through redraws', () => {
+  it.each(['Save draft', 'Refresh'])('retains %s focus through asynchronous refresh', async label => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await ready(f);
+    const result = await f.discover(); let complete!: (value: typeof result) => void;
+    f.discover.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    const refreshed = instance.refresh?.(); await vi.waitFor(() => expect(complete).toBeTypeOf('function'));
+    button(f.container, label).focus(); complete(result); await refreshed;
+    expect(document.activeElement).toBe(button(f.container, label));
+    expect(f.submit).not.toHaveBeenCalled();
+  });
+  it('keeps focus on explicit galleon selection while its scope changes', async () => {
+    const f = fixture(); const state = { ...f.state, repo: null, activity: { ...f.state.activity, repo: null } };
+    await panel.mount(f.container, { ...f.context, state });
+    await vi.waitFor(() => expect((field(f.container, 'Galleon') as HTMLSelectElement).options.length).toBe(3));
+    field(f.container, 'Galleon').focus(); edit(f.container, 'Galleon', otherRepo); await ready(f);
+    expect(document.activeElement).toBe(field(f.container, 'Galleon'));
+    expect(f.submit).not.toHaveBeenCalled();
+  });
+  it('preserves launch focus when its wording changes', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await ready(f);
+    button(f.container, 'Start run').focus(); await instance.update({ ...f.state, pirateMode: true });
+    expect(document.activeElement).toBe(button(f.container, 'Weigh anchor')); expect(f.submit).not.toHaveBeenCalled();
+  });
+  it('keeps a recovery action on its original request when requests reorder', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await ready(f);
+    f.reserve({ version: 1, repo, action: 'launch', launch: { mode: 'freeform', task: 'First task' } });
+    f.reserve({ version: 1, repo, action: 'launch', launch: { mode: 'freeform', task: 'Second task' } });
+    await instance.refresh?.();
+    const requestId = f.journal[1]!.command.requestId;
+    const selector = `[data-request-id="${requestId}"]`;
+    button(f.container.querySelector<HTMLElement>(selector)!, 'Retry delivery').focus();
+    f.journal.reverse(); await instance.refresh?.();
+    expect(document.activeElement).toBe(button(f.container.querySelector<HTMLElement>(selector)!, 'Retry delivery'));
+    f.journal.splice(0, 1); await instance.refresh?.();
+    expect(document.activeElement).toBe(button(f.container, 'Refresh'));
+    expect(f.retry).not.toHaveBeenCalled(); expect(f.submit).not.toHaveBeenCalled();
+  });
+  it('falls back to Refresh when a focused action becomes unavailable', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await ready(f);
+    button(f.container, 'Start run').focus();
+    f.reserve({ version: 1, repo, action: 'launch', launch: { mode: 'freeform', task: 'Pending task' } });
+    await instance.refresh?.();
+    expect(button(f.container, 'Start run').disabled).toBe(true);
+    expect(document.activeElement).toBe(button(f.container, 'Refresh')); expect(f.submit).not.toHaveBeenCalled();
+  });
+  it('does not reclaim focus moved outside New Run during refresh', async () => {
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await ready(f);
+    const result = await f.discover(); let complete!: (value: typeof result) => void;
+    f.discover.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    button(f.container, 'Save draft').focus(); const refreshed = instance.refresh?.();
+    await vi.waitFor(() => expect(complete).toBeTypeOf('function'));
+    const outside = document.createElement('button'); document.body.append(outside); outside.focus();
+    complete(result); await refreshed; expect(document.activeElement).toBe(outside); expect(f.submit).not.toHaveBeenCalled();
+  });
+});

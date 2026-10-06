@@ -5,6 +5,15 @@ import { pathToFileURL } from 'node:url';
 import { gitBin } from '../../server/test-support/platform';
 import { contribution, fixture, pluginId, pendingCommandCount, run, seedBacklogLayout, sourceRoot } from './isolated-fixture';
 
+async function seedCheckout(host: Awaited<ReturnType<typeof fixture>>, repo: string) {
+  const checkout = join(host.cwd, repo.split('/').at(-1)!); const git = gitBin();
+  await mkdir(checkout);
+  for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'Acceptance']]) await run(git, args, checkout, host.env);
+  await writeFile(join(checkout, 'code.txt'), 'initial\n');
+  for (const args of [['add', '.'], ['commit', '-m', 'initial'], ['remote', 'add', 'origin', `https://github.com/${repo}.git`]]) await run(git, args, checkout, host.env);
+  await writeFile(join(host.root, 'commands/git'), `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');const result=spawnSync(${JSON.stringify(git)},process.argv.slice(2),{stdio:'inherit'});process.exit(result.status??1);`, { mode: 0o755 });
+}
+
 test('isolated production distribution installs an independently compiled SDK page and reloads its route', async ({ page, request }) => {
   const host = await fixture();
   const errors: string[] = [];
@@ -16,13 +25,13 @@ test('isolated production distribution installs an independently compiled SDK pa
     const catalog = await request.get(`${origin}/api/plugins/catalog`);
     expect(catalog.status()).toBe(200);
     expect(await catalog.json()).toMatchObject({ bindings: { 'helmsman/costs-page': contribution } });
-    await page.goto(`${origin}/plugins/${contribution}`);
+    await page.goto(`${origin}/plugins/${contribution}?repo=`);
     await expect(page.getByRole('heading', { name: 'Isolated TypeScript page' })).toBeVisible();
     await page.reload();
     await expect(page.locator('[data-isolated-scope]')).toHaveText('All');
     await page.goto(`${origin}/outcomes?repo=org/a`);
     await expect(page.locator('[data-isolated-scope]')).toHaveText('org/a');
-    await page.goto(`${origin}/runs`);
+    await page.goto(`${origin}/runs?repo=org/a`);
     await expect(page.locator('[data-plugin-page="helmsman.runs/page"] .plugin-runs')).toBeVisible();
     const missing = await request.get(`${origin}/plugin-assets/${pluginId}/${installed.plugins[0]?.hash}/missing.js`);
     expect(missing.status()).toBe(404);
@@ -30,7 +39,7 @@ test('isolated production distribution installs an independently compiled SDK pa
     await host.stop();
     await host.cli('disable', pluginId);
     const disabledOrigin = await host.start();
-    await page.goto(`${disabledOrigin}/outcomes`);
+    await page.goto(`${disabledOrigin}/outcomes?repo=`);
     await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
     expect(errors).toEqual([]);
     expect(host.output()).not.toContain('Source checkout is unavailable');
@@ -62,12 +71,16 @@ test('independent Helm and backlog packages compose in all four pairings with li
     const taskTitle = `${task.id}: ${task.title}`;
     await page.goto(`${origin}/helm?repo=org/a`);
     await expect(page.locator('.plugin-helm')).toBeVisible();
-    await expect(page.locator('.plugin-backlog').getByText(taskTitle, { exact: true })).toBeVisible();
+    const builtinTask = page.locator('.plugin-backlog').getByRole('listitem').filter({ has: page.getByText(task.title, { exact: true }) });
+    await expect(builtinTask.getByText(task.title, { exact: true })).toBeVisible();
+    await expect(builtinTask.getByText(task.id, { exact: true })).toBeVisible();
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
 
     await selectHelm('example.helm/page');
     await expect(page.locator('.alternative-helm')).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('.alternative-helm .plugin-backlog').getByText(taskTitle, { exact: true })).toBeVisible();
+    await expect(page.locator('.alternative-helm .plugin-backlog')).toBeVisible();
+    await expect(builtinTask.getByText(task.title, { exact: true })).toBeVisible();
+    await expect(builtinTask.getByText(task.id, { exact: true })).toBeVisible();
     await expect(page.locator('.plugin-helm')).toHaveCount(0);
     expect(new URL(page.url()).pathname).toBe('/helm');
 
@@ -227,7 +240,7 @@ test('safe start preserves blocked runs and artifacts and rejects every provider
       expect((await request.post(`${origin}${path}`, { data: {} })).status()).toBe(503);
     }
     expect(await (await request.get(`${origin}/api/slack`)).json()).toMatchObject({ health: { enabled: false, status: 'disabled' } });
-    await page.goto(`${origin}/outcomes`);
+    await page.goto(`${origin}/outcomes?repo=org/a`);
     await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
     await host.stop();
     const persisted = JSON.parse(await host.script('inspect.mjs', `import { openDb } from ${JSON.stringify(dbUrl)}; const db = openDb(process.env.HELMSMAN_DB); console.log(JSON.stringify(db.getRun('blocked_run'))); db.close();`));
@@ -286,6 +299,7 @@ test('task source adoption preserves local identity and disabled state through t
     host.env.AGENT_MAX_ATTEMPTS = '1';
     host.env.RUN_HOST = 'detached';
     await host.installPreflightFailureAgent();
+    await seedCheckout(host, 'org/a');
     const descriptor = await host.installAuthorPackage('plugin-sources/local-tasks-alternative');
     let origin = await host.start();
     const instances = (await (await request.get(`${origin}/api/task-sources?repo=org/a`)).json()).instances;
@@ -416,6 +430,27 @@ db.close();`);
     const retryableId = (await admitted.json()).runId;
     expect(typeof retryableId).toBe('string');
     await expect.poll(async () => (await (await request.get(`${origin}/api/agents/${retryableId}`)).json()).status, { timeout: 25_000 }).toBe('failed');
+    const inventory = await (await request.get(`${origin}/api/recovery?repo=org/c`)).json();
+    const checkpoints = inventory.checkpoints?.filter((checkpoint: { runId?: string }) => checkpoint?.runId === retryableId) ?? [];
+    expect(checkpoints).toEqual([expect.objectContaining({ id: expect.any(String), state: 'resumable' })]);
+    const retired = await request.post(`${origin}/api/recovery/actions`, { data: { action: 'retire-checkpoint', id: checkpoints[0]?.id,
+      actor: 'integration-test', reason: 'Discard the failed fixture checkpoint before starting a fresh retry.', evidence: { runId: retryableId, fixture: true } } });
+    expect(retired.ok(), await retired.text()).toBe(true);
+    const moduleUrl = (name: string) => JSON.stringify(pathToFileURL(join(host.app, `server/helmsman/${name}.js`)).href);
+    expect(await host.script('cleanup-retry-fixture.mjs', `import {openPersistence} from ${moduleUrl('persistence')};
+import {openExecutionOwnership} from ${moduleUrl('execution-ownership')};
+import {openExecutionStore} from ${moduleUrl('execution-store')};
+import {createExecutionCleanup} from ${moduleUrl('execution-cleanup')};
+import {describeLocalCheckout,withWorktreeMaintenance,verifyWorktreeAbsent,removeCleanWorktreeAt} from ${moduleUrl('worktree')};
+const persistence=openPersistence(process.env.HELMSMAN_DB);try{
+  const runId=${JSON.stringify(retryableId)},checkout=describeLocalCheckout(process.env.AGENTS_ROOT,'org/c',runId);
+  const executions=openExecutionStore(persistence,Date.now,{preferSchema:2});
+  const cleanup=createExecutionCleanup({persistence,executions,withMaintenance:withWorktreeMaintenance,
+    verifyAbsent:async(repo,path)=>{if(!await verifyWorktreeAbsent(repo,path))throw new Error('Fixture workspace remains');}});
+  await cleanup.remove({runId,repoDirectory:checkout.path,commonDirectory:checkout.commonDirectory,workspace:checkout.workspacePath,
+    remove:async()=>{if(!await verifyWorktreeAbsent(checkout.path,checkout.workspacePath))await removeCleanWorktreeAt(checkout.path,checkout.workspacePath);}});
+  console.log(openExecutionOwnership(persistence).get(runId)?.state);
+}finally{persistence.close();}`)).toBe('released\n');
     await page.goto(`${origin}/helm?repo=org/a`); await expect(page.locator('.plugin-helm')).toBeVisible();
     await page.getByText('Manage panels', { exact: true }).click();
     for (const name of ['running', 'recent']) {
@@ -443,8 +478,9 @@ db.close();`);
     await page.locator(`.plugin-recent [data-run-id="${retryableId}"]`).getByRole('button', { name: /^Retry / }).click();
     await expect(page.locator('.plugin-recent').getByText('Retry accepted. The original worker outcome is unchanged.', { exact: true })).toBeVisible();
     const newRun = page.locator('.plugin-recent').getByRole('link', { name: 'Open new voyage', exact: true });
-    const href = await newRun.getAttribute('href'); expect(href).toContain('repo=org%2Fc');
-    const commandRunId = new URL(href!, origin).searchParams.get('run'); expect(commandRunId).toBeTruthy();
+    const href = await newRun.getAttribute('href'); const runUrl = new URL(href!, origin);
+    expect(runUrl.searchParams.get('repo')).toBe('org/a'); expect(runUrl.searchParams.get('runRepo')).toBe('org/c');
+    const commandRunId = runUrl.searchParams.get('run'); expect(commandRunId).toBeTruthy();
     await page.reload();
     await expect(page.locator('.plugin-running').getByText('Stop requested. Worker status is reported separately.', { exact: true })).toBeVisible();
     await expect(newRun).toHaveAttribute('href', href!);
@@ -471,6 +507,7 @@ test('source-denied New Run and Underway packages preserve typed task identity, 
   try {
     await expect(host.script('prove-launch-panel-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/newrun/panel.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
     await host.installPreflightFailureAgent();
+    await seedCheckout(host, 'org/a');
     await host.installAuthorPackage('plugin-sources/newrun', 'example.newrun');
     await host.installAuthorPackage('plugin-sources/underway', 'example.underway');
     const origin = await host.start();
@@ -496,14 +533,16 @@ test('source-denied New Run and Underway packages preserve typed task identity, 
     }
     await page.getByText('Manage panels', { exact: true }).click();
     const newrun = page.locator('.plugin-newrun'); const underway = page.locator('.plugin-underway');
-    await expect(underway.getByText(`${unfinished.id}: Unfinished isolated task`, { exact: true })).toBeVisible();
+    const unfinishedTask = underway.getByRole('listitem').filter({ has: page.getByText('Unfinished isolated task', { exact: true }) });
+    await expect(unfinishedTask.getByText('Unfinished isolated task', { exact: true })).toBeVisible();
+    await expect(unfinishedTask.getByText(unfinished.id, { exact: true })).toBeVisible();
     await newrun.getByLabel('Task instructions', { exact: true }).fill('A retained draft for org/a');
     await newrun.getByRole('button', { name: 'Save draft', exact: true }).click();
     await page.locator('.repo-select').selectOption('org/b');
     await newrun.getByLabel('Task instructions', { exact: true }).fill('A different draft for org/b');
     await newrun.getByRole('button', { name: 'Save draft', exact: true }).click(); await page.reload();
     await expect(newrun.getByLabel('Task instructions', { exact: true })).toHaveValue('A different draft for org/b');
-    await expect(underway.getByText(`${unfinished.id}: Unfinished isolated task`, { exact: true })).toHaveCount(0);
+    await expect(unfinishedTask).toHaveCount(0);
     await page.locator('.repo-select').selectOption('org/a');
     await expect(newrun.getByLabel('Task instructions', { exact: true })).toHaveValue('A retained draft for org/a');
     await newrun.getByLabel('Launch mode', { exact: true }).selectOption('source');

@@ -21,6 +21,45 @@ beforeEach(() => { vi.resetModules(); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('shipped frontend plugin lifecycle', () => {
+  it('registers enabled contributions without importing implementations and loads only the mounted page', async () => {
+    const costsLoaded = vi.fn(); const backlogLoaded = vi.fn();
+    const mount = vi.fn(() => ({ update() {}, dispose() {} }));
+    vi.doMock('./costs/page', () => { costsLoaded(); return { default: { mount } }; });
+    vi.doMock('./backlog/panel', () => { backlogLoaded(); return { default: { mount } }; });
+    try {
+      const app = await setup();
+      app.syncBuiltinFrontend(entries(), false);
+      expect(costsLoaded).not.toHaveBeenCalled(); expect(backlogLoaded).not.toHaveBeenCalled();
+      const module = app.appPageModules.get(app.COSTS_PAGE_ID);
+      expect(module).not.toBeNull();
+      await module?.mount(document.createElement('div'), { state: {
+        repo: null, themeId: 'default', pirateMode: false, visible: true, pane: null,
+      }, signal: new AbortController().signal, navigate() {}, onDispose() {} });
+      expect(costsLoaded).toHaveBeenCalledOnce(); expect(backlogLoaded).not.toHaveBeenCalled();
+      expect(mount).toHaveBeenCalledOnce();
+    } finally { vi.doUnmock('./costs/page'); vi.doUnmock('./backlog/panel'); }
+  });
+
+  it('preserves module identity until a hash change and renews identities on re-enable', async () => {
+    const app = await setup(); const metadata = entries();
+    app.syncBuiltinFrontend(metadata, false);
+    const original = app.appPageModules.get(app.HELM_PAGE_ID);
+    const originalPanel = app.panels.getModule('helmsman.backlog/panel');
+    app.syncBuiltinFrontend(metadata, false);
+    expect(app.appPageModules.get(app.HELM_PAGE_ID)).toBe(original);
+    expect(app.panels.getModule('helmsman.backlog/panel')).toBe(originalPanel);
+    const changed = metadata.map(entry => ({ ...entry, hash: 'b'.repeat(64) }));
+    app.syncBuiltinFrontend(changed, false);
+    const replacement = app.appPageModules.get(app.HELM_PAGE_ID);
+    expect(replacement).not.toBeNull(); expect(replacement).not.toBe(original);
+    expect(app.panels.getModule('helmsman.backlog/panel')).not.toBe(originalPanel);
+    app.syncBuiltinFrontend(changed, true);
+    expect(app.appPageModules.get(app.HELM_PAGE_ID)).toBeNull();
+    app.syncBuiltinFrontend(changed, false);
+    expect(app.appPageModules.get(app.HELM_PAGE_ID)).not.toBe(replacement);
+    expect(app.appPageModules.get(app.HELM_PAGE_ID)).not.toBeNull();
+  });
+
   it('activates task pages and both source-settings panels through the shared catalog lifecycle', async () => {
     const app = await setup();
     const taskIds = ['helmsman.todos-ui', 'helmsman.triage', 'helmsman.bugs', 'helmsman.source-settings'];

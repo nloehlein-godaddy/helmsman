@@ -105,7 +105,8 @@ export class PluginPageHost {
         else this.cleanup(cleanup);
       },
     });
-    session.mounting = this.mount(session, context);
+    const loading = this.loading(session.element);
+    session.mounting = this.mount(session, context, loading);
   }
 
   async refresh(): Promise<void> {
@@ -144,13 +145,15 @@ export class PluginPageHost {
     return !this.disposed && this.session === session && !session.controller.signal.aborted;
   }
 
-  private async mount(session: PageSession, context: PluginPageContext): Promise<void> {
+  private async mount(session: PageSession, context: PluginPageContext, loading: HTMLElement): Promise<void> {
     try {
       const instance: unknown = await session.module.mount(session.element, context);
       if (!validInstance(instance)) throw new TypeError('Page did not return a valid lifecycle.');
       if (!this.active(session)) { this.release(instance); return; }
       session.instance = instance;
       await this.update(session);
+      loading.remove();
+      if (this.active(session)) this.container.removeAttribute('aria-busy');
     } catch {
       this.fail(session);
     }
@@ -211,13 +214,14 @@ export class PluginPageHost {
     try { void Promise.resolve(cleanup()).catch(() => {}); } catch { return; }
   }
 
-  private loading(): void {
+  private loading(container = this.container): HTMLElement {
     const message = document.createElement('p');
     message.className = 'empty-note';
     message.setAttribute('role', 'status');
     message.textContent = this.options.loadingMessage();
-    this.container.replaceChildren(message);
+    container.replaceChildren(message);
     this.container.setAttribute('aria-busy', 'true');
+    return message;
   }
 
   private fail(session: PageSession): void {

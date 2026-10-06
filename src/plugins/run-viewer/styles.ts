@@ -57,4 +57,8 @@ export const styles = `
 .plugin-run-viewer .run-tab:has([aria-selected=true]) { background: color-mix(in srgb,var(--accent) 10%,var(--face)); }
 .plugin-run-viewer .run-tab>button:not([role=tab]) { min-height: 32px; width: 32px; padding: 4px; }
 .plugin-run-viewer .run-log { border-radius: 6px; }
+@media(any-pointer:coarse) {
+  .plugin-run-viewer :is(button,select,summary) { min-height: 44px; min-width: 44px; }
+  .plugin-run-viewer .run-tab-open,.plugin-run-viewer .run-tab>button:not([role=tab]) { width: 44px; height: 44px; min-height: 44px; box-sizing: border-box; }
+}
 `;

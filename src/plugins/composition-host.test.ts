@@ -41,6 +41,26 @@ function setup(module: PluginPanelModule) {
 afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); });
 
 describe('page-owned composition', () => {
+  it('defers the first mount of inactive panels until selected and retains their mounted state afterward', async () => {
+    const mount = vi.fn(() => ({ update: vi.fn(), dispose: vi.fn() }));
+    const { host, first, second, current } = setup({ mount });
+    await host.service.updateLayout({ ...current(), columns: [[{
+      instances: ['first', 'second'], activeInstanceId: 'first', collapsed: false,
+    }]] }, current().revision);
+    await host.service.mount('first', first); await host.service.mount('second', second); await settle();
+    expect(mount).toHaveBeenCalledTimes(1);
+    await host.service.updateLayout({ ...current(), columns: [[{
+      instances: ['first', 'second'], activeInstanceId: 'second', collapsed: false,
+    }]] }, current().revision); await settle();
+    expect(mount).toHaveBeenCalledTimes(2);
+    await host.service.updateLayout({ ...current(), columns: [[{
+      instances: ['first', 'second'], activeInstanceId: 'first', collapsed: false,
+    }]] }, current().revision); await settle();
+    expect(mount).toHaveBeenCalledTimes(2);
+    expect(mount.mock.results[0]?.value.dispose).not.toHaveBeenCalled();
+    expect(mount.mock.results[1]?.value.dispose).not.toHaveBeenCalled();
+  });
+
   it.each(['terminal', 'campaigns'] as const)('mounts a %s service consumer through the public composition boundary', async service => {
     let context: PluginPanelContext | undefined;
     const { host, first, registry, unregister } = setup({ mount(_element, value) {

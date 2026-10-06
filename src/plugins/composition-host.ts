@@ -231,6 +231,7 @@ export class PluginCompositionHost {
     state.terminal = acceptsRoute ? state.terminal : null;
     const routeState = acceptsRoute ? state.panelRouteState?.[instance.contributionId] ?? null : null;
     if (panel.host) { panel.host.update(state, savedState, routeState); return; }
+    if (!visible) return;
     panel.host = new PluginPanelHost(panel.container, module, state, savedState, {
       instanceId: instance.instanceId, contributionId: instance.contributionId, services: (lifetime, activity) => Object.freeze({ version: 1,
         tasks: createHostTaskReadService(lifetime, { scope: activity }),

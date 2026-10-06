@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-05T23:59:29.889Z",
+  "generatedAt": "2026-10-06T05:37:28.949Z",
   "title": "Design System: Helmsman — Field Guide",
   "extensions": {
     "colorMeta": {
@@ -523,7 +523,7 @@
       "refersTo": "button-primary",
       "description": "Authored-plugin action control.",
       "html": "<button class=\"ds-primary\">Save settings</button>",
-      "css": ".ds-primary{font:16px/1.4 var(--sans,system-ui,sans-serif);border-radius:6px;min-height:36px;padding:6px 12px;cursor:pointer;transition:background-color 160ms ease-out,border-color 160ms ease-out;background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);font-weight:600;}.ds-primary:hover:not(:disabled){background:var(--accent-bright);border-color:var(--accent-bright);}.ds-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-primary:disabled{opacity:.5;cursor:default;}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none;}}"
+      "css": ".ds-primary{font:16px/1.4 var(--sans,system-ui,sans-serif);border-radius:6px;min-height:36px;padding:6px 12px;cursor:pointer;transition:background-color 160ms ease-out,border-color 160ms ease-out;background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);font-weight:600;}.ds-primary:hover:not(:disabled){background:var(--accent-bright);border-color:var(--accent-bright);}.ds-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-primary:disabled{opacity:.5;cursor:default;}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none;}}@media(any-pointer:coarse){.ds-primary{min-height:44px;min-width:44px;box-sizing:border-box}}"
     },
     {
       "name": "Secondary action",
@@ -531,7 +531,7 @@
       "refersTo": "button-secondary",
       "description": "Authored-plugin action control.",
       "html": "<button class=\"ds-secondary\">Refresh</button>",
-      "css": ".ds-secondary{font:16px/1.4 var(--sans,system-ui,sans-serif);border-radius:6px;min-height:36px;padding:6px 12px;cursor:pointer;transition:background-color 160ms ease-out,border-color 160ms ease-out;background:var(--face-hi,var(--panel-hi));color:var(--text);border:1px solid var(--line-strong);}.ds-secondary:hover:not(:disabled){background:var(--face-hi,var(--panel-hi));border-color:var(--line-strong);}.ds-secondary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-secondary:disabled{opacity:.5;cursor:default;}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none;}}"
+      "css": ".ds-secondary{font:16px/1.4 var(--sans,system-ui,sans-serif);border-radius:6px;min-height:36px;padding:6px 12px;cursor:pointer;transition:background-color 160ms ease-out,border-color 160ms ease-out;background:var(--face-hi,var(--panel-hi));color:var(--text);border:1px solid var(--line-strong);}.ds-secondary:hover:not(:disabled){background:var(--face-hi,var(--panel-hi));border-color:var(--line-strong);}.ds-secondary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-secondary:disabled{opacity:.5;cursor:default;}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none;}}@media(any-pointer:coarse){.ds-secondary{min-height:44px;min-width:44px;box-sizing:border-box}}"
     },
     {
       "name": "Launch action",
@@ -539,7 +539,7 @@
       "refersTo": "button-launch",
       "description": "Launch task-panel primary action.",
       "html": "<button class=\"ds-launch\">Launch</button>",
-      "css": ".ds-launch{font:600 16px/1.5 var(--sans,system-ui,sans-serif);min-height:34px;padding:7px 16px;border-radius:6px;background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);cursor:pointer;transition:background-color 160ms ease,color 160ms ease}.ds-launch:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 86%,var(--text));border-color:transparent}.ds-launch:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-launch:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-launch{transition:none}}"
+      "css": ".ds-launch{font:600 16px/1.5 var(--sans,system-ui,sans-serif);min-height:34px;padding:7px 16px;border-radius:6px;background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);cursor:pointer;transition:background-color 160ms ease,color 160ms ease}.ds-launch:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 86%,var(--text));border-color:transparent}.ds-launch:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-launch:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-launch{transition:none}}@media(any-pointer:coarse){.ds-launch{min-height:44px;min-width:44px;box-sizing:border-box}}"
     },
     {
       "name": "Labeled input",
@@ -547,7 +547,7 @@
       "refersTo": "input",
       "description": "Native authored-plugin field with a visible label.",
       "html": "<label class=\"ds-field\">Repository<input class=\"ds-input\" value=\"helmsman\" /></label>",
-      "css": ".ds-field{display:grid;gap:5px;color:var(--text);font:16px/1.5 var(--sans,system-ui,sans-serif)}.ds-input{font:16px/1.4 var(--sans,system-ui,sans-serif);min-height:36px;padding:6px 12px;border-radius:6px;background:var(--control-bg);color:var(--text);border:1px solid var(--control-border);max-width:100%}.ds-input:focus{border-color:var(--accent)}.ds-input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}"
+      "css": ".ds-field{display:grid;gap:5px;color:var(--text);font:16px/1.5 var(--sans,system-ui,sans-serif)}.ds-input{font:16px/1.4 var(--sans,system-ui,sans-serif);min-height:36px;padding:6px 12px;border-radius:6px;background:var(--control-bg);color:var(--text);border:1px solid var(--control-border);max-width:100%}.ds-input:focus{border-color:var(--accent)}.ds-input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}@media(any-pointer:coarse){.ds-input{min-height:44px;min-width:44px;box-sizing:border-box}}"
     },
     {
       "name": "Navigation destination",
@@ -555,7 +555,7 @@
       "refersTo": "page-tab",
       "description": "Evergreen destination navigation.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Pages\"><a class=\"ds-nav-link ds-nav-active\" href=\"#helm\" aria-current=\"page\">Helm</a><a class=\"ds-nav-link\" href=\"#runs\">Runs</a></nav>",
-      "css": ".ds-nav{display:flex;flex-direction:column;gap:4px;padding:24px 12px;background:var(--nav-bg);width:176px}.ds-nav-link{font:500 15px/1.4 var(--sans,system-ui,sans-serif);color:var(--nav-muted);border:1px solid transparent;border-radius:6px;padding:10px 14px;text-decoration:none}.ds-nav-link:hover,.ds-nav-active{color:var(--nav-text);background:var(--nav-active)}.ds-nav-active{border-color:var(--nav-muted);font-weight:650}.ds-nav-link:focus-visible{outline:2px solid var(--nav-text);outline-offset:1px}@media(max-width:840px){.ds-nav{flex-direction:row;overflow:auto;width:auto;padding:8px 12px}.ds-nav-link{padding:8px 12px;white-space:nowrap}}"
+      "css": ".ds-nav{display:flex;flex-direction:column;gap:4px;padding:24px 12px;background:var(--nav-bg);width:176px}.ds-nav-link{font:500 15px/1.4 var(--sans,system-ui,sans-serif);color:var(--nav-muted);border:1px solid transparent;border-radius:6px;padding:10px 14px;text-decoration:none}.ds-nav-link:hover,.ds-nav-active{color:var(--nav-text);background:var(--nav-active)}.ds-nav-active{border-color:var(--nav-muted);font-weight:650}.ds-nav-link:focus-visible{outline:2px solid var(--nav-text);outline-offset:1px}@media(max-width:840px){.ds-nav{flex-direction:row;overflow:auto;width:auto;padding:8px 12px}.ds-nav-link{padding:8px 12px;white-space:nowrap}}@media(any-pointer:coarse){.ds-nav-link{display:inline-flex;align-items:center;min-height:44px;box-sizing:border-box}}"
     },
     {
       "name": "Section navigation",
@@ -563,7 +563,7 @@
       "refersTo": "section-link",
       "description": "Persistent Config and Runs sibling links above the scrolling work area on parent and child pages; hidden elsewhere. The primary parent stays selected, while Overview or the exact child carries aria-current. Links preserve header scope and follow terminology and selected replacement pages; a directly opened alternative gets its own current link. Overflow scrolls horizontally, and navigation or resize reveals the current destination without moving page content.",
       "html": "<nav class=\"ds-section-nav\" aria-label=\"Runs pages\"><a class=\"ds-section-link\" href=\"/runs\">Overview</a><a class=\"ds-section-link ds-section-active\" href=\"/run-history\" aria-current=\"page\">History</a><a class=\"ds-section-link\" href=\"/run-viewer\">Run details</a></nav>",
-      "css": ".ds-section-nav{position:relative;display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;padding:8px 28px;border-bottom:1px solid var(--line);background:var(--panel)}.ds-section-nav[hidden]{display:none}.ds-section-link{flex-shrink:0;padding:8px 12px;border-radius:6px;font:500 15px/1.4 var(--sans,system-ui,sans-serif);color:var(--text-dim);text-decoration:none;white-space:nowrap}.ds-section-link:hover{color:var(--text);background:var(--panel-hi)}.ds-section-link.ds-section-active{color:var(--accent);background:var(--panel-hi);font-weight:650}.ds-section-link:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}@media(max-width:840px){.ds-section-nav{padding:8px 12px}}"
+      "css": ".ds-section-nav{position:relative;display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;padding:8px 28px;border-bottom:1px solid var(--line);background:var(--panel)}.ds-section-nav[hidden]{display:none}.ds-section-link{flex-shrink:0;padding:8px 12px;border-radius:6px;font:500 15px/1.4 var(--sans,system-ui,sans-serif);color:var(--text-dim);text-decoration:none;white-space:nowrap}.ds-section-link:hover{color:var(--text);background:var(--panel-hi)}.ds-section-link.ds-section-active{color:var(--accent);background:var(--panel-hi);font-weight:650}.ds-section-link:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}@media(max-width:840px){.ds-section-nav{padding:8px 12px}}@media(any-pointer:coarse){.ds-section-link{display:inline-flex;align-items:center;min-height:44px;box-sizing:border-box}}"
     },
     {
       "name": "Labeled run state",
@@ -579,7 +579,7 @@
       "refersTo": "panel",
       "description": "Shared header for panel identity and collapse.",
       "html": "<section class=\"ds-panel\"><div class=\"ds-panel-head\"><button class=\"ds-panel-title\" role=\"tab\" aria-selected=\"true\">Agents running</button><button class=\"ds-collapse\" aria-label=\"Collapse Agents running\" aria-expanded=\"true\"><svg viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><path d=\"m4 6 4 4 4-4\"/></svg></button></div><div class=\"ds-panel-body\">No active runs.</div></section>",
-      "css": ".ds-panel{font:16px/1.5 var(--sans,system-ui,sans-serif);color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}.ds-panel-head{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--line)}.ds-panel-title{font:600 15px/1.5 var(--sans,system-ui,sans-serif);min-height:34px;padding:6px 0;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text);cursor:pointer}.ds-panel-title:hover{border-color:var(--accent)}.ds-panel-title:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-collapse{display:grid;place-items:center;width:32px;height:32px;padding:6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text-dim);cursor:pointer}.ds-collapse svg{width:16px;height:16px;transition:transform 160ms ease}.ds-collapse[aria-expanded=false] svg{transform:rotate(-90deg)}.ds-collapse:hover{border-color:var(--accent)}.ds-collapse:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-panel-body{padding:16px}@media(max-width:760px){.ds-panel-body{padding:12px}}@media(prefers-reduced-motion:reduce){.ds-collapse svg{transition:none}}"
+      "css": ".ds-panel{font:16px/1.5 var(--sans,system-ui,sans-serif);color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}.ds-panel-head{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--line)}.ds-panel-title{font:600 15px/1.5 var(--sans,system-ui,sans-serif);min-height:34px;padding:6px 0;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text);cursor:pointer}.ds-panel-title:hover{border-color:var(--accent)}.ds-panel-title:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-collapse{display:grid;place-items:center;width:32px;height:32px;padding:6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text-dim);cursor:pointer}.ds-collapse svg{width:16px;height:16px;transition:transform 160ms ease}.ds-collapse[aria-expanded=false] svg{transform:rotate(-90deg)}.ds-collapse:hover{border-color:var(--accent)}.ds-collapse:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}.ds-panel-body{padding:16px}@media(max-width:760px){.ds-panel-body{padding:12px}}@media(prefers-reduced-motion:reduce){.ds-collapse svg{transition:none}}@media(any-pointer:coarse){.ds-panel-title,.ds-collapse{min-height:44px;min-width:44px;box-sizing:border-box}.ds-collapse{width:44px;height:44px}}"
     },
     {
       "name": "Work identity row",
@@ -635,7 +635,9 @@
       "Do present task titles, labeled states and subordinate evidence in the shared index-like rhythm.",
       "Do preserve the accessible heading when suppressing a repeated visible panel heading.",
       "Do keep tab selection and collapse together, and preserve saved panel order when adapting to a narrow screen.",
-      "Do use visible focus outlines and honor reduced-motion preferences."
+      "Do use visible focus outlines and honor reduced-motion preferences.",
+      "Do provide coarse-pointer targets of at least (44px) without increasing fine-pointer-only density.",
+      "Do preserve keyboard focus through redraws and expose loading with readable status text."
     ],
     "donts": [
       "Don't restore brushed-metal panels, seven-segment counts or the oscilloscope treatment as the default visual language.",

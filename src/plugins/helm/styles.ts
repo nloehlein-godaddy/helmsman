@@ -17,5 +17,6 @@ export const styles = `
 .plugin-helm .helm-config-row {padding-bottom:12px;border-bottom:1px solid var(--line)}.plugin-helm .helm-config-row strong {overflow-wrap:anywhere}
 .plugin-helm [role=alert] {color:var(--bad)}.plugin-helm :is(button,select,input,summary):focus-visible {outline:2px solid var(--accent);outline-offset:2px}
 @media(max-width:760px) {.plugin-helm .helm-columns {grid-template-columns:1fr}.plugin-helm .helm-panel-body {padding:12px}}
+@media(any-pointer:coarse) {.plugin-helm :is(button,select,input,summary) {min-height:44px;min-width:44px}.plugin-helm .helm-collapse {width:44px;height:44px}}
 @media(prefers-reduced-motion:reduce) {.plugin-helm .helm-collapse svg {transition:none}}
 `;

@@ -107,9 +107,12 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     await page.screenshot({ path: testInfo.outputPath('run-presentation-mobile.png') });
     const content = page.locator('.page-content');
     const scrollBefore = await content.evaluate(element => element.scrollTop);
+    const dock = page.locator('.plugin-auxiliary-slot > [data-run-viewer-host]');
+    const dockScrollBefore = await dock.evaluate(element => element.scrollTop);
     await viewer.locator('.run-log').scrollIntoViewIfNeeded();
     await expect(viewer.locator('.run-log')).toBeInViewport();
-    await expect.poll(() => content.evaluate(element => element.scrollTop)).toBeGreaterThan(scrollBefore);
+    await expect.poll(() => dock.evaluate(element => element.scrollTop)).toBeGreaterThan(dockScrollBefore);
+    expect(await content.evaluate(element => element.scrollTop)).toBe(scrollBefore);
     await page.screenshot({ path: testInfo.outputPath('run-presentation-mobile-logs.png') });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`${origin}/run-history?repo=org/a&run=foreign-run&runRepo=org/b`);

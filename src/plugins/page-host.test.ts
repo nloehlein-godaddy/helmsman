@@ -37,6 +37,17 @@ afterEach(() => {
 });
 
 describe('plugin page host', () => {
+  it('announces an initial asynchronous mount and clears its loading status without a state update', async () => {
+    const { host, container } = setup();
+    const pending = deferred<PluginPageInstance>();
+    host.show('example.lazy/page', { mount: () => pending.promise }, state());
+    expect(container.getAttribute('aria-busy')).toBe('true');
+    expect(container.querySelector('[role="status"]')?.textContent).toBe('Loading scope');
+    pending.resolve(lifecycle()); await settle();
+    expect(container.hasAttribute('aria-busy')).toBe(false);
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
   it('binds page identity to the mounted contribution across scope updates and replacements', async () => {
     const { host } = setup(); const contexts: PluginPageContext[] = [];
     const module: PluginPageModule = { mount(_container, context) { contexts.push(context); return lifecycle(); } };

@@ -50,3 +50,42 @@ it('stops scheduled reads when hidden and resumes on a new activity lifetime',as
 it('escapes campaign and imported task content and disables starting an empty phase',async()=>{const f=await fixture({},context=>{vi.mocked(context.services.campaigns!.detail).mockResolvedValue(available({...detail,campaign:{...campaign,name:'<img src=x onerror=alert(1)>'},phases:[{phase,tasks:[]}]}));vi.mocked(context.services.campaigns!.submit).mockImplementation(async input=>available({...receipt(input),result:{kind:'preview',preview:{...preview,records:[{...task.record,task:'<script>bad()</script>'}]}}}));});await ready(f);expect(f.container.querySelector<HTMLButtonElement>('[data-campaign-action="start"]')?.disabled).toBe(true);fill(f,'content','{"task":"<script>bad()</script>"}');submit(f,'[data-campaign-import]');await vi.waitFor(()=>expect(f.container.querySelector('[data-campaign-confirm-import]')).not.toBeNull());expect(f.container.querySelector('img,script')).toBeNull();expect(f.container.querySelector('.campaign-preview')?.textContent).toContain('<script>bad()</script>');});
 it.each([null,{}, {version:1,repo:'org/b',campaigns:[null],workflows:[]},{version:1,repo:'org/b',campaigns:[],workflows:[null]}])('rejects malformed list snapshots without enabling mutations: %j',async value=>{const f=await fixture({},context=>{vi.mocked(context.services.campaigns!.list).mockResolvedValue(available(value as unknown as CampaignListSnapshotV1));});await f.instance.refresh?.();await vi.waitFor(()=>expect(f.container.textContent).toContain('could not be refreshed'));expect(f.container.querySelector<HTMLButtonElement>('[data-campaign-create] button')?.disabled).toBe(true);expect(f.service.submit).not.toHaveBeenCalled();});
 it('retains the import draft and pending request when preview records are malformed',async()=>{const f=await fixture({},(context,pending)=>{vi.mocked(context.services.campaigns!.submit).mockImplementation(async input=>{const result={...receipt(input),result:{kind:'preview' as const,preview:{...preview,records:[null]}}} as unknown as CampaignCommandReceiptV1;pending.push({command:{...input,requestId},receipt:null});return available(result);});});await ready(f);fill(f,'content','{"task":"Keep this"}');submit(f,'[data-campaign-import]');await vi.waitFor(()=>expect(f.container.textContent).toContain('Campaign result unavailable'));expect(f.container.querySelector<HTMLTextAreaElement>('[name="content"]')?.value).toContain('Keep this');expect(f.service.acknowledge).not.toHaveBeenCalled();expect(f.container.querySelector('[data-campaign-confirm-import]')).toBeNull();});
+
+it.each(['[data-campaign-refresh]', '[data-save-draft]', '[data-campaign-action="stop"]', '[data-campaign-create] button', '[data-campaign-phase-create] button', '[data-campaign-import] button', '.campaign-settings summary', '.campaign-recovery summary'])('retains keyboard focus through refresh and redraw: %s',async selector=>{
+ const f=await fixture();await ready(f);
+ const control=f.container.querySelector<HTMLElement>(selector)!;control.focus();
+ await f.instance.refresh?.();expect(document.activeElement).toBe(f.container.querySelector(selector));
+ await f.instance.update({...f.state(),pirateMode:true});expect(document.activeElement).toBe(f.container.querySelector(selector));
+ expect(f.service.submit).not.toHaveBeenCalled();
+});
+it('keeps focus and disclosure attached to the same phase when phases reorder',async()=>{
+ const second={phase:{...phase,id:'phase-2',name:'Second phase',position:1},tasks:[{...task,id:'task-2',phaseId:'phase-2'}]};
+ const f=await fixture();await ready(f);f.service.detail.mockResolvedValue(available({...detail,phases:[...detail.phases,second]}));await f.instance.refresh?.();
+ const selector='[data-campaign-import="phase-2"] summary';const summary=f.container.querySelector<HTMLElement>(selector)!;
+ summary.closest('details')!.open=true;summary.focus();
+ f.service.detail.mockResolvedValue(available({...detail,phases:[second,...detail.phases]}));await f.instance.refresh?.();
+ expect(document.activeElement).toBe(f.container.querySelector(selector));expect(f.container.querySelector(selector)?.closest('details')?.open).toBe(true);
+ expect(f.container.querySelector('[data-campaign-import="phase-1"] details')?.hasAttribute('open')).toBe(false);
+ expect(f.service.submit).not.toHaveBeenCalled();
+});
+it.each(['stop','finish'])('moves focus into %s confirmation and returns to its trigger without a command',async action=>{
+ const f=await fixture();await ready(f);const selector=`[data-campaign-action="${action}"]`;
+ f.container.querySelector<HTMLElement>(selector)!.focus();click(f,selector);
+ expect(document.activeElement).toBe(f.container.querySelector('[data-campaign-dismiss]'));
+ await f.instance.refresh?.();expect(document.activeElement).toBe(f.container.querySelector('[data-campaign-dismiss]'));
+ click(f,'[data-campaign-dismiss]');expect(document.activeElement).toBe(f.container.querySelector(selector));
+ expect(f.container.querySelector('[data-campaign-confirm-action]')).toBeNull();expect(f.service.submit).not.toHaveBeenCalled();
+});
+it.each(['removed','disabled'])('falls back to Refresh when the focused phase action is %s',async change=>{
+ const f=await fixture();await ready(f);f.container.querySelector<HTMLElement>('[data-campaign-action="start"]')!.focus();
+ f.service.detail.mockResolvedValue(available({...detail,phases:change==='removed'?[]:[{phase,tasks:[]}]}));await f.instance.refresh?.();
+ expect(document.activeElement).toBe(f.container.querySelector('[data-campaign-refresh]'));expect(f.service.submit).not.toHaveBeenCalled();
+});
+it('does not reclaim focus moved outside Campaigns during a deferred refresh',async()=>{
+ const f=await fixture();await ready(f);let complete!:(value:ReturnType<typeof available<CampaignDetailSnapshotV1>>)=>void;
+ f.service.detail.mockImplementationOnce(()=>new Promise(resolve=>{complete=resolve;}));
+ f.container.querySelector<HTMLElement>('[data-campaign-refresh]')!.focus();const refreshed=f.instance.refresh?.();
+ await vi.waitFor(()=>expect(complete).toBeTypeOf('function'));
+ const outside=document.createElement('button');document.body.append(outside);outside.focus();complete(available(detail));await refreshed;
+ expect(document.activeElement).toBe(outside);expect(f.service.submit).not.toHaveBeenCalled();
+});

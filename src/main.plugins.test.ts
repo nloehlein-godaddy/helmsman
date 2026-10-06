@@ -174,6 +174,24 @@ describe('registered plugin page integration', () => {
     expect(viewer.mount).toHaveBeenCalledOnce();
   });
 
+  it.each([true, false])('restores viewer focus after history navigation without replacing descendant focus: %s', async focusedInside => {
+    registerPresentation('example.helm', HELM_PAGE_SLOT, sample());
+    const viewer = sample(true); registerPresentation('example.viewer', RUN_VIEWER_PAGE_SLOT, viewer);
+    appPages.select(HELM_PAGE_SLOT, 'example.helm/page'); appPages.select(RUN_VIEWER_PAGE_SLOT, 'example.viewer/page');
+    window.history.replaceState(null, '', '/run-viewer?repo=org/a&run=run-1&runRepo=org/a'); await start();
+    const element = document.querySelector<HTMLElement>('[data-plugin-page="example.viewer/page"]')!;
+    const log = document.createElement('pre'); log.tabIndex = 0; log.textContent = 'Retained log'; element.append(log);
+    const scope = document.querySelector<HTMLSelectElement>('.repo-select')!;
+    (focusedInside ? log : scope).focus();
+    window.history.pushState(null, '', '/helm?repo=org/a&run=run-1&runRepo=org/a');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await settle();
+    const auxiliary = document.querySelector<HTMLElement>(`[data-auxiliary-page="${RUN_VIEWER_PAGE_SLOT}"]`)!;
+    expect(auxiliary.contains(element)).toBe(true); expect(log.isConnected).toBe(true);
+    expect(document.activeElement).toBe(focusedInside ? log : auxiliary);
+    expect(viewer.mount).toHaveBeenCalledOnce(); expect(viewer.dispose).not.toHaveBeenCalled();
+  });
+
   it('opens canonical viewers independently of slot selection and keeps removed contributions unavailable', async () => {
     const selected = sample(); registerPresentation('example.selected', RUN_VIEWER_PAGE_SLOT, selected);
     const canonical = sample(); const registered = registerPresentation('example.canonical', RUN_VIEWER_PAGE_SLOT, canonical);

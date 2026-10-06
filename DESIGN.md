@@ -225,6 +225,8 @@ Authored Helm uses the saved column count, a (16px) grid gap and (16px) panel-bo
 
 Running-work identity and state occupy two columns, with evidence below. At (480px), state follows title and identifier in one column. Theme-preview groups stack at (900px); at (560px), settings controls stack and palette swatches use three columns. The footer keeps recovery and About access compact; About opens a bounded disclosure above it. The docked log-viewer host caps at (40dvh).
 
+Theme-preview swatch labels and values wrap within their grid cells, including when text is enlarged.
+
 ## Elevation & Depth
 
 Work panels are flat, separated by tone and thin borders. The notification popover uses a soft shadow (`0 12px 32px #0003`); its standalone communication-page rendering removes that shadow. Focus outlines communicate keyboard position rather than elevation. The default log is a neutral bordered surface.
@@ -242,6 +244,8 @@ Use panel and control radii for their corresponding surfaces. Compact preview ba
 Primary authored-plugin actions use teal fill, contrasting foreground and medium-bold text; hover uses the brighter accent. Authored-plugin controls use (36px) minimum height; Helm and its task panels use (34px). Launch has (7px 16px) padding and a mixed accent/text hover. Secondary controls use raised neutral ground. The shell default uses panel ground and (8px 12px) padding. Disabled controls reduce opacity to (0.5). Focus is a (2px) accent outline, offset (1px) on shell buttons or (2px) in authored plugins.
 
 Global buttons transition background and color over (150ms); authored plugins use (160ms) state transitions. Reduced-motion rules remove them. Question-tab attention changes a boundary over (1.8s) and stops under reduced motion.
+
+When any pointer is coarse, shell buttons, disclosures, selects and non-checkbox/radio inputs have a minimum target of (44px) in both dimensions. Primary, secondary, installed-page and recovery navigation links have a minimum height of (44px). Helm controls follow the same target size; its collapse button and run-viewer icon controls use (44px) squares. Fine-pointer-only layouts retain their compact sizes.
 
 ### Inputs / Fields
 
@@ -263,6 +267,14 @@ Authored Helm stacks use panel ground, a thin semantic line and panel corners. H
 
 Running/recent work uses a prominent linked title, technical identifier, compact outlined state and aligned evidence. State labels use (2px 8px) padding and control corners. Row separation uses the semantic line; the last row removes it. Titles wrap as needed, evidence wraps independently, and narrow-screen order keeps identity ahead of state and actions. Theme-preview status chips use sentence-case sans with compact corners.
 
+The degraded-state banner uses a (6%) accent tint mixed into panel ground, a strong semantic boundary and bright accent text. Its tint follows the selected theme.
+
+### Loading and focus continuity
+
+Deferred page loading presents readable status text with `role="status"` and marks its host busy. Hidden, unmounted panels wait until visible to load. Existing error recovery remains available when loading fails.
+
+Campaign and New Run redraws preserve the focused action or disclosure by identity, including when labels or request order change. If that control disappears or becomes disabled, focus falls back to Refresh or the panel container without scrolling. Campaign stop and finish confirmations focus the cancellation action first; dismissing returns focus to the originating action. Retained text fields keep their selection.
+
 ### Startup scope
 
 The startup repository selector uses the semantic panel background directly, including outside the application shell. It shares panel corners, (24px) padding and a bounded width of `min(100% - 32px, 540px)`. Boot HTML uses the default dark work ground and text colors as fallbacks before runtime theme application; the selected theme then controls these properties.
@@ -280,6 +292,8 @@ Run logs use the mono log role, (12px) padding, control corners, neutral panel g
 - Do preserve the accessible heading when suppressing a repeated visible panel heading.
 - Do keep tab selection and collapse together, and preserve saved panel order when adapting to a narrow screen.
 - Do use visible focus outlines and honor reduced-motion preferences.
+- Do provide coarse-pointer targets of at least (44px) without increasing fine-pointer-only density.
+- Do preserve keyboard focus through redraws and expose loading with readable status text.
 
 ### Don't:
 
@@ -288,6 +302,6 @@ Run logs use the mono log role, (12px) padding, control corners, neutral panel g
 - Don't use a status hue as the only way to identify state.
 - Don't turn a viewport change into a saved layout edit.
 
-Source evidence: `index.html`, `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/render.ts`, `src/logic/navigation.ts`, `src/main.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
+Source evidence: `index.html`, `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/render.ts`, `src/logic/navigation.ts`, `src/main.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/campaigns/panel.ts`, `src/plugins/lazy-modules.ts`, `src/plugins/page-host.ts`, `src/plugins/panel-host.ts`, `src/plugins/composition-host.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
 
 Not canonized or repaired: retained legacy lamp glow, uppercase mono status rules and hard-coded amber tints in `src/style.css`, plus glyph icons in compatibility/notification markup, fall outside the selected Field Guide language. Loaded DSEG7 assets do not establish a current type role. PRODUCT.md still describes the previous visual world; it is outside this documentation write boundary.

@@ -105,8 +105,9 @@ test('copied Runs page preserves public PR scope, drafts and command identity an
     await page.reload(); await expect(pr).toBeVisible(); await expect(pr.locator('.pr-review-agent')).toBeFocused();
     expect((await layout(page)).instances.map(instance => instance.contributionId)).toEqual(['helmsman.compat-pr/panel', 'helmsman.run-history/panel']);
     const historyPanel = runs.locator('section.plugin-run-history');
-    await expect(historyPanel.getByRole('button', { name: 'TASK-1', exact: true })).toBeVisible();
-    await historyPanel.getByRole('button', { name: 'TASK-1', exact: true }).click();
+    const historyRun = historyPanel.getByRole('button', { name: 'TASK-1 · org/a · runs-proof · Attempt 1', exact: true });
+    await expect(historyRun).toBeVisible();
+    await historyRun.click();
     const viewer = page.locator('[data-plugin-page="helmsman.run-viewer/page"]');
     await expect(viewer.locator('.run-log')).toContainText('log 349'); await expect(viewer).toHaveCount(1);
     await viewer.getByRole('button', { name: 'Earlier logs', exact: true }).click(); await expect(viewer.locator('.run-log')).toContainText('log 250');
