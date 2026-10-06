@@ -188,6 +188,6 @@ Live verification before done: recreate an exec-kill run (or use a copy of the o
 ## Open risks
 
 - Seatbelt (`sandbox-exec`) is deprecated by Apple but functional and used by codex itself; if removed in a future macOS, start returns 412 until an alternative sandbox is added.
-- Codex cost after resume = stored cost + the new process's running total; restored usage may be counted twice. This over-estimates and trips the cap early (safe direction).
+- Cost scope differs by provider. Codex `thread/tokenUsage/updated` totals are thread-cumulative across processes, so after a resume the stored cost becomes `max(stored, reported)` (no double count; a failed turn's usage is picked up by the next successful one). Claude `total_cost_usd` is per process, so the stored cost becomes `stored-at-process-start + reported`; unverified live until a claude post-mortem completes a resumed turn.
 - Unverified until live check: whether the real codex app-server accepts `thread/resume` with start-time overrides (`cwd`, `model`, …) alongside `threadId`.
 - Resuming depends on provider session storage in the persistent provider home (`<pmDir>/provider-home/<provider>`); if the provider prunes it, resume fails → session `error`; the UI offers **Start new post-mortem** (`fresh: true`), seeded with the same evidence plus the prior transcript; the old transcript stays readable.

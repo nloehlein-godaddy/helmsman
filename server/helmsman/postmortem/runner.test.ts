@@ -10,7 +10,8 @@ import { createPostmortemRunner, postmortemCapabilityId, type LaunchProviderInpu
 import { SandboxUnavailableError } from './sandbox';
 import { openPostmortemStore, type PostmortemStatus } from './session-store';
 
-type Behavior = (text: string, process: FakeProcess) => Promise<{ costUsd: number | null }> | { costUsd: number | null };
+type TurnCost = { costUsd: number | null; costScope?: 'thread' | 'process' };
+type Behavior = (text: string, process: FakeProcess) => Promise<TurnCost> | TurnCost;
 class FakeProcess implements ProviderSession {
   readonly input: LaunchProviderInput;
   readonly turns: string[] = [];
@@ -26,7 +27,9 @@ class FakeProcess implements ProviderSession {
   }
   turn(text: string) {
     this.turns.push(text);
-    return new Promise<{ costUsd: number | null }>((resolve, reject) => { this.reject = reject; Promise.resolve(this.behavior(text, this)).then(resolve, reject); });
+    return new Promise<{ costUsd: number | null; costScope: 'thread' | 'process' }>((resolve, reject) => {
+      this.reject = reject; Promise.resolve(this.behavior(text, this)).then(value => resolve({ costScope: 'process', ...value }), reject);
+    });
   }
   async close() { this.closedCalls += 1; if (this.closeGate) await this.closeGate; this.reject?.(new Error('Agent stopped')); this.settle(null); }
   crash(error: Error) { this.reject?.(error); this.settle(error); }
@@ -321,7 +324,28 @@ describe('post-mortem runner', () => {
     expect(newEvents.length).toBeGreaterThan(0);
   });
 
-  it('accumulates cost across a resume on top of the stored base', async () => {
+  it('keeps the thread total instead of re-adding it after a codex resume', async () => {
+    const reported = [1.64, 1.8];
+    const f = setup({ behavior: () => ({ costUsd: reported.shift() ?? null, costScope: 'thread' }) });
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'ready');
+    expect((await f.runner.read(session.id)).session.costUsd).toBe(1.64);
+    await f.runner.stop(session.id);
+    await f.runner.send(session.id, { clientId: UUID(1), text: 'again' });
+    await f.status(session.id, 'ready');
+    expect((await f.runner.read(session.id)).session.costUsd).toBe(1.8);
+  });
+
+  it('never lowers the stored cost when a resumed thread reports less', async () => {
+    const reported = [1.64, 0.2];
+    const f = setup({ behavior: () => ({ costUsd: reported.shift() ?? null, costScope: 'thread' }) });
+    const { session } = await f.runner.start('run-1'); await f.status(session.id, 'ready');
+    await f.runner.stop(session.id);
+    await f.runner.send(session.id, { clientId: UUID(1), text: 'again' });
+    await f.status(session.id, 'ready');
+    expect((await f.runner.read(session.id)).session.costUsd).toBe(1.64);
+  });
+
+  it('accumulates process-scoped cost across a resume on top of the stored base', async () => {
     const f = setup({ behavior: () => ({ costUsd: 0.4 }) });
     const { session } = await f.runner.start('run-1'); await f.status(session.id, 'ready');
     expect((await f.runner.read(session.id)).session.costUsd).toBe(0.4);

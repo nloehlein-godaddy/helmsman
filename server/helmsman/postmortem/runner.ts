@@ -196,7 +196,9 @@ export function createPostmortemRunner(deps: PostmortemRunnerDeps) {
       const prompt = session.turns === 0 ? [seedFor(run, session.provider), text].filter(Boolean).join('\n\n---\n\n') : text ?? '';
       if (session.status === 'starting') session = setStatus(sessionId, 'busy', {}, 'thinking'); else announce(sessionId, 'thinking');
       const result = await entry.process.turn(prompt);
-      session = deps.store.update(sessionId, { turns: required(sessionId).turns + 1, costUsd: result.costUsd === null ? session.costUsd : entry.baseCost + result.costUsd });
+      const costUsd = result.costUsd === null ? session.costUsd
+        : result.costScope === 'thread' ? Math.max(session.costUsd ?? 0, result.costUsd) : entry.baseCost + result.costUsd;
+      session = deps.store.update(sessionId, { turns: required(sessionId).turns + 1, costUsd });
       if (capReached(session, limits)) {
         try { await rescan(session); } catch {}
         setStatus(sessionId, 'capped');

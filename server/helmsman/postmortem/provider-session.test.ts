@@ -36,7 +36,7 @@ describe('post-mortem provider session', () => {
   it('starts a codex thread, maps items and prices usage', async () => {
     const f = await open(codex);
     expect(f.session.providerSessionId).toBe('thread-1');
-    expect(await f.session.turn('one')).toEqual({ costUsd: 10 });
+    expect(await f.session.turn('one')).toEqual({ costUsd: 10, costScope: 'thread' });
     expect(f.items).toEqual([{ role: 'agent', kind: 'command', text: '$ ls\na.txt\n(exit 0)' }, { role: 'agent', kind: 'text', text: 'Diagnosis: exec kill' }]);
     await expect(f.session.turn('fail')).rejects.toThrow('Provider model failed');
     await f.session.close();
@@ -46,7 +46,7 @@ describe('post-mortem provider session', () => {
   it('resumes a stored codex thread', async () => {
     const f = await open(codex, { providerSessionId: 'thread-9', resume: true });
     expect(f.session.providerSessionId).toBe('thread-9');
-    await expect(f.session.turn('two')).resolves.toEqual({ costUsd: 10 });
+    await expect(f.session.turn('two')).resolves.toEqual({ costUsd: 10, costScope: 'thread' });
   });
 
   it('runs claude turns on the pre-assigned session and reports cumulative cost', async () => {
@@ -59,8 +59,8 @@ describe('post-mortem provider session', () => {
     `);
     const f = await open(claude, { provider: 'claude-code', providerSessionId: id, model: null });
     expect(f.session.providerSessionId).toBe(id);
-    expect(await f.session.turn('one')).toEqual({ costUsd: 0.12 });
-    expect(await f.session.turn('two')).toEqual({ costUsd: 0.3 });
+    expect(await f.session.turn('one')).toEqual({ costUsd: 0.12, costScope: 'process' });
+    expect(await f.session.turn('two')).toEqual({ costUsd: 0.3, costScope: 'process' });
     expect(f.items.slice(0, 2)).toEqual([{ role: 'agent', kind: 'text', text: 'Looking' }, { role: 'agent', kind: 'tool', text: 'Bash: ls' }]);
   });
 

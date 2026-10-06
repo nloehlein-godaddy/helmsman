@@ -8,16 +8,16 @@ import type { PostmortemKind, PostmortemProvider } from './session-store';
 
 export interface ProviderItem { role: 'agent' | 'system'; kind: PostmortemKind; text: string }
 /**
- * `turn()`'s `costUsd` is the running total the provider reports for this process, never a
- * per-turn delta. For Codex, that total is read off `thread/tokenUsage/updated`, which itself
- * accumulates thread-wide: after a `thread/resume`, it can include usage already incurred by an
- * earlier process on the same thread, so this process's own contribution may be overestimated.
- * Callers that persist a running cost should add this value to their stored total rather than
- * treat it as an increment.
+ * A provider-reported running cost total, never a per-turn delta. `costScope` says what the
+ * total covers: `'thread'` (Codex `thread/tokenUsage/updated`) accumulates across every process
+ * that ever ran the thread, including earlier ones before a `thread/resume`, so callers must
+ * treat it as the whole thread's cost; `'process'` (Claude `total_cost_usd`) covers only this
+ * process, so callers add it to whatever they stored before this process started.
  */
+export interface ProviderTurnCost { costUsd: number | null; costScope: 'thread' | 'process' }
 export interface ProviderSession {
   readonly providerSessionId: string;
-  turn(text: string): Promise<{ costUsd: number | null }>;
+  turn(text: string): Promise<ProviderTurnCost>;
   close(): Promise<void>;
   readonly closed: Promise<Error | null>;
 }
@@ -26,7 +26,6 @@ export interface OpenProviderSessionInput {
   model: string | null; effort: string | null; providerSessionId: string | null; resume: boolean;
   onItem(item: ProviderItem): void; requestTimeoutMs?: number; stopGraceMs?: number;
 }
-const CODEX_DEFAULT_MODEL = 'gpt-6-astra';
 const COMMAND_OUTPUT_CHARS = 4000;
 const asError = (error: unknown) => error instanceof Error ? error : new Error(String(error));
 const count = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -54,10 +53,10 @@ function commandText(item: ProtocolRecord): string {
 
 export async function openProviderSession(input: OpenProviderSessionInput): Promise<ProviderSession> {
   const protocol = input.provider === 'codex' ? 'codex-app-server' : 'claude-stream-json';
-  const model = input.provider === 'codex' ? input.model ?? CODEX_DEFAULT_MODEL : input.model;
+  const model = input.provider === 'codex' ? input.model ?? codexAgentProvider.metadata.defaults.model : input.model;
   const timeout: ProtocolTimeout = { ms: input.requestTimeoutMs ?? 20_000, error: () => new Error('Agent protocol request timed out') };
   const child = spawn(input.command.cmd, [...input.command.args], { cwd: input.cwd, env: input.env, stdio: ['pipe', 'pipe', 'pipe'] });
-  let current: { resolve(value: { costUsd: number | null }): void; reject(error: Error): void; turnId: string } | null = null;
+  let current: { resolve(value: ProviderTurnCost): void; reject(error: Error): void; turnId: string } | null = null;
   let threadId = input.provider === 'codex' ? '' : input.providerSessionId ?? '';
   let usage: ProtocolRecord | undefined;
   let claudeCost: number | null = null;
@@ -72,10 +71,11 @@ export async function openProviderSession(input: OpenProviderSessionInput): Prom
   const closed = new Promise<Error | null>(resolve => { resolveClosed = resolve; });
   const codexCost = () => usage ? estimateUnreportedUsage({ runId: 'postmortem', attempt: 1, eventId: 'postmortem', provider: 'codex', model,
     inputTokens: count(usage.inputTokens), cachedInputTokens: count(usage.cachedInputTokens), outputTokens: count(usage.outputTokens), totalTokens: null, costUsd: null }) : null;
-  const settle = (error: Error | null, value?: { costUsd: number | null }) => {
+  const costScope = input.provider === 'codex' ? 'thread' : 'process';
+  const settle = (error: Error | null, costUsd: number | null = null) => {
     const turn = current; current = null;
     if (!turn) return;
-    if (error) turn.reject(error); else turn.resolve(value ?? { costUsd: null });
+    if (error) turn.reject(error); else turn.resolve({ costUsd, costScope });
   };
   const stop = () => {
     if (exited) return;
@@ -105,7 +105,7 @@ export async function openProviderSession(input: OpenProviderSessionInput): Prom
       const error = turn?.status === 'completed' && !turnError ? null : turnError
         ?? new Error(typeof protocolRecord(turn?.error)?.message === 'string' ? String(protocolRecord(turn?.error)?.message) : `Agent turn ${String(turn?.status ?? 'failed')}`);
       turnError = null;
-      settle(error, { costUsd: codexCost() });
+      settle(error, codexCost());
     }
   };
   const claudeMessage = (message: ProtocolRecord) => {
@@ -124,7 +124,7 @@ export async function openProviderSession(input: OpenProviderSessionInput): Prom
     if (message.type === 'result') {
       if (typeof message.total_cost_usd === 'number' && Number.isFinite(message.total_cost_usd) && message.total_cost_usd >= 0) claudeCost = message.total_cost_usd;
       const failed = message.is_error === true || typeof message.subtype === 'string' && message.subtype.startsWith('error');
-      settle(failed ? new Error(typeof message.result === 'string' && message.result ? message.result : 'Agent reported an unsuccessful result') : null, { costUsd: claudeCost });
+      settle(failed ? new Error(typeof message.result === 'string' && message.result ? message.result : 'Agent reported an unsuccessful result') : null, claudeCost);
     }
   };
   const connection = connectAgentProtocol(child, { protocol, onFailure: fail,
