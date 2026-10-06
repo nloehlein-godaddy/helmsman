@@ -1,5 +1,7 @@
 import { handleRunInstructionApi } from './run-instruction-routes';
 import type { createRunInstructionService } from './run-instruction-service';
+import { handlePostmortemApi } from './postmortem/routes';
+import type { PostmortemRunner } from './postmortem/runner';
 import { handleExecutionPolicyApi } from './execution-policy-routes';
 import type { ExecutionPolicyServerService } from './execution-policy-service';
 import { handleFeedbackSettingsApi, type FeedbackSettingsServerService } from './feedback-settings-routes';
@@ -105,6 +107,8 @@ export interface RouterDeps {
   publicClarifications?: ReturnType<typeof createApplicationClarifications>;
   runInstructions?: ReturnType<typeof createRunInstructionService>;
   clarificationCaller?: string;
+  postmortem?: PostmortemRunner;
+  postmortemCaller?: string;
   runRead?: RunReadServerService;
   taskContext?: TaskContextServerService;
   taskContextSignal?: AbortSignal;
@@ -176,6 +180,8 @@ export async function handleApi(
 ): Promise<ApiResult | null> {
   const instructionsResult = await handleRunInstructionApi({ method, path, query, body: _body, caller: deps.clarificationCaller, service: deps.runInstructions });
   if (instructionsResult) return instructionsResult;
+  const postmortemResult = await handlePostmortemApi({ method, path, body: _body, caller: deps.postmortemCaller, service: deps.postmortem });
+  if (postmortemResult) return postmortemResult;
   const clarificationResult = handleClarificationServiceApi({ method, path, query, body: _body, caller: deps.clarificationCaller, ...deps.publicClarifications });
   if (clarificationResult) return clarificationResult;
   const sourceAdminResult = await handleSourceAdminApi({ method, path, query, body: _body, caller: deps.sourceAdminCaller, service: deps.sourceAdmin });

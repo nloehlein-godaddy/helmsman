@@ -319,3 +319,12 @@ describe('post-mortem runner', () => {
     expect((await f.runner.read(session.id)).session.costUsd).toBeCloseTo(0.8);
   });
 });
+
+describe('post-mortem limits from env', () => {
+  it('reads valid overrides and ignores invalid ones', async () => {
+    const { postmortemLimitsFromEnv } = await import('./runner');
+    expect(postmortemLimitsFromEnv({ HELMSMAN_POSTMORTEM_MAX_TURNS: '10', HELMSMAN_POSTMORTEM_MAX_COST_USD: '2.5', HELMSMAN_POSTMORTEM_IDLE_MINUTES: '1', HELMSMAN_POSTMORTEM_MAX_LIVE: '3' }))
+      .toEqual({ maxTurns: 10, maxCostUsd: 2.5, idleMs: 60_000, maxLive: 3 });
+    expect(postmortemLimitsFromEnv({ HELMSMAN_POSTMORTEM_MAX_TURNS: '0.5', HELMSMAN_POSTMORTEM_MAX_COST_USD: '-1', HELMSMAN_POSTMORTEM_IDLE_MINUTES: 'x', HELMSMAN_POSTMORTEM_MAX_LIVE: '' })).toEqual({});
+  });
+});

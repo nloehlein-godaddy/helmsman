@@ -37,6 +37,15 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
 
 export function postmortemCapabilityId(sessionId: string): string { return `pm-${sessionId}`; }
 
+export function postmortemLimitsFromEnv(env: NodeJS.ProcessEnv): Partial<PostmortemLimits> {
+  const number = (key: string) => { const raw = env[key]?.trim(); const value = raw ? Number(raw) : Number.NaN; return Number.isFinite(value) && value > 0 ? value : null; };
+  const integer = (key: string) => { const value = number(key); return value !== null && Number.isSafeInteger(value) ? value : null; };
+  const maxTurns = integer('HELMSMAN_POSTMORTEM_MAX_TURNS'); const maxCostUsd = number('HELMSMAN_POSTMORTEM_MAX_COST_USD');
+  const idleMinutes = number('HELMSMAN_POSTMORTEM_IDLE_MINUTES'); const maxLive = integer('HELMSMAN_POSTMORTEM_MAX_LIVE');
+  return { ...(maxTurns === null ? {} : { maxTurns }), ...(maxCostUsd === null ? {} : { maxCostUsd }),
+    ...(idleMinutes === null ? {} : { idleMs: idleMinutes * 60_000 }), ...(maxLive === null ? {} : { maxLive }) };
+}
+
 export async function launchSandboxedProvider(input: LaunchProviderInput): Promise<ProviderSession> {
   const command = providerCommand({ provider: input.provider, model: input.model, effort: input.effort, repo: input.repo,
     sessionId: input.provider === 'claude-code' ? input.providerSessionId : null, resume: input.resume });
