@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -49,8 +49,18 @@ async function linkSkills(home: string, skillsPath: string | null): Promise<void
   await symlink(source, join(home, 'skills'), 'dir');
 }
 
-async function codexEnvironment(environment: NodeJS.ProcessEnv, url: string, token: string, skillsPath: string | null): Promise<() => Promise<void>> {
-  const home = await mkdtemp(join(tmpdir(), 'helmsman-codex-home-'));
+async function providerHome(prefix: string, home: string | undefined): Promise<{ path: string; cleanup(): Promise<void> }> {
+  if (!home) {
+    const path = await mkdtemp(join(tmpdir(), prefix));
+    return { path, cleanup: async () => { await rm(path, { recursive: true, force: true }); } };
+  }
+  await mkdir(home, { recursive: true, mode: 0o700 });
+  await rm(join(home, 'skills'), { force: true });
+  return { path: home, cleanup: async () => undefined };
+}
+
+async function codexEnvironment(environment: NodeJS.ProcessEnv, url: string, token: string, skillsPath: string | null, homeOption?: string): Promise<() => Promise<void>> {
+  const { path: home, cleanup } = await providerHome('helmsman-codex-home-', homeOption);
   const baseUrl = endpoint(url, 'openai/v1');
   await writeFile(join(home, 'config.toml'), `model_provider = "helmsman"\n[model_providers.helmsman]\nname = "Helmsman"\nbase_url = ${JSON.stringify(baseUrl)}\nenv_key = "HELMSMAN_MODEL_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\n`, { mode: 0o600 });
   environment.CODEX_HOME = home;
@@ -58,7 +68,7 @@ async function codexEnvironment(environment: NodeJS.ProcessEnv, url: string, tok
   environment.OPENAI_BASE_URL = baseUrl;
   environment.OPENAI_API_KEY = token;
   await linkSkills(home, skillsPath);
-  return async () => { await rm(home, { recursive: true, force: true }); };
+  return cleanup;
 }
 
 export function codexCommand(command: Input['command'], url: string): Input['command'] {
@@ -95,29 +105,29 @@ export function claudeCommand(command: Input['command'], settingsPath: string): 
   return { cmd: command.cmd, args: [...command.args, '--settings', settingsPath, '--setting-sources', 'project,local'] };
 }
 
-export async function prepareModelRouting(value: unknown): Promise<{ command: Input['command']; environment: NodeJS.ProcessEnv; cleanup(): Promise<void> }> {
+export async function prepareModelRouting(value: unknown, options: { home?: string } = {}): Promise<{ command: Input['command']; environment: NodeJS.ProcessEnv; cleanup(): Promise<void> }> {
   const routed = input(value);
   const token = routed.modelGateway.token;
   const environment = cleanedEnvironment();
   let cleanup: () => Promise<void> = async () => undefined;
   let command = routed.command;
-  if (routed.transport === 'openai-responses') cleanup = await codexEnvironment(environment, routed.modelGateway.url, token, routed.skillsPath);
+  if (routed.transport === 'openai-responses') cleanup = await codexEnvironment(environment, routed.modelGateway.url, token, routed.skillsPath, options.home);
   else {
     environment.ANTHROPIC_BASE_URL = endpoint(routed.modelGateway.url, 'anthropic');
     environment.ANTHROPIC_API_KEY = token;
     environment.ANTHROPIC_AUTH_TOKEN = token;
     environment.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
     environment.CLAUDE_CODE_USE_FOUNDRY = '0';
-    const home = await mkdtemp(join(tmpdir(), 'helmsman-claude-home-'));
-    environment.CLAUDE_CONFIG_DIR = home;
-    await linkSkills(home, routed.skillsPath);
-    const settingsPath = join(home, 'settings.json');
+    const home = await providerHome('helmsman-claude-home-', options.home);
+    environment.CLAUDE_CONFIG_DIR = home.path;
+    await linkSkills(home.path, routed.skillsPath);
+    const settingsPath = join(home.path, 'settings.json');
     await writeFile(settingsPath, JSON.stringify({ env: {
       ANTHROPIC_BASE_URL: environment.ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY: token, ANTHROPIC_AUTH_TOKEN: token,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_USE_BEDROCK: '0', CLAUDE_CODE_USE_VERTEX: '0', CLAUDE_CODE_USE_FOUNDRY: '0',
     } }), { mode: 0o600 });
     command = claudeCommand(command, settingsPath);
-    cleanup = async () => { await rm(home, { recursive: true, force: true }); };
+    cleanup = home.cleanup;
   }
   try {
     command = routed.transport === 'openai-responses' ? codexCommand(command, routed.modelGateway.url) : command;

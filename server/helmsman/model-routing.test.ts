@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import { buildRoutedAgentCommand } from './model-routing';
-import { claudeCommand, codexCommand, runModelRoutingCli } from './model-routing-cli';
+import { claudeCommand, codexCommand, prepareModelRouting, runModelRoutingCli } from './model-routing-cli';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
 import { applicationRoot, retainedRuntimePath } from './runtime-paths';
 
@@ -167,5 +167,21 @@ describe('model routing', () => {
   it('uses its generated Claude settings ahead of user settings', () => {
     expect(claudeCommand({ cmd: 'claude', args: ['-p', 'prompt'] }, '/private/settings.json').args).toEqual(['-p', 'prompt', '--settings', '/private/settings.json', '--setting-sources', 'project,local']);
     expect(() => claudeCommand({ cmd: 'claude', args: ['--settings', 'user.json'] }, '/private/settings.json')).toThrow('cannot be overridden');
+  });
+});
+
+describe('persistent provider home', () => {
+  it.each(['openai-responses', 'anthropic-messages'] as const)('reuses and keeps the %s home across preparations', async transport => {
+    const home = mkdtempSync(join(tmpdir(), 'hm-routing-home-'));
+    try {
+      const codex = transport === 'openai-responses';
+      const command = codex ? { cmd: 'codex', args: ['app-server', '--stdio'] } : { cmd: 'claude', args: ['-p'] };
+      for (let round = 0; round < 2; round += 1) {
+        const routed = await prepareModelRouting({ version: 1, command, transport, modelGateway: gateway, skillsPath: null }, { home });
+        expect(routed.environment[codex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR']).toBe(home);
+        await routed.cleanup();
+      }
+      expect(existsSync(join(home, codex ? 'config.toml' : 'settings.json'))).toBe(true);
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });
