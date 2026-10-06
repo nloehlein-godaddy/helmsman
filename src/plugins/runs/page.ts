@@ -124,7 +124,7 @@ const page: PluginPageModule = { mount(container, context) {
       for (const stack of layout.columns.flat()) {
         const section = node('section');
         const visible = stack.instances.filter(id => layout?.instances.some(instance => instance.instanceId === id && !instance.hidden));
-        if (visible.length > 1 || stack.collapsed && visible.length) {
+        if (visible.length && (visible.length > 1 || stack.collapsed || !visible.includes(stack.activeInstanceId))) {
           const tabs = node('div'); tabs.className = 'composition-panel-tabs'; tabs.setAttribute('role', 'group'); tabs.setAttribute('aria-label', 'Panels');
           for (const id of visible) {
             const instance = layout.instances.find(value => value.instanceId === id); if (!instance) continue;

@@ -42,14 +42,14 @@ const title = 'Example panel';
 const lifetimes: AbortController[] = [];
 afterEach(() => { lifetimes.splice(0).forEach(lifetime => lifetime.abort()); document.body.replaceChildren(); });
 
-async function fixture(testPage: (typeof pages)[number], initial: 'single' | 'stacked' | 'collapsed' = 'single') {
+async function fixture(testPage: (typeof pages)[number], initial: 'single' | 'stacked' | 'collapsed' | 'hidden-active' = 'single') {
   const container = document.createElement('div'); document.body.append(container);
   const lifetime = new AbortController(); lifetimes.push(lifetime);
-  const second = initial === 'stacked';
+  const second = initial === 'stacked' || initial === 'hidden-active';
   let layout: CompositionLayoutV1 = { version: 1, compositionId: testPage.compositionId, revision: 1,
     instances: [
       { instanceId: 'first', contributionId, hidden: false, scope: { kind: 'inherit' }, state: {} },
-      ...(second ? [{ instanceId: 'second', contributionId, hidden: false, scope: { kind: 'inherit' } as const, state: {} }] : []),
+      ...(second ? [{ instanceId: 'second', contributionId, hidden: initial === 'hidden-active', scope: { kind: 'inherit' } as const, state: {} }] : []),
     ],
     columns: [[{ instances: second ? ['first', 'second'] : ['first'], activeInstanceId: second ? 'second' : 'first', collapsed: initial === 'collapsed' }]],
   };
@@ -154,6 +154,24 @@ it.each(pages)('$name gives a collapsed stack an explicit expand action', async 
   expand.click();
   await vi.waitFor(() => expect(f.layout.columns[0]?.[0]?.collapsed).toBe(false));
   expect(mountedNode(f.composition, 'first')?.hidden).toBe(false);
+});
+
+it.each(pages)('$name offers a visible tab when a loaded stack points at a hidden panel', async testPage => {
+  const f = await fixture(testPage, 'hidden-active');
+  expect(f.updateLayout).not.toHaveBeenCalled();
+  expect(f.layout.columns[0]?.[0]).toMatchObject({ instances: ['first', 'second'], activeInstanceId: 'second', collapsed: false });
+  const tabs = [...f.container.querySelectorAll<HTMLButtonElement>('.composition-panel-tabs button')];
+  expect(tabs).toHaveLength(1);
+  expect(tabs[0]?.textContent).toBe(title);
+  expect(tabs[0]?.dataset.pageAction).toBe('first:tab');
+  expect(tabs[0]?.getAttribute('aria-pressed')).toBe('false');
+  tabs[0]!.click();
+  await vi.waitFor(() => expect(f.layout.columns[0]?.[0]?.activeInstanceId).toBe('first'));
+  expect(f.updateLayout).toHaveBeenCalledOnce();
+  expect(f.layout.instances.map(instance => [instance.instanceId, instance.hidden])).toEqual([['first', false], ['second', true]]);
+  expect(f.layout.columns[0]?.[0]?.instances).toEqual(['first', 'second']);
+  expect(mountedNode(f.composition, 'first')?.hidden).toBe(false);
+  expect(mountedNode(f.composition, 'second')?.hidden).toBe(true);
 });
 
 it.each(pages)('$name restores the shown panel after hiding every member of a stack', async testPage => {

@@ -137,7 +137,7 @@ class HelmPage implements PluginPageInstance {
     const focusedElement = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
     const focused = focusedElement?.dataset.helmFocus;
     const page = element('div'); page.className = 'plugin-helm'; const style = element('style', styles); page.append(style);
-    const toolbar = element('header'); toolbar.className = 'helm-tools composition-page-header'; toolbar.append(element('h1', this.state.pirateMode ? 'Helm' : 'Dashboard'));
+    const toolbar = element('div'); toolbar.className = 'helm-tools composition-page-header'; toolbar.append(element('h1', this.state.pirateMode ? 'Helm' : 'Dashboard'));
     const actions = element('div'); actions.className = 'composition-page-actions';
     const refresh = iconButton('Refresh page', 'M20 11a8 8 0 0 0-14.5-4.5L3 9m0-6v6h6 M4 13a8 8 0 0 0 14.5 4.5L21 15m0 6v-6h-6', () => { void this.refresh(); }, this.saving); refresh.dataset.helmFocus = 'page:refresh'; actions.append(refresh);
     const edit = this.editing ? button('Done', () => { this.editing = false; this.draw(); }, this.saving)
