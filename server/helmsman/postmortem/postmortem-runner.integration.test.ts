@@ -51,16 +51,20 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
 });
 `;
 
-function setup(limits: { maxTurns?: number; idleMs?: number } = {}) {
+function setup(limits: { maxTurns?: number; idleMs?: number; path?: (bin: string, shims: string) => string } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hm-pm-runner-it-'))); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const bin = join(root, 'bin'); const repo = join(root, 'target'); mkdirSync(bin); mkdirSync(repo);
   const script = join(root, 'fake.cjs'); writeFileSync(script, FAKE);
-  for (const name of ['codex', 'claude']) writeFileSync(join(bin, name), bashShimPassingLongArgvViaFile(script), { mode: 0o755 });
+  const shims = join(root, 'cmux-cli-shims', 'session'); mkdirSync(shims, { recursive: true });
+  for (const name of ['codex', 'claude']) {
+    writeFileSync(join(bin, name), bashShimPassingLongArgvViaFile(script), { mode: 0o755 });
+    writeFileSync(join(shims, name), `#!/bin/sh\necho shim > ${JSON.stringify(join(root, 'shim-ran'))}\nexit 3\n`, { mode: 0o755 });
+  }
   const git = (...args: string[]) => execFileSync(gitBin(), ['-C', repo, ...args], { encoding: 'utf8' }).trim();
   git('init', '-b', 'main'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 'T');
   writeFileSync(join(repo, 'a.txt'), 'one\n'); git('add', '.'); git('commit', '-m', 'base');
   const runsDir = join(root, 'runs');
-  vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`); vi.stubEnv('TEST_TRANSCRIPT', 'transcript.jsonl'); vi.stubEnv('TEST_BASE_SHA', git('rev-parse', 'HEAD'));
+  vi.stubEnv('PATH', limits.path ? limits.path(bin, shims) : `${shims}:${bin}:${process.env.PATH ?? ''}`); vi.stubEnv('TEST_TRANSCRIPT', 'transcript.jsonl'); vi.stubEnv('TEST_BASE_SHA', git('rev-parse', 'HEAD'));
   const persistence = openPersistence(':memory:'); cleanups.push(() => persistence.close());
   const runs = new Map<string, RunRow>(['codex', 'claude-code'].map(adapter => [adapter, { id: adapter, ticketId: 'T-1', repo: 'org/app', adapter, status: 'failed', attempt: 1,
     prNumber: null, startedAt: '2026-10-02T19:44:05.235Z', endedAt: '2026-10-02T19:44:09.706Z', costUsd: null, worktreePath: null, taskJson: '{}' }]));
@@ -71,7 +75,7 @@ function setup(limits: { maxTurns?: number; idleMs?: number } = {}) {
   const status = (id: string, expected: PostmortemStatus) => vi.waitFor(async () => expect((await runner.read(id)).session.status).toBe(expected), { timeout: 15_000, interval: 50 });
   const transcript = (runId: string) => join(runsDir, `${runId}.postmortem`, 'transcript.jsonl');
   const entries = (runId: string) => existsSync(transcript(runId)) ? readFileSync(transcript(runId), 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : [];
-  return { runner, status, entries, runsDir };
+  return { runner, status, entries, runsDir, root };
 }
 
 describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem runner with sandboxed fake providers', () => {
@@ -91,6 +95,14 @@ describe.skipIf(process.platform !== 'darwin' || !hasShebangShims)('post-mortem 
     const temps = f.entries('codex').filter(entry => 'tmpdir' in entry).map(entry => entry.tmpdir);
     expect(temps.length).toBeGreaterThan(0);
     for (const value of temps) expect(value).toBe(join(f.runsDir, 'codex.postmortem', 'tmp'));
+    expect(existsSync(join(f.root, 'shim-ran'))).toBe(false);
+  }, 60_000);
+
+  it('fails the session clearly when only wrapper shims provide the provider', async () => {
+    const f = setup({ path: (_bin, shims) => `${shims}:/usr/bin:/bin` });
+    const { session } = await f.runner.start('codex'); await f.status(session.id, 'error');
+    expect((await f.runner.read(session.id)).session.error).toMatch(/Could not find the real codex binary.*GOCODE_REAL_CODEX/);
+    expect(existsSync(join(f.root, 'shim-ran'))).toBe(false);
   }, 60_000);
 
   it('runs claude with --session-id first and --resume after idle', async () => {

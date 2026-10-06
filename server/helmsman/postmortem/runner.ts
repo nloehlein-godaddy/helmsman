@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { chmodSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import type { RunEventRow, RunRow } from '../db';
 import { prepareModelRouting } from '../model-routing-cli';
 import { ensureOwnedDirectory, ensureOwnedRoot, readOwnedFile, writeOwnedFile } from '../owned-paths';
 import { buildEvidence, readEvidenceInput, writeEvidenceFile } from './evidence';
 import { listPatches, type PostmortemPatch } from './patches';
+import { resolveProviderBinary } from './provider-binary';
 import { seedPrompt } from './prompt';
 import { openProviderSession, providerCommand, providerTransport, type ProviderItem, type ProviderSession } from './provider-session';
 import { preflightSandbox, resolveSandboxPaths, sandboxCommand, SandboxUnavailableError, scrubEnvironment, writeSandboxProfile } from './sandbox';
@@ -64,7 +65,8 @@ export async function launchSandboxedProvider(input: LaunchProviderInput): Promi
   const routed = await prepareModelRouting({ version: 1, command, transport: providerTransport(input.provider), modelGateway: input.gateway, skillsPath: null },
     { home, homeRoot: input.directory });
   const env = { ...scrubEnvironment(routed.environment), TMPDIR: ensureOwnedDirectory(input.directory, 'tmp') };
-  return openProviderSession({ provider: input.provider, command: sandboxCommand(routed.command, input.profilePath), env,
+  const binary = resolveProviderBinary(basename(routed.command.cmd) === 'claude' ? 'claude' : 'codex', routed.environment);
+  return openProviderSession({ provider: input.provider, command: sandboxCommand({ cmd: binary, args: routed.command.args }, input.profilePath), env,
     cwd: input.directory, model: input.model, effort: input.effort, providerSessionId: input.providerSessionId, resume: input.resume, onItem: input.onItem,
     stopGraceMs: input.stopGraceMs });
 }
