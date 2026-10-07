@@ -27,6 +27,8 @@ Version 1.4 adds the optional `PluginPageModule.attention(context)` read hook. E
 
 Version 1.5 adds optional retained `RunReadSummaryV1.title` presentation metadata. Older summaries remain valid; history uses the title when available without fetching additional PR details.
 
+The optional failure post-mortem service adds the `helmsman/postmortem@1` presentation permission and the public `postmortem` service. Like live instructions, every call is bound to the run's repository and the current galleon scope. Declare the permission explicitly; older hosts reject packages requiring it. The run viewer requires it from 0.3.0. The application remains version 0.4.0 and the frozen 1.0 compatibility baseline is unchanged.
+
 ## Enforcement
 
 `sdk/baseline/v1/` records the stabilized public declarations. `scripts/sdk-compatibility.mjs` checks every baseline export in both SDK entries, compiling assignments in both directions between baseline and candidate types with strict TypeScript settings. It rejects missing exports and incompatible structural signatures; optional additive members and new exports remain allowed. Generic public types are compared with shared type parameters, not erased to `any`. Unsupported constrained baseline generics fail closed and require an explicit compatibility fixture.

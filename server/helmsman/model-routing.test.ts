@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import { buildRoutedAgentCommand } from './model-routing';
-import { claudeCommand, codexCommand, runModelRoutingCli } from './model-routing-cli';
+import { claudeCommand, codexCommand, prepareModelRouting, runModelRoutingCli } from './model-routing-cli';
 import type { AgentAdapter, AgentTask } from './agents/adapter';
 import { applicationRoot, retainedRuntimePath } from './runtime-paths';
 
@@ -167,5 +167,87 @@ describe('model routing', () => {
   it('uses its generated Claude settings ahead of user settings', () => {
     expect(claudeCommand({ cmd: 'claude', args: ['-p', 'prompt'] }, '/private/settings.json').args).toEqual(['-p', 'prompt', '--settings', '/private/settings.json', '--setting-sources', 'project,local']);
     expect(() => claudeCommand({ cmd: 'claude', args: ['--settings', 'user.json'] }, '/private/settings.json')).toThrow('cannot be overridden');
+  });
+});
+
+describe('persistent provider home', () => {
+  it.each(['openai-responses', 'anthropic-messages'] as const)('reuses and keeps the %s home across preparations', async transport => {
+    const home = mkdtempSync(join(tmpdir(), 'hm-routing-home-'));
+    try {
+      const codex = transport === 'openai-responses';
+      const command = codex ? { cmd: 'codex', args: ['app-server', '--stdio'] } : { cmd: 'claude', args: ['-p'] };
+      for (let round = 0; round < 2; round += 1) {
+        const routed = await prepareModelRouting({ version: 1, command, transport, modelGateway: gateway, skillsPath: null }, { home });
+        expect(routed.environment[codex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR']).toBe(home);
+        await routed.cleanup();
+      }
+      expect(existsSync(join(home, codex ? 'config.toml' : 'settings.json'))).toBe(true);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  it.each(['openai-responses', 'anthropic-messages'] as const)('tolerates a pre-existing real skills directory in a reused %s home', async transport => {
+    const home = mkdtempSync(join(tmpdir(), 'hm-routing-home-'));
+    try {
+      const codex = transport === 'openai-responses';
+      const command = codex ? { cmd: 'codex', args: ['app-server', '--stdio'] } : { cmd: 'claude', args: ['-p'] };
+      mkdirSync(join(home, 'skills', 'nested'), { recursive: true });
+      writeFileSync(join(home, 'skills', 'nested', 'file.txt'), 'x');
+      const routed = await prepareModelRouting({ version: 1, command, transport, modelGateway: gateway, skillsPath: null }, { home });
+      expect(routed.environment[codex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR']).toBe(home);
+      await routed.cleanup();
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  it.each(['openai-responses', 'anthropic-messages'] as const)('never follows a symlinked %s home or config file out of its owning root', async transport => {
+    const base = mkdtempSync(join(tmpdir(), 'hm-routing-owned-'));
+    try {
+      const codex = transport === 'openai-responses';
+      const command = codex ? { cmd: 'codex', args: ['app-server', '--stdio'] } : { cmd: 'claude', args: ['-p'] };
+      const root = join(base, 'pm'); const outside = join(base, 'outside');
+      mkdirSync(join(root, 'provider-home'), { recursive: true }); mkdirSync(join(outside, 'skills'), { recursive: true });
+      writeFileSync(join(outside, 'skills', 'keep.txt'), 'keep'); writeFileSync(join(outside, 'settings.json'), 'user'); writeFileSync(join(outside, 'config.toml'), 'user');
+      const home = join(root, 'provider-home', 'p');
+      symlinkSync(outside, home);
+      const first = await prepareModelRouting({ version: 1, command, transport, modelGateway: gateway, skillsPath: null }, { home, homeRoot: root });
+      await first.cleanup();
+      expect(lstatSync(home).isDirectory()).toBe(true);
+      rmSync(join(home, codex ? 'config.toml' : 'settings.json'));
+      symlinkSync(join(outside, codex ? 'config.toml' : 'settings.json'), join(home, codex ? 'config.toml' : 'settings.json'));
+      const second = await prepareModelRouting({ version: 1, command, transport, modelGateway: gateway, skillsPath: null }, { home, homeRoot: root });
+      await second.cleanup();
+      expect(readFileSync(join(outside, 'skills', 'keep.txt'), 'utf8')).toBe('keep');
+      expect(readFileSync(join(outside, 'settings.json'), 'utf8')).toBe('user');
+      expect(readFileSync(join(outside, 'config.toml'), 'utf8')).toBe('user');
+      expect(lstatSync(join(home, codex ? 'config.toml' : 'settings.json')).isFile()).toBe(true);
+    } finally { rmSync(base, { recursive: true, force: true }); }
+  });
+
+  it('rejects a persistent home outside its owning root', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'hm-routing-owned-'));
+    try {
+      await expect(prepareModelRouting({ version: 1, command: { cmd: 'codex', args: ['app-server'] }, transport: 'openai-responses', modelGateway: gateway, skillsPath: null },
+        { home: join(base, 'elsewhere'), homeRoot: join(base, 'pm') })).rejects.toThrow(/owned path/i);
+      expect(existsSync(join(base, 'elsewhere'))).toBe(false);
+    } finally { rmSync(base, { recursive: true, force: true }); }
+  });
+
+  it.each(['openai-responses', 'anthropic-messages'] as const)('overwrites the %s token across preparations instead of reusing a stale one', async transport => {
+    const home = mkdtempSync(join(tmpdir(), 'hm-routing-home-'));
+    try {
+      const codex = transport === 'openai-responses';
+      const command = codex ? { cmd: 'codex', args: ['app-server', '--stdio'] } : { cmd: 'claude', args: ['-p'] };
+      const firstToken = 'a'.repeat(64);
+      const secondToken = 'b'.repeat(64);
+      const first = await prepareModelRouting({ version: 1, command, transport, modelGateway: { url: gateway.url, token: firstToken }, skillsPath: null }, { home });
+      await first.cleanup();
+      const second = await prepareModelRouting({ version: 1, command, transport, modelGateway: { url: gateway.url, token: secondToken }, skillsPath: null }, { home });
+      expect(second.environment[codex ? 'HELMSMAN_MODEL_CAPABILITY' : 'ANTHROPIC_API_KEY']).toBe(secondToken);
+      if (!codex) {
+        const settings = readFileSync(join(home, 'settings.json'), 'utf8');
+        expect(settings).toContain(secondToken);
+        expect(settings).not.toContain(firstToken);
+      }
+      await second.cleanup();
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });

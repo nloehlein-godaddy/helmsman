@@ -1,4 +1,5 @@
 import type { RunInstructionServiceV1 } from './run-instructions';
+import type { PostmortemServiceV1 } from './postmortem';
 import type { ExecutionPolicyServiceV1 } from './execution-policy';
 import type { FeedbackSettingsServiceV1 } from './feedback-settings';
 import type { FeedbackCommandServiceV1 } from './feedback-command';
@@ -33,7 +34,7 @@ import type { TaskViewsReadServiceV1 } from './task-views';
 import type { TaskContextServiceV1 } from './task-context';
 
 export interface PluginServiceRequirementV1 {
-  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/task-action' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/run-instructions' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/pull-request-inspect' | 'helmsman/pull-request-command' | 'helmsman/communication' | 'helmsman/communication-command' | 'helmsman/feedback-command' | 'helmsman/feedback-settings' | 'helmsman/terminal' | 'helmsman/campaigns' | 'helmsman/jira-settings' | 'helmsman/github-settings' | 'helmsman/profile' | 'helmsman/execution-policy' | 'helmsman/local-git' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition';
+  readonly id: 'helmsman/task-read' | 'helmsman/task-edit' | 'helmsman/todo-legacy-recovery' | 'helmsman/task-action' | 'helmsman/source-command' | 'helmsman/source-admin' | 'helmsman/task-views-read' | 'helmsman/run-read' | 'helmsman/run-inspect' | 'helmsman/download' | 'helmsman/clarification-read' | 'helmsman/run-instructions' | 'helmsman/clarification-command' | 'helmsman/suggested-contact-admin' | 'helmsman/pull-request-read' | 'helmsman/pull-request-inspect' | 'helmsman/pull-request-command' | 'helmsman/communication' | 'helmsman/communication-command' | 'helmsman/feedback-command' | 'helmsman/feedback-settings' | 'helmsman/terminal' | 'helmsman/campaigns' | 'helmsman/jira-settings' | 'helmsman/github-settings' | 'helmsman/profile' | 'helmsman/execution-policy' | 'helmsman/local-git' | 'helmsman/activity-read' | 'helmsman/run-command' | 'helmsman/composition' | 'helmsman/postmortem';
   readonly version: 1;
 }
 
@@ -140,6 +141,7 @@ export interface PluginPanelServicesV1 {
   readonly downloads?: DownloadServiceV1;
   readonly clarifications?: ClarificationReadServiceV1;
   readonly runInstructions?: RunInstructionServiceV1;
+  readonly postmortem?: PostmortemServiceV1;
   readonly clarificationCommands?: ClarificationCommandServiceV1;
   readonly suggestedContacts?: SuggestedContactAdminServiceV1;
   readonly pullRequests?: PullRequestReadServiceV1;

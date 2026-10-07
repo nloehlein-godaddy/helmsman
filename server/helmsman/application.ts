@@ -62,6 +62,7 @@ import { bootstrapCommunicationProviderSelection } from './communication-provide
 import { builtinCommunications } from './plugins/builtin-communications';
 import { clarificationContributionEnabled, createApplicationClarifications } from './clarification-application';
 import { createApplicationSourceAdmin } from './source-admin-application';
+import { execFileSync } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isAppPagePath } from '../../src/logic/routes';
 import { appPages } from '../../src/plugins/builtins';
@@ -163,6 +164,9 @@ import { handleApi } from './router';
 import { ProcessManager } from './process-manager';
 import { RunBus } from './event-bus';
 import { handleRunLog } from './run-log';
+import { createPostmortemRunner, postmortemLimitsFromEnv } from './postmortem/runner';
+import { handlePostmortemEvents } from './postmortem/routes';
+import { openPostmortemStore, PostmortemError } from './postmortem/session-store';
 import { startRun, reattachRun, type RunnerDeps } from './runner';
 import { resumeFailedPrePrRun, ResumeError } from './resume';
 import { cmuxHost, weztermHost, detachedHost, type RunHost } from './run-host';
@@ -477,7 +481,7 @@ const publicationService = createPublicationService({ persistence, operations, e
 
 const goCaas = createGoCaaSUpstream(process.env);
 const gateway = createScopedGateway({ path: persistence.sql, modelUpstream: goCaas, githubKey: () => configStore.current().github?.token,
-  active: runId => db.getRun(runId)?.status === 'running' && !stopRequested(runId),
+  active: runId => postmortems.isLiveCapability(runId) || db.getRun(runId)?.status === 'running' && !stopRequested(runId),
   push: publicationService.push, publication: publicationService.publish,
   scope: runId => {
     const run = db.getRun(runId);
@@ -553,6 +557,7 @@ const webhooks = openWebhookIntake(persistence.sql, {
   canStart: repo => pm.canStart(repo).ok, getRun: triggerRun, isRunActive: id => pm.hasRun(id), launch,
 });
 await taskSourceRuntime.recoverAdmissions();
+const postmortemStore = openPostmortemStore(persistence);
 applicationStartup.ready();
 const gatewayServer = gateway.server();
 const retainedIsolation = (persistence.sql.prepare('SELECT taskJson FROM runs WHERE taskJson IS NOT NULL').all() as Array<{ taskJson: string }>).some(row => {
@@ -561,9 +566,21 @@ const retainedIsolation = (persistence.sql.prepare('SELECT taskJson FROM runs WH
 let selectedIsolation = false;
 try { selectedIsolation = selectExecutionHost().record.metadata.stageExecution === 'isolated'; } catch {}
 const gatewayAllowsIsolation = selectedIsolation || retainedIsolation;
+const helmsmanCommit = (() => {
+  try { return execFileSync('git', ['-C', applicationRoot(), 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 5000 }).trim() || null; } catch { return null; }
+})();
+const postmortems = createPostmortemRunner({ store: postmortemStore, runsDir: RUNS_DIR, helmsmanRoot: applicationRoot(),
+  getRun: id => db.getRun(id), listEvents: id => db.listEvents(id),
+  targetRepoPath: run => { const path = join(AGENTS_ROOT, repoBasename(run.repo)); return existsSync(path) ? path : null; },
+  helmsmanCommit: () => helmsmanCommit,
+  modelGateway: id => ({ url: `http://127.0.0.1:${gatewayPort}`, token: gateway.issue(id, 86_400_000).token }),
+  revokeGateway: id => gateway.revokeRun(id), assertModelReady: () => goCaas.assertReady(), limits: postmortemLimitsFromEnv(process.env) });
 const gatewayPort = await listenScopedGateway(gatewayServer, { runsDir: RUNS_DIR, docker: gatewayAllowsIsolation,
   configuredPort: process.env.HELMSMAN_GATEWAY_PORT === undefined ? undefined : Number(process.env.HELMSMAN_GATEWAY_PORT) });
 const gatewayUrl = `http://host.docker.internal:${gatewayPort}`;
+function postmortemAuthorize(caller: string): void {
+  if (!clarificationContributionEnabled(pluginSnapshot.catalog, caller, 'postmortem')) throw new PostmortemError(403, 'forbidden');
+}
 function publicationConnection(runId: string) {
   return { url: `http://127.0.0.1:${gatewayPort}/publication/v1`, token: gateway.issuePublication(runId, 86_400_000).token };
 }
@@ -1941,6 +1958,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     }
     if (await handleRunInspectExport(req, res, url, runInspect)) return;
     if (await handleRunLog(req, res, url.pathname, db, bus)) return;
+    if (await handlePostmortemEvents(req, res, url.pathname, { service: postmortems, authorize: postmortemAuthorize, query: url.searchParams, repos: applicationRepos,
+      caller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined })) return;
     const hasBody: boolean = req.method === 'POST' || req.method === 'PUT';
     const commandBodyLimit = url.pathname.startsWith('/api/campaign-service/') || url.pathname.startsWith('/api/local-git/') || url.pathname.startsWith('/api/terminal/') ? 3 * 1024 * 1024 + 4096 : undefined;
     const body: unknown = hasBody ? await readBody(req, commandBodyLimit) : null;
@@ -1972,6 +1991,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       feedbackSettings, feedbackCommands, communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, runInstructions, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      postmortem: postmortems, postmortemAuthorize, postmortemRepos: applicationRepos, postmortemCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,
       sourceSchedule: taskSourceRuntime.schedule,
@@ -2046,12 +2066,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   });
 });
 
-server.on('close', () => { runRecovery.dispose(); runnerShutdown.abort(); gatewayServer.close(); clearInterval(effectTimer); pluginCoordinator.dispose(); void backendPlugins.dispose(); });
+server.on('close', () => { runRecovery.dispose(); runnerShutdown.abort(); gatewayServer.close(); clearInterval(effectTimer); pluginCoordinator.dispose(); void backendPlugins.dispose(); void postmortems.dispose(); });
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => {
   runRecovery.dispose();
   runnerShutdown.abort();
   server.close();
-  void backendPlugins.dispose().finally(() => process.exit(0));
+  void Promise.all([backendPlugins.dispose(), postmortems.dispose()]).finally(() => process.exit(0));
 });
 server.listen(PORT, '127.0.0.1', () => {
   const address = server.address();
