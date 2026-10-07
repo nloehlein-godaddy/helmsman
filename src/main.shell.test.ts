@@ -159,6 +159,7 @@ describe('persistent app shell', () => {
   it('keeps the same header, tabs, counts, footer, and notification controls across the primary views', async () => {
     const { root, switchTo } = await setup();
     const selectors = ['.helm-head', '.nameplate', '.repo-select', '.helm-readout', '.page-tabs', '.app-footer', '[data-slack-toggle]', '.slack-popover', '#page-content'];
+    await vi.waitFor(() => selectors.forEach(selector => expect(root.querySelector(selector), selector).not.toBeNull()));
     const elements = selectors.map(selector => root.querySelector(selector));
     expect(root.querySelector('[data-fleet-count="queued"]')?.textContent).toBe('—');
     expect(root.querySelector('[data-fleet-count="review"]')?.textContent).toBe('—');
