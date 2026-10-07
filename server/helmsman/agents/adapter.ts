@@ -46,6 +46,7 @@ export interface AgentTask {
   workflowSnapshotId?: string;
   skillsPath?: string;
   promptRevision?: string;
+  readOnlyCheckout?: boolean;
   dockerExecution?: { image: string; gatewayUrl: string; capability: string; runId: string; runtimeRoot?: string };
   prePrResume?: {
     baseSha: string;

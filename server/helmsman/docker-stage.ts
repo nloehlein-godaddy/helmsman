@@ -91,6 +91,7 @@ export async function prepareDockerStage(adapter: AgentAdapter, task: AgentTask,
       await writeFile(join(runtime, 'codex-home', 'config.toml'), `model_provider = "helmsman"\n[model_providers.helmsman]\nname = "Helmsman"\nbase_url = ${JSON.stringify(`${isolatedGateway}/openai/v1`)}\nenv_key = "HELMSMAN_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\n`, { mode: 0o600 });
     }
     const mapped: AgentTask = { ...task, dockerExecution: undefined,
+      readOnlyCheckout: task.review === true || task.prePr?.stage === 'review',
       skillsPath: task.skillsPath ? '/skills' : undefined,
       reviewOutputPaths: task.review ? { markdown: '/runtime/review.md', comments: '/runtime/review-comments.json' } : undefined,
       prePr: task.prePr ? { ...task.prePr, reportPath: '/runtime/report.json',

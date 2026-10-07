@@ -146,7 +146,7 @@ describe('feedback completion policy', () => {
         decisions: { path: '/tmp/decisions.txt', fingerprint: 'd'.repeat(64) },
         snapshot: { repo: input.task.repo, prNumber: 42, baseSha, headSha, fingerprint: 'c'.repeat(64) } } });
     for (const required of [`${baseSha}...${headSha}`, 'EVERY snapshot source id', 'EVERY original source', 'responseUrl', 'decisionFingerprint',
-      'security-owner', 'Do not edit the worktree', 'do not ask the same resolved question again', 'top-level findings', '/tmp/decisions.txt']) expect(value).toContain(required);
+      'security-owner', 'Do not edit tracked files', 'do not ask the same resolved question again', 'top-level findings', '/tmp/decisions.txt']) expect(value).toContain(required);
     expect(value).not.toContain('Run the tests, commit, and push');
     expect(value).toContain('existing source findings as well as fresh findings');
     expect(value).toContain('required:false and a verified published explanation citing the property');
@@ -160,7 +160,7 @@ it('renders an interrupted review with bounded verification permissions and unch
   const rendered = renderCodingPrompt(prompt({ stage: 'review', baseSha, headSha, reportPath: '/tmp/resumed.json', round: 1, incompleteReview }));
   expect(rendered).toContain('explicit continuation of a COMMENT review');
   expect(rendered).toContain(JSON.stringify(incompleteReview.reportPath));
-  expect(rendered).toContain('use the pinned lockfile');
+  expect(rendered).toContain('Use frozen/immutable installation when a committed lockfile governs that package');
   expect(rendered).toContain('git-ignored dependency/build/cache files');
   expect(rendered).toContain('retain COMMENT');
   expect(rendered).not.toContain('This is the only file you may write.');
@@ -192,7 +192,7 @@ it('keeps unresolved review questions blocking and validates the full staged rep
     'Each finding must contain a nonempty title', 'read the report locally, parse it with JSON.parse',
     'summary is nonempty and summary.length <= 2000 using JavaScript string length, including any byline',
     'If it is too long, shorten only the summary and repeat this validation',
-    'do not install a dependency tree solely for a checklist', 'Never include secrets in the report',
+    'Run the relevant checks with the tools prepared above', 'Never include secrets in the report',
   ]) expect(value).toContain(required);
 });
 

@@ -33,12 +33,17 @@ it('keeps post-disposal cleanup best effort without reopening completed disposal
 });
 
 it('continues original cleanup callbacks after one times out', async () => {
-  const onError = vi.fn();
-  const cleanups = createPluginCleanup({ timeoutMs: 20, onError });
-  const finish = vi.fn();
-  cleanups.register(finish);
-  cleanups.register(() => new Promise(() => {}));
-  await cleanups.dispose();
-  expect(finish).toHaveBeenCalledOnce();
-  expect(onError).toHaveBeenCalledOnce();
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  try {
+    const onError = vi.fn();
+    const cleanups = createPluginCleanup({ timeoutMs: 20, onError });
+    const finish = vi.fn();
+    cleanups.register(finish);
+    cleanups.register(() => new Promise(() => {}));
+    const disposed = cleanups.dispose();
+    await vi.advanceTimersByTimeAsync(20);
+    await disposed;
+    expect(finish).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledOnce();
+  } finally { vi.useRealTimers(); }
 });

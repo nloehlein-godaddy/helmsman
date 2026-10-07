@@ -150,6 +150,7 @@ export * from './trigger';
 export * from './task-actions';
 
 export * from './run-instructions';
+export * from './postmortem';
 export * from './execution-policy';
 export * from './feedback-command';
 export * from './feedback-tracker';

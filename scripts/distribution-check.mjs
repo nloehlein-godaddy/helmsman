@@ -65,10 +65,10 @@ test('compiled workflow preparation finds its prompts and helpers outside the or
     import { prepareExecution } from ${JSON.stringify(module('prepare-run.js'))};
     const task = { ticketId: 'T-1', title: 'Example', repo: 'org/example', jiraBaseUrl: '' };
     const command = prePrAdapter(codexAdapter, process.cwd()).buildCommand(task);
-    assert(command.args.length > 1);
-    assert(command.args.slice(1).every(argument => argument.startsWith('--input=') && argument.length <= 256));
-    assert.deepEqual(JSON.parse(joinInputArguments(command.args.slice(1))).task, task);
     assert.equal(basename(command.args[0]), 'pre-pr-cli.js');
+    const input = command.args.slice(1);
+    assert.ok(input.length > 0 && input.every(chunk => chunk.startsWith('--input=') && chunk.length <= 256));
+    assert.deepEqual(JSON.parse(joinInputArguments(input)).task, task);
     const review = dockerReviewAdapter(codexAdapter).buildCommand({ ...task, review: true, dockerExecution: {} });
     assert.equal(basename(review.args[0]), 'docker-review-cli.js');
     await readFile(join(applicationRoot(), 'dist', 'index.html'));

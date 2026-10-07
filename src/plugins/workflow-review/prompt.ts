@@ -1,6 +1,6 @@
 import type { WorkflowPromptInputV1 } from '@helmsman/plugin-sdk';
 
-import { reviewGuidance } from './guidance';
+import { reviewGuidance, reviewVerificationGuidance } from './guidance';
 
 const UNATTENDED = 'Working dir = the repo checkout. Fully unattended: do not pause for confirmation; use the clarification protocol when a required human decision blocks safe progress.';
 
@@ -33,6 +33,9 @@ export function renderReviewPrompt(input: WorkflowPromptInputV1): string {
     `- Omit style preferences, speculative hardening, hypothetical inputs unsupported by callers, refactor wishes, minor visual polish, and standalone missing tests/docs/logs/type annotations. Test gaps matter when they expose a demonstrated defect or miss an explicit material requirement. Accessibility, localization, telemetry, and performance can qualify when evidence establishes substantial user impact or a material acceptance failure; checklist compliance alone is insufficient.`,
     `- Repository instructions and skills inform contracts and verification. Their self-review/hygiene checklists do not automatically make every improvement a blocking finding; apply this user's materiality threshold to publication and verdict.`,
     ``,
+    `## Verification setup`,
+    ...reviewVerificationGuidance({ dockerExecution: task.readOnlyCheckout }),
+    ``,
     `## Focused sub-agents`,
     `- Act as the review lead. Delegate independent applicable areas to focused sub-agents: logic/state/structure; acceptance criteria and relevant test coverage; changed UX and accessibility; external effects such as API consumers, persistence, flags, and side effects. Give each a bounded file/call-path scope, the pinned revision, shared PR context, and the materiality rules above. Skip unaffected areas and combine small scopes; do not ask each agent to review the entire PR.`,
     ...(input.runtime.reviewDelegation === 'review-agent-skill' ? [
@@ -44,7 +47,7 @@ export function renderReviewPrompt(input: WorkflowPromptInputV1): string {
       `- Use this runtime's sub-agent tools for the focused reviews. Review sub-agents are read-only leaf workers: they do not delegate further, edit files, or publish. If delegation is unavailable, disclose the limitation and use COMMENT rather than claiming the required review completed.`,
     ]),
     `- Run independent scopes concurrently within available slots, without duplicate searches or external reads. Use low effort by default, medium for larger scopes crossing areas, and high only for serious architecture changes. No recursive fan-out. Each sub-agent returns concise evidence-backed candidates or No findings; it does not set the final verdict.`,
-    `- Reconcile the sub-agent results yourself: reject unsupported or low-impact candidates, verify material claims against the code, deduplicate by root cause and existing discussion, and decide the verdict. There is no minimum finding count. Prefer focused existing checks; do not clone unrelated repos or install a full dependency tree merely to satisfy a review checklist.`,
+    `- Reconcile the sub-agent results yourself: reject unsupported or low-impact candidates, verify material claims against the code, deduplicate by root cause and existing discussion, and decide the verdict. There is no minimum finding count. Run the relevant checks with the tools prepared above; do not clone unrelated repos merely to satisfy a review checklist.`,
     ``,
     `## Do`,
     '- Put only blocking material defects in inline findings. Put any non-blocking observations in a brief summary paragraph labeled "Non-blocking"; use [] for inline findings when none qualify.',
@@ -57,6 +60,6 @@ export function renderReviewPrompt(input: WorkflowPromptInputV1): string {
     `- The verdict is a recommendation only. Helmsman publishes the summary and inline comments together as a COMMENT review; do not submit a GitHub approval, request-changes review, or comment yourself.`,
     ``,
     `## Do NOT`,
-    `- modify code, commit, push, open a pull request, merge, or approve. Produce ONLY the two review output files.`,
+    `- modify code, commit, push, open a pull request, merge, or approve. ${task.readOnlyCheckout ? 'Produce ONLY the two review output files.' : 'Apart from the git-ignored dependency/build/cache outputs allowed above, produce only the two review output files.'}`,
   ].join('\n');
 }

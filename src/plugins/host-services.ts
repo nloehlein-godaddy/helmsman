@@ -1,4 +1,5 @@
 import { createHostRunInstructionService } from './run-instruction-service';
+import { createHostPostmortemService } from './postmortem-service';
 import { createHostExecutionPolicyService } from './execution-policy-service';
 import { createHostFeedbackSettingsService } from './feedback-settings-service';
 import { createHostFeedbackCommandService } from './feedback-command-service';
@@ -121,6 +122,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
         clarifications: createHostClarificationReadService(lifetime, { scope, caller }),
         clarificationCommands: createHostClarificationCommandService(lifetime, { scope, caller }),
         runInstructions: createHostRunInstructionService(lifetime, { scope, caller }),
+        postmortem: createHostPostmortemService(lifetime, { scope, caller }),
         pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope, caller }),
         terminal: createHostTerminalService(lifetime, { scope, caller }),
         campaigns: createHostCampaignService(lifetime, { scope, caller }),

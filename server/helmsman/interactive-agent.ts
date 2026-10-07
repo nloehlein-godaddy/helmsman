@@ -5,6 +5,7 @@ import { parseAgentInteractiveCommandV1, type AgentInteractiveCommandV1 } from '
 import { runtimeNodeArguments, chunkInputArguments } from './runtime-paths';
 import { prepareModelRouting } from './model-routing-cli';
 import { assertInstructionChannel, startInstructionEndpoint, InstructionDeliveryUnknownError, type InstructionIdentity } from './instruction-channel';
+import { connectAgentProtocol, type ProtocolTimeout } from './agent-protocol';
 
 export interface InteractiveAgentConfig {
   provider: string;
@@ -63,7 +64,9 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
   const diagnostic = options.diagnostic ?? (line => process.stderr.write(line));
   const emit = (value: unknown) => output(JSON.stringify(value));
   const child = spawn(command.cmd, command.args, { env: routed?.environment ?? process.env, stdio: ['pipe', 'pipe', 'pipe'] });
-  const pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer?: ReturnType<typeof setTimeout> }>();
+  const connection = connectAgentProtocol(child, { protocol,
+    onMessage: message => { if (protocol === 'codex-app-server') codexMessage(message); else claudeMessage(message); },
+    onFailure: error => stop(error) });
   let endpoint: Awaited<ReturnType<typeof startInstructionEndpoint>> | undefined;
   let endpointStarting: Promise<void> | undefined;
   let active = false;
@@ -74,42 +77,21 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
   let turnId = '';
   let lastUsage: unknown;
   let claudeResult: Record<string, unknown> | undefined;
-  let buffer = '';
   let stopTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveExit!: () => void;
   const exited = new Promise<void>(resolve => { resolveExit = resolve; });
-  const rejectPending = (error: Error) => {
-    for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(error); }
-    pending.clear();
+  const timeout = (instruction: boolean): ProtocolTimeout | null => protocol === 'claude-stream-json' && instruction ? null : {
+    ms: (instruction ? options.instructionTimeoutMs : undefined) ?? options.requestTimeoutMs ?? 20_000,
+    error: () => instruction ? new InstructionDeliveryUnknownError('Agent did not acknowledge the instruction in time') : new Error('Agent protocol request timed out'),
   };
   const stop = (error: Error) => {
     failure ??= error;
     active = false;
-    rejectPending(new InstructionDeliveryUnknownError('Agent disconnected before acknowledging the instruction'));
+    connection.rejectPending(new InstructionDeliveryUnknownError('Agent disconnected before acknowledging the instruction'));
     child.kill('SIGTERM');
     if (stopTimer) clearTimeout(stopTimer);
     stopTimer = setTimeout(() => child.kill('SIGKILL'), 5000);
     stopTimer.unref();
-  };
-  const write = (value: unknown) => {
-    if (child.stdin.destroyed || child.exitCode !== null || child.signalCode !== null) throw new Error('Agent connection is closed');
-    child.stdin.write(`${JSON.stringify(value)}\n`);
-  };
-  const request = (id: string, value: unknown, instruction = false): Promise<unknown> => new Promise((resolve, reject) => {
-    const timer = protocol === 'claude-stream-json' && instruction ? undefined : setTimeout(() => {
-      pending.delete(id);
-      reject(instruction ? new InstructionDeliveryUnknownError('Agent did not acknowledge the instruction in time') : new Error('Agent protocol request timed out'));
-    }, (instruction ? options.instructionTimeoutMs : undefined) ?? options.requestTimeoutMs ?? 20_000);
-    pending.set(id, { resolve, reject, timer });
-    try { write(value); }
-    catch (error) { clearTimeout(timer); pending.delete(id); reject(error); }
-  });
-  const rpc = (method: string, params: unknown, instruction = false, id = randomUUID()) => request(id, { id, method, params }, instruction);
-  const receiveAck = (id: string, result: unknown, error?: Error) => {
-    const entry = pending.get(id);
-    if (!entry) return;
-    clearTimeout(entry.timer); pending.delete(id);
-    if (error) entry.reject(error); else entry.resolve(result);
   };
   const openEndpoint = (): Promise<void> => endpointStarting ??= (async () => {
     if (!active || closing) return;
@@ -117,11 +99,11 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
       if (!active || closing) throw new Error('Agent has finished this stage');
       if (protocol === 'codex-app-server') {
         const expectedTurnId = turnId;
-        const response = record(await rpc('turn/steer', { threadId, expectedTurnId, clientUserMessageId: id,
-          input: [{ type: 'text', text, text_elements: [] }] }, true));
+        const response = record(await connection.rpc('turn/steer', { threadId, expectedTurnId, clientUserMessageId: id,
+          input: [{ type: 'text', text, text_elements: [] }] }, timeout(true)));
         if (response?.turnId !== expectedTurnId) throw new InstructionDeliveryUnknownError('Agent returned an unexpected turn acknowledgment');
       } else {
-        await request(id, { type: 'user', uuid: id, session_id: threadId, message: { role: 'user', content: text }, parent_tool_use_id: null }, true);
+        await connection.request(id, { type: 'user', uuid: id, session_id: threadId, message: { role: 'user', content: text }, parent_tool_use_id: null }, timeout(true));
       }
     });
     if (!active || closing) await endpoint.close();
@@ -150,15 +132,6 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
     })().catch(error => stop(error instanceof Error ? error : new Error(String(error))));
   };
   const codexMessage = (message: Record<string, unknown>) => {
-    if (typeof message.id === 'string' && !message.method) {
-      const error = record(message.error);
-      receiveAck(message.id, message.result, error ? new Error(typeof error.message === 'string' ? error.message : 'Agent rejected the request') : undefined);
-      return;
-    }
-    if (message.id !== undefined && typeof message.method === 'string') {
-      write({ id: message.id, error: { code: -32601, message: 'Helmsman does not support this interactive request' } });
-      return;
-    }
     const params = record(message.params);
     if (!params || params.threadId !== threadId) return;
     if (message.method === 'thread/tokenUsage/updated') lastUsage = record(params.tokenUsage)?.total;
@@ -190,31 +163,16 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
       threadId = typeof message.session_id === 'string' ? message.session_id : '';
       if (!closing) { active = true; void openEndpoint().catch(error => stop(error)); }
     }
-    if (message.type === 'user' && typeof message.uuid === 'string') receiveAck(message.uuid, message);
     if (message.type === 'result') {
       claudeResult = message;
       if (message.is_error === true || (typeof message.subtype === 'string' && message.subtype.startsWith('error'))) failure ??= new Error('Agent reported an unsuccessful result');
-      completed = !failure && pending.size === 0;
-      if (failure || pending.size === 0) finish();
+      completed = !failure && connection.pendingCount() === 0;
+      if (failure || connection.pendingCount() === 0) finish();
     }
   };
-  child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-    buffer += chunk;
-    let index: number;
-    while ((index = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, index); buffer = buffer.slice(index + 1);
-      if (!line.trim()) continue;
-      try {
-        const message = record(JSON.parse(line));
-        if (!message) throw new Error('Malformed agent protocol output');
-        if (protocol === 'codex-app-server') codexMessage(message); else claudeMessage(message);
-      } catch (error) { stop(error instanceof Error ? error : new Error(String(error))); }
-    }
-    if (buffer.length > 8 * 1024 * 1024) stop(new Error('Agent protocol output exceeded its limit'));
-  });
   child.stderr.setEncoding('utf8').on('data', diagnostic);
   child.stdin.on('error', error => {
-    rejectPending(new InstructionDeliveryUnknownError('Agent input disconnected before acknowledging the instruction'));
+    connection.rejectPending(new InstructionDeliveryUnknownError('Agent input disconnected before acknowledging the instruction'));
     if (!closing) stop(error);
   });
   child.once('error', error => stop(error));
@@ -223,7 +181,7 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
     if (stopTimer) clearTimeout(stopTimer);
     if (!completed || code !== 0 && !(protocol === 'codex-app-server' && closing && signal === 'SIGTERM')) failure ??= new Error(`Agent exited ${signal ?? code} before successful completion`);
     if (claudeResult) emit(claudeResult);
-    rejectPending(new InstructionDeliveryUnknownError('Agent exited before acknowledging the instruction'));
+    connection.rejectPending(new InstructionDeliveryUnknownError('Agent exited before acknowledging the instruction'));
     resolveExit();
   });
   const abort = () => stop(new Error('Voyage stopped'));
@@ -231,20 +189,20 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
   try {
     if (options.signal?.aborted) abort();
     else if (protocol === 'codex-app-server') {
-      await rpc('initialize', { clientInfo: { name: 'helmsman', version: '0.4.0' }, capabilities: {} });
-      write({ method: 'initialized' });
+      await connection.rpc('initialize', { clientInfo: { name: 'helmsman', version: '0.4.0' }, capabilities: {} }, timeout(false));
+      connection.write({ method: 'initialized' });
       const { model, effort } = initialInput;
-      const result = record(await rpc('thread/start', { cwd: process.cwd(), model, approvalPolicy: 'never', sandbox: 'danger-full-access' }));
+      const result = record(await connection.rpc('thread/start', { cwd: process.cwd(), model, approvalPolicy: 'never', sandbox: 'danger-full-access' }, timeout(false)));
       const thread = record(result?.thread);
       if (typeof thread?.id !== 'string') throw new Error('Agent returned no thread ID');
       threadId = thread.id;
-      const started = record(await rpc('turn/start', { threadId, input: [{ type: 'text', text: initialInput.prompt, text_elements: [] }], effort }));
+      const started = record(await connection.rpc('turn/start', { threadId, input: [{ type: 'text', text: initialInput.prompt, text_elements: [] }], effort }, timeout(false)));
       const turn = record(started?.turn);
       if (typeof turn?.id !== 'string') throw new Error('Agent returned no turn ID');
       turnId = turn.id;
       if (!closing) { active = true; await openEndpoint(); }
     } else {
-      write({ type: 'user', uuid: randomUUID(), session_id: '', message: { role: 'user', content: initialInput.prompt }, parent_tool_use_id: null });
+      connection.write({ type: 'user', uuid: randomUUID(), session_id: '', message: { role: 'user', content: initialInput.prompt }, parent_tool_use_id: null });
     }
     await exited;
   } catch (error) {

@@ -306,3 +306,64 @@ describe('interactive agent provider transport', () => {
       .toMatchObject({ interactive, instructions: input.instructions, provider: 'example/agent' });
   });
 });
+
+function codexScript(body: string) {
+  return { cmd: process.execPath, args: ['-e', `
+    const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const message = JSON.parse(line);
+      ${body}
+    });
+  `] };
+}
+
+describe('interactive agent protocol characterization', () => {
+  it('rejects provider-initiated Codex requests, ignores foreign threads and maps command items', async () => {
+    const input = await task();
+    const agent = run(input, 'codex', codexScript(`
+      if (message.method === 'initialize') send({ id: message.id, result: {} });
+      if (message.method === 'thread/start') send({ id: message.id, result: { thread: { id: 'thread-1' } } });
+      if (message.method === 'turn/start') {
+        send({ id: message.id, result: { turn: { id: 'turn-1' } } });
+        send({ id: 'server-1', method: 'item/tool/requestUserInput', params: {} });
+      }
+      if (message.id === 'server-1') {
+        if (message.error?.code !== -32601) process.exit(7);
+        send({ method: 'item/started', params: { threadId: 'thread-1', item: { id: 'cmd-1', type: 'commandExecution', command: 'ls', status: 'inProgress' } } });
+        send({ method: 'item/completed', params: { threadId: 'other-thread', item: { id: 'x', type: 'agentMessage', text: 'Foreign' } } });
+        send({ method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'cmd-1', type: 'commandExecution', command: 'ls', aggregatedOutput: 'a', exitCode: 0, status: 'completed' } } });
+        send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } } });
+      }
+    `));
+    await agent.promise;
+    expect(agent.output.map(line => JSON.parse(line))).toEqual([
+      { type: 'item.started', item: { id: 'cmd-1', type: 'command_execution', command: 'ls', status: 'inProgress' } },
+      { type: 'item.completed', item: { id: 'cmd-1', type: 'command_execution', command: 'ls', aggregated_output: 'a', exit_code: 0, status: 'completed' } },
+      { type: 'turn.completed', turn_id: 'turn-1' },
+    ]);
+  });
+
+  it('fails on a non-object protocol line', async () => {
+    const agent = run(await task(), 'codex', codexScript(`if (message.method === 'initialize') process.stdout.write('[1]\\n');`));
+    await expect(agent.promise).rejects.toThrow('Malformed agent protocol output');
+  });
+
+  it('fails on an unparseable protocol line', async () => {
+    const agent = run(await task(), 'codex', codexScript(`if (message.method === 'initialize') process.stdout.write('{\\n');`));
+    await expect(agent.promise).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it('fails when unterminated protocol output exceeds 8 MB', async () => {
+    const agent = run(await task(), 'codex', codexScript(`if (message.method === 'initialize') process.stdout.write('x'.repeat(8 * 1024 * 1024 + 1));`));
+    await expect(agent.promise).rejects.toThrow('Agent protocol output exceeded its limit');
+  });
+
+  it('times out an unanswered protocol request', async () => {
+    const input = await task();
+    const abort = new AbortController(); agents.push(abort);
+    const promise = runInteractiveAgent({ instructions: input.instructions!, provider: 'fixture/codex', stage: 'implement',
+      interactive: { command: codexScript(''), protocol: 'codex-app-server', initialInput: { prompt: 'p', model: null, effort: null } }, transport: null, skillsPath: null },
+    { output: () => {}, diagnostic: () => {}, signal: abort.signal, requestTimeoutMs: 50 });
+    await expect(promise).rejects.toThrow('Agent protocol request timed out');
+  });
+});

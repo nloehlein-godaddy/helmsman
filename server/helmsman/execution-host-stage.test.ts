@@ -62,7 +62,7 @@ describe('retained execution host stages', () => {
       skillsPath: '/host/skills', reportPath: '/host/report.json', priorReportPath: '/host/prior-report.json',
     }), expect.any(Function));
     expect(buildCommand).toHaveBeenCalledWith(expect.objectContaining({
-      executionHost: undefined, hostRuntime: undefined, hostConfiguration: undefined, hostIsolation: undefined,
+      readOnlyCheckout: true, dockerExecution: undefined, executionHost: undefined, hostRuntime: undefined, hostConfiguration: undefined, hostIsolation: undefined,
       skillsPath: '/guest/skills', prePr: expect.objectContaining({ reportPath: '/guest/report.json',
         summaryCorrection: expect.objectContaining({ reportPath: '/guest/prior-report.json' }) }),
       clarification: expect.objectContaining({ questionsPath: '/guest/questions', answersPath: '/guest/answers' }),

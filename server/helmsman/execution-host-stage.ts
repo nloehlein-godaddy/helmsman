@@ -17,6 +17,7 @@ function mappedTask(task: AgentTask, paths: ExecutionHostStagePathsV1): AgentTas
     hostConfiguration: undefined,
     hostIsolation: undefined,
     dockerExecution: undefined,
+    readOnlyCheckout: task.review === true || task.prePr?.stage === 'review',
     skillsPath: paths.skillsPath ?? undefined,
     reviewOutputPaths: paths.reviewOutputPaths ?? undefined,
     prePr: task.prePr ? {

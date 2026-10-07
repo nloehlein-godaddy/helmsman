@@ -59,7 +59,7 @@ it.each(['review-agent-skill', 'native-subagents'] as const)('preserves the comp
     'If criteria are inaccessible, say so briefly; do not invent them',
     'A source trace can be sufficient proof; do not demand a reproduction',
     'Each sub-agent returns concise evidence-backed candidates or No findings; it does not set the final verdict',
-    'do not clone unrelated repos or install a full dependency tree merely to satisfy a review checklist',
+    'do not clone unrelated repos merely to satisfy a review checklist',
     'reference its original thread once in the summary without reposting the finding',
     'at most two short validation/limitation bullets',
     'Output files must be written; stdout is not used as the review',

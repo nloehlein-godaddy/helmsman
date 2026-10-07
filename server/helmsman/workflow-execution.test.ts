@@ -44,6 +44,14 @@ describe('retained workflow execution', () => {
     expect(projection.stage).toBeNull();
     for (const secret of ['secret', '/private/plugins', '/private/artifacts', '/private/runtime', 'workflowRuntime', 'agentSelection']) expect(JSON.stringify(projection)).not.toContain(secret);
   });
+  it('projects read-only checkout scope without Docker credentials', () => {
+    const projection = workflowPromptProjection({ ...task, dockerExecution: { runId: 'private-run', image: 'runtime:1', gatewayUrl: 'http://private', capability: 'secret' } }, agent);
+    expect(projection.task.readOnlyCheckout).toBe(true);
+    expect(JSON.stringify(projection)).not.toContain('dockerExecution');
+    expect(JSON.stringify(projection)).not.toContain('private-run');
+    expect(workflowPromptProjection({ ...task, readOnlyCheckout: true }, agent).task.readOnlyCheckout).toBe(true);
+    expect(workflowPromptProjection(task, agent).task.readOnlyCheckout).toBeUndefined();
+  });
   it('projects only validated prompt data after host path remapping', () => {
     const projected = workflowPromptProjection(task, agent);
     expect(projected).toMatchObject({ runtime: { providerId: agent.binding.providerId, model: 'selected/model', effort: 'xhigh' },

@@ -224,3 +224,23 @@ test('feedback backend capability extension excludes only the exact new capabili
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+
+test('optional read-only workflow context preserves SDK input compatibility', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'helmsman-readonly-workflow-compat-'));
+  try {
+    const baseline = join(root, 'baseline'); const candidate = join(root, 'candidate');
+    const contract = 'export interface WorkflowPromptInputV1 { readonly task: { readonly repo: string }; }';
+    for (const directory of [baseline, candidate]) {
+      await mkdir(directory);
+      await writeFile(join(directory, 'package.json'), '{"type":"module"}');
+      await writeFile(join(directory, 'node.d.ts'), 'export {};');
+      await writeFile(join(directory, 'index.d.ts'), contract);
+    }
+    const extended = contract.replace('readonly repo: string', 'readonly repo: string; readonly readOnlyCheckout?: boolean');
+    await writeFile(join(candidate, 'index.d.ts'), extended);
+    assert.equal(checkSdkCompatibility(baseline, candidate), 1);
+    await writeFile(join(candidate, 'index.d.ts'), extended.replace('readOnlyCheckout?:', 'readOnlyCheckout:'));
+    assert.throws(() => checkSdkCompatibility(baseline, candidate), /SDK compatibility check failed/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

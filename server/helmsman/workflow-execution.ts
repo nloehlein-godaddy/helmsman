@@ -61,6 +61,7 @@ export function workflowPromptProjection(task: AgentTask, agent: AgentRetainedPr
       ...(task.review !== undefined ? { review: task.review } : {}),
       ...(task.prHeadSha !== undefined ? { prHeadSha: task.prHeadSha } : {}),
       ...(task.skillsPath !== undefined ? { skillsPath: task.skillsPath } : {}),
+      ...((task.readOnlyCheckout || task.dockerExecution) ? { readOnlyCheckout: true } : {}),
       ...(task.reviewOutputPaths ? { reviewOutputPaths: { ...task.reviewOutputPaths } } : {}),
     },
     stage,

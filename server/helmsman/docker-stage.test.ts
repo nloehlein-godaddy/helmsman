@@ -52,7 +52,7 @@ describe('Docker agent stages', () => {
     expect(relay).not.toContain('--env');
     expect(args).not.toContain('OPENAI_API_KEY');
     expect(args).not.toContain('/var/run/docker.sock');
-    expect(env.buildCommand.mock.calls[0]?.[0]).toMatchObject({ skillsPath: '/skills', prePr: { reportPath: '/runtime/report.json' } });
+    expect(env.buildCommand.mock.calls[0]?.[0]).toMatchObject({ readOnlyCheckout: false, skillsPath: '/skills', prePr: { reportPath: '/runtime/report.json' } });
     const config = await readFile(join(runtime(args), 'codex-home', 'config.toml'), 'utf8');
     expect(config).toContain('wire_api = "responses"');
     expect(config).toContain('env_key = "HELMSMAN_CAPABILITY"');
@@ -92,7 +92,7 @@ describe('Docker agent stages', () => {
     const stage = await prepareDockerStage(env.adapter, env.task, env.cwd, env.control);
     const dir = runtime(stage.command.args);
     expect(stage.command.args).toContain(`type=bind,src=${env.cwd},dst=/worktree,readonly`);
-    expect(env.buildCommand.mock.calls[0]?.[0]).toMatchObject({ prePr: undefined,
+    expect(env.buildCommand.mock.calls[0]?.[0]).toMatchObject({ readOnlyCheckout: true, dockerExecution: undefined, prePr: undefined,
       reviewOutputPaths: { markdown: '/runtime/review.md', comments: '/runtime/review-comments.json' } });
     await writeFile(join(dir, 'review.md'), 'Verdict: APPROVE — checked');
     await writeFile(join(dir, 'review-comments.json'), '[]');

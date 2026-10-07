@@ -21,6 +21,7 @@ export interface WorkflowPromptInputV1 {
   readonly task: {
     readonly ticketId: string; readonly title: string; readonly repo: string; readonly jiraBaseUrl: string;
     readonly jiraContext?: string; readonly task?: string; readonly prBranch?: string; readonly prNumber?: number; readonly review?: boolean;
+    readonly readOnlyCheckout?: boolean;
     readonly prHeadSha?: string; readonly skillsPath?: string; readonly reviewOutputPaths?: { readonly markdown: string; readonly comments: string };
   };
   readonly stage: WorkflowStageV1 | null;
@@ -120,7 +121,7 @@ export function parseWorkflowPromptInputV1(input: unknown): WorkflowPromptInputV
   providerId(runtime.providerId); if (runtime.model !== null) sourceText(runtime.model, 128); if (runtime.effort !== null) sourceText(runtime.effort, 64);
   if (!['review-agent-skill', 'native-subagents', 'none'].includes(String(runtime.reviewDelegation))) invalid();
   text(value.byline, 1024); text(value.clarificationInstructions, 64 * 1024, true);
-  const task = sourceObject(value.task); sourceFields(task, ['ticketId', 'title', 'repo', 'jiraBaseUrl'], ['jiraContext', 'task', 'prBranch', 'prNumber', 'review', 'prHeadSha', 'skillsPath', 'reviewOutputPaths']);
+  const task = sourceObject(value.task); sourceFields(task, ['ticketId', 'title', 'repo', 'jiraBaseUrl'], ['jiraContext', 'task', 'prBranch', 'prNumber', 'review', 'prHeadSha', 'skillsPath', 'reviewOutputPaths', 'readOnlyCheckout']);
   sourceText(task.ticketId, 512); text(task.title, 4096); parseTaskRepo(task.repo); text(task.jiraBaseUrl, 4096, true);
   if (task.jiraBaseUrl) {
     let url: URL; try { url = new URL(task.jiraBaseUrl as string); } catch { invalid(); }
@@ -131,6 +132,7 @@ export function parseWorkflowPromptInputV1(input: unknown): WorkflowPromptInputV
   if (Object.hasOwn(task, 'prBranch')) sourceText(task.prBranch, 255);
   if (Object.hasOwn(task, 'prNumber')) integer(task.prNumber, 1, Number.MAX_SAFE_INTEGER);
   if (Object.hasOwn(task, 'review') && typeof task.review !== 'boolean') invalid();
+  if (Object.hasOwn(task, 'readOnlyCheckout') && typeof task.readOnlyCheckout !== 'boolean') invalid();
   if (Object.hasOwn(task, 'prHeadSha')) sha(task.prHeadSha);
   if (Object.hasOwn(task, 'skillsPath')) path(task.skillsPath);
   if (Object.hasOwn(task, 'reviewOutputPaths')) { const paths = sourceObject(task.reviewOutputPaths); sourceFields(paths, ['markdown', 'comments']); path(paths.markdown); path(paths.comments); }

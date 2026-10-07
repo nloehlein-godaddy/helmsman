@@ -14,14 +14,14 @@ const requestId = '00000000-0000-4000-8000-000000000001';
 const receipt = (status: RunCommandReceiptV1['status'] = 'accepted'): RunCommandReceiptV1 => ({ version: 1, repo: 'org/a', requestId, action: 'stop', status, runId: 'one', attempt: 1, message: null });
 const deferred = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 
-async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Partial<RunInspectServiceV1>; saved?: RunCommandPendingV1[]; saveState?: PluginPanelContext['saveState']; selector?: boolean } = {}) {
+async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Partial<RunInspectServiceV1>; saved?: RunCommandPendingV1[]; saveState?: PluginPanelContext['saveState']; selector?: boolean; status?: RunReadSummaryV1['status'] } = {}) {
   const lifetime = new AbortController(); const activity = new AbortController();
   const state: PluginPanelState = { repo: 'org/a', themeId: 'default', pirateMode: false, visible: true, pane: null, instanceId: 'viewer', savedState: null,
     activity: { epoch: 1, repo: 'org/a', active: true, signal: activity.signal }, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'one' }, ...options.state };
   let pending = options.saved ?? [];
   const inspect: RunInspectServiceV1 = { version: 1, resolve: vi.fn(async input => available({ version: 1 as const, target: { ...target, runId: input.runId }, observedAt: when })),
     history: vi.fn(), log: vi.fn(async input => available(page({ target: input.target }))), exportLog: vi.fn(), ...options.inspect };
-  const runs = { version: 1 as const, list: vi.fn(), log: vi.fn(), load: vi.fn(async (input: { runId: string }) => available({ version: 1 as const, repo: 'org/a', runId: input.runId, run: summary(input.runId) })), watchList: vi.fn(), watchLoad: vi.fn(), watchLog: vi.fn() };
+  const runs = { version: 1 as const, list: vi.fn(), log: vi.fn(), load: vi.fn(async (input: { runId: string }) => available({ version: 1 as const, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), ...(options.status ? { status: options.status } : {}) } })), watchList: vi.fn(), watchLoad: vi.fn(), watchLog: vi.fn() };
   const commands = { version: 1 as const,
     submit: vi.fn(async (input: RunCommandInputV1) => { const result = { ...receipt(), action: input.action }; pending = [{ command: { ...input, requestId }, receipt: result }]; return available(result); }),
     retry: vi.fn<NonNullable<RunCommandServiceV1['retry']>>(async query => {
@@ -283,4 +283,13 @@ it('keeps branch update identity when retrying the original attempt and opening 
   await vi.waitFor(() => expect(button(f.container, 'Retry run')?.disabled).toBe(true));
   await f.instance.update({ ...f.state, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'retry-one' } });
   await vi.waitFor(() => expect(f.container.querySelector('[role=tab][aria-selected=true]')?.getAttribute('aria-label')).toBe('Branch update #42 · org/a · retry-one · Attempt 1 · running'));
+});
+
+describe('post-mortem entry point', () => {
+  it.each([['failed', true], ['stopped', true], ['running', false], ['succeeded', false]] as const)('for a %s run shows Ask about this failure: %s', async (status, shown) => {
+    const f = await mount({ status });
+    await vi.waitFor(() => expect(f.container.textContent).toContain(`Worker: ${status}`));
+    expect(Boolean(button(f.container, 'Ask about this failure'))).toBe(shown);
+    if (shown) expect(button(f.container, 'Ask about this failure')?.disabled).toBe(true);
+  });
 });

@@ -1,4 +1,5 @@
 import { RunInstructions } from './instructions.js';
+import { PostmortemChat } from './postmortem-chat.js';
 import type { RunReadSummaryV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PresentationLocatorV1,
   RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptQueryV1, RunCommandReceiptV1, RunInspectLogPageV1, RunInspectTargetV1 } from '@helmsman/plugin-sdk';
 import { emptyState, mergeLog, newTab, readState, saveState, tabKey, type RunTab } from './state.js';
@@ -19,6 +20,7 @@ const logText = (tab: RunTab) => tab.events.map(event => `[${event.at}] ${event.
 
 class ViewerPanel implements PluginPanelInstance {
   private readonly instructions: RunInstructions;
+  private readonly postmortem: PostmortemChat;
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
   private state: PluginPanelState;
@@ -51,6 +53,7 @@ class ViewerPanel implements PluginPanelInstance {
 
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.instructions = new RunInstructions(context.services.runInstructions);
+    this.postmortem = new PostmortemChat(context.services.postmortem);
     this.container = container; this.context = context; this.state = context.state;
     const parsed = readState(this.state.savedState); this.unsupported = parsed === null; const saved = parsed ?? emptyState();
     this.tabs = saved.tabs.map(newTab); this.activeKey = saved.activeKey; this.results = saved.results;
@@ -76,7 +79,7 @@ class ViewerPanel implements PluginPanelInstance {
     this.busy = false; this.reading = false; this.summariesReading = false; this.summariesReadAt = 0; this.commandBusy = false; this.evidenceReady = false;
   };
   dispose = () => {
-    if (this.disposed) return; this.disposed = true; this.cancel(); this.instructions.dispose();
+    if (this.disposed) return; this.disposed = true; this.cancel(); this.instructions.dispose(); this.postmortem.dispose();
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     this.context.signal.removeEventListener('abort', this.dispose); this.state.activity.signal.removeEventListener('abort', this.cancel); this.container.replaceChildren();
   };
@@ -371,6 +374,7 @@ class ViewerPanel implements PluginPanelInstance {
       const commandDisabled = !this.evidenceReady || this.commandBusy || this.busy || this.blocked(tab) || !tab.summary || !tab.target;
       if (tab.summary?.status === 'running') tools.append(this.button('Stop run', () => { void this.submit('stop', tab); }, commandDisabled));
       if (tab.summary?.status === 'failed') tools.append(this.button('Retry run', () => { void this.submit('retry', tab); }, commandDisabled));
+      if (tab.summary?.status === 'failed' || tab.summary?.status === 'stopped') tools.append(this.button('Ask about this failure', () => { this.postmortem.open({ repo: tab.repo, runId: tab.runId }); }, commandDisabled || !this.context.services.postmortem));
       root.append(tools, node('small', `Run-wide log preview · ${tab.events.length} events retained (maximum 300) · text may be clipped at 4,000 characters per event.`));
       if (tab.newerTrimmed || tab.olderTrimmed) root.append(node('small', `${tab.olderTrimmed ? 'Earlier preview events were released. Earlier logs reopens the latest bounded window.' : 'Newer preview events were released. Follow latest returns to the current tail.'} Download preserves full stored text.`));
       const text = tab.loaded ? logText(tab) || 'No log events yet.' : this.busy ? 'Loading log…' : 'Log unavailable.';
@@ -379,12 +383,14 @@ class ViewerPanel implements PluginPanelInstance {
     }
     this.instructions.update(this.state, tab?.summary ? { version: 1, repo: tab.repo, runId: tab.runId, expectedAttempt: tab.summary.attempt } : null);
     root.append(this.instructions.element);
+    this.postmortem.update(this.state, tab ? { repo: tab.repo, runId: tab.runId } : null);
+    root.append(this.postmortem.element);
     this.drawRequests(root);
     for (const control of root.querySelectorAll<HTMLElement>('button, a')) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey, control.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, control.getAttribute('role') === 'tab' ? 'select-tab' : control.classList.contains('run-tab-open') ? 'open-tab' : control.getAttribute('aria-label') ?? control.textContent]);
     this.container.replaceChildren(root);
     if (tab) { this.log.scrollTop = tab.follow ? this.log.scrollHeight : tab.scrollTop; if (tab.follow) tab.scrollTop = this.log.scrollTop; }
     if (focused === this.log && this.log.isConnected) this.log.focus({ preventScroll: true });
-    else if (focused?.isConnected && this.instructions.element.contains(focused)) focused.focus({ preventScroll: true });
+    else if (focused?.isConnected && (this.instructions.element.contains(focused) || this.postmortem.element.contains(focused))) focused.focus({ preventScroll: true });
     else if (focus) [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });
   }
   private drawRequests(root: HTMLElement) {
