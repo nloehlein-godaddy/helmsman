@@ -100,6 +100,7 @@ import { openPersistence, persistedJson, persistenceHash, claimApplicationStartu
 import { openExecutionStore } from './execution-store';
 import { openExecutionControls } from './execution-controls';
 import { openLegacyExecutionAdoption } from './legacy-execution-adoption';
+import { reconcileLegacyExecution } from './legacy-execution-reconciliation';
 import { openPluginLifecycle } from './plugins/lifecycle';
 import { openOperationStore } from './operations';
 import { authorizeRunEffect, createLegacyRunEffects, type LegacyRunEffects } from './legacy-run-effects';
@@ -1345,6 +1346,13 @@ const reattachIds: string[] = db.reattachableRuns().map((r: RunRow) => r.id);
 
 for (const owner of executionOwnership?.held() ?? []) {
   const { runId, repo } = owner.footprint;
+  try {
+    if (executionOwnership && await reconcileLegacyExecution({ persistence, ownership: executionOwnership, owner,
+      agentsRoot: AGENTS_ROOT, isolatedRoot: DOCKER_WORKSPACES }) === 'reconciled') continue;
+  } catch (error) {
+    process.stderr.write(`Legacy execution reconciliation blocked for ${runId}: ${String(error)}\n`);
+    continue;
+  }
   if (!executions.cleanupEligibility(runId).allowed) continue;
   try {
     const checkout = describeLocalCheckout(AGENTS_ROOT, repo, runId);

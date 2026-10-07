@@ -273,15 +273,16 @@ export function openExecutionStore(persistence: Persistence, now: () => number =
   const ownership = schemaVersion === 2 ? openExecutionOwnership(persistence) : null;
   const policies = openExecutionPolicy(persistence);
   const transaction = persistence.transaction;
-  function legacyObligations(): Array<{ runId: string; repo: string; status: string; state: string; protected: number }> {
+  function legacyRecords(): Array<{ runId: string; repo: string; status: string; state: string; protected: number }> {
     if (!sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_execution_obligations'").get()) return [];
     const rows = sql.prepare('SELECT runId,repo,status,state,protected FROM legacy_execution_obligations').all() as Array<{ runId: string; repo: string; status: string; state: string; protected: number }>;
     if (rows.some(row => !identity(row.runId) || !nonempty(row.repo) || !['running', 'succeeded', 'failed', 'stopped'].includes(row.status)
       || ![0, 1].includes(row.protected))) throw new PersistenceValidationError('Invalid legacy execution protection');
-    return rows.filter(row => row.protected === 1);
+    return rows;
   }
+  function legacyObligations() { return legacyRecords().filter(row => row.protected === 1); }
   function rejectUnadoptedLegacy(runId: string): void {
-    if (legacyObligations().some(item => item.runId === runId)) throw new PersistenceConflictError('Legacy execution requires verified adoption before admission or preparation');
+    if (legacyRecords().some(item => item.runId === runId)) throw new PersistenceConflictError('Legacy execution requires verified adoption before admission or preparation');
   }
   const raw = (key: AttemptKey) => { keyValid(key); return sql.prepare('SELECT * FROM execution_attempts WHERE runId = ? AND attempt = ?').get(key.runId, key.attempt) as AttemptRow | undefined; };
   const save = (value: ExecutionAttempt) => sql.prepare('UPDATE execution_attempts SET json = ? WHERE runId = ? AND attempt = ?').run(stableJson(value), value.runId, value.attempt);

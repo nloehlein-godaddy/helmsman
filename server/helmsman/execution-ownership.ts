@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isAbsolute, join, normalize } from 'node:path';
 import { executionFootprintsConflict, executionResourceKey, parseExecutionFootprint, type ExecutionFootprint } from './execution-footprint';
 import { persistenceHash, PersistenceConflictError, PersistenceValidationError, stableJson, type Persistence } from './persistence';
 
@@ -60,6 +61,90 @@ export function openExecutionOwnership(persistence: Persistence) {
   for (const row of sql.prepare('SELECT * FROM execution_footprints').all() as Row[]) decode(row);
   if (sql.prepare('SELECT 1 FROM execution_resource_claims c LEFT JOIN execution_footprints f ON f.runId=c.runId WHERE f.runId IS NULL LIMIT 1').get()) throw new PersistenceValidationError('Execution resource owner is missing');
   return { get, held, assertAvailable, acquire,
+    reconcileLegacyTerminal(input: { runId: string; expectedRunHash: string; expectedFootprintHash: string;
+      checkout: { path: string; commonDirectory: string }; workspace: string } &
+      ({ kind: 'registered'; branchRef: string } | { kind: 'orphan' | 'absent'; branchRef: null })): ExecutionOwnership {
+      return persistence.transaction(() => {
+        const path = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 4096
+          && !/[\u0000-\u001f\u007f]/.test(value) && isAbsolute(value) && normalize(value) === value;
+        if (!input || !['registered', 'orphan', 'absent'].includes(input.kind)
+          || !/^[a-f\d]{64}$/.test(input.expectedRunHash) || !/^[a-f\d]{64}$/.test(input.expectedFootprintHash)
+          || !input.checkout || !path(input.checkout.path) || !path(input.checkout.commonDirectory) || !path(input.workspace)
+          || input.kind !== 'registered' && input.branchRef !== null
+          || input.kind === 'registered' && (typeof input.branchRef !== 'string'
+            || !/^refs\/heads\/[A-Za-z0-9][A-Za-z0-9_./-]{0,255}$/.test(input.branchRef)
+            || input.branchRef.includes('..') || input.branchRef.endsWith('/') || input.branchRef.endsWith('.lock'))) {
+          throw new PersistenceValidationError('Invalid legacy execution reconciliation evidence');
+        }
+        const previous = get(input.runId);
+        if (!previous || previous.state !== 'held' || previous.footprint.completeness !== 'exclusive'
+          || previous.footprint.checkout !== null || previous.footprint.resources.length !== 1
+          || previous.footprint.resources[0]?.kind !== 'galleon-exclusive'
+          || persistenceHash(previous.footprint) !== input.expectedFootprintHash) {
+          throw new PersistenceConflictError('Legacy exclusive ownership changed before reconciliation');
+        }
+        const run = sql.prepare('SELECT * FROM runs WHERE id=?').get(input.runId) as Record<string, unknown> | undefined;
+        if (!run || persistenceHash(run) !== input.expectedRunHash || typeof run.repo !== 'string' || run.repo.toLowerCase() !== previous.footprint.repo
+          || !['succeeded', 'failed', 'stopped'].includes(String(run.status)) || typeof run.endedAt !== 'string' || !run.endedAt
+          || input.kind === 'registered' && run.worktreePath !== input.workspace
+          || input.workspace !== join(input.checkout.path, '.worktrees', input.runId)) {
+          throw new PersistenceConflictError('Legacy terminal run changed before reconciliation');
+        }
+        const legacy = sql.prepare("SELECT repo,status,source,host,protected FROM legacy_execution_obligations WHERE runId=?").get(input.runId) as
+          { repo: string; status: string; source: string; host: string; protected: number } | undefined;
+        if (!legacy || typeof legacy.repo !== 'string' || legacy.repo.toLowerCase() !== previous.footprint.repo || legacy.status !== run.status
+          || ![0, 1].includes(legacy.protected) || input.kind === 'orphan' && legacy.protected !== 0
+          || input.kind === 'absent' && legacy.protected === 1 && run.status !== 'succeeded'
+          || input.kind === 'registered' && (legacy.source === 'unknown' || legacy.host === 'unknown')) {
+          throw new PersistenceConflictError('Legacy execution identity remains unverified');
+        }
+        for (const table of ['execution_attempts', 'execution_reservations', 'execution_checkpoints', 'execution_evidence']) {
+          if (sql.prepare(`SELECT 1 FROM ${table} WHERE runId=? LIMIT 1`).get(input.runId)) {
+            throw new PersistenceConflictError(`Legacy execution still has ${table.replaceAll('_', ' ')}`);
+          }
+        }
+        if (sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_admissions'").get()
+          && sql.prepare('SELECT 1 FROM execution_admissions WHERE runId=? LIMIT 1').get(input.runId)) {
+          throw new PersistenceConflictError('Legacy execution still has execution admissions');
+        }
+        if (sql.prepare('SELECT 1 FROM artifact_pins WHERE ownerId=? LIMIT 1').get(input.runId)) {
+          throw new PersistenceConflictError('Legacy execution still has artifact pins');
+        }
+        if (sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operations'").get()
+          && sql.prepare('SELECT 1 FROM operations WHERE runId=? LIMIT 1').get(input.runId)) {
+          throw new PersistenceConflictError('Legacy execution still has external operations');
+        }
+        if (sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_claims'").get()) {
+          const claims = sql.prepare('SELECT json FROM work_claims').all() as { json: string }[];
+          if (claims.some(row => { const claim = JSON.parse(row.json) as { runId?: unknown }; return claim?.runId === input.runId; })) {
+            throw new PersistenceConflictError('Legacy execution still has task source claims');
+          }
+        }
+        if (input.kind === 'absent') {
+          evidence(input.runId, 'legacy-terminal-reconciled', { kind: input.kind, previous: previous.footprint });
+          release(input.runId);
+          return get(input.runId)!;
+        }
+        const candidate = parseExecutionFootprint({ version: 1, runId: input.runId, repo: previous.footprint.repo,
+          completeness: 'verified', checkout: input.checkout, resources: [
+            { kind: 'workspace', namespace: 'filesystem', identity: input.workspace },
+            ...(input.kind === 'registered' ? [
+              { kind: 'branch', namespace: `github.com/${previous.footprint.repo}`, identity: input.branchRef },
+              { kind: 'branch', namespace: `git:${input.checkout.commonDirectory}`, identity: input.branchRef },
+            ] : []),
+          ] });
+        if (held().some(other => other.footprint.runId !== input.runId && other.footprint.completeness === 'verified'
+          && executionFootprintsConflict(candidate, other.footprint))) throw new PersistenceConflictError('Verified execution resources are already retained');
+        sql.prepare('DELETE FROM execution_resource_claims WHERE runId=?').run(input.runId);
+        for (const resource of candidate.resources) sql.prepare('INSERT INTO execution_resource_claims VALUES (?,?,?,?)')
+          .run(resource.kind, resource.namespace, resource.identity, input.runId);
+        const updated = sql.prepare("UPDATE execution_footprints SET json=?,contentHash=? WHERE runId=? AND contentHash=? AND state='held'")
+          .run(stableJson(candidate), persistenceHash(candidate), input.runId, input.expectedFootprintHash);
+        if (updated.changes !== 1) throw new PersistenceConflictError('Legacy exclusive ownership changed before reconciliation');
+        evidence(input.runId, 'resources-reconciled', { kind: input.kind, previous: previous.footprint, retained: candidate });
+        return get(input.runId)!;
+      });
+    },
     abandon(runId: string) {
       return persistence.transaction(() => {
         if (sql.prepare('SELECT runId FROM execution_attempts WHERE runId=?').get(runId)) throw new PersistenceConflictError('Attempt ownership requires verified cleanup');
