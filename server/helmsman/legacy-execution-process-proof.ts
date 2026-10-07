@@ -18,7 +18,7 @@ const path = (value: unknown): value is string => text(value) && isAbsolute(valu
 const blocked = (reason: string): LegacyTerminalProcessProof => ({ inactive: false, reason });
 
 async function readExit(path: string): Promise<string> {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stat = await file.stat();
     if (!stat.isFile() || stat.size > 128) throw new Error('Invalid legacy exit evidence');

@@ -1,5 +1,9 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { RunRow } from './db';
 import { proveLegacyTerminalProcessInactive } from './legacy-execution-process-proof';
 
@@ -20,6 +24,13 @@ it('accepts an absent detached PID when no exit path was ever recorded', async (
   const dependencies = deps();
   expect(await proveLegacyTerminalProcessInactive({ ...row, exitPath: null }, dependencies)).toMatchObject({ inactive: true, exitCode: null });
   expect(dependencies.readExit).not.toHaveBeenCalled();
+});
+it.skipIf(process.platform === 'win32')('rejects a FIFO exit path without waiting for a writer', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'legacy-exit-proof-'));
+  try {
+    const exitPath = join(root, 'exit'); execFileSync('mkfifo', [exitPath]);
+    expect(await proveLegacyTerminalProcessInactive({ ...row, exitPath }, { probePid: deps().probePid })).toMatchObject({ inactive: false });
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 it('accepts valid task JSON longer than 4096 bytes while retaining individual field checks', async () => {
   const taskJson = JSON.stringify({ ...task, task: 'x'.repeat(4096), title: 'y'.repeat(4096) });
