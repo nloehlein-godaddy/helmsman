@@ -213,8 +213,14 @@ class Administration implements PluginPanelInstance {
     section.append(this.button('Validate replacement', () => { void this.act(async () => {
       if (!candidate || !selected.actor.trim() || !selected.reason.trim()) throw new Error('Select a replacement and enter an actor and reason.');
       const generation = this.generation; if (!await this.save() || !this.active(generation)) return;
+      this.validation = null;
       const result = await this.service.validateReplacement({ repo, target: source.target, ...candidate, actor: selected.actor.trim(), reason: selected.reason.trim() }, this.state.activity.signal);
-      if (this.active(generation)) { if (result.status === 'available') this.validation = result.value; else throw new Error(`Replacement validation unavailable: ${result.reason}.`); }
+      if (this.active(generation)) {
+        if (result?.status === 'available') this.validation = result.value;
+        else if (result?.diagnostic === 'jira-credentials-rejected') throw new Error('Jira rejected the configured credentials. Update the token in Config → Jira, then retry validation.');
+        else if (result?.diagnostic === 'jira-access-denied') throw new Error('Jira denied access to the configured account. Check its Jira permissions and token scopes, then retry validation.');
+        else throw new Error(`Replacement validation unavailable: ${result?.reason ?? 'invalid-response'}.`);
+      }
     }); }, stale || !candidate || blocked));
     const valid = !stale && this.validation && sameTarget(this.validation.target, source.target) && this.validation.actor === selected.actor.trim() && this.validation.reason === selected.reason.trim() && candidate && this.validation.artifactHash === candidate.artifactHash && this.validation.providerId === candidate.providerId && this.validation.mode === candidate.mode;
     if (valid) { section.append(node('p', `Validated replacement ${this.validation!.instanceId}. Applying it changes the source implementation.`)); section.append(this.button('Apply validated replacement', () => { const validation = this.validation; if (validation) void this.act(async () => { await this.submit({ version: 1, kind: 'replace', repo, validation }); this.validation = null; }); }, blocked)); }

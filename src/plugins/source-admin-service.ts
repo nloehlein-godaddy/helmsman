@@ -1,5 +1,5 @@
 import { parseSourceAdminInputV1, parseSourceAdminReceiptQueryV1, parseSourceAdminReceiptV1, parseSourceAdminSnapshotV1, parseSourceAdminValidationInputV1, parseSourceAdminValidationV1,
-  type SourceAdminServiceV1, type SourceAdminReceiptV1 } from './source-admin';
+  type SourceAdminServiceV1, type SourceAdminReceiptV1, type SourceAdminValidationDiagnosticV1 } from './source-admin';
 import { createSourceAdminJournal, SourceAdminJournalValidationError, type SourceAdminJournal } from './source-admin-journal';
 import { SourceContractValidationError } from './source-contract-validation';
 import type { SourceCommandResultV1, SourceCommandUnavailableReasonV1 } from './source-command';
@@ -35,7 +35,7 @@ export function createHostSourceAdminService(lifetime: AbortSignal, options: { c
       if (!scope.active || !latest.active || latest.epoch !== scope.epoch || latest.repo !== scope.repo || latest.signal !== scope.signal) throw cancelled();
     }
     check();
-    async function request<T>(path: string, parse: (body: unknown) => T, input?: unknown): Promise<SourceCommandResultV1<T>> {
+    async function request<T>(path: string, parse: (body: unknown) => T, input?: unknown): Promise<SourceCommandResultV1<T> & { readonly diagnostic?: SourceAdminValidationDiagnosticV1 }> {
       let response: Response | undefined;
       try {
         check(); signal.throwIfAborted();
@@ -44,6 +44,14 @@ export function createHostSourceAdminService(lifetime: AbortSignal, options: { c
           try { check(); signal.throwIfAborted(); return value; } catch (error) { discard(value); throw error; }
         }), signal);
         check(); signal.throwIfAborted();
+        if (path === '/api/source-admin/validate' && response.status === 502) {
+          try {
+            const result = await body(response, signal); check(); signal.throwIfAborted();
+            const diagnostic = result && typeof result === 'object' && 'diagnostic' in result ? result.diagnostic : null;
+            if (diagnostic === 'jira-credentials-rejected' || diagnostic === 'jira-access-denied') return Object.freeze({ status: 'unavailable', reason: 'service-unavailable', diagnostic });
+          } catch { check(); signal.throwIfAborted(); }
+          return unavailable('service-unavailable');
+        }
         if (response.status === 401 || response.status === 403) return unavailable('forbidden');
         if (response.status === 409) return unavailable('conflict');
         if (!response.ok) return unavailable('service-unavailable');

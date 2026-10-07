@@ -232,7 +232,12 @@ export function openPluginLifecycle(persistence: Persistence, executions: Execut
       persistence.transaction(() => {
         const row = current(pluginId);
         if (!row || row.revision !== expectedRevision) throw new PersistenceConflictError('Plugin lifecycle revision changed');
-        if (row.desiredEnabled || row.health === 'active' || executions.pins(pluginId).length || affectedDependents(pluginId).length) throw new PersistenceConflictError('Active or referenced plugins cannot be uninstalled');
+        if (row.desiredEnabled) throw new PersistenceConflictError('Disable the plugin before uninstalling it');
+        if (row.health === 'active') throw new PersistenceConflictError('The loaded plugin is still active; restart Helmsman before uninstalling it');
+        const pins = executions.pins(pluginId);
+        if (pins.length) throw new PersistenceConflictError(`Plugin is referenced by retained work: ${pins.map(pin => `${pin.kind} ${pin.ownerId}`).join(', ')}`);
+        const dependents = affectedDependents(pluginId);
+        if (dependents.length) throw new PersistenceConflictError(`Plugin is referenced by enabled dependents: ${dependents.join(', ')}`);
         if (pending(pluginId)) throw new PersistenceConflictError('Settle pending plugin projections before uninstall');
         const revision = row.revision + 1;
         writePersistenceIntent(persistence, { id: changeId, owner: `plugin:${pluginId}`, revision,

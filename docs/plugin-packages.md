@@ -1,5 +1,7 @@
 # Plugin packages
 
+For installation, updates, enablement, and removal in the application, open **Config → Plugins**. See [Manage plugins](plugin-management.md) for the UI workflow and task-source recovery.
+
 Helmsman installs separately authored frontend pages and panels without rebuilding the application. [Composable pages and panels](panel-authoring.md), [backend pricing](plugin-backend.md), and [task sources](task-source-authoring.md) use versioned public contracts. Packages run as explicitly trusted JavaScript in the application's browser context. Installation and enablement validate bytes and metadata without executing plugin code; frontend code runs when an enabled contribution mounts; the backend coordinator controls activation and retained obligations.
 
 ## Public presentation contracts

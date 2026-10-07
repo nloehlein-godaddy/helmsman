@@ -1,4 +1,5 @@
 import { PageAttentionHost } from './plugins/page-attention-host';
+import { mountPluginManager } from './plugin-manager';
 import { startupScope } from './logic/startupScope';
 import { selectStartupRepo } from './selectStartupRepo';
 import { CLARIFICATIONS_PAGE_SLOT } from './plugins/page-slots';
@@ -76,6 +77,7 @@ export class DashboardView {
   private unsubscribePages: (() => void) | null = null;
   private unsubscribePageModules: (() => void) | null = null;
   private pageHost: PluginPageHost | null = null;
+  private pluginManager: ReturnType<typeof mountPluginManager> | null = null;
   private readonly compositions = new AppCompositionFactory();
 
   constructor(root: HTMLElement) {
@@ -256,6 +258,8 @@ export class DashboardView {
     this.unsubscribePageModules = null;
     this.pageHost?.dispose();
     this.pageHost = null;
+    this.pluginManager?.dispose();
+    this.pluginManager = null;
     this.auxiliary.dispose();
     this.headerContribution.dispose();
     this.profileContribution.dispose();
@@ -276,7 +280,7 @@ export class DashboardView {
     this.route = parseRoute(new URL(href, window.location.origin));
     if (history === 'replace') window.history.replaceState(null, '', href);
     else if (history === 'push' && href !== window.location.pathname + window.location.search) window.history.pushState(null, '', href);
-    document.title = `↻ ${route.view === 'plugin' ? (route.pluginPage ? appPages.getPage(route.pluginPage)?.title : null) ?? term('unavailablePluginPage') : route.view === 'dashboard' ? term('dashboard') : route.view === 'prs' ? term('prs') : route.view === 'runs' ? term('runs') : route.view === 'outcomes' ? term('costsOutcomes') : route.view === 'campaigns' ? term('campaigns') : route.view === 'clarifications' ? term('clarifications') : route.view === 'cmux' ? 'Terminal' : route.view[0]!.toUpperCase() + route.view.slice(1)} · Helmsman`;
+    document.title = `↻ ${route.view === 'config' && route.pane === 'plugins' ? 'Plugins' : route.view === 'plugin' ? (route.pluginPage ? appPages.getPage(route.pluginPage)?.title : null) ?? term('unavailablePluginPage') : route.view === 'dashboard' ? term('dashboard') : route.view === 'prs' ? term('prs') : route.view === 'runs' ? term('runs') : route.view === 'outcomes' ? term('costsOutcomes') : route.view === 'campaigns' ? term('campaigns') : route.view === 'clarifications' ? term('clarifications') : route.view === 'cmux' ? 'Terminal' : route.view[0]!.toUpperCase() + route.view.slice(1)} · Helmsman`;
   }
 
   private async navigate(route: AppRoute, history: 'push' | 'replace' | 'none' = 'push'): Promise<void> {
@@ -308,7 +312,7 @@ export class DashboardView {
     if (scopeChanged) await this.refresh(false);
     if (seq !== this.routeSeq) return;
     if (this.isPluginPage() && !this.isRunViewerPage()) await this.pageHost?.refresh();
-    else if (route.view === 'config') {
+    else if (route.view === 'config' && route.pane !== 'plugins') {
       await this.loadUiConfig();
       if (seq !== this.routeSeq) return;
     }
@@ -538,6 +542,7 @@ export class DashboardView {
   private shellOptions(): HelmHeadOpts {
     return {
       active: this.view, repos: this.repos, selectedRepo: this.selectedRepo, themeId: this.themeId,
+      pane: this.route.pane,
       pluginPage: this.route.pluginPage, pluginSlot: this.route.pluginSlot,
       jiraEnabled: this.jiraEnabled,
       readout: {
@@ -549,6 +554,8 @@ export class DashboardView {
   }
 
   private mountPage(markup: string): void {
+    this.pluginManager?.dispose();
+    this.pluginManager = null;
     this.pageHost?.dispose();
     this.pageHost = null;
     if (this.contentView === 'config') this.captureConfigDrafts();
@@ -728,6 +735,18 @@ export class DashboardView {
   }
 
   private paintConfig(): void {
+    if (this.route.pane === 'plugins') {
+      if (!this.pluginManager) {
+        this.mountPage(renderAppShell(this.shellOptions(), '<div data-plugin-manager-host></div>'));
+        const container = this.root.querySelector<HTMLElement>('[data-plugin-manager-host]');
+        if (container) this.pluginManager = mountPluginManager(container, { repo: this.selectedRepo });
+      }
+      this.pluginManager?.updateScope(this.selectedRepo);
+      this.syncShell();
+      this.bindHeadControls();
+      this.rehomeRunViewer();
+      return;
+    }
     const focused = document.activeElement;
     const sourceFocusId = focused instanceof HTMLElement ? focused.closest<HTMLElement>('[data-source-id]')?.dataset.sourceId : undefined;
     const sourceFocusField = focused instanceof HTMLElement ? focused.dataset.sourceField : undefined;

@@ -125,6 +125,9 @@ describe('safe start recovery server', () => {
     const response = await fetch(`${base}/api/plugins/catalog`);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ version: 1, safeMode: true, plugins: [], bindings: { [COSTS_PAGE_SLOT]: 'example.broken/page' } });
+    expect(await (await fetch(`${base}/api/plugins/manage`)).json()).toMatchObject({ version: 1, plugins: [], readOnly: true,
+      reason: 'Plugin management is disabled in safe start.' });
+    expect((await fetch(`${base}/api/plugins/manage`, { method: 'POST' })).status).toBe(503);
     expect((await fetch(`${base}/plugin-assets/example.broken/${hash}/page.js`)).status).toBe(404);
   });
 
@@ -258,7 +261,7 @@ describe('safe start recovery server', () => {
     for (const query of ['limit=0', 'limit=101', 'offset=-1', 'limit=NaN', 'repo=../other']) {
       expect((await fetch(`${base}/api/runs?${query}`)).status).toBe(400);
     }
-    for (const path of ['/api/recovery', '/api/runs', '/api/plugins/catalog', '/recovery', '/runs']) {
+    for (const path of ['/api/recovery', '/api/runs', '/api/plugins/catalog', '/api/plugins/manage', '/recovery', '/runs']) {
       const response = await fetch(`${base}${path}`, { method: 'HEAD' });
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('');

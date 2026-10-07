@@ -3,6 +3,7 @@ import { TaskSourceValidationError, parseTaskRepo } from '../../src/plugins/task
 import { PersistenceConflictError, PersistenceValidationError } from './persistence';
 import { SourceAdminAccessError, type SourceAdminServerService } from './source-admin-service';
 import type { ApiResult } from './router';
+import { JiraSourceAccessError } from './task-source-jira-connection';
 
 export async function handleSourceAdminApi(input: { method: string; path: string; query: URLSearchParams; body?: unknown;
   caller?: string; service?: SourceAdminServerService; signal?: AbortSignal }): Promise<ApiResult | null> {
@@ -23,6 +24,9 @@ export async function handleSourceAdminApi(input: { method: string; path: string
     if (input.method !== 'GET') return { status: 405, json: { error: 'Source administration receipt requires GET' } };
     return { status: 200, json: input.service.receipt(input.caller, { repo: input.query.get('repo'), requestId: match[1] }) };
   } catch (error) {
+    if (error instanceof JiraSourceAccessError) return { status: 502, json: {
+      error: error.message, diagnostic: error.status === 401 ? 'jira-credentials-rejected' : 'jira-access-denied',
+    } };
     if (error instanceof SourceAdminAccessError) return { status: 403, json: { error: error.message } };
     if (error instanceof PersistenceConflictError) return { status: 409, json: { error: 'Source administration authority or identity changed' } };
     if (error instanceof SourceContractValidationError || error instanceof TaskSourceValidationError || error instanceof PersistenceValidationError) return { status: 400, json: { error: 'Invalid source administration request' } };

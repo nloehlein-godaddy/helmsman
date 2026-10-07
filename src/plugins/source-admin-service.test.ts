@@ -157,3 +157,22 @@ it('allows null-scope administration retry only from All and retains the exact n
   f.fetcher.mockImplementation(async (_url, init) => { expect(JSON.parse(String(init?.body))).toEqual(command); return Response.json(receipt(command)); });
   expect(await all.retry!(query)).toEqual({ status: 'available', value: receipt(command) });
 });
+
+const validationInput = { repo, target: input.target, mode: 'refresh' as const, providerId: 'example.tasks/provider', artifactHash: 'a'.repeat(64), actor: 'operator', reason: 'upgrade' };
+it.each(['jira-credentials-rejected', 'jira-access-denied'] as const)('preserves allowlisted validation diagnostic %s without forwarding remote messages', async diagnostic => {
+  const f = setup(); f.fetcher.mockResolvedValue(Response.json({ diagnostic, error: 'private upstream detail' }, { status: 502 }));
+  expect(await f.service.validateReplacement(validationInput)).toEqual({ status: 'unavailable', reason: 'service-unavailable', diagnostic });
+});
+it.each([{ diagnostic: 'private upstream detail' }, { error: 'private upstream detail' }, null])('keeps unknown validation failures generic', async response => {
+  const f = setup(); f.fetcher.mockResolvedValue(Response.json(response, { status: 502 }));
+  expect(await f.service.validateReplacement(validationInput)).toEqual({ status: 'unavailable', reason: 'service-unavailable' });
+});
+it('does not attach validation diagnostics to command outcomes', async () => {
+  const f = setup(); f.fetcher.mockResolvedValue(Response.json({ diagnostic: 'jira-credentials-rejected' }, { status: 502 }));
+  expect(await f.service.submit(input)).toEqual({ status: 'unavailable', reason: 'service-unavailable' });
+});
+it('discards late validation diagnostics when the scope changes', async () => {
+  const f = setup(); let release!: (response: Response) => void; f.fetcher.mockReturnValue(new Promise(resolve => { release = resolve; }));
+  const pending = f.service.validateReplacement(validationInput); const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  f.change(); release(Response.json({ diagnostic: 'jira-credentials-rejected' }, { status: 502 })); await rejected;
+});

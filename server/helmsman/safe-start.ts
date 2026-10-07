@@ -119,6 +119,10 @@ export function createSafeStartServer(options: SafeStartOptions): Server {
       const readOnly = req.method === 'GET' || req.method === 'HEAD';
       const head = req.method === 'HEAD';
       if (!readOnly) { json(res, 503, disabled); return; }
+      if (url.pathname === '/api/plugins/manage') {
+        json(res, 200, { version: 1, plugins: [], restartRequired: false, readOnly: true,
+          reason: 'Plugin management is disabled in safe start.' }, head); return;
+      }
       if (handlePluginRequest(req, res, url, snapshot)) return;
       if (url.pathname === '/api/recovery') {
         const repo = url.searchParams.get('repo');

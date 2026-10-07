@@ -25,6 +25,8 @@ export interface SourceAdminValidationInputV1 {
 export interface SourceAdminValidationV1 extends SourceAdminValidationInputV1 {
   readonly validationId: string; readonly instanceId: string; readonly evidenceHash: string;
 }
+export type SourceAdminValidationDiagnosticV1 = 'jira-credentials-rejected' | 'jira-access-denied';
+export type SourceAdminValidationResultV1 = SourceCommandResultV1<SourceAdminValidationV1> & { readonly diagnostic?: SourceAdminValidationDiagnosticV1 };
 export type SourceAdminInputV1 = { readonly version: 1; readonly repo: string | null } & (
   | { readonly kind: 'configure'; readonly target: SourceAdminTargetV1; readonly changes: { readonly label: string; readonly desiredEnabled: boolean; readonly allowedRepos: readonly string[]; readonly settings: Readonly<Record<string, PluginJson>> } }
   | { readonly kind: 'schedule'; readonly repo: string; readonly expectedRevision: number; readonly instanceIds: readonly string[] }
@@ -46,7 +48,7 @@ export interface SourceAdminPendingV1 { readonly command: SourceAdminCommandV1; 
 export interface SourceAdminServiceV1 {
   readonly version: 1;
   snapshot(signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminSnapshotV1>>;
-  validateReplacement(input: SourceAdminValidationInputV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminValidationV1>>;
+  validateReplacement(input: SourceAdminValidationInputV1, signal?: AbortSignal): Promise<SourceAdminValidationResultV1>;
   submit(input: SourceAdminInputV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminReceiptV1>>;
   retry?(query: SourceAdminReceiptQueryV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminReceiptV1>>;
   receipt(query: SourceAdminReceiptQueryV1, signal?: AbortSignal): Promise<SourceCommandResultV1<SourceAdminReceiptV1 | null>>;

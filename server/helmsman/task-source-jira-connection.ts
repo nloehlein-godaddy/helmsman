@@ -7,6 +7,15 @@ import { sourceConnectionOrigin, type SourceConnectionRecord, type SourceConnect
 
 type JiraCredentials = Pick<JiraConfig, 'baseUrl' | 'email' | 'apiToken'>;
 export type JiraSourceCredentialResolver = (signal: AbortSignal) => JiraCredentials | null | Promise<JiraCredentials | null>;
+export class JiraSourceAccessError extends Error {
+  readonly status: 401 | 403;
+  constructor(status: 401 | 403) {
+    super(status === 401 ? 'Jira rejected the configured credentials. Update the token in Config → Jira, then retry validation.'
+      : 'Jira denied access to the configured account. Check its Jira permissions and token scopes, then retry validation.');
+    this.name = 'JiraSourceAccessError';
+    this.status = status;
+  }
+}
 function credentials(input: JiraCredentials | null) {
   if (!input || typeof input.email !== 'string' || !input.email.trim() || input.email.length > 320 || !input.email.includes('@') || /[:\x00-\x20\x7f]/.test(input.email)
     || typeof input.apiToken !== 'string' || !input.apiToken.trim() || input.apiToken.length > 8192 || /[\x00-\x20\x7f]/.test(input.apiToken)) throw new Error('Jira source credentials are unavailable');
@@ -14,12 +23,17 @@ function credentials(input: JiraCredentials | null) {
 }
 function probeHttp(input: ReturnType<typeof credentials>, signal: AbortSignal, fetcher: typeof fetch): SourceReadHttpV1 {
   const connection = { id: 'jira-identity-probe', credentialHandle: 'jira-identity-probe', origin: input.origin, subject: 'unverified', authorityId: null };
-  return createSourceHttp({ connection, signal, fetcher, timeoutMs: 15_000, maxResponseBytes: 128 * 1024,
+  const http = createSourceHttp({ connection, signal, fetcher, timeoutMs: 15_000, maxResponseBytes: 128 * 1024,
     resolve: async () => ({ ...connection, headers: input.headers }),
     authorize(request) {
       if (request.method !== 'GET' || !['/rest/api/3/myself', '/_edge/tenant_info'].includes(request.path) || Object.keys(request.query).length) throw new Error('Invalid Jira identity probe');
     },
   });
+  return { async get(request) {
+    const response = await http.get(request);
+    if (response.status === 401 || response.status === 403) throw new JiraSourceAccessError(response.status);
+    return response;
+  } };
 }
 async function verify(input: ReturnType<typeof credentials>, signal: AbortSignal, fetcher: typeof fetch) {
   const http = probeHttp(input, signal, fetcher);

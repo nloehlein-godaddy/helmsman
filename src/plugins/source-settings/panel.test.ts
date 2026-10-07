@@ -86,6 +86,17 @@ describe('source settings authored panel', () => {
     await vi.waitFor(() => expect(button(f, 'Apply validated replacement').disabled).toBe(false)); expect(f.validateReplacement.mock.calls[0]?.[0]).toMatchObject({ target: source.target, artifactHash: 'a'.repeat(64) });
     edit(f, 'Replacement actor', 'another'); button(f, 'Apply validated replacement').click(); await Promise.resolve(); expect(f.submit).not.toHaveBeenCalled();
   });
+  it.each([
+    ['jira-credentials-rejected', 'Update the token in Config → Jira'],
+    ['jira-access-denied', 'Check its Jira permissions and token scopes'],
+  ] as const)('shows actionable %s validation failures and clears previously validated replacement', async (diagnostic, message) => {
+    const f = fixture(); await panel.mount(f.container, f.context); await open(f);
+    edit(f, 'Replacement candidate', JSON.stringify(source.replacements[0])); edit(f, 'Replacement actor', 'operator'); edit(f, 'Replacement reason', 'upgrade');
+    button(f, 'Validate replacement').click(); await vi.waitFor(() => expect(button(f, 'Apply validated replacement').disabled).toBe(false));
+    f.validateReplacement.mockResolvedValueOnce({ status: 'unavailable', reason: 'service-unavailable', diagnostic });
+    button(f, 'Validate replacement').click(); await vi.waitFor(() => expect(f.container.textContent).toContain(message));
+    expect(f.container.textContent).not.toContain('Apply validated replacement'); expect(f.submit).not.toHaveBeenCalled();
+  });
   it('preserves focused unsent configuration and its caret through refresh', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await open(f); edit(f, 'Source label', 'Unsent label'); const input = field(f, 'Source label') as HTMLInputElement; input.focus(); input.setSelectionRange(2, 6);
     await instance.refresh?.(); const refreshed = field(f, 'Source label') as HTMLInputElement; expect(refreshed.value).toBe('Unsent label'); expect(document.activeElement).toBe(refreshed); expect(refreshed.selectionStart).toBe(2); expect(refreshed.selectionEnd).toBe(6);

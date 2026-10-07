@@ -126,17 +126,18 @@ describe('installed page discovery', () => {
 
 describe('section navigation', () => {
   const configPaths = ['/config', '/source-settings', '/execution-settings', '/feedback-settings', '/jira-settings', '/github-settings', '/communication', '/local-git'];
+  const configMenuPaths = ['/config', '/config', ...configPaths.slice(1)];
   const runPaths = ['/runs', '/run-history', '/run-viewer'];
   function head(path: string) {
     const route = parseRoute(new URL(path, window.location.origin));
-    return mount(renderHelmHead({ ...opts, active: route.view, selectedRepo: route.repo, pluginPage: route.pluginPage, pluginSlot: route.pluginSlot }));
+    return mount(renderHelmHead({ ...opts, active: route.view, pane: route.pane, selectedRepo: route.repo, pluginPage: route.pluginPage, pluginSlot: route.pluginSlot }));
   }
   function paths(root: HTMLElement) {
     return [...root.querySelectorAll<HTMLAnchorElement>('.section-nav a')].map(anchor => new URL(anchor.href).pathname);
   }
 
   it.each([...configPaths, ...runPaths])('keeps the full section available on direct navigation to %s', path => {
-    const expected = configPaths.includes(path) ? configPaths : runPaths;
+    const expected = configPaths.includes(path) ? configMenuPaths : runPaths;
     const parent = configPaths.includes(path) ? 'config' : 'runs';
     const root = head(`${path}?repo=org/a&run=old&runRepo=org/b&prRepo=org/b&pr=17&pane=recent&panel=old&ticket=TASK-1`);
     const nav = root.querySelector<HTMLElement>('.section-nav');
@@ -147,7 +148,8 @@ describe('section navigation', () => {
     expect(nav?.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
     expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe(`${path}?repo=org%2Fa`);
     for (const anchor of root.querySelectorAll<HTMLAnchorElement>('.section-nav a')) {
-      expect([...new URL(anchor.href).searchParams]).toEqual([['repo', 'org/a']]);
+      expect([...new URL(anchor.href).searchParams]).toEqual(anchor.dataset.sectionLink === 'plugins'
+        ? [['repo', 'org/a'], ['pane', 'plugins']] : [['repo', 'org/a']]);
     }
     if (path !== expected[0]) expect(root.querySelector('.page-tab.is-active')?.hasAttribute('aria-current')).toBe(false);
   });
@@ -172,13 +174,13 @@ describe('section navigation', () => {
     appPages.select(SOURCE_SETTINGS_PAGE_SLOT, 'example.source/page');
     const root = head('/plugins/example.source/page');
     expect(root.querySelector('.section-nav [aria-current="page"]')?.getAttribute('href')).toBe('/plugins/example.source/page');
-    expect(root.querySelectorAll('.section-nav a')).toHaveLength(configPaths.length);
+    expect(root.querySelectorAll('.section-nav a')).toHaveLength(configMenuPaths.length);
   });
 
   it('retains the section and alias when a selected child implementation is unavailable', () => {
     appPages.select(SOURCE_SETTINGS_PAGE_SLOT, 'example.missing/page');
     const root = head('/source-settings?repo=org/a');
-    expect(paths(root)).toEqual(configPaths);
+    expect(paths(root)).toEqual(configMenuPaths);
     expect(root.querySelector('.page-tab.is-active')?.id).toBe('page-tab-config');
     expect(root.querySelector('.section-nav [aria-current="page"]')?.getAttribute('href')).toBe('/source-settings?repo=org%2Fa');
     expect(appPages.selected(SOURCE_SETTINGS_PAGE_SLOT)).toMatchObject({ contributionId: 'example.missing/page', page: null });
@@ -192,5 +194,16 @@ describe('section navigation', () => {
     expect(root.querySelector('.section-nav a')).toBeNull();
     expect(root.querySelector('.page-tab.is-active')?.id).toBe('page-tab-plugin');
     expect(root.querySelector('.page-tab.is-active')?.textContent).toBe('External source');
+  });
+
+  it('keeps the core plugin manager discoverable with the current scope', () => {
+    const root = head('/config?repo=org/a&pane=plugins');
+    const nav = root.querySelector('.section-nav');
+    expect(paths(root)).toEqual(configMenuPaths);
+    expect(nav?.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    expect(nav?.querySelector('[aria-current="page"]')?.textContent).toBe('Plugins');
+    expect(nav?.querySelector('[data-section-link="overview"]')?.getAttribute('href')).toBe('/config?repo=org%2Fa');
+    expect(root.querySelector('.page-tab.is-active')?.id).toBe('page-tab-config');
+    expect(root.querySelector('.page-tab.is-active')?.hasAttribute('aria-current')).toBe(false);
   });
 });

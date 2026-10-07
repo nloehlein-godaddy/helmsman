@@ -89,7 +89,12 @@ export function createSourceHttp(options: {
     finally { reader?.releaseLock(); }
     signal.throwIfAborted();
     const text = Buffer.concat(chunks, bytes).toString('utf8');
-    const body = text.trim() ? pluginJson(JSON.parse(text), { maxBytes, maxNodes: 100_000 }) : null;
+    let decoded: unknown = null;
+    if (text.trim()) {
+      try { decoded = JSON.parse(text); }
+      catch { if (response.status < 400) throw new Error('Source HTTP response is not valid JSON'); }
+    }
+    const body = pluginJson(decoded, { maxBytes, maxNodes: 100_000 });
     return { status: response.status, body };
   }
   const get: SourceReadHttpV1['get'] = input => request({ method: 'GET', path: input?.path, query: input?.query, body: null });

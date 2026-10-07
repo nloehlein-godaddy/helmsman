@@ -7,6 +7,12 @@ import { parseRoute, routeHref, type AppRoute, type PageView } from './routes';
 const parse = (href: string) => parseRoute(new URL(href, 'https://helmsman.example'));
 
 describe('routes', () => {
+  it('round-trips the core plugin manager independently of plugin registrations', () => {
+    const route = parse('/config?repo=org/a&pane=plugins');
+    expect(route).toMatchObject({ view: 'config', repo: 'org/a', pane: 'plugins' });
+    expect(routeHref(route)).toBe('/config?repo=org%2Fa&pane=plugins');
+    expect(parse(routeHref({ ...route, repo: null }))).toMatchObject({ view: 'config', repo: null, pane: 'plugins' });
+  });
   it('retains canonical run identity independently of header scope without downgrading malformed explicit targets', () => {
     const route = parse('/run-viewer?repo=org/a&run=run-1&runRepo=org/b');
     expect(route).toMatchObject({ view: 'plugin', repo: 'org/a', run: 'run-1', runRepo: 'org/b' });

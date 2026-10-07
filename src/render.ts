@@ -49,6 +49,7 @@ const PAGE_TABS: { view: PageView; label: string }[] = [
 
 export interface HelmHeadOpts {
   active: PageView;
+  pane?: string | null;
   jiraEnabled?: boolean;
   repos: string[];
   selectedRepo: string | null;
@@ -68,7 +69,7 @@ function shippedPageTabs(opts: HelmHeadOpts) {
       : opts.pluginPage ? opts.pluginPage === selected?.page?.contributionId : tab.view === opts.active;
     return { ...tab, id: `page-tab-${tab.view}`, contributionId: selected?.page?.contributionId ?? null,
       label: selected?.page && selected.contributionId !== slot?.defaultContributionId ? selected.page.title : tab.label,
-      active: section ? tab.view === section.view : active, current: active && (!section || tab.view === section.view), href };
+      active: section ? tab.view === section.view : active, current: active && (!section || tab.view === section.view && !navigationChild(opts)), href };
   });
 }
 
@@ -114,9 +115,12 @@ export function renderSectionNavigation(opts: HelmHeadOpts): string {
   if (!section) return '<nav class="section-nav" hidden></nav>';
   const child = navigationChild(opts);
   const title = PAGE_TABS.find(tab => tab.view === section.view)?.label ?? section.view;
-  const currentHref = routeHref({ view: opts.active, repo: opts.selectedRepo, pluginSlot: opts.pluginSlot, pluginPage: opts.pluginPage });
+  const currentHref = routeHref({ view: opts.active, pane: opts.active === 'config' && opts.pane === 'plugins' ? 'plugins' : null,
+    repo: opts.selectedRepo, pluginSlot: opts.pluginSlot, pluginPage: opts.pluginPage });
   const links = [{ id: 'overview', label: 'Overview', href: child ? routeHref({ view: section.view, repo: opts.selectedRepo }) : currentHref, active: !child },
     ...section.children.map(item => {
+      if (!item.slot) return { id: item.pane ?? item.label, active: child === item, label: item.label,
+        href: routeHref({ view: section.view, pane: item.pane, repo: opts.selectedRepo }) };
       const selected = appPages.selected(item.slot);
       const slot = builtinPageSlots.find(value => value.id === item.slot);
       const active = opts.pluginSlot ? opts.pluginSlot === item.slot : child?.slot === item.slot && opts.pluginPage === selected.page?.contributionId;

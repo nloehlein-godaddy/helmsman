@@ -67,13 +67,14 @@ export function readPluginState(root: string): PluginInstallationState {
   } finally { db.close(); }
 }
 
-export async function installPlugin(root: string, bytes: Uint8Array, coordinator?: PluginCoordinator): Promise<InstalledPlugin> {
+export async function installPlugin(root: string, bytes: Uint8Array, coordinator?: PluginCoordinator,
+  expected?: Pick<PluginLifecycleRecord, 'artifactHash' | 'desiredEnabled' | 'revision'> | null): Promise<InstalledPlugin> {
   const parsed = parsePluginArchive(bytes);
   assertPluginNodeCompatibility(parsed.package);
   await validatePluginImports(parsed);
   const current = readPluginState(root).plugins;
   const previous = current.find(plugin => plugin.id === parsed.package.manifest.id);
-  const intended = coordinator?.state(parsed.package.manifest.id) ?? null;
+  const intended = expected === undefined ? coordinator?.state(parsed.package.manifest.id) ?? null : expected;
   if (previous?.enabled && previous.hash !== parsed.hash) throw new Error('Disable the plugin before installing another version, then restart Helmsman.');
   if (!previous && current.length >= 32) throw new Error('At most 32 external plugins may be installed.');
   const archive = await installPluginArtifact(root, bytes);
@@ -199,8 +200,8 @@ export interface PluginCoordinator {
   readonly lifecycle: PluginLifecycle;
   reconcile(): Promise<void>;
   install(archive: PluginArchive, intended?: Pick<PluginLifecycleRecord, 'artifactHash' | 'desiredEnabled' | 'revision'> | null): Promise<void>;
-  change(id: string, enabled: boolean, options?: { drainDependents?: readonly string[] }): Promise<void>;
-  uninstall(id: string): Promise<void>;
+  change(id: string, enabled: boolean, options?: { drainDependents?: readonly string[]; expected?: Pick<PluginLifecycleRecord, 'artifactHash' | 'desiredEnabled' | 'revision'> }): Promise<void>;
+  uninstall(id: string, expected?: Pick<PluginLifecycleRecord, 'artifactHash' | 'desiredEnabled' | 'revision'>): Promise<void>;
   state(id: string): PluginLifecycleRecord | null;
   canActivate(id: string, artifactHash?: string): boolean;
   builtinArtifactHash(id: string): string | null;
@@ -317,14 +318,15 @@ export async function createPluginCoordinator(options: {
         const installed = lifecycle.list();
         if (!installed.some(row => row.pluginId === archive.package.manifest.id)
           && installed.filter(row => !row.pluginId.startsWith('helmsman.')).length >= 32) throw new Error('At most 32 external plugins may be installed.');
+        const existing = state(archive.package.manifest.id);
+        const changed = intended
+          ? !existing || existing.artifactHash !== intended.artifactHash || existing.desiredEnabled !== intended.desiredEnabled || existing.revision !== intended.revision
+          : intended === null && existing !== null && existing.artifactHash !== archive.hash;
+        if (changed) throw new PersistenceConflictError('Plugin lifecycle changed; retry the installation.');
         verifyArchiveUnderLock(archive);
         register(archive.package, archive.hash);
         const row = state(archive.package.manifest.id)!;
         if (row.artifactHash === archive.hash && row.revision > 0 && readPluginState(root).plugins.some(plugin => plugin.id === row.pluginId)) return;
-        const conflict = intended
-          ? row.artifactHash !== intended.artifactHash || row.desiredEnabled !== intended.desiredEnabled || row.revision !== intended.revision
-          : intended === null && row.artifactHash !== archive.hash;
-        if (conflict) throw new PersistenceConflictError('Plugin lifecycle changed; retry the installation.');
         if (row.desiredEnabled) throw new PersistenceConflictError('Disable the plugin before installing another version, then restart Helmsman.');
         lifecycle.apply({ id: randomUUID(), pluginId: row.pluginId, artifactHash: archive.hash, expectedRevision: row.revision, desiredEnabled: false, drainDependents: [] });
       });
@@ -333,14 +335,19 @@ export async function createPluginCoordinator(options: {
     async change(id, enabled, input = {}) {
       const row = state(id);
       if (!row) throw new Error(`Plugin lifecycle is unavailable: ${id}`);
-      lifecycle.apply({ id: randomUUID(), pluginId: id, artifactHash: row.artifactHash, expectedRevision: row.revision,
+      if (input.expected && (row.artifactHash !== input.expected.artifactHash || row.desiredEnabled !== input.expected.desiredEnabled
+        || row.revision !== input.expected.revision)) throw new PersistenceConflictError('Plugin lifecycle changed; refresh before trying again.');
+      lifecycle.apply({ id: randomUUID(), pluginId: id, artifactHash: input.expected?.artifactHash ?? row.artifactHash,
+        expectedRevision: input.expected?.revision ?? row.revision,
         desiredEnabled: enabled, drainDependents: input.drainDependents ?? [] });
       await coordinator.reconcile();
     },
-    async uninstall(id) {
+    async uninstall(id, expected) {
       const row = state(id);
       if (!row || id.startsWith('helmsman.')) throw new Error('Only installed external plugins can be uninstalled');
-      lifecycle.uninstall(id, row.revision, randomUUID());
+      if (expected && (row.artifactHash !== expected.artifactHash || row.desiredEnabled !== expected.desiredEnabled
+        || row.revision !== expected.revision)) throw new PersistenceConflictError('Plugin lifecycle changed; refresh before trying again.');
+      lifecycle.uninstall(id, expected?.revision ?? row.revision, randomUUID());
       await coordinator.reconcile();
     },
     subscribe(listener) {

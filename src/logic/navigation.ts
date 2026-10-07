@@ -3,7 +3,8 @@ import { term } from './terminology';
 import { appPages, builtinPageSlots, supportsPageSlot, RUNS_PAGE_SLOT } from '../plugins/builtins';
 
 interface NavigationChild {
-  slot: string;
+  slot?: string;
+  pane?: 'plugins';
   label: string;
 }
 
@@ -14,12 +15,14 @@ interface NavigationSection {
 
 export interface NavigationRoute {
   active: PageView;
+  pane?: string | null;
   pluginSlot?: string;
   pluginPage?: string;
 }
 
 const sections: readonly NavigationSection[] = [
   { view: 'config', children: [
+    { pane: 'plugins', label: 'Plugins' },
     { slot: 'helmsman/source-settings-page', label: 'Task sources' },
     { slot: 'helmsman/execution-settings-page', label: 'Execution' },
     { slot: 'helmsman/feedback-settings-page', label: 'Product feedback' },
@@ -42,12 +45,18 @@ function matchesSlot(route: NavigationRoute, slotId: string): boolean {
   return slot?.defaultContributionId === route.pluginPage || Boolean(page && supportsPageSlot(page, slotId));
 }
 
+function matchesChild(route: NavigationRoute, section: NavigationSection, child: NavigationChild): boolean {
+  return child.slot ? matchesSlot(route, child.slot)
+    : route.active === section.view && route.pane === child.pane && !route.pluginSlot && !route.pluginPage;
+}
+
 export function navigationSection(route: NavigationRoute): NavigationSection | null {
-  return sections.find(section => section.children.some(child => matchesSlot(route, child.slot))
+  return sections.find(section => section.children.some(child => matchesChild(route, section, child))
     || (section.view === 'runs' && matchesSlot(route, RUNS_PAGE_SLOT))
     || (!route.pluginSlot && !route.pluginPage && section.view === route.active)) ?? null;
 }
 
 export function navigationChild(route: NavigationRoute): NavigationChild | null {
-  return navigationSection(route)?.children.find(child => matchesSlot(route, child.slot)) ?? null;
+  const section = navigationSection(route);
+  return section?.children.find(child => matchesChild(route, section, child)) ?? null;
 }

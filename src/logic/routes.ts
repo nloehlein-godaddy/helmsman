@@ -33,7 +33,7 @@ const panes: Record<keyof typeof LEGACY_PAGE_PATHS, readonly string[]> = {
   cmux: ['tabs', 'screen'],
   bugs: [],
   prs: ['review-requests', 'authored', 'recent', 'lookup', 'diff'],
-  config: ['local-git'],
+  config: ['local-git', 'plugins'],
   runs: ['recent', 'newrun', 'tasks'],
   todos: ['list', 'new'],
   campaigns: [],

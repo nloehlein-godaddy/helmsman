@@ -7,7 +7,7 @@ import type { SourceMutationHttpV1 } from '../../src/plugins/tasks';
 import { openPersistence, type Persistence } from './persistence';
 import { schemaVersion } from './migrations';
 import { openSourceConnectionStore, type SourceConnectionRecord } from './task-source-connections';
-import { bootstrapJiraSourceConnection, createJiraSourceHttp, jiraConnectionIdentity } from './task-source-jira-connection';
+import { bootstrapJiraSourceConnection, createJiraSourceHttp, JiraSourceAccessError, jiraConnectionIdentity } from './task-source-jira-connection';
 
 let directory: string;
 let persistence: Persistence;
@@ -108,13 +108,22 @@ describe('pinned Jira source connections', () => {
   });
   it('does not persist failed authentication, missing credentials, or aborted probes', async () => {
     const f = fixture(); f.subjectStatus = 401;
-    await expect(bootstrapJiraSourceConnection(f.options)).rejects.toThrow('subject');
+    await expect(bootstrapJiraSourceConnection(f.options)).rejects.toThrow(JiraSourceAccessError);
     expect(f.store.byProvisioningKey('configured-jira')).toBeNull();
     f.config = null;
     await expect(bootstrapJiraSourceConnection(f.options)).rejects.toThrow('credentials');
     f.controller.abort();
     await expect(bootstrapJiraSourceConnection(f.options)).rejects.toThrow();
     expect(f.store.byProvisioningKey('configured-jira')).toBeNull();
+  });
+  it.each([401, 403] as const)('classifies plain-text %s authentication failures without persisting or sending an issue request', async status => {
+    const f = fixture();
+    f.fetcher.mockImplementation(async () => new Response('private remote diagnostic', { status }));
+    await expect(bootstrapJiraSourceConnection(f.options)).rejects.toMatchObject({ name: 'JiraSourceAccessError', status });
+    expect(f.store.byProvisioningKey('configured-jira')).toBeNull();
+    expect(f.fetcher).toHaveBeenCalledOnce();
+    expect(new URL(String(f.fetcher.mock.calls[0]?.[0])).pathname).toBe('/rest/api/3/myself');
+    expect(new JiraSourceAccessError(status).message).not.toContain('private remote diagnostic');
   });
   it('rechecks authorization after identity preparation and blocks revoked operations without mutation', async () => {
     const f = fixture(); const pin = await bootstrapJiraSourceConnection(f.options); f.fetcher.mockClear();

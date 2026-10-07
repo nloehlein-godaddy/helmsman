@@ -66,6 +66,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { isAppPagePath } from '../../src/logic/routes';
 import { appPages } from '../../src/plugins/builtins';
 import { createPluginCoordinator, loadPluginSnapshot, pluginDirectory } from './plugins/store';
+import { createPluginManager, PluginManagementError } from './plugins/manager';
 import { builtinFrontendArtifacts } from './plugins/builtin-frontend';
 import { createPullRequestReadService } from './pull-request-read-service';
 import { createPullRequestInspectService } from './pull-request-inspect-service';
@@ -306,6 +307,7 @@ const builtinBackends = [...builtinTriggers, ...builtinWorkflows, ...builtinNati
 const pluginCoordinator = await createPluginCoordinator({ root: pluginDirectory(), persistence, executions, lifecycle,
   runtimeArtifact: currentRuntime.artifact, builtins: [...builtinBackends.map(plugin => ({ package: plugin.package, artifactHash: currentRuntime.artifact.artifactHash })),
     ...builtinFrontendArtifacts(currentRuntime.artifact.artifactHash)], resetHealth: true });
+const pluginManager = createPluginManager({ root: pluginDirectory(), coordinator: pluginCoordinator, builtins: builtinBackends.map(plugin => plugin.package) });
 pluginSnapshot = await loadPluginSnapshot(pluginDirectory(), process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1', pluginCoordinator);
 const backendPlugins = await activateBackendPlugins({ root: pluginDirectory(), coordinator: pluginCoordinator,
   snapshot: process.env.HELMSMAN_PLUGIN_UI_SAFE_MODE === '1' ? await loadPluginSnapshot(pluginDirectory(), false, pluginCoordinator) : pluginSnapshot,
@@ -1895,6 +1897,22 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (!allowMutationRequest(req, url.pathname)) {
       res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify({ error: 'Mutations require a same-origin JSON request to the local server.' })); return;
+    }
+    if (url.pathname === '/api/plugins/manage') {
+      if (req.method !== 'GET' && req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Allow: 'GET, POST' });
+        res.end(JSON.stringify({ error: 'Method not allowed.' })); return;
+      }
+      try {
+        const result = req.method === 'GET' ? await pluginManager.snapshot() : await pluginManager.handle(await readBody(req, 21_000_000));
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        res.end(JSON.stringify(result));
+      } catch (error) {
+        const status = error instanceof PluginManagementError ? error.status : error instanceof RequestBodyError ? error.status : 503;
+        res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        res.end(JSON.stringify({ error: error instanceof PluginManagementError || error instanceof RequestBodyError ? error.message : 'Plugin management is unavailable.' }));
+      }
+      return;
     }
     if (url.pathname === '/api/plugins/catalog' && (req.method === 'GET' || req.method === 'HEAD')) {
       try { await pluginCoordinator.reconcile(); await refreshPluginSnapshot(); }

@@ -79,6 +79,16 @@ describe('source connection HTTP capabilities', () => {
     expect(cancel).toHaveBeenCalled();
   });
 
+  it.each([401, 403, 502])('preserves HTTP %s when the upstream error is plain text', async status => {
+    const { http } = setup({ fetcher: vi.fn<typeof fetch>().mockResolvedValue(new Response('private upstream detail', { status })) });
+    expect(await http.get({ path: '/issue/100', query: {} })).toEqual({ status, body: null });
+  });
+
+  it('rejects malformed successful JSON without exposing the remote body', async () => {
+    const { http } = setup({ fetcher: vi.fn<typeof fetch>().mockResolvedValue(new Response('private upstream detail')) });
+    await expect(http.get({ path: '/issue/100', query: {} })).rejects.toThrow(/^Source HTTP response is not valid JSON$/);
+  });
+
   it('accepts empty mutation acknowledgments and keeps non-2xx status observable', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(null, { status: 204 })).mockResolvedValueOnce(new Response('{"error":"denied"}', { status: 403 }));
     const { http } = setup({ mutation: true, fetcher });

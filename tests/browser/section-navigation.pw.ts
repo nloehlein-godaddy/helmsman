@@ -19,14 +19,14 @@ for (const width of [1440, 390]) test(`section navigation persists across parent
   await expect(page.locator('#boot')).toHaveCount(0);
   const menu = page.getByRole('navigation', { name: 'Config pages', exact: true });
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole('link')).toHaveCount(8);
+  await expect(menu.getByRole('link')).toHaveCount(9);
   await expect(menu.getByRole('link', { name: 'Overview', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page).toHaveScreenshot(`config-navigation-${width}.png`);
   await menu.getByRole('link', { name: 'GitHub', exact: true }).click();
   await expect(page).toHaveURL(/\/github-settings\?repo=org%2Fa$/);
   await expect(page.getByRole('tab', { name: 'Config', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(menu.getByRole('link', { name: 'GitHub', exact: true })).toHaveAttribute('aria-current', 'page');
-  await expect(menu.getByRole('link')).toHaveCount(8);
+  await expect(menu.getByRole('link')).toHaveCount(9);
   await expect(page).toHaveScreenshot(`github-navigation-${width}.png`);
   await menu.getByRole('link', { name: 'Local Git', exact: true }).click();
   await expect(menu.getByRole('link', { name: 'Local Git', exact: true })).toHaveAttribute('aria-current', 'page');
