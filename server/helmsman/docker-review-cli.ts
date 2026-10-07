@@ -10,6 +10,7 @@ import { loadRetainedAgentProvider } from './agent-retained-loader';
 import { agentProviderAdapter } from './agents/provider';
 import { usesIsolatedExecution } from './execution-host-stage';
 import { loadExecutionWorkflow } from './workflow-execution';
+import { joinInputArguments } from './runtime-paths';
 
 const emit = (event: AgentEvent) => process.stdout.write(`${JSON.stringify({ __helmsmanPrePr: 1, ...event })}\n`);
 const abort = new AbortController();
@@ -20,7 +21,7 @@ process.once('SIGINT', stop);
 process.once('SIGHUP', stop);
 const disposals: Array<() => Promise<void>> = [];
 try {
-  const input = JSON.parse(process.argv[2] ?? 'null') as { task?: AgentTask; reviewerId?: string } | null;
+  const input = JSON.parse(joinInputArguments(process.argv.slice(2)) || 'null') as { task?: AgentTask; reviewerId?: string } | null;
   const task = input?.task;
   if (!task?.review || !usesIsolatedExecution(task)) throw new Error('Invalid isolated review task');
   const record = task.agentSelection?.writer;

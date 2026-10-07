@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { joinInputArguments } from './runtime-paths';
 
 type Transport = 'openai-responses' | 'anthropic-messages';
 interface Input { readonly version: 1; readonly command: { readonly cmd: string; readonly args: readonly string[] }; readonly transport: Transport;
@@ -124,7 +125,7 @@ export async function prepareModelRouting(value: unknown): Promise<{ command: In
   } catch (error) { await cleanup(); throw error; }
 }
 
-export async function runModelRoutingCli(raw = process.argv.slice(2).map(argument => argument.startsWith('--input=') ? argument.slice('--input='.length) : argument).join('')): Promise<number> {
+export async function runModelRoutingCli(raw = joinInputArguments(process.argv.slice(2))): Promise<number> {
   const { command, environment, cleanup } = await prepareModelRouting(JSON.parse(raw || 'null'));
   try {
     return await new Promise<number>((resolve, reject) => {

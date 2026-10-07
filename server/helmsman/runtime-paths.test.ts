@@ -2,7 +2,12 @@
 import { expect, it } from 'vitest';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
-import { applicationRoot, isHostCoordinatorCommand, runtimeModulePath, runtimeNodeArguments, retainedRuntimePath } from './runtime-paths';
+import { applicationRoot, isHostCoordinatorCommand, runtimeModulePath, runtimeNodeArguments, retainedRuntimePath, joinInputArguments } from './runtime-paths';
+import { feedbackUpdateAdapter } from './agents/feedback-update';
+import { prePrAdapter } from './agents/pre-pr';
+import { dockerReviewAdapter } from './agents/docker-review';
+import { codexAdapter } from './agents/codex';
+import type { AgentTask } from './agents/adapter';
 
 it('resolves application assets independently of the working directory', () => {
   expect(applicationRoot()).toBe(fileURLToPath(new URL('../../', import.meta.url)));
@@ -44,6 +49,29 @@ it('remaps both coordinator paths and file-URL loader dependencies into the reta
   expect(retainedRuntimePath(join(original, 'server/helmsman/pre-pr-cli.ts'), original, retained)).toBe(join(retained, 'server/helmsman/pre-pr-cli.ts'));
   expect(retainedRuntimePath(process.execPath, original, retained)).toBe(process.execPath);
   expect(retainedRuntimePath('unrelated-argument', original, retained)).toBe('unrelated-argument');
+});
+
+it('keeps every chunked launcher argument within the host exec limit and round-trips through the CLI join for a large task', () => {
+  const title = 'x'.repeat(4000);
+  const base = { ticketId: 'T-1', title, repo: 'org/repo', jiraBaseUrl: '' };
+  const agentSelection = { version: 1, writer: codexAdapter, reviewers: [codexAdapter] } as unknown as AgentTask['agentSelection'];
+  const feedbackTask: AgentTask = { ...base, prBranch: 'feature', prNumber: 42, agentSelection,
+    pullRequestSource: {} as AgentTask['pullRequestSource'],
+    workflow: { metadata: { feedbackCompletion: true } } as unknown as AgentTask['workflow'] };
+  const prePrTask: AgentTask = { ...base };
+  const dockerTask: AgentTask = { ...base, review: true,
+    dockerExecution: { runId: 'run-1', image: 'test:1', gatewayUrl: 'http://host.docker.internal:8790', capability: 'a'.repeat(64) } };
+  const commands = [
+    feedbackUpdateAdapter(codexAdapter, '/runs').buildCommand(feedbackTask),
+    prePrAdapter(codexAdapter, '/runs').buildCommand(prePrTask),
+    dockerReviewAdapter(codexAdapter).buildCommand(dockerTask),
+  ];
+  for (const command of commands) {
+    const chunks = command.args.slice(3);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every(chunk => chunk.startsWith('--input=') && chunk.length <= 256)).toBe(true);
+    expect(JSON.parse(joinInputArguments(chunks)).task.title).toBe(title);
+  }
 });
 
 it('does not remap traversal escapes or similarly named runtime directories', () => {

@@ -22,6 +22,7 @@ import { openPersistence } from './persistence';
 import { createPublicationService } from './publication-service';
 import { createScopedGateway } from './scoped-gateway';
 import { assertClarificationReady } from './pre-pr-runtime';
+import { chunkInputArguments } from './runtime-paths';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
@@ -30,6 +31,9 @@ const exec = promisify(execFile);
 const GIT = gitBin();
 const cliPath = fileURLToPath(new URL('./pre-pr-cli.ts', import.meta.url));
 const tsx = import.meta.resolve('tsx');
+
+const bashShimPassingLongArgvViaFile = (script: string) => `#!/bin/bash\nf=$(/usr/bin/mktemp)\n[ $# -gt 0 ] && printf '%s\\0' "$@" > "$f"\n`
+  + `TEST_ARGS_FILE="$f" TEST_ID="\${0##*/}" exec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)}\n`;
 
 async function fixture(mode: 'fix' | 'unavailable' | 'auth' | 'modified' | 'remote-moved' | 'ticket-title' | 'named-remote' | 'existing'
   | 'resume-approval' | 'resume-comment' | 'resume-modified' | 'summary-approval' | 'summary-fix' | 'summary-still-long' | 'summary-mutated-findings' | 'summary-mutated-verdict', settings?: PrePrSettings,
@@ -54,13 +58,12 @@ async function fixture(mode: 'fix' | 'unavailable' | 'auth' | 'modified' | 'remo
     await git(['remote', 'add', 'godaddy', 'git@github.com:example/project.git']);
   }
   await git(['switch', '-c', 'voyage/test']);
-  const script = `#!${process.execPath}\n` + String.raw`
+  const script = String.raw`
 const fs = require('node:fs');
 const cp = require('node:child_process');
-const path = require('node:path');
-const args = process.argv.slice(2);
-const id = path.basename(process.argv[1]);
 const env = process.env;
+const args = fs.readFileSync(env.TEST_ARGS_FILE, 'utf8').split('\0').slice(0, -1);
+const id = env.TEST_ID;
 const runGit = args => cp.execFileSync(env.TEST_GIT_BIN, args, {encoding:'utf8'}).trim();
 const log = data => fs.appendFileSync(env.TEST_TRANSCRIPT, JSON.stringify(data)+'\n');
 if(id === 'git') {
@@ -134,8 +137,11 @@ if(id === 'git') {
   console.log(JSON.stringify({type:'result',result:'saw https://github.com/example/project/pull/999',total_cost_usd:1}));
 }
 `;
+  const fake = join(root, 'fake-cli.cjs');
+  await writeFile(fake, script);
+  const shim = bashShimPassingLongArgvViaFile(fake);
   for (const executable of ['git', 'gh', ...(mode === 'unavailable' ? [] : ['codex']), 'claude']) {
-    await writeFile(join(bin, executable), script); await chmod(join(bin, executable), 0o755);
+    await writeFile(join(bin, executable), shim); await chmod(join(bin, executable), 0o755);
   }
   const input = { task: { ticketId: 'T-1', title: 'Fix issue', repo: 'example/project', jiraBaseUrl: '', model: 'author-model', effort: 'medium', ...options.task }, writerId: options.writerId ?? 'codex', runsDir: join(root, 'runs'), settings };
   const environment = { ...process.env, PATH: bin, TEST_MODE: mode, TEST_REMOTE: mode === 'named-remote' ? 'godaddy' : 'origin', TEST_BARE: bare,
@@ -170,7 +176,7 @@ if(id === 'git') {
     const publication = { url: `http://127.0.0.1:${address.port}/publication/v1`, token: gateway.issuePublication(row.id, 60_000).token };
     currentTask = { ...input.task, ...task };
     try {
-      const output = await exec(process.execPath, ['--import', tsx, cliPath, JSON.stringify({ ...input, task: currentTask, publication })], { cwd, timeout: 30_000, env: environment });
+      const output = await exec(process.execPath, ['--import', tsx, cliPath, ...chunkInputArguments(JSON.stringify({ ...input, task: currentTask, publication }))], { cwd, timeout: 30_000, env: environment });
       return { code: 0, output: output.stdout };
     } catch (error) {
       const failure = error as { code: number; stdout: string; stderr?: string; signal?: string; killed?: boolean };

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { AgentTask } from './agents/adapter';
 import { parseAgentInteractiveCommandV1, type AgentInteractiveCommandV1 } from '../../src/plugins/agent-provider';
-import { runtimeNodeArguments } from './runtime-paths';
+import { runtimeNodeArguments, chunkInputArguments } from './runtime-paths';
 import { prepareModelRouting } from './model-routing-cli';
 import { assertInstructionChannel, startInstructionEndpoint, InstructionDeliveryUnknownError, type InstructionIdentity } from './instruction-channel';
 
@@ -22,13 +22,7 @@ export function interactiveAgentCommand(task: AgentTask, provider: string, inter
   const stage = `${task.feedbackStage?.stage ?? task.prePr?.stage ?? (task.review ? 'review' : 'implement')}${task.prePr?.round === undefined ? '' : ` · round ${task.prePr.round}`}`;
   const config: InteractiveAgentConfig = { provider, stage, instructions: task.instructions, interactive, transport,
     ...(task.modelGateway ? { modelGateway: task.modelGateway } : {}), skillsPath: task.skillsPath ?? null };
-  const chunks: string[] = [];
-  let chunk = '--input=';
-  for (const character of JSON.stringify(config)) {
-    if (chunk.length + character.length > 256) { chunks.push(chunk); chunk = '--input='; }
-    chunk += character;
-  }
-  chunks.push(chunk);
+  const chunks = chunkInputArguments(JSON.stringify(config));
   return { cmd: process.execPath, args: [...runtimeNodeArguments('./interactive-agent-cli.ts', import.meta.url), ...chunks] };
 }
 

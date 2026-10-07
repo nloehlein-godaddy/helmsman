@@ -19,6 +19,25 @@ export function isHostCoordinatorCommand(command: { cmd: string; args: readonly 
   return [command.cmd, ...command.args].some(path => /(?:^|[\\/])(?:pre-pr-cli|docker-review-cli|feedback-update-cli)\.[jt]s$/.test(path));
 }
 
+/**
+ * Long individual script arguments can be killed before Node starts on macOS.
+ * The `--input=` prefix keeps retained hosts from remapping payload fragments as runtime paths.
+ */
+export function chunkInputArguments(value: string): string[] {
+  const chunks: string[] = [];
+  let chunk = '--input=';
+  for (const character of value) {
+    if (chunk.length + character.length > 256) { chunks.push(chunk); chunk = '--input='; }
+    chunk += character;
+  }
+  chunks.push(chunk);
+  return chunks;
+}
+
+export function joinInputArguments(argv: readonly string[]): string {
+  return argv.map(argument => argument.startsWith('--input=') ? argument.slice('--input='.length) : argument).join('');
+}
+
 export function retainedRuntimePath(value: string, originalRoot: string, retainedRoot: string): string {
   const url = value.startsWith('file:');
   let path: string;
