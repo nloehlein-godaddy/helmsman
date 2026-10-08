@@ -160,4 +160,27 @@ describe('Whiteboard durable sessions', () => {
     await expect(f.service.explain(runTarget)).rejects.toMatchObject({ reason: 'comparison-changed' });
     expect(f.client.open).not.toHaveBeenCalled(); expect(f.client.create).toHaveBeenCalledTimes(1);
   });
+  it('retains the session and document without reporting ready if the attempt changes during the write', async () => {
+    const f = fixture(); const runTarget: WhiteboardTargetV1 = { kind: 'run', repo: target.repo, runId: 'run-1', expectedAttempt: 1 };
+    const run = { id: 'run-1', repo: target.repo, attempt: 1, prNumber: 7, taskJson: JSON.stringify({ prHeadSha: headSha, pullRequestSource: { target: { repo: target.repo, number: 7, baseSha, headSha } } }) } as RunRow;
+    f.getRun.mockReturnValue(run);
+    f.client.write.mockImplementation(async () => { f.getRun.mockReturnValue({ ...run, attempt: 2 }); });
+    expect(await f.service.explain(runTarget)).toMatchObject({ status: 'failed', sessionId: 'a3dd14b8-f1a2-40ff-9770-5e3043ca44b9' });
+    expect(f.sql.prepare('SELECT status, sessionId, document FROM whiteboard_sessions').get()).toEqual({ status: 'failed', sessionId: 'a3dd14b8-f1a2-40ff-9770-5e3043ca44b9', document: JSON.stringify(document) });
+  });
+  it('retains the session and document when cancellation arrives during a successful write', async () => {
+    const f = fixture(); const controller = new AbortController();
+    f.client.write.mockImplementation(async () => { controller.abort(); });
+    expect(await f.service.explain(target, controller.signal)).toMatchObject({ status: 'failed', sessionId: 'a3dd14b8-f1a2-40ff-9770-5e3043ca44b9' });
+    expect(f.sql.prepare('SELECT status, sessionId, document FROM whiteboard_sessions').get()).toEqual({ status: 'failed', sessionId: 'a3dd14b8-f1a2-40ff-9770-5e3043ca44b9', document: JSON.stringify(document) });
+  });
+  it('does not report an open success after shutdown or galleon access changes during the CLI call', async () => {
+    const f = fixture(); await f.service.explain(target);
+    f.client.open.mockImplementation(async (_id, signal) => { f.service.dispose(); expect(signal?.aborted).toBe(true); });
+    await expect(f.service.open(target)).rejects.toThrow();
+    const next = fixture(); let permitted = [target.repo];
+    const service = createWhiteboardService({ ...next, repos: () => permitted }); await service.explain(target);
+    next.client.open.mockImplementation(async () => { permitted = []; });
+    await expect(service.open(target)).rejects.toMatchObject({ reason: 'not-found' });
+  });
 });

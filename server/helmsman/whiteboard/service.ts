@@ -122,6 +122,7 @@ export function createWhiteboardService(options: {
         }
         controller.throwIfAborted(); check(target);
         await options.client.write(record.sessionId, document, controller);
+        controller.throwIfAborted(); check(target);
         record.status = 'ready'; store.save(record);
         return snapshot(target, record);
       } catch {
@@ -136,10 +137,13 @@ export function createWhiteboardService(options: {
     async read(target, signal) { signal?.throwIfAborted(); check(target); const record = store.read(keyOf(target)); checkStored(target, record); return snapshot(target, record); },
     explain: create,
     async open(target, signal) {
-      signal?.throwIfAborted(); check(target); const record = store.read(keyOf(target));
+      const controller = AbortSignal.any([lifetime.signal, AbortSignal.timeout(60_000), ...(signal ? [signal] : [])]);
+      controller.throwIfAborted(); check(target); const record = store.read(keyOf(target));
       checkStored(target, record);
       if (record?.status !== 'ready' || !record.sessionId) throw new WhiteboardError(409, 'session-not-ready');
-      await options.client.open(record.sessionId, signal); return snapshot(target, record);
+      await options.client.open(record.sessionId, controller);
+      controller.throwIfAborted(); check(target); checkStored(target, record);
+      return snapshot(target, record);
     },
     dispose() { lifetime.abort(); },
   };
