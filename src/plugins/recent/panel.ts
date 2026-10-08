@@ -16,8 +16,9 @@ const shortRunId = (id: string): string => {
   return /^[a-f0-9]{12,}$/i.test(digest) ? digest.slice(0, 12) : digest;
 };
 const reviewSummary = (verdict: string | null | undefined, outcome: string): string => {
-  const text = verdict?.trim() ?? '';
-  const prefix = new RegExp(`^(?:Verdict:\\s*)?${outcome}(?:\\s*[—–:.-]\\s*|$)`, 'i');
+  const text = typeof verdict === 'string' ? verdict.trim() : '';
+  const recommendation = outcome === 'Comment' ? 'Comment(?: only)?' : outcome;
+  const prefix = new RegExp(`^(?:Verdict:\\s*)?${recommendation}(?:\\s*[—–:.-]\\s*|$)`, 'i');
   return text.replace(prefix, '').trim();
 };
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };

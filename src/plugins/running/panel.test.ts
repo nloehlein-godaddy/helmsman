@@ -240,3 +240,11 @@ it.each(['slack', 'created'])('recent rows link a short %s digest to the full ru
   expect(f.container.textContent).toContain('$0.00 observed spend');
   f.lifetime.abort();
 });
+
+it('recent comment-only reviews show the recommendation once while preserving the explanation', async () => {
+  const f = fixture('retry'); await recent.mount(f.container, f.context);
+  f.emit([{ ...f.item, status: 'succeeded', review: { outcome: 'COMMENT', verdict: 'Verdict: Comment only — Consider clearer wording.' } }]);
+  expect(f.container.querySelector('.run-recommendation')?.textContent).toBe('Comment');
+  expect(f.container.querySelector('.run-review-summary')?.textContent).toBe('Consider clearer wording.');
+  f.lifetime.abort();
+});
