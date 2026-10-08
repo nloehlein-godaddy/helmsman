@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { builtinCatalog } from './builtin-catalog';
 
 async function customThemeContrast(page: Page) {
   return page.evaluate(() => {
@@ -70,7 +71,7 @@ for (const width of [1440, 390]) test(`custom theme and Pirate mode persist with
   expect(await previewAccent()).toBe('#91d2ad');
   expect(await savedPalette()).toBeNull();
   await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
-  expect(await savedPalette()).toMatchObject({ version: 1, palette: { accent: '#91d2ad', mode: 'dark' } });
+  expect(await savedPalette()).toMatchObject({ version: 2, palette: { accent: '#91d2ad', mode: 'dark' } });
   await page.reload();
   await expect(theme).toHaveValue('custom');
   await expect(accent).toHaveValue('#91d2ad');
@@ -132,7 +133,7 @@ for (const width of [1440, 390]) test(`custom theme and Pirate mode persist with
   await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
   await page.reload();
   await expect(accent).toHaveValue('#96cad3');
-  expect(await savedPalette()).toMatchObject({ version: 1, palette: { accent: '#96cad3', mode: 'dark' } });
+  expect(await savedPalette()).toMatchObject({ version: 2, palette: { accent: '#96cad3', mode: 'dark' } });
   expect(await page.evaluate(() => localStorage.getItem('cmux.theme'))).toBe('custom');
   expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('cmux.theme.custom')))).toEqual(['cmux.theme.custom']);
   await page.mouse.move(0, 0);
@@ -286,4 +287,114 @@ for (const width of [1440, 390]) test(`custom accent contrast stays readable dur
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'custom');
   const bootstrapVars = await page.evaluate(() => Object.fromEntries(['--accent', '--on-accent', '--accent-text', '--accent-text-hover', '--secondary-text'].map(key => [key, document.documentElement.style.getPropertyValue(key)])));
   expect(bootstrapVars).toEqual(dark.vars);
+});
+
+async function inputThemeContrast(page: Page, selectors: string[]) {
+  return page.evaluate(selectors => {
+    const luminance = (color: string): number => {
+      const values = color.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+      if (!values || values.length !== 3) throw new Error(`Unsupported computed color ${color}`);
+      const channels = values.map(value => {
+        const channel = value / 255;
+        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+      });
+      return .2126 * channels[0]! + .7152 * channels[1]! + .0722 * channels[2]!;
+    };
+    const ratio = (first: string, second: string): number => {
+      const a = luminance(first); const b = luminance(second);
+      return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+    };
+    const controls = selectors.map(selector => {
+      const control = document.querySelector(selector);
+      if (!control) throw new Error(`Missing ${selector}`);
+      const css = getComputedStyle(control);
+      const placeholder = getComputedStyle(control, '::placeholder').color;
+      return { selector, ink: css.color, background: css.backgroundColor, value: ratio(css.color, css.backgroundColor),
+        placeholder: ratio(placeholder, css.backgroundColor), caret: ratio(css.caretColor, css.backgroundColor) };
+    });
+    const root = document.documentElement;
+    const page = document.querySelector('.page-content');
+    if (!page) throw new Error('Missing page surface');
+    const pageStyle = getComputedStyle(page);
+    return { controls, textAnchor: root.style.getPropertyValue('--text'),
+      body: ratio(pageStyle.color, pageStyle.backgroundColor),
+      vars: Object.fromEntries(['--control-bg', '--input-text', '--input-placeholder', '--text', '--text-dim', '--text-faint'].map(key => [key, root.style.getPropertyValue(key)])) };
+  }, selectors);
+}
+
+for (const width of [1440, 390]) test(`custom input backgrounds preserve readable values and placeholders at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1100 });
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    const json = url.pathname === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.todos-ui']) }
+      : url.pathname === '/api/context' ? { repos: ['org/a'], jiraBaseUrl: null }
+      : url.pathname === '/api/config' ? { config: { CUSTOM_NOTE: 'A readable custom input value' }, overridden: [] }
+      : url.pathname === '/api/agents' ? { runs: [], autoClaim: [], caps: {} }
+      : url.pathname === '/api/task-edit' ? { version: 1, repo: url.searchParams.get('repo'), sources: [] }
+      : url.pathname === '/api/task-sources' ? { instances: [] } : {};
+    return route.fulfill({ json });
+  });
+  await page.goto('/config?repo=org%2Fa');
+  await page.locator('.theme-select').selectOption('custom');
+  const editor = page.locator('[data-custom-theme-editor]');
+  const inputBackground = editor.locator('[data-custom-theme-color="controlBg"]');
+  await expect(inputBackground).toHaveAccessibleName('Input background');
+  const selectors = ['[data-key="CUSTOM_NOTE"] input', '.theme-select', '[data-custom-theme-preset]', '[data-custom-theme-mode]'];
+  const original = await inputThemeContrast(page, selectors);
+  await inputBackground.fill('#ffffff');
+  const white = await inputThemeContrast(page, selectors);
+  expect(white.textAnchor).toBe(original.textAnchor);
+  expect(white.body).toBeGreaterThanOrEqual(4.5);
+  for (const control of white.controls) {
+    expect(control.background, control.selector).toBe('rgb(255, 255, 255)');
+    expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
+    expect(control.caret, control.selector).toBeGreaterThanOrEqual(4.5);
+  }
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toHaveValue('A readable custom input value');
+  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
+  const storedWhite = await page.evaluate(() => JSON.parse(localStorage.getItem('cmux.theme.custom') ?? 'null'));
+  expect(storedWhite).toMatchObject({ version: 2, palette: { controlBg: '#ffffff', text: '#e5efe8' } });
+  await page.reload();
+  await expect(inputBackground).toHaveValue('#ffffff');
+  expect((await inputThemeContrast(page, selectors)).vars).toEqual(white.vars);
+  await page.goto('/todos?repo=org%2Fa');
+  const search = page.getByRole('searchbox', { name: 'Search Todos', exact: true });
+  await expect(search).toHaveAttribute('placeholder', 'Search Todos');
+  const todoWhite = await inputThemeContrast(page, ['.todo-list input[type="search"]', '.todo-list select']);
+  for (const control of todoWhite.controls) {
+    expect(control.background, control.selector).toBe('rgb(255, 255, 255)');
+    expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
+    expect(control.placeholder, control.selector).toBeGreaterThanOrEqual(4.5);
+  }
+  await search.scrollIntoViewIfNeeded();
+  await search.focus();
+  await page.mouse.move(0, 0);
+  await expect(page).toHaveScreenshot(`custom-theme-white-inputs-${width}.png`);
+  await search.fill('Readable search value');
+  await expect(search).toHaveValue('Readable search value');
+  await page.goto('/config?repo=org%2Fa');
+  await inputBackground.fill('#000000');
+  const black = await inputThemeContrast(page, selectors);
+  expect(black.textAnchor).toBe(original.textAnchor);
+  expect(black.body).toBeGreaterThanOrEqual(4.5);
+  for (const control of black.controls) {
+    expect(control.background, control.selector).toBe('rgb(0, 0, 0)');
+    expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
+    expect(control.caret, control.selector).toBeGreaterThanOrEqual(4.5);
+  }
+  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cmux.theme.custom') ?? 'null'))).toMatchObject({ version: 2, palette: { controlBg: '#000000', text: '#e5efe8' } });
+  await page.goto('/todos?repo=org%2Fa');
+  await expect(search).toBeVisible();
+  const todoBlack = await inputThemeContrast(page, ['.todo-list input[type="search"]', '.todo-list select']);
+  for (const control of todoBlack.controls) {
+    expect(control.background, control.selector).toBe('rgb(0, 0, 0)');
+    expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
+    expect(control.placeholder, control.selector).toBeGreaterThanOrEqual(4.5);
+  }
+  await page.route('**/assets/*.js', route => route.abort());
+  await page.reload();
+  await expect(page.locator('#boot')).toBeVisible();
+  const bootstrapVars = await page.evaluate(() => Object.fromEntries(['--control-bg', '--input-text', '--input-placeholder', '--text', '--text-dim', '--text-faint'].map(key => [key, document.documentElement.style.getPropertyValue(key)])));
+  expect(bootstrapVars).toEqual(black.vars);
 });

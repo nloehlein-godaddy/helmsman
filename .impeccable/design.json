@@ -144,6 +144,34 @@
           "oklch(95.00% 0.01188 175.53)"
         ]
       },
+      "input-text": {
+        "role": "neutral",
+        "displayName": "Input text",
+        "tonalRamp": [
+          "oklch(15.00% 0.01411 155.58)",
+          "oklch(26.43% 0.01411 155.58)",
+          "oklch(37.86% 0.01411 155.58)",
+          "oklch(49.29% 0.01411 155.58)",
+          "oklch(60.71% 0.01411 155.58)",
+          "oklch(72.14% 0.01411 155.58)",
+          "oklch(83.57% 0.01411 155.58)",
+          "oklch(95.00% 0.01411 155.58)"
+        ]
+      },
+      "input-placeholder": {
+        "role": "neutral",
+        "displayName": "Input placeholder",
+        "tonalRamp": [
+          "oklch(15.00% 0.03021 159.73)",
+          "oklch(26.43% 0.03021 159.73)",
+          "oklch(37.86% 0.03021 159.73)",
+          "oklch(49.29% 0.03021 159.73)",
+          "oklch(60.71% 0.03021 159.73)",
+          "oklch(72.14% 0.03021 159.73)",
+          "oklch(83.57% 0.03021 159.73)",
+          "oklch(95.00% 0.03021 159.73)"
+        ]
+      },
       "control-border": {
         "role": "neutral",
         "displayName": "Control border",
@@ -589,7 +617,7 @@
       "refersTo": "input",
       "description": "Native authored-plugin field with a visible label.",
       "html": "<label class=\"ds-field\">Repository<input class=\"ds-input\" value=\"helmsman\" /></label>",
-      "css": ".ds-field{display:grid;gap:5px;color:var(--text);font:16px/1.5 var(--sans,system-ui,sans-serif)}.ds-input{font:16px/1.4 var(--sans,system-ui,sans-serif);min-height:36px;padding:6px 12px;border-radius:6px;background:var(--control-bg);color:var(--text);border:1px solid var(--control-border);max-width:100%}.ds-input:focus{border-color:var(--accent)}.ds-input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}@media(any-pointer:coarse){.ds-input{min-height:44px;min-width:44px;box-sizing:border-box}}"
+      "css": ".ds-field{display:grid;gap:5px;color:var(--text);font:16px/1.5 var(--sans,system-ui,sans-serif)}.ds-input{font:16px/1.4 var(--sans,system-ui,sans-serif);min-height:36px;padding:6px 12px;border-radius:6px;background:var(--control-bg);color:var(--input-text,var(--text));caret-color:var(--input-text,var(--text));border:1px solid var(--control-border);max-width:100%}.ds-input::placeholder{color:var(--input-placeholder,var(--text-faint));opacity:1}.ds-input:focus{border-color:var(--accent)}.ds-input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}@media(any-pointer:coarse){.ds-input{min-height:44px;min-width:44px;box-sizing:border-box}}"
     },
     {
       "name": "Navigation destination",
@@ -659,7 +687,7 @@
       },
       {
         "name": "The Custom Contrast Rule",
-        "body": "Custom palettes preserve raw fills. Derive text foregrounds toward 4.5:1 contrast on the background, navigation, panels and control ground when those surfaces permit a shared foreground. Filled-action ink follows the actual fill brightness independently of theme mode. A shared foreground cannot guarantee contrast across arbitrary mixed light and dark surfaces.",
+        "body": "Custom palettes preserve raw fills. Derive shared text foregrounds toward 4.5:1 contrast on the background, navigation and panels when those surfaces permit a shared foreground. Derive input values and placeholders independently to at least 4.5:1 against the selected Input background; changing that ground does not change page text. Filled-action ink follows the actual fill brightness independently of theme mode. A shared foreground cannot guarantee contrast across arbitrary mixed light and dark surfaces.",
         "section": "colors"
       },
       {

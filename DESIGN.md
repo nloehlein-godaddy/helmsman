@@ -12,6 +12,8 @@ colors:
   panel-2: "#1c322c"
   panel-hi: "#244238"
   control-bg: "#080f0d"
+  input-text: "#e5efe8"
+  input-placeholder: "#a8beb1"
   control-border: "#8a9c91"
   line: "rgba(168, 190, 177, 0.32)"
   line-strong: "rgba(168, 190, 177, 0.72)"
@@ -120,7 +122,7 @@ components:
     padding: "7px 16px"
   input:
     backgroundColor: "{colors.control-bg}"
-    textColor: "{colors.text}"
+    textColor: "{colors.input-text}"
     typography: "{typography.control}"
     rounded: "{rounded.control}"
     padding: "6px 12px"
@@ -199,12 +201,12 @@ Evergreen navigation, dark green-neutral work surfaces and restrained teal selec
 - **Dark green-neutral work ground** (`bg`, `gutter`): work area and outer ground.
 - **Work surfaces** (`panel`, `panel-2`, `panel-hi`): panels, subordinate areas and raised-tone controls or hover feedback.
 - **Text** (`text`, `text-dim`, `text-faint`): task identity, supporting text and quiet metadata.
-- **Field ground and boundary** (`control-bg`, `control-border`): native inputs, selects and textareas.
+- **Field ground and boundary** (`control-bg`, `control-border`): native inputs, selects and textareas. Custom palettes expose Input background separately from panel ground; `input-text` and `input-placeholder` derive readable input values and placeholder text against that ground.
 - **Dividers** (`line`, `line-strong`, `line-faint`): panel boundaries, control boundaries and quiet row separation. Preserve source RGBA values.
 
 **The Theme Continuity Rule.** Use semantic CSS properties for surfaces, text, selection and state. Dark Field Guide is the fresh-install default; a saved theme keeps its palette.
 
-**The Custom Contrast Rule.** Custom palettes preserve raw fills. Derive text foregrounds toward 4.5:1 contrast on the background, navigation, panels and control ground when those surfaces permit a shared foreground. Filled-action ink follows the actual fill brightness independently of theme mode. A shared foreground cannot guarantee contrast across arbitrary mixed light and dark surfaces.
+**The Custom Contrast Rule.** Custom palettes preserve raw fills. Derive shared text foregrounds toward 4.5:1 contrast on the background, navigation and panels when those surfaces permit a shared foreground. Derive input values and placeholders independently to at least 4.5:1 against the selected Input background; changing that ground does not change page text. Filled-action ink follows the actual fill brightness independently of theme mode. A shared foreground cannot guarantee contrast across arbitrary mixed light and dark surfaces.
 
 ## Typography
 

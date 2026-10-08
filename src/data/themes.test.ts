@@ -215,7 +215,7 @@ describe('section navigation colors', () => {
 });
 
 describe('custom theme text contrast', () => {
-  const surfaces = ['--bg', '--gutter', '--panel', '--panel-2', '--panel-hi', '--control-bg'];
+  const surfaces = ['--bg', '--gutter', '--panel', '--panel-2', '--panel-hi'];
   const textRoles = ['--text', '--text-dim', '--text-faint', '--accent-text', '--accent-text-hover', '--secondary-text'];
 
   it.each([
@@ -265,6 +265,25 @@ describe('custom theme text contrast', () => {
     expect(theme.vars['--on-accent']).toBe('#ffffff');
   });
 
+  it.each([
+    { preset: 'field-guide', controlBg: '#ffffff' },
+    { preset: 'github-light', controlBg: '#000000' },
+    { preset: 'field-guide', controlBg: '#777777' },
+  ])('keeps input and page text independently readable with $controlBg inputs on $preset', ({ preset, controlBg }) => {
+    const palette = { ...createCustomTheme(preset), controlBg };
+    const theme = customThemeFromPalette(palette);
+    expect(theme.vars['--control-bg']).toBe(controlBg);
+    for (const role of ['--input-text', '--input-placeholder']) {
+      expect(contrast(theme.vars[role]!, controlBg)).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const role of textRoles) {
+      for (const background of surfaces) {
+        expect(contrast(theme.vars[role]!, theme.vars[background]!), `${role} on ${background}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    expect(palette.controlBg).toBe(controlBg);
+  });
+
   it('keeps already readable custom text unchanged', () => {
     const palette = createCustomTheme('field-guide');
     const theme = customThemeFromPalette(palette);
@@ -282,10 +301,10 @@ describe('custom theme text contrast', () => {
     };
     const theme = customThemeFromPalette(palette);
     const derived = theme.vars['--text']!;
-    expect(contrast(derived, theme.vars['--control-bg']!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(derived, palette.panel)).toBeGreaterThanOrEqual(4.5);
     const channel = parseInt(derived.slice(1, 3), 16);
     const lighter = '#' + (channel + 1).toString(16).padStart(2, '0').repeat(3);
-    expect(contrast(lighter, theme.vars['--control-bg']!)).toBeLessThan(4.5);
+    expect(contrast(lighter, palette.panel)).toBeLessThan(4.5);
     expect(palette.text).toBe('#777777');
   });
 
@@ -354,11 +373,41 @@ describe('loadThemeId / saveThemeId', () => {
     expect(loadThemeId()).toBe('custom');
     expect(loadCustomTheme()).toEqual(palette);
     expect(getTheme('custom')).toEqual(customThemeFromPalette(palette));
-    expect(JSON.parse(store[CUSTOM_THEME_STORAGE_KEY] ?? '{}')).toEqual({ version: 1, palette });
+    expect(JSON.parse(store[CUSTOM_THEME_STORAGE_KEY] ?? '{}')).toEqual({ version: 2, palette });
     const replacement = createCustomTheme('nord');
     expect(saveCustomTheme(replacement)).toBe(true);
     expect(loadCustomTheme()).toEqual(replacement);
     expect(Object.keys(store)).toEqual([CUSTOM_THEME_STORAGE_KEY, 'cmux.theme']);
+  });
+
+  it.each(['nord', 'github-light'])('preserves version 1 %s palettes with their original input fill', preset => {
+    const original = { ...createCustomTheme(preset), accent: '#345678', panel: '#345678' };
+    const { controlBg: _controlBg, ...legacy } = original;
+    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette: legacy });
+    const migrated = loadCustomTheme();
+    const amount = legacy.mode === 'light' ? 0.1 : 0.65;
+    const expectedFill = '#' + ['34', '56', '78'].map(channel => Math.round(parseInt(channel, 16) * (1 - amount)).toString(16).padStart(2, '0')).join('');
+    expect(migrated).toEqual({ ...legacy, controlBg: expectedFill });
+    expect(customThemeFromPalette(migrated).vars['--control-bg']).toBe(expectedFill);
+    expect(JSON.parse(store[CUSTOM_THEME_STORAGE_KEY]!)).toEqual({ version: 1, palette: legacy });
+    expect(saveCustomTheme(migrated)).toBe(true);
+    expect(JSON.parse(store[CUSTOM_THEME_STORAGE_KEY]!)).toEqual({ version: 2, palette: migrated });
+  });
+
+  it('requires the new input color in version 2 and rejects unknown legacy fields', () => {
+    const { controlBg: _controlBg, ...legacy } = createCustomTheme('nord');
+    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 2, palette: legacy });
+    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette: { ...legacy, unknown: '#123456' } });
+    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette: { ...legacy, panel: 'red' } });
+    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+  });
+
+  it.each(THEMES.filter(theme => theme.id !== 'amber' && theme.id !== 'custom'))('$id seeds editable inputs with its existing preset fill', preset => {
+    const palette = createCustomTheme(preset.id);
+    expect(palette.controlBg).toBe(preset.vars['--control-bg']);
+    expect(CUSTOM_THEME_FIELDS).toContainEqual({ key: 'controlBg', label: 'Input background' });
   });
 
   it('provides all editable anchors without retaining preset identity', () => {
@@ -384,6 +433,9 @@ describe('loadThemeId / saveThemeId', () => {
     { mode: 'auto' },
     { unknown: '#123456' },
     { text: null },
+    { controlBg: '#fff' },
+    { controlBg: '#ffffff;display:none' },
+    { controlBg: null },
   ])('rejects invalid palette changes %j without replacing saved data', changes => {
     const original = createCustomTheme('nord');
     saveCustomTheme(original);

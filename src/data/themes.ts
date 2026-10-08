@@ -30,6 +30,8 @@ export const REQUIRED_VAR_KEYS: readonly string[] = [
   '--panel-2',
   '--panel-hi',
   '--control-bg',
+  '--input-text',
+  '--input-placeholder',
   '--control-border',
   '--line',
   '--line-strong',
@@ -73,7 +75,7 @@ interface ThemeAnchors {
   queued: string;
 }
 
-export type CustomThemePalette = Omit<ThemeAnchors, 'id' | 'label'>;
+export type CustomThemePalette = Omit<ThemeAnchors, 'id' | 'label'> & { controlBg: string };
 
 export const CUSTOM_THEME_FIELDS = [
   { key: 'bg', label: 'Background' },
@@ -81,6 +83,7 @@ export const CUSTOM_THEME_FIELDS = [
   { key: 'panel', label: 'Panel' },
   { key: 'panel2', label: 'Secondary panel' },
   { key: 'panelHi', label: 'Highlighted panel' },
+  { key: 'controlBg', label: 'Input background' },
   { key: 'accent', label: 'Accent' },
   { key: 'secondary', label: 'Secondary accent' },
   { key: 'text', label: 'Text' },
@@ -92,18 +95,20 @@ export const CUSTOM_THEME_FIELDS = [
   { key: 'queued', label: 'Queued' },
 ] as const satisfies readonly { key: keyof Omit<CustomThemePalette, 'mode'>; label: string }[];
 
-function parseCustomThemePalette(value: unknown): CustomThemePalette | undefined {
+function parseCustomThemePalette(value: unknown, allowLegacy = false): CustomThemePalette | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   if (record.mode !== 'dark' && record.mode !== 'light') return undefined;
-  const colorKeys = CUSTOM_THEME_FIELDS.map(field => field.key);
+  const colorKeys = CUSTOM_THEME_FIELDS.map(field => field.key).filter(key => !allowLegacy || Object.hasOwn(record, 'controlBg') || key !== 'controlBg');
   const allowedKeys: readonly string[] = ['mode', ...colorKeys];
   const keys = Object.keys(record);
   if (keys.length !== allowedKeys.length || keys.some(key => !allowedKeys.includes(key))) return undefined;
   for (const key of colorKeys) {
     if (typeof record[key] !== 'string' || !/^#[a-f\d]{6}$/i.test(record[key])) return undefined;
   }
-  return Object.fromEntries(['mode', ...colorKeys].map(key => [key, record[key]])) as unknown as CustomThemePalette;
+  const palette = Object.fromEntries(['mode', ...colorKeys].map(key => [key, record[key]]));
+  if (!Object.hasOwn(palette, 'controlBg')) palette.controlBg = mixHex(palette.panel as string, 0, palette.mode === 'light' ? 0.1 : 0.65);
+  return palette as unknown as CustomThemePalette;
 }
 
 function parseStoredCustomTheme(raw: string | null): CustomThemePalette | undefined {
@@ -112,8 +117,8 @@ function parseStoredCustomTheme(raw: string | null): CustomThemePalette | undefi
     const stored: unknown = JSON.parse(raw);
     if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return undefined;
     const record = stored as Record<string, unknown>;
-    if (record.version !== 1 || Object.keys(record).length !== 2) return undefined;
-    return parseCustomThemePalette(record.palette);
+    if ((record.version !== 1 && record.version !== 2) || Object.keys(record).length !== 2) return undefined;
+    return parseCustomThemePalette(record.palette, record.version === 1);
   } catch {
     return undefined;
   }
@@ -205,10 +210,10 @@ function sectionNavVars(accent: string, companion: string, surfaces: readonly st
   };
 }
 
-function deriveVars(anchors: ThemeAnchors): Record<string, string> {
+function deriveVars(anchors: ThemeAnchors & { controlBg?: string }): Record<string, string> {
   const navigation = anchors.id === 'field-guide' ? '#0a1714' : anchors.gutter;
-  const controlBackground = mixHex(anchors.panel, 0, anchors.mode === 'light' ? 0.1 : 0.65);
-  const surfaces = [anchors.bg, anchors.gutter, anchors.panel, anchors.panel2, anchors.panelHi, controlBackground];
+  const controlBackground = anchors.controlBg ?? mixHex(anchors.panel, 0, anchors.mode === 'light' ? 0.1 : 0.65);
+  const surfaces = [anchors.bg, anchors.gutter, anchors.panel, anchors.panel2, anchors.panelHi];
   const text = (color: string): string => anchors.id === CUSTOM_THEME_ID ? readableText(color, surfaces) : color;
   const accentText = text(anchors.accent);
   const accentHover = mixHex(accentText, anchors.mode === 'light' ? 0 : 255, 0.15);
@@ -225,6 +230,8 @@ function deriveVars(anchors: ThemeAnchors): Record<string, string> {
     '--panel-2': anchors.panel2,
     '--panel-hi': anchors.panelHi,
     '--control-bg': controlBackground,
+    '--input-text': readableText(anchors.text, [controlBackground]),
+    '--input-placeholder': readableText(anchors.textDim, [controlBackground]),
     '--control-border': mixHex(anchors.textDim, 0, anchors.mode === 'light' ? 0.05 : 0.18),
     '--line': rgbaFromHex(anchors.textDim, 0.32),
     '--line-strong': rgbaFromHex(anchors.textDim, anchors.mode === 'light' ? 0.76 : 0.72),
@@ -380,7 +387,7 @@ export function createCustomTheme(presetId: string): CustomThemePalette {
   if (presetId === CUSTOM_THEME_ID) return loadCustomTheme();
   const anchors = THEME_ANCHORS.find(theme => theme.id === presetId) ?? THEME_ANCHORS[0]!;
   const { id: _id, label: _label, ...palette } = anchors;
-  return palette;
+  return { ...palette, controlBg: mixHex(anchors.panel, 0, anchors.mode === 'light' ? 0.1 : 0.65) };
 }
 
 export function customThemeFromPalette(palette: CustomThemePalette): Theme {
@@ -403,7 +410,7 @@ export function saveCustomTheme(palette: CustomThemePalette): boolean {
   if (!validPalette) return false;
   try {
     if (typeof localStorage === 'undefined') return false;
-    localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify({ version: 1, palette: validPalette }));
+    localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify({ version: 2, palette: validPalette }));
     return true;
   } catch {
     return false;

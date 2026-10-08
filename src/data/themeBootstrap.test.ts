@@ -92,6 +92,34 @@ describe('initial theme bootstrap', () => {
     expect(JSON.parse(values[CUSTOM_THEME_STORAGE_KEY]!).palette).toEqual(palette);
   });
 
+  it.each([
+    { preset: 'field-guide', controlBg: '#ffffff' },
+    { preset: 'github-light', controlBg: '#000000' },
+  ])('restores independent input colors before paint for $preset', ({ preset, controlBg }) => {
+    const palette = { ...createCustomTheme(preset), controlBg };
+    vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'cmux.theme' ? 'custom' : JSON.stringify({ version: 2, palette }) });
+    new Function(themeBootstrapScript())();
+    const runtime = customThemeFromPalette(palette);
+    for (const role of ['--control-bg', '--input-text', '--input-placeholder', '--text', '--accent-text']) {
+      expect(document.documentElement.style.getPropertyValue(role)).toBe(runtime.vars[role]);
+    }
+    const initialStyles = document.documentElement.getAttribute('style');
+    applyTheme('custom');
+    expect(document.documentElement.getAttribute('style')).toBe(initialStyles);
+  });
+
+  it.each(['field-guide', 'github-light'])('migrates legacy input fill before first paint for %s', preset => {
+    const { controlBg: _controlBg, ...palette } = createCustomTheme(preset);
+    const stored = JSON.stringify({ version: 1, palette: { ...palette, accent: '#345678' } });
+    vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'cmux.theme' ? 'custom' : stored });
+    new Function(themeBootstrapScript())();
+    const initialStyles = document.documentElement.getAttribute('style');
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#345678');
+    expect(document.documentElement.style.getPropertyValue('--control-bg')).toBe(createCustomTheme(preset).controlBg);
+    applyTheme('custom');
+    expect(document.documentElement.getAttribute('style')).toBe(initialStyles);
+  });
+
   it.each(['broken JSON', '{"version":1,"palette":{"mode":"dark"}}', JSON.stringify({ version: 1, palette: { ...createCustomTheme('nord'), accent: 'red' } })])('matches the runtime fallback for corrupt custom storage %s', raw => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'cmux.theme' ? 'custom' : raw });
     expect(() => new Function(themeBootstrapScript())()).not.toThrow();
