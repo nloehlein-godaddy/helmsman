@@ -73,6 +73,7 @@ export class DashboardView {
   private readonly onResize = (): void => { this.revealActiveTab(); };
   private readonly onPopState = (): void => { void this.navigate(parseRoute(new URL(window.location.href)), 'none'); };
   private themeId: string = loadThemeId();
+  private themePreferenceSaved = true;
   private customTheme: CustomThemeEditorState = { palette: loadCustomTheme(), presetId: DEFAULT_THEME_ID, dirty: false, message: null, error: false };
   private configSaves: number = 0;
   private jiraEnabled: boolean = true;
@@ -123,9 +124,9 @@ export class DashboardView {
       } else if (control.matches('.theme-select')) {
         this.themeId = control.value;
         this.applyCurrentTheme();
-        const saved = saveThemeId(this.themeId);
+        this.themePreferenceSaved = saveThemeId(this.themeId);
         const help = this.root.querySelector('#ui-theme-help');
-        if (help) help.textContent = saved ? 'Applies immediately. Saved in this browser.' : 'Applied for this session. Browser storage is unavailable.';
+        if (help) help.textContent = this.themePreferenceSaved ? 'Applies immediately. Saved in this browser.' : 'Applied for this session. Browser storage is unavailable.';
         const editor = this.root.querySelector<HTMLElement>('[data-custom-theme-editor]');
         if (editor) editor.hidden = this.themeId !== CUSTOM_THEME_ID;
         if (this.isPluginPage()) this.paintPluginPage();
@@ -301,10 +302,15 @@ export class DashboardView {
   private customThemeAction(action: 'save' | 'discard' | 'preset'): void {
     if (this.themeId !== CUSTOM_THEME_ID) return;
     if (action === 'save') {
-      const saved = saveCustomTheme(this.customTheme.palette) && saveThemeId(CUSTOM_THEME_ID);
-      this.customTheme.error = !saved;
-      this.customTheme.message = saved ? 'Custom theme saved in this browser.' : 'Custom theme could not be saved. Your preview is kept; enable browser storage and retry.';
-      if (saved) this.customTheme.dirty = false;
+      const paletteSaved = saveCustomTheme(this.customTheme.palette);
+      if (paletteSaved) this.themePreferenceSaved = saveThemeId(CUSTOM_THEME_ID);
+      this.customTheme.error = !paletteSaved || !this.themePreferenceSaved;
+      this.customTheme.message = !paletteSaved ? 'Custom theme could not be saved. Your preview is kept; enable browser storage and retry.'
+        : this.themePreferenceSaved ? 'Custom theme saved in this browser.'
+          : 'Custom palette saved. Custom is active for this session; theme selection could not be saved. Enable browser storage and retry.';
+      if (paletteSaved) this.customTheme.dirty = false;
+      const help = this.root.querySelector('#ui-theme-help');
+      if (help) help.textContent = this.themePreferenceSaved ? 'Applies immediately. Saved in this browser.' : 'Applied for this session. Browser storage is unavailable.';
       this.syncCustomThemeStatus();
       return;
     }
@@ -829,6 +835,7 @@ export class DashboardView {
       themeId: this.themeId,
       loading: this.configLoading,
       customTheme: this.customTheme,
+      themePreferenceSaved: this.themePreferenceSaved,
       error: this.configError,
       unavailable: !this.configLoaded,
     }));

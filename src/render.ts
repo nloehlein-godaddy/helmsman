@@ -214,6 +214,7 @@ export interface ConfigViewOpts {
   error?: string | null;
   unavailable?: boolean;
   customTheme?: CustomThemeEditorState;
+  themePreferenceSaved?: boolean;
 }
 
 function configRowsHtml(uiConfig: UiConfig): string {
@@ -240,7 +241,7 @@ function configRowsHtml(uiConfig: UiConfig): string {
 }
 
 
-function configCustomizationPanel(themeId: string, customTheme?: CustomThemeEditorState): string {
+function configCustomizationPanel(themeId: string, customTheme?: CustomThemeEditorState, themePreferenceSaved = true): string {
   const themeOptions = THEMES.map(
     (theme) => `<option value="${esc(theme.id)}"${theme.id === themeId ? ' selected' : ''}>${esc(theme.label)}</option>`,
   ).join('');
@@ -250,7 +251,7 @@ function configCustomizationPanel(themeId: string, customTheme?: CustomThemeEdit
           <div class="ui-theme-control">
             <label for="ui-theme">Theme</label>
             <select id="ui-theme" class="theme-select" aria-describedby="ui-theme-help">${themeOptions}</select>
-            <p id="ui-theme-help">Applies immediately. Saved in this browser.</p>
+            <p id="ui-theme-help">${themePreferenceSaved ? 'Applies immediately. Saved in this browser.' : 'Applied for this session. Browser storage is unavailable.'}</p>
           </div>
           <div data-custom-theme-editor${themeId === CUSTOM_THEME_ID ? '' : ' hidden'}>${renderCustomThemeEditor(customTheme)}</div>
           ${renderThemePreview()}
@@ -266,7 +267,7 @@ function configCustomizationPanel(themeId: string, customTheme?: CustomThemeEdit
 }
 
 export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): string {
-  const customization = configCustomizationPanel(opts.themeId, opts.customTheme);
+  const customization = configCustomizationPanel(opts.themeId, opts.customTheme, opts.themePreferenceSaved);
   const intro = `<header class="page-intro"><h1>Config</h1><p>Configure work sources, integrations, and ${term('agent').toLowerCase()} defaults. Save each setting separately.</p><div class="operator-note">${ICON_LOCK}<span>${term('operatorNote')}</span></div></header>`;
   const status = `${opts.error ? `<div class="config-load-error degraded-banner" role="alert">${esc(opts.error)}${opts.unavailable ? '' : ' Showing the last loaded settings.'} <button type="button" data-config-retry${opts.loading ? ' disabled' : ''}>Try again</button></div>` : ''}${opts.loading ? '<p class="empty-note" role="status">Loading configuration…</p>' : ''}`;
   if (opts.unavailable) {

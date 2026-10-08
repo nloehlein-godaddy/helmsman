@@ -128,3 +128,49 @@ test('custom theme saving retains the preview when browser storage fails and sup
   await page.reload();
   await expect(editor.locator('[data-custom-theme-color="accent"]')).toHaveValue('#abcdef');
 });
+
+test('custom palette survives a theme selection storage failure without claiming the selection was saved', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
+      : path === '/api/context' ? { repos: ['org/a'], jiraBaseUrl: null }
+      : path === '/api/config' ? { config: {}, overridden: [] }
+      : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
+    return route.fulfill({ json });
+  });
+  await page.goto('/config?repo=org%2Fa');
+  const theme = page.locator('.theme-select');
+  const editor = page.locator('[data-custom-theme-editor]');
+  await theme.selectOption('custom');
+  await editor.locator('[data-custom-theme-color="accent"]').fill('#abcdef');
+  await page.evaluate(() => {
+    localStorage.setItem('cmux.theme', 'field-guide');
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string): void {
+      if (key === 'cmux.theme') throw new DOMException('Theme selection storage disabled', 'SecurityError');
+      original.call(this, key, value);
+    };
+  });
+  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
+  await expect(editor.getByRole('alert')).toContainText('Custom palette saved');
+  await expect(editor.getByRole('alert')).toContainText('selection could not be saved');
+  await expect(editor.getByRole('button', { name: 'Discard changes', exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))).toBe('#abcdef');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cmux.theme.custom') ?? 'null'))).toMatchObject({ palette: { accent: '#abcdef' } });
+  expect(await page.evaluate(() => localStorage.getItem('cmux.theme'))).toBe('field-guide');
+  await page.locator('.ui-terminology-settings button[data-pirate-mode]').click();
+  await expect(page.locator('#ui-theme-help')).toHaveText('Applied for this session. Browser storage is unavailable.');
+  await expect(editor.getByRole('alert')).toContainText('selection could not be saved');
+  await page.reload();
+  await expect(theme).toHaveValue('field-guide');
+  await expect(editor).toBeHidden();
+  await theme.selectOption('custom');
+  await expect(editor.locator('[data-custom-theme-color="accent"]')).toHaveValue('#abcdef');
+  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
+  await expect(editor.locator('[data-custom-theme-status]')).toHaveText('Custom theme saved in this browser.');
+  await expect(page.locator('#ui-theme-help')).toHaveText('Applies immediately. Saved in this browser.');
+  expect(await page.evaluate(() => localStorage.getItem('cmux.theme'))).toBe('custom');
+  await page.reload();
+  await expect(theme).toHaveValue('custom');
+  await expect(editor.locator('[data-custom-theme-color="accent"]')).toHaveValue('#abcdef');
+});
