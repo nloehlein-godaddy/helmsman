@@ -1,3 +1,4 @@
+import { WhiteboardCompanion } from './whiteboard.js';
 import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PullRequestInspectDetailV1, PullRequestInspectDiffV1, PullRequestReadPageV1, PullRequestCommandPendingV1, PullRequestCommandReceiptV1, RunCommandPendingV1, RunCommandReceiptV1, RunCommandInputV1, RunReadSummaryV1 } from '@helmsman/plugin-sdk';
 import { PrStorage, subscribeStorage, type Draft } from './storage.js';
 import { esc, target, sameTarget, parseLookup, renderDetail, renderDiff, renderList, renderRuns, type Identity } from './render.js';
@@ -16,6 +17,7 @@ function selection(state: PluginPanelState): { target: Identity; mode: 'review' 
 }
 class PrPanel implements PluginPanelInstance {
   private state: PluginPanelState;
+  private readonly whiteboard: WhiteboardCompanion;
   private disposed = false;
   private generation = 0;
   private controller: AbortController | null = null;
@@ -50,6 +52,7 @@ class PrPanel implements PluginPanelInstance {
   private readonly context: PluginPanelContext;
   private readonly unsaved = new Map<string, { draft: Draft; error: string }>();
   constructor(container: HTMLElement, context: PluginPanelContext) {
+    this.whiteboard = new WhiteboardCompanion(context.services.whiteboard);
     this.container = container; this.context = context; this.state = context.state; this.storage = new PrStorage(context.contributionId);
     const routed = selection(this.state); this.route = JSON.stringify(routed);
     const saved = this.state.savedState;
@@ -66,7 +69,7 @@ class PrPanel implements PluginPanelInstance {
   private active(generation = this.generation) { return !this.disposed && !this.context.signal.aborted && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
   private cancel = () => { ++this.generation; this.controller?.abort(); this.controller = null; this.loading = false; for (const stop of this.watches) stop(); this.watches = []; this.watchKey = ''; };
   dispose = () => {
-    if (this.disposed) return; this.disposed = true; this.cancel(); this.unsubscribe();
+    if (this.disposed) return; this.disposed = true; this.cancel(); this.unsubscribe(); this.whiteboard.dispose();
     this.context.signal.removeEventListener('abort', this.dispose); this.state.activity.signal.removeEventListener('abort', this.cancel);
     this.container.removeEventListener('click', this.click); this.container.removeEventListener('input', this.input); this.container.removeEventListener('change', this.input); this.container.removeEventListener('keydown', this.keydown);
   };
@@ -296,6 +299,9 @@ class PrPanel implements PluginPanelInstance {
       ${this.unsupported ? '<p role="alert">Saved panel state uses an unsupported format. Its original data is kept.</p>' : ''}<p role="alert" data-storage-error>${esc(this.storageError)}</p><button data-save-draft${this.storageError ? '' : ' hidden'}>Save current draft</button>${this.error ? `<p role="alert" class="pr-review-error">${esc(this.error)}</p>` : ''}${this.result ? `<p role="status" class="pr-command-result">${esc(this.result)}</p>` : ''}
       <div class="pr-inbox">${renderList('review-requested', this.lists.requested, this.listErrors.requested, this.state.pirateMode)}${renderList('authored-recent', this.lists.authored, this.listErrors.authored, this.state.pirateMode)}</div>${renderRuns(this.runs, this.moreRuns, this.runsError, this.state.pirateMode)}
       <section class="pr-lookup-panel panel" data-pr-pane="lookup"><h3>${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3><div class="pr-lookup-form"><label class="interface-field">Pull request number, URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup placeholder="PR number, #number, URL or owner/name#number" value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo, this.state.pirateMode) : `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : this.selected ? 'Pull request unavailable. Refresh to retry.' : 'Select a pull request from the inbox or enter its URL.'}</p>`}</div></section>${this.diff ? renderDiff(this.diff) : ''}<section aria-label="Retained pull request commands">${this.pendingMarkup()}</section><section aria-label="Saved command results">${this.savedResults()}</section></section>`;
+    this.whiteboard.update(this.state, this.detail ? { kind: 'pull-request', ...this.detail.target } : null);
+    this.container.querySelector('.pr-lookup-result')?.append(this.whiteboard.element);
+    if (focused?.isConnected && this.whiteboard.element.contains(focused)) focused.focus({ preventScroll: true });
     for (const detail of this.container.querySelectorAll<HTMLDetailsElement>('details')) if (opened.has(detail.querySelector('.diff-file-name')?.textContent)) detail.open = true;
     if (!this.active() || this.busy) this.container.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = true; }); this.paintSafety();
     const next = field ? this.container.querySelector<HTMLTextAreaElement>(`[data-draft="${field}"]`) : lookupFocus ? this.container.querySelector<HTMLInputElement>('[data-pr-compat-lookup]') : null;

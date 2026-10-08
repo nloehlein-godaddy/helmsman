@@ -1,3 +1,7 @@
+import { openWhiteboardUsageStore } from './whiteboard/usage-store';
+import { createWhiteboardClient } from './whiteboard/client';
+import { createWhiteboardGenerator } from './whiteboard/generator';
+import { createWhiteboardService, WhiteboardError } from './whiteboard/service';
 import { openNotificationHistory } from './notification-history';
 import { createRunInstructionService } from './run-instruction-service';
 import { instructionDirectory } from './instruction-channel';
@@ -94,7 +98,7 @@ import { lstat, readFile, realpath, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { loadConfig, type AppConfig } from '../config';
 import { openDb } from './db';
 import { openPersistence, persistedJson, persistenceHash, claimApplicationStartup } from './persistence';
@@ -561,6 +565,19 @@ const webhooks = openWebhookIntake(persistence.sql, {
 });
 await taskSourceRuntime.recoverAdmissions();
 const postmortemStore = openPostmortemStore(persistence);
+const whiteboardUsage = openWhiteboardUsageStore(persistence.sql);
+const whiteboard = createWhiteboardService({ sql: persistence.sql, getRun: id => db.getRun(id), repos: applicationRepos,
+  inspect: { detail: (query, signal) => pullRequestInspect.detail(query, signal), diff: (query, signal) => pullRequestInspect.diff(query, signal) }, repositoryPath: repo => { const path = join(AGENTS_ROOT, repoBasename(repo)); return existsSync(path) ? path : null; },
+  client: createWhiteboardClient(), generate: createWhiteboardGenerator({ upstream: goCaas, model: process.env.HELMSMAN_WHITEBOARD_MODEL ?? 'gpt-6.1-sol',
+    onUsage: (evidence, usage) => {
+      whiteboardUsage.record(evidence, usage);
+      if (evidence.run && [usage.inputTokens, usage.cachedInputTokens, usage.outputTokens, usage.totalTokens].some(value => value !== null)) usageStore.recordUsage({
+        runId: evidence.run.id, attempt: evidence.run.attempt, eventId: `whiteboard:${createHash('sha256').update(usage.id).digest('hex')}`, provider: 'helmsman.whiteboard', model: usage.model,
+        inputTokens: usage.inputTokens, cachedInputTokens: usage.cachedInputTokens, outputTokens: usage.outputTokens, totalTokens: usage.totalTokens, costUsd: null });
+    } }) });
+function whiteboardAuthorize(caller: string): void {
+  if (!clarificationContributionEnabled(pluginSnapshot.catalog, caller, 'whiteboard')) throw new WhiteboardError(403, 'forbidden');
+}
 applicationStartup.ready();
 const gatewayServer = gateway.server();
 const retainedIsolation = (persistence.sql.prepare('SELECT taskJson FROM runs WHERE taskJson IS NOT NULL').all() as Array<{ taskJson: string }>).some(row => {
@@ -2017,6 +2034,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       feedbackSettings, feedbackCommands, communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, runInstructions, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      whiteboard, whiteboardAuthorize, whiteboardRepos: applicationRepos, whiteboardCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       postmortem: postmortems, postmortemAuthorize, postmortemRepos: applicationRepos, postmortemCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       outcomes,
       taskSources: taskSourceRuntime.service,
@@ -2092,11 +2110,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   });
 });
 
-server.on('close', () => { runRecovery.dispose(); runnerShutdown.abort(); gatewayServer.close(); clearInterval(effectTimer); pluginCoordinator.dispose(); void backendPlugins.dispose(); void postmortems.dispose(); });
+server.on('close', () => { whiteboard.dispose(); runRecovery.dispose(); runnerShutdown.abort(); gatewayServer.close(); clearInterval(effectTimer); pluginCoordinator.dispose(); void backendPlugins.dispose(); void postmortems.dispose(); });
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => {
   runRecovery.dispose();
   runnerShutdown.abort();
   server.close();
+  whiteboard.dispose();
   void Promise.all([backendPlugins.dispose(), postmortems.dispose()]).finally(() => process.exit(0));
 });
 server.listen(PORT, '127.0.0.1', () => {

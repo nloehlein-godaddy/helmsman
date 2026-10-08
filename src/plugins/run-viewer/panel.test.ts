@@ -14,7 +14,7 @@ const requestId = '00000000-0000-4000-8000-000000000001';
 const receipt = (status: RunCommandReceiptV1['status'] = 'accepted'): RunCommandReceiptV1 => ({ version: 1, repo: 'org/a', requestId, action: 'stop', status, runId: 'one', attempt: 1, message: null });
 const deferred = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 
-async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Partial<RunInspectServiceV1>; saved?: RunCommandPendingV1[]; saveState?: PluginPanelContext['saveState']; selector?: boolean; status?: RunReadSummaryV1['status'] } = {}) {
+async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Partial<RunInspectServiceV1>; saved?: RunCommandPendingV1[]; saveState?: PluginPanelContext['saveState']; selector?: boolean; whiteboard?: PluginPanelContext['services']['whiteboard']; status?: RunReadSummaryV1['status'] } = {}) {
   const lifetime = new AbortController(); const activity = new AbortController();
   const state: PluginPanelState = { repo: 'org/a', themeId: 'default', pirateMode: false, visible: true, pane: null, instanceId: 'viewer', savedState: null,
     activity: { epoch: 1, repo: 'org/a', active: true, signal: activity.signal }, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'one' }, ...options.state };
@@ -35,7 +35,7 @@ async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Par
   const selectPresentation = options.selector === false ? undefined : vi.fn();
   const saveState = options.saveState ?? vi.fn(async () => {});
   const container = document.createElement('div'); document.body.append(container);
-  const context: PluginPanelContext = { state, signal: lifetime.signal, activity: state.activity, services: { version: 1, runInspect: inspect, runs, runCommands: commands, downloads },
+  const context: PluginPanelContext = { state, signal: lifetime.signal, activity: state.activity, services: { version: 1, runInspect: inspect, runs, runCommands: commands, downloads, whiteboard: options.whiteboard },
     saveState, onDispose: vi.fn(), navigate: vi.fn(), selectPresentation };
   const instance = await panel.mount(container, context); instances.push(instance);
   return { container, instance, context, inspect, runs, commands, downloads, state, activity, lifetime, selectPresentation, saveState, pending: () => pending, setPending: (value: RunCommandPendingV1[]) => { pending = value; } };
@@ -292,4 +292,33 @@ describe('post-mortem entry point', () => {
     expect(Boolean(button(f.container, 'Ask about this failure'))).toBe(shown);
     if (shown) expect(button(f.container, 'Ask about this failure')?.disabled).toBe(true);
   });
+});
+
+
+it('explains and opens the current run attempt through Whiteboard without navigation', async () => {
+  const pinned = { kind: 'run' as const, ...target };
+  const snapshot = { version: 1 as const, target: pinned, status: 'absent' as const, sessionId: null, baseSha: null, headSha: null, message: null };
+  const whiteboard = { version: 1 as const, read: vi.fn(async () => available(snapshot)), explain: vi.fn(async () => available({ ...snapshot, status: 'ready' as const, sessionId: 'session' })), open: vi.fn(async () => available({ ...snapshot, status: 'ready' as const, sessionId: 'session' })) };
+  const f = await mount({ whiteboard }); await ready(f.container);
+  await vi.waitFor(() => expect(button(f.container, 'Explain in Whiteboard')?.disabled).toBe(false));
+  button(f.container, 'Explain in Whiteboard').click();
+  await vi.waitFor(() => expect(button(f.container, 'Open in Whiteboard')?.disabled).toBe(false));
+  expect(whiteboard.explain).toHaveBeenCalledWith(pinned, expect.any(AbortSignal));
+  button(f.container, 'Open in Whiteboard').focus(); button(f.container, 'Open in Whiteboard').click();
+  await vi.waitFor(() => expect(whiteboard.open).toHaveBeenCalledWith(pinned, expect.any(AbortSignal)));
+  expect(f.context.navigate).not.toHaveBeenCalled();
+});
+
+it('aborts Whiteboard creation on a scope change and ignores its late result', async () => {
+  const pinned = { kind: 'run' as const, ...target };
+  const snapshot = { version: 1 as const, target: pinned, status: 'absent' as const, sessionId: null, baseSha: null, headSha: null, message: null };
+  const pending = deferred<{ status: 'available'; value: typeof snapshot }>();
+  const whiteboard = { version: 1 as const, read: vi.fn(async () => available(snapshot)), explain: vi.fn((_target: unknown, _signal?: AbortSignal) => pending.promise), open: vi.fn() };
+  const f = await mount({ whiteboard }); await ready(f.container);
+  await vi.waitFor(() => expect(button(f.container, 'Explain in Whiteboard')?.disabled).toBe(false));
+  button(f.container, 'Explain in Whiteboard').click();
+  f.activity.abort(); pending.resolve(available(snapshot));
+  await Promise.resolve();
+  expect(whiteboard.explain.mock.calls[0]?.[1]?.aborted).toBe(true);
+  expect(button(f.container, 'Explain in Whiteboard').disabled).toBe(true);
 });

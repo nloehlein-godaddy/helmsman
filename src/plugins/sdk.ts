@@ -156,3 +156,5 @@ export * from './feedback-command';
 export * from './feedback-tracker';
 
 export * from './feedback-settings';
+
+export * from './whiteboard';

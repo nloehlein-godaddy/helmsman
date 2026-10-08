@@ -194,3 +194,18 @@ it.each([{ isComposing: true }, { repeat: true }])('ignores Enter during composi
   await vi.waitFor(() => expect(f.context.navigate).toHaveBeenCalled());
   expect(f.context.navigate).toHaveBeenCalledTimes(1);
 });
+
+
+it('explains the pinned PR comparison in Whiteboard and preserves the header scope', async () => {
+  const pinned = { kind: 'pull-request' as const, ...detail.target };
+  const snapshot = { version: 1 as const, target: pinned, status: 'absent' as const, sessionId: null, baseSha: base, headSha: head, message: null };
+  const whiteboard = { version: 1 as const, read: vi.fn(async () => available(snapshot)), explain: vi.fn(async () => available({ ...snapshot, status: 'ready' as const, sessionId: 'session' })), open: vi.fn(async () => available({ ...snapshot, status: 'ready' as const, sessionId: 'session' })) };
+  const f = await fixture({}, context => { Object.assign(context.services, { whiteboard }); }); await ready(f);
+  const action = () => f.container.querySelector<HTMLButtonElement>('.whiteboard-companion button')!;
+  await vi.waitFor(() => expect(action().disabled).toBe(false)); action().click();
+  await vi.waitFor(() => expect(action().textContent).toBe('Open in Whiteboard'));
+  expect(whiteboard.explain).toHaveBeenCalledWith(pinned, expect.any(AbortSignal));
+  action().focus(); await f.instance.refresh?.(); expect(document.activeElement).toBe(action());
+  action().click(); await vi.waitFor(() => expect(whiteboard.open).toHaveBeenCalledWith(pinned, expect.any(AbortSignal)));
+  expect(f.state().headerRepo).toBe('org/a'); expect(f.context.navigate).not.toHaveBeenCalled();
+});

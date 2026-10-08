@@ -3,7 +3,7 @@
   "manifest": {
     "manifestVersion": 2,
     "id": "helmsman.compat-pr",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "sdkVersion": 1,
     "pages": [
       {
@@ -83,6 +83,10 @@
           },
           {
             "id": "helmsman/run-command",
+            "version": 1
+          },
+          {
+            "id": "helmsman/whiteboard",
             "version": 1
           }
         ]

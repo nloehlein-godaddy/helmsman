@@ -1,3 +1,5 @@
+import { handleWhiteboardApi } from './whiteboard/routes';
+import type { WhiteboardServerService } from './whiteboard/service';
 import { handleRunInstructionApi } from './run-instruction-routes';
 import type { createRunInstructionService } from './run-instruction-service';
 import { handlePostmortemApi } from './postmortem/routes';
@@ -107,6 +109,10 @@ export interface RouterDeps {
   publicClarifications?: ReturnType<typeof createApplicationClarifications>;
   runInstructions?: ReturnType<typeof createRunInstructionService>;
   clarificationCaller?: string;
+  whiteboard?: WhiteboardServerService;
+  whiteboardCaller?: string;
+  whiteboardAuthorize?: (caller: string) => void;
+  whiteboardRepos?: () => readonly string[];
   postmortem?: PostmortemRunner;
   postmortemCaller?: string;
   postmortemAuthorize?: (caller: string) => void;
@@ -182,6 +188,8 @@ export async function handleApi(
 ): Promise<ApiResult | null> {
   const instructionsResult = await handleRunInstructionApi({ method, path, query, body: _body, caller: deps.clarificationCaller, service: deps.runInstructions });
   if (instructionsResult) return instructionsResult;
+  const whiteboardResult = await handleWhiteboardApi({ method, path, query, body: _body, caller: deps.whiteboardCaller, service: deps.whiteboard, authorize: deps.whiteboardAuthorize, repos: deps.whiteboardRepos });
+  if (whiteboardResult) return whiteboardResult;
   const postmortemResult = await handlePostmortemApi({ method, path, query, body: _body, caller: deps.postmortemCaller, service: deps.postmortem, authorize: deps.postmortemAuthorize, repos: deps.postmortemRepos });
   if (postmortemResult) return postmortemResult;
   const clarificationResult = handleClarificationServiceApi({ method, path, query, body: _body, caller: deps.clarificationCaller, ...deps.publicClarifications });

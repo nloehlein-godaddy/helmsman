@@ -1,3 +1,4 @@
+import { WhiteboardCompanion } from './whiteboard.js';
 import { RunInstructions } from './instructions.js';
 import { PostmortemChat } from './postmortem-chat.js';
 import type { RunReadSummaryV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PresentationLocatorV1,
@@ -20,6 +21,7 @@ const logText = (tab: RunTab) => tab.events.map(event => `[${event.at}] ${event.
 
 class ViewerPanel implements PluginPanelInstance {
   private readonly instructions: RunInstructions;
+  private readonly whiteboard: WhiteboardCompanion;
   private readonly postmortem: PostmortemChat;
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
@@ -53,6 +55,7 @@ class ViewerPanel implements PluginPanelInstance {
 
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.instructions = new RunInstructions(context.services.runInstructions);
+    this.whiteboard = new WhiteboardCompanion(context.services.whiteboard);
     this.postmortem = new PostmortemChat(context.services.postmortem);
     this.container = container; this.context = context; this.state = context.state;
     const parsed = readState(this.state.savedState); this.unsupported = parsed === null; const saved = parsed ?? emptyState();
@@ -79,7 +82,7 @@ class ViewerPanel implements PluginPanelInstance {
     this.busy = false; this.reading = false; this.summariesReading = false; this.summariesReadAt = 0; this.commandBusy = false; this.evidenceReady = false;
   };
   dispose = () => {
-    if (this.disposed) return; this.disposed = true; this.cancel(); this.instructions.dispose(); this.postmortem.dispose();
+    if (this.disposed) return; this.disposed = true; this.cancel(); this.instructions.dispose(); this.postmortem.dispose(); this.whiteboard.dispose();
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     this.context.signal.removeEventListener('abort', this.dispose); this.state.activity.signal.removeEventListener('abort', this.cancel); this.container.replaceChildren();
   };
@@ -375,6 +378,7 @@ class ViewerPanel implements PluginPanelInstance {
       if (tab.summary?.status === 'running') tools.append(this.button('Stop run', () => { void this.submit('stop', tab); }, commandDisabled));
       if (tab.summary?.status === 'failed') tools.append(this.button('Retry run', () => { void this.submit('retry', tab); }, commandDisabled));
       if (tab.summary?.status === 'failed' || tab.summary?.status === 'stopped') tools.append(this.button('Ask about this failure', () => { this.postmortem.open({ repo: tab.repo, runId: tab.runId }); }, commandDisabled || !this.context.services.postmortem));
+      tools.append(this.whiteboard.element);
       root.append(tools, node('small', `Run-wide log preview · ${tab.events.length} events retained (maximum 300) · text may be clipped at 4,000 characters per event.`));
       if (tab.newerTrimmed || tab.olderTrimmed) root.append(node('small', `${tab.olderTrimmed ? 'Earlier preview events were released. Earlier logs reopens the latest bounded window.' : 'Newer preview events were released. Follow latest returns to the current tail.'} Download preserves full stored text.`));
       const text = tab.loaded ? logText(tab) || 'No log events yet.' : this.busy ? 'Loading log…' : 'Log unavailable.';
@@ -383,6 +387,7 @@ class ViewerPanel implements PluginPanelInstance {
     }
     this.instructions.update(this.state, tab?.summary ? { version: 1, repo: tab.repo, runId: tab.runId, expectedAttempt: tab.summary.attempt } : null);
     root.append(this.instructions.element);
+    this.whiteboard.update(this.state, tab?.summary ? { kind: 'run', repo: tab.repo, runId: tab.runId, expectedAttempt: tab.summary.attempt } : null);
     this.postmortem.update(this.state, tab ? { repo: tab.repo, runId: tab.runId } : null);
     root.append(this.postmortem.element);
     this.drawRequests(root);
@@ -390,7 +395,7 @@ class ViewerPanel implements PluginPanelInstance {
     this.container.replaceChildren(root);
     if (tab) { this.log.scrollTop = tab.follow ? this.log.scrollHeight : tab.scrollTop; if (tab.follow) tab.scrollTop = this.log.scrollTop; }
     if (focused === this.log && this.log.isConnected) this.log.focus({ preventScroll: true });
-    else if (focused?.isConnected && (this.instructions.element.contains(focused) || this.postmortem.element.contains(focused))) focused.focus({ preventScroll: true });
+    else if (focused?.isConnected && (this.instructions.element.contains(focused) || this.postmortem.element.contains(focused) || this.whiteboard.element.contains(focused))) focused.focus({ preventScroll: true });
     else if (focus) [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });
   }
   private drawRequests(root: HTMLElement) {

@@ -1,3 +1,4 @@
+import { createHostWhiteboardService } from './whiteboard-service';
 import { createHostRunInstructionService } from './run-instruction-service';
 import { createHostPostmortemService } from './postmortem-service';
 import { createHostExecutionPolicyService } from './execution-policy-service';
@@ -205,7 +206,7 @@ export class PluginCompositionHost {
     const contribution = this.options.registry.get(instance.contributionId);
     const compatible = contribution && this.options.definition.accepts.some(contract =>
       contract.id === contribution.contract.id && contract.version === contribution.contract.version)
-      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/task-action', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/run-instructions', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/feedback-command', 'helmsman/feedback-settings', 'helmsman/terminal', 'helmsman/campaigns', 'helmsman/jira-settings', 'helmsman/github-settings', 'helmsman/profile', 'helmsman/execution-policy', 'helmsman/local-git', 'helmsman/activity-read', 'helmsman/run-command', 'helmsman/postmortem'].includes(requirement.id) && requirement.version === 1);
+      && contribution.requires.every(requirement => ['helmsman/task-read', 'helmsman/task-edit', 'helmsman/todo-legacy-recovery', 'helmsman/task-action', 'helmsman/source-command', 'helmsman/source-admin', 'helmsman/task-views-read', 'helmsman/run-read', 'helmsman/run-inspect', 'helmsman/download', 'helmsman/clarification-read', 'helmsman/run-instructions', 'helmsman/clarification-command', 'helmsman/suggested-contact-admin', 'helmsman/pull-request-read', 'helmsman/pull-request-inspect', 'helmsman/pull-request-command', 'helmsman/communication', 'helmsman/communication-command', 'helmsman/feedback-command', 'helmsman/feedback-settings', 'helmsman/terminal', 'helmsman/campaigns', 'helmsman/jira-settings', 'helmsman/github-settings', 'helmsman/profile', 'helmsman/execution-policy', 'helmsman/local-git', 'helmsman/activity-read', 'helmsman/run-command', 'helmsman/postmortem', 'helmsman/whiteboard'].includes(requirement.id) && requirement.version === 1);
     const module = compatible ? this.options.registry.getModule(instance.contributionId) : null;
     if (panel.module !== module || panel.contributionId !== instance.contributionId) {
       panel.host?.dispose(); panel.host = null;
@@ -250,6 +251,7 @@ export class PluginCompositionHost {
         clarificationCommands: createHostClarificationCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         runInstructions: createHostRunInstructionService(lifetime, { scope: activity, caller: instance.contributionId }),
         postmortem: createHostPostmortemService(lifetime, { scope: activity, caller: instance.contributionId }),
+        whiteboard: createHostWhiteboardService(lifetime, { scope: activity, caller: instance.contributionId }),
         pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope: activity, caller: instance.contributionId }),
         terminal: createHostTerminalService(lifetime, { scope: activity, caller: instance.contributionId }),
         campaigns: createHostCampaignService(lifetime, { scope: activity, caller: instance.contributionId }),

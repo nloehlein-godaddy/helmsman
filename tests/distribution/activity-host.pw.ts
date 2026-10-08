@@ -57,6 +57,6 @@ test('source-denied Activity and PR packages preserve real source counts and tru
     await expect(activity.locator('dd').last()).toHaveText('1'); await expect(repoprs.getByText(/Pull requests are unavailable/)).toBeVisible(); await expect(shipped.getByText(/Pull requests are unavailable/)).toBeVisible();
     expect(errors).toEqual([]); expect(host.output()).not.toContain('Source checkout is unavailable');
     const commands = (await readFile(host.commandLog, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean);
-    expect(commands.every(command => command.endsWith(' worktree list --porcelain'))).toBe(true);
+    expect(commands.filter(command => !command.endsWith(' worktree list --porcelain') && command !== `${join(host.root, 'commands/git')} -C ${host.app}/ rev-parse HEAD`)).toEqual([]);
   } finally { await host.close(); }
 });
