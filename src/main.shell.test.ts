@@ -176,7 +176,7 @@ describe('persistent app shell', () => {
       expect(root.querySelector('.app-footer')?.textContent).toBe(footer);
       expect(root.querySelector('#page-content .app-footer')).toBeNull();
       expect(root.querySelector('#page-content .helm-head')).toBeNull();
-      expect(root.querySelectorAll('.operator-note')).toHaveLength(page === 'config' ? 1 : 0);
+      expect(root.querySelectorAll('.operator-note')).toHaveLength(0);
     }
   });
 

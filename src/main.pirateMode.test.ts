@@ -50,7 +50,7 @@ const start = async () => {
   await view.start();
 };
 const toggle = (enabled: boolean) => {
-  const control = document.querySelector<HTMLButtonElement>('button[data-pirate-mode]');
+  const control = document.querySelector<HTMLButtonElement>('.app-footer button[data-pirate-mode]');
   expect(control).not.toBeNull();
   if (control?.getAttribute('aria-pressed') !== String(enabled)) control?.click();
 };
@@ -59,7 +59,7 @@ describe('Pirate mode and greeting', () => {
 
   it('defaults on, switches immediately, preserves unsaved settings and persists across reloads', async () => {
     await start();
-    expect(document.querySelector<HTMLButtonElement>('button[data-pirate-mode]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector<HTMLButtonElement>('.app-footer button[data-pirate-mode]')?.getAttribute('aria-pressed')).toBe('true');
     expect(document.querySelector('[data-view="prs"]')?.textContent).toBe('Bounties');
     const settings = document.querySelector<HTMLInputElement>('[data-key="MAX_ATTEMPTS"] input')!;
     settings.value = '7';
@@ -68,19 +68,19 @@ describe('Pirate mode and greeting', () => {
     expect(document.querySelector('[data-view="dashboard"]')?.textContent).toBe('Dashboard');
     expect(document.querySelector('.repo-select')?.getAttribute('aria-label')).toBe('Scope by repository');
     expect(document.querySelector('.helm-readout')?.getAttribute('aria-label')).toBe('System status');
-    expect(document.querySelector('.operator-note')?.textContent).toContain('the agent');
+    expect(document.querySelector('.page-intro p')?.textContent).toContain('agent defaults');
     expect(document.querySelector('[data-footer-running]')?.textContent).toBe('0 running');
     expect(document.querySelector<HTMLInputElement>('[data-key="MAX_ATTEMPTS"] input')?.value).toBe('7');
     expect(document.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/app');
     expect(localStorage.getItem('helmsman.pirateMode')).toBe('false');
     view?.destroy();
     await start();
-    expect(document.querySelector<HTMLButtonElement>('button[data-pirate-mode]')?.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector<HTMLButtonElement>('.app-footer button[data-pirate-mode]')?.getAttribute('aria-pressed')).toBe('false');
     toggle(true);
     expect(document.querySelector('[data-view="prs"]')?.textContent).toBe('Bounties');
-    expect(document.querySelector('.operator-note')?.textContent).toContain('the deckhand');
+    expect(document.querySelector('.page-intro p')?.textContent).toContain('deckhand defaults');
     expect(document.querySelector('.helm-readout')?.getAttribute('aria-label')).toBe('Fleet status');
-    expect(document.activeElement).toBe(document.querySelector('[data-pirate-mode]'));
+    expect(document.activeElement).toBe(document.querySelector('.app-footer [data-pirate-mode]'));
   });
 
   it('adds an escaped GitHub name without replacing unsaved fields and changes the salutation with the mode', async () => {
@@ -105,13 +105,13 @@ describe('Pirate mode and greeting', () => {
     const save = document.querySelector<HTMLButtonElement>('[data-key="MAX_ATTEMPTS"] .config-save')!;
     save.click();
     expect(save.disabled).toBe(true);
-    expect(document.querySelector<HTMLButtonElement>('button[data-pirate-mode]')?.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('.app-footer button[data-pirate-mode]')?.disabled).toBe(true);
     toggle(false);
     expect(document.querySelector('[data-key="MAX_ATTEMPTS"] .config-save')).toBe(save);
     expect(document.querySelector('[data-view="prs"]')?.textContent).toBe('Bounties');
     finishSave(new Response(JSON.stringify({ error: 'Unable to save settings' }), { status: 500 }));
     await vi.waitFor(() => expect(document.querySelector('[data-key="MAX_ATTEMPTS"] .config-error')?.textContent).toBe('Unable to save settings'));
-    expect(document.querySelector<HTMLButtonElement>('button[data-pirate-mode]')?.disabled).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('.app-footer button[data-pirate-mode]')?.disabled).toBe(false);
     toggle(false);
     expect(document.querySelector('[data-view="prs"]')?.textContent).toBe('PRs');
   });

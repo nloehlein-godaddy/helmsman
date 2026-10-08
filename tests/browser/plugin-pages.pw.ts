@@ -219,12 +219,10 @@ test('catalog failure keeps optional pages unavailable without substituting Cost
 });
 
 
-test('Config keeps the operator disclosure through unavailable settings and preserves footer controls', async ({ page }) => {
+test('Config omits the branch disclaimer and preserves unavailable settings and footer controls', async ({ page }) => {
   await mockApi(page);
   await page.goto('/config?repo=org/a');
-  const note = page.locator('.page-intro .operator-note');
-  await expect(note).toBeVisible();
-  await expect(page.locator('.operator-note')).toHaveCount(1);
+  await expect(page.locator('.operator-note')).toHaveCount(0);
   await expect(page.locator('.app-footer [data-recovery-link]')).toHaveAttribute('href', '/recovery?repo=org%2Fa');
   await expect(page.locator('.app-footer [data-pirate-mode]')).toBeVisible();
   await expect(page).toHaveScreenshot('config-operator-desktop.png', { fullPage: true, mask: [page.locator('.footer-meta')] });
@@ -234,8 +232,7 @@ test('Config keeps the operator disclosure through unavailable settings and pres
   await page.route('**/api/config', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
   await page.reload();
   await expect(page.locator('.config-load-error')).toBeVisible();
-  await expect(note).toBeVisible();
-  await expect(page.locator('.operator-note')).toHaveCount(1);
+  await expect(page.locator('.operator-note')).toHaveCount(0);
   await expect(page.locator('.app-footer [data-pirate-mode]')).toBeVisible();
   await expect(page).toHaveScreenshot('config-operator-unavailable.png', { fullPage: true, mask: [page.locator('.footer-meta')] });
   await page.goto('/outcomes?repo=org/a');

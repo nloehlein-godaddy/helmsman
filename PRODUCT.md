@@ -52,7 +52,6 @@ The engineer/operator running the agents. It must be **glanceable** — "what's 
 
 - The **human merge gate is absolute**: the agent never merges, and there is **no merge control in the UI** — merge is always a deliberate action on GitHub. This is the one hard invariant; every other write (claim/transition a ticket, open/review a PR, re-run) is allowed and operator- or agent-initiated.
 - The topbar/Working-on `repo` label comes from `GITHUB_REPO`, or `@<author>` when unset. Because shipped PRs are now sourced by author across repos, this label is a scope hint (whose activity), not a guarantee that a given ticket lives in that repo.
-- The permission note ("read/write scoped to this branch; merge requires human approval") is a load-bearing statement of the agent's contract, not decoration.
 - Unsourceable metrics are omitted rather than faked (token/cost accounting lives in neither Jira nor GitHub, so it isn't shown).
 
 PR inspection exposes independent checks/reviews quality and bounded immutable comparison previews. Missing or partial observations stay unknown. The private PR compatibility session preserves existing drafts and request identities across legacy and canonical surfaces within the current browser session; it does not add restart durability or replace the legacy PR/Runs routes.
