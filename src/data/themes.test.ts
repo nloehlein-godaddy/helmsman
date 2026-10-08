@@ -1,14 +1,21 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   applyTheme,
+  createCustomTheme,
+  CUSTOM_THEME_FIELDS,
+  CUSTOM_THEME_STORAGE_KEY,
+  customThemeFromPalette,
   DEFAULT_THEME_ID,
   getTheme,
   loadThemeId,
+  loadCustomTheme,
+  saveCustomTheme,
   saveThemeId,
   THEMES,
   REQUIRED_VAR_KEYS,
   type Theme,
+  type CustomThemePalette,
 } from './themes';
 
 const stylesheet = readFileSync('src/style.css', 'utf8');
@@ -208,6 +215,7 @@ describe('loadThemeId / saveThemeId', () => {
 
   afterEach(() => {
     store = {};
+    vi.restoreAllMocks();
   });
 
   it('returns the default theme id when nothing is stored', () => {
@@ -225,9 +233,80 @@ describe('loadThemeId / saveThemeId', () => {
   });
 
   it('saveThemeId persists the id for loadThemeId to read back', () => {
-    saveThemeId('dracula');
+    expect(saveThemeId('dracula')).toBe(true);
     expect(store['cmux.theme']).toBe('dracula');
     expect(loadThemeId()).toBe('dracula');
+  });
+
+  it('stores exactly one custom palette and derives it when selected', () => {
+    const palette = { ...createCustomTheme('github-light'), accent: '#123456' };
+    expect(saveCustomTheme(palette)).toBe(true);
+    saveThemeId('custom');
+    expect(loadThemeId()).toBe('custom');
+    expect(loadCustomTheme()).toEqual(palette);
+    expect(getTheme('custom')).toEqual(customThemeFromPalette(palette));
+    expect(JSON.parse(store[CUSTOM_THEME_STORAGE_KEY] ?? '{}')).toEqual({ version: 1, palette });
+    const replacement = createCustomTheme('nord');
+    expect(saveCustomTheme(replacement)).toBe(true);
+    expect(loadCustomTheme()).toEqual(replacement);
+    expect(Object.keys(store)).toEqual([CUSTOM_THEME_STORAGE_KEY, 'cmux.theme']);
+  });
+
+  it('provides all editable anchors without retaining preset identity', () => {
+    const palette = createCustomTheme('nord');
+    expect(Object.keys(palette).sort()).toEqual(['mode', ...CUSTOM_THEME_FIELDS.map(field => field.key)].sort());
+    expect(palette).not.toHaveProperty('id');
+    expect(palette).not.toHaveProperty('label');
+    expect(createCustomTheme('amber')).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+    expect(createCustomTheme('missing')).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+  });
+
+  it.each(['not JSON', 'null', '[]', '{"version":2,"palette":{}}', '{"version":1,"palette":{}}'])('falls back safely for corrupt stored palette %s', raw => {
+    store[CUSTOM_THEME_STORAGE_KEY] = raw;
+    store['cmux.theme'] = 'custom';
+    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+    expect(getTheme(loadThemeId())?.id).toBe('custom');
+  });
+
+  it.each([
+    { accent: '#fff' },
+    { accent: 'red' },
+    { accent: '#123456;display:none' },
+    { mode: 'auto' },
+    { unknown: '#123456' },
+    { text: null },
+  ])('rejects invalid palette changes %j without replacing saved data', changes => {
+    const original = createCustomTheme('nord');
+    saveCustomTheme(original);
+    const invalid = { ...original, ...changes } as CustomThemePalette;
+    expect(saveCustomTheme(invalid)).toBe(false);
+    expect(loadCustomTheme()).toEqual(original);
+    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette: invalid });
+    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+  });
+
+  it('rejects missing colors and unknown envelope keys', () => {
+    const palette = createCustomTheme('nord');
+    const { accent: _accent, ...incomplete } = palette;
+    expect(saveCustomTheme(incomplete as CustomThemePalette)).toBe(false);
+    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette, extra: true });
+    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+  });
+
+  it('reports failed persistence and tolerates denied storage reads', () => {
+    vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
+    expect(saveCustomTheme(createCustomTheme('nord'))).toBe(false);
+    expect(saveThemeId('custom')).toBe(false);
+    vi.spyOn(localStorage, 'getItem').mockImplementation(() => { throw new DOMException('Access denied', 'SecurityError'); });
+    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+    expect(() => applyTheme('custom')).not.toThrow();
+  });
+
+  it('validates theme preferences and safely derives malformed preview palettes', () => {
+    expect(saveThemeId('unknown')).toBe(false);
+    expect(store['cmux.theme']).toBeUndefined();
+    const invalid = { ...createCustomTheme('nord'), accent: 'red' };
+    expect(customThemeFromPalette(invalid)).toEqual(customThemeFromPalette(createCustomTheme(DEFAULT_THEME_ID)));
   });
 });
 

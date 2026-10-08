@@ -10,6 +10,8 @@ export interface Theme {
 export const DEFAULT_THEME_ID = 'field-guide';
 
 export const THEME_STORAGE_KEY = 'cmux.theme';
+export const CUSTOM_THEME_ID = 'custom';
+export const CUSTOM_THEME_STORAGE_KEY = 'cmux.theme.custom';
 export const AMBER_BACKGROUND = '#08090c';
 
 export const REQUIRED_VAR_KEYS: readonly string[] = [
@@ -61,6 +63,52 @@ interface ThemeAnchors {
   good: string;
   review: string;
   queued: string;
+}
+
+export type CustomThemePalette = Omit<ThemeAnchors, 'id' | 'label'>;
+
+export const CUSTOM_THEME_FIELDS = [
+  { key: 'bg', label: 'Background' },
+  { key: 'gutter', label: 'Navigation' },
+  { key: 'panel', label: 'Panel' },
+  { key: 'panel2', label: 'Secondary panel' },
+  { key: 'panelHi', label: 'Highlighted panel' },
+  { key: 'accent', label: 'Accent' },
+  { key: 'secondary', label: 'Secondary accent' },
+  { key: 'text', label: 'Text' },
+  { key: 'textDim', label: 'Secondary text' },
+  { key: 'textFaint', label: 'Muted text' },
+  { key: 'bad', label: 'Error' },
+  { key: 'good', label: 'Success' },
+  { key: 'review', label: 'Review' },
+  { key: 'queued', label: 'Queued' },
+] as const satisfies readonly { key: keyof Omit<CustomThemePalette, 'mode'>; label: string }[];
+
+function parseCustomThemePalette(value: unknown): CustomThemePalette | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.mode !== 'dark' && record.mode !== 'light') return undefined;
+  const colorKeys = CUSTOM_THEME_FIELDS.map(field => field.key);
+  const allowedKeys: readonly string[] = ['mode', ...colorKeys];
+  const keys = Object.keys(record);
+  if (keys.length !== allowedKeys.length || keys.some(key => !allowedKeys.includes(key))) return undefined;
+  for (const key of colorKeys) {
+    if (typeof record[key] !== 'string' || !/^#[a-f\d]{6}$/i.test(record[key])) return undefined;
+  }
+  return Object.fromEntries(['mode', ...colorKeys].map(key => [key, record[key]])) as unknown as CustomThemePalette;
+}
+
+function parseStoredCustomTheme(raw: string | null): CustomThemePalette | undefined {
+  if (!raw) return undefined;
+  try {
+    const stored: unknown = JSON.parse(raw);
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return undefined;
+    const record = stored as Record<string, unknown>;
+    if (record.version !== 1 || Object.keys(record).length !== 2) return undefined;
+    return parseCustomThemePalette(record.palette);
+  } catch {
+    return undefined;
+  }
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -235,10 +283,60 @@ export const THEMES: Theme[] = [
     vars: deriveVars(anchors),
   })),
   { id: 'amber', label: 'Amber', mode: 'dark', vars: {} },
+  customThemeFromPalette(createCustomTheme(DEFAULT_THEME_ID)),
 ];
 
 export function getTheme(id: string): Theme | undefined {
+  if (id === CUSTOM_THEME_ID) return customThemeFromPalette(loadCustomTheme());
   return THEMES.find((theme) => theme.id === id);
+}
+
+export function createCustomTheme(presetId: string): CustomThemePalette {
+  if (presetId === CUSTOM_THEME_ID) return loadCustomTheme();
+  const anchors = THEME_ANCHORS.find(theme => theme.id === presetId) ?? THEME_ANCHORS[0]!;
+  const { id: _id, label: _label, ...palette } = anchors;
+  return palette;
+}
+
+export function customThemeFromPalette(palette: CustomThemePalette): Theme {
+  const validPalette = parseCustomThemePalette(palette) ?? createCustomTheme(DEFAULT_THEME_ID);
+  return { id: CUSTOM_THEME_ID, label: 'Custom', mode: validPalette.mode, vars: deriveVars({ ...validPalette, id: CUSTOM_THEME_ID, label: 'Custom' }) };
+}
+
+export function loadCustomTheme(): CustomThemePalette {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const palette = parseStoredCustomTheme(localStorage.getItem(CUSTOM_THEME_STORAGE_KEY));
+      if (palette) return palette;
+    }
+  } catch {}
+  return createCustomTheme(DEFAULT_THEME_ID);
+}
+
+export function saveCustomTheme(palette: CustomThemePalette): boolean {
+  const validPalette = parseCustomThemePalette(palette);
+  if (!validPalette) return false;
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify({ version: 1, palette: validPalette }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function customThemeBootstrapSource(): string {
+  const serialize = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c');
+  return `const CUSTOM_THEME_FIELDS = ${serialize(CUSTOM_THEME_FIELDS)};
+    ${parseCustomThemePalette.toString()}
+    ${parseStoredCustomTheme.toString()}
+    ${hexToRgb.toString()}
+    ${rgbaFromHex.toString()}
+    ${mixHex.toString()}
+    ${deriveVars.toString()}
+    let palette = ${serialize(createCustomTheme(DEFAULT_THEME_ID))};
+    try { palette = parseStoredCustomTheme(localStorage.getItem(${serialize(CUSTOM_THEME_STORAGE_KEY)})) || palette; } catch {}
+    const customTheme = { id: ${serialize(CUSTOM_THEME_ID)}, label: 'Custom', mode: palette.mode, vars: deriveVars({ ...palette, id: ${serialize(CUSTOM_THEME_ID)}, label: 'Custom' }) };`;
 }
 
 export function applyThemeToDocument(theme: Theme, keys: readonly string[], fallbackBackground: string): void {
@@ -271,11 +369,13 @@ export function loadThemeId(): string {
   }
 }
 
-export function saveThemeId(id: string): void {
+export function saveThemeId(id: string): boolean {
+  if (!getTheme(id)) return false;
   try {
-    if (typeof localStorage === 'undefined') return;
+    if (typeof localStorage === 'undefined') return false;
     localStorage.setItem(THEME_STORAGE_KEY, id);
+    return true;
   } catch {
-    return;
+    return false;
   }
 }

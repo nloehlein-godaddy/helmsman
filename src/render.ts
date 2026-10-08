@@ -1,5 +1,6 @@
 import { term, isPirateMode, TERMINOLOGY, TERMINOLOGY_REFERENCE_KEYS } from './logic/terminology';
 import { renderThemePreview } from './renderThemePreview';
+import { renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
 import { routeHref, type PageView } from './logic/routes';
 import { navigationSection, navigationChild } from './logic/navigation';
 import { appPages, builtinPageSlots } from './plugins/builtins';
@@ -7,7 +8,7 @@ import { escapeHtml as esc } from './logic/html';
 import { PRE_PR_CONFIG_KEYS } from './logic/prePrSettings';
 
 import type { UiConfig } from './data/config';
-import { THEMES } from './data/themes';
+import { CUSTOM_THEME_ID, THEMES } from './data/themes';
 
 
 export const CONFIG_HELP: Record<string, string> = {
@@ -212,6 +213,7 @@ export interface ConfigViewOpts {
   loading?: boolean;
   error?: string | null;
   unavailable?: boolean;
+  customTheme?: CustomThemeEditorState;
 }
 
 function configRowsHtml(uiConfig: UiConfig): string {
@@ -238,7 +240,7 @@ function configRowsHtml(uiConfig: UiConfig): string {
 }
 
 
-function configCustomizationPanel(themeId: string): string {
+function configCustomizationPanel(themeId: string, customTheme?: CustomThemeEditorState): string {
   const themeOptions = THEMES.map(
     (theme) => `<option value="${esc(theme.id)}"${theme.id === themeId ? ' selected' : ''}>${esc(theme.label)}</option>`,
   ).join('');
@@ -250,11 +252,12 @@ function configCustomizationPanel(themeId: string): string {
             <select id="ui-theme" class="theme-select" aria-describedby="ui-theme-help">${themeOptions}</select>
             <p id="ui-theme-help">Applies immediately. Saved in this browser.</p>
           </div>
+          <div data-custom-theme-editor${themeId === CUSTOM_THEME_ID ? '' : ' hidden'}>${renderCustomThemeEditor(customTheme)}</div>
           ${renderThemePreview()}
           <div class="ui-terminology-settings">
             <div class="ui-terminology-copy">
-              <h3>Pirate mode</h3>
-              <p id="pirate-mode-help">Use the flag at the bottom-right to switch labels. Your content stays unchanged.</p>
+              <div class="ui-terminology-row"><h3 id="pirate-mode-label">Pirate mode</h3><button class="config-pirate-toggle" type="button" role="switch" data-pirate-mode="config" aria-labelledby="pirate-mode-label" aria-describedby="pirate-mode-help" aria-checked="${isPirateMode()}" title="Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}"><span aria-hidden="true">${isPirateMode() ? 'On' : 'Off'}</span></button></div>
+              <p id="pirate-mode-help">Switch application labels. Your content stays unchanged.</p>
             </div>
             <details class="terminology-reference"><summary>Terminology reference</summary><table><thead><tr><th scope="col">Plain</th><th scope="col">Pirate</th></tr></thead><tbody>${TERMINOLOGY_REFERENCE_KEYS.map(key => TERMINOLOGY[key]).map(({ plain, pirate }) => `<tr><td>${esc(plain)}</td><td>${esc(pirate)}</td></tr>`).join('')}</tbody></table></details>
           </div>
@@ -263,7 +266,7 @@ function configCustomizationPanel(themeId: string): string {
 }
 
 export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): string {
-  const customization = configCustomizationPanel(opts.themeId);
+  const customization = configCustomizationPanel(opts.themeId, opts.customTheme);
   const intro = `<header class="page-intro"><h1>Config</h1><p>Configure work sources, integrations, and ${term('agent').toLowerCase()} defaults. Save each setting separately.</p><div class="operator-note">${ICON_LOCK}<span>${term('operatorNote')}</span></div></header>`;
   const status = `${opts.error ? `<div class="config-load-error degraded-banner" role="alert">${esc(opts.error)}${opts.unavailable ? '' : ' Showing the last loaded settings.'} <button type="button" data-config-retry${opts.loading ? ' disabled' : ''}>Try again</button></div>` : ''}${opts.loading ? '<p class="empty-note" role="status">Loading configuration…</p>' : ''}`;
   if (opts.unavailable) {

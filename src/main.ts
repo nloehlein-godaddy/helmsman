@@ -21,7 +21,8 @@ import { LOCAL_POLL_MS } from './data/live';
 import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderConfigView } from './render';
 import { fetchAgents, type RunSummary } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
-import { applyTheme, loadThemeId, saveThemeId } from './data/themes';
+import { applyTheme, applyThemeToDocument, AMBER_BACKGROUND, CUSTOM_THEME_FIELDS, CUSTOM_THEME_ID, DEFAULT_THEME_ID, createCustomTheme, customThemeFromPalette, loadCustomTheme, loadThemeId, REQUIRED_VAR_KEYS, saveCustomTheme, saveThemeId } from './data/themes';
+import { renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
 import {
   loadSavedRepoScope,
   saveRepoScope,
@@ -72,6 +73,7 @@ export class DashboardView {
   private readonly onResize = (): void => { this.revealActiveTab(); };
   private readonly onPopState = (): void => { void this.navigate(parseRoute(new URL(window.location.href)), 'none'); };
   private themeId: string = loadThemeId();
+  private customTheme: CustomThemeEditorState = { palette: loadCustomTheme(), presetId: DEFAULT_THEME_ID, dirty: false, message: null, error: false };
   private configSaves: number = 0;
   private jiraEnabled: boolean = true;
   private unsubscribePages: (() => void) | null = null;
@@ -110,6 +112,7 @@ export class DashboardView {
     }, { signal: this.rootEvents.signal });
     this.root.addEventListener('change', (event: Event): void => {
       const control = event.target;
+      if (this.updateCustomTheme(control)) return;
       if (!(control instanceof HTMLSelectElement)) return;
       if (control.matches('.repo-select')) {
         const panelState = this.panelRouteState() ?? {};
@@ -119,11 +122,16 @@ export class DashboardView {
           panelState: Object.keys(nextPanelState).length ? JSON.stringify(nextPanelState) : null });
       } else if (control.matches('.theme-select')) {
         this.themeId = control.value;
-        applyTheme(this.themeId);
-        saveThemeId(this.themeId);
+        this.applyCurrentTheme();
+        const saved = saveThemeId(this.themeId);
+        const help = this.root.querySelector('#ui-theme-help');
+        if (help) help.textContent = saved ? 'Applies immediately. Saved in this browser.' : 'Applied for this session. Browser storage is unavailable.';
+        const editor = this.root.querySelector<HTMLElement>('[data-custom-theme-editor]');
+        if (editor) editor.hidden = this.themeId !== CUSTOM_THEME_ID;
         if (this.isPluginPage()) this.paintPluginPage();
       }
     }, { capture: true, signal: this.rootEvents.signal });
+    this.root.addEventListener('input', event => this.updateCustomTheme(event.target), { signal: this.rootEvents.signal });
 
     this.feedbackContribution = new AuxiliaryPageHost(this.pluginPresentationState(), {
       slotId: PRODUCT_FEEDBACK_FOOTER_SLOT, registry: appPages, modules: appPageModules,
@@ -202,15 +210,16 @@ export class DashboardView {
   }
 
   private syncPirateToggle(): void {
-    const toggle = this.root.querySelector<HTMLButtonElement>('[data-pirate-mode]');
-    if (toggle) {
+    for (const toggle of this.root.querySelectorAll<HTMLButtonElement>('[data-pirate-mode]')) {
       toggle.disabled = this.configSaves > 0;
-      toggle.setAttribute('aria-pressed', String(isPirateMode()));
+      toggle.setAttribute(toggle.getAttribute('role') === 'switch' ? 'aria-checked' : 'aria-pressed', String(isPirateMode()));
       toggle.title = `Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}`;
+      const label = toggle.querySelector('span');
+      if (label) label.textContent = isPirateMode() ? 'On' : 'Off';
     }
   }
 
-  private changePirateMode(enabled: boolean): void {
+  private changePirateMode(enabled: boolean, origin: string | undefined): void {
     if (this.configSaves > 0) return;
     const controls = (): Map<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> => {
       const result = new Map<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>();
@@ -246,7 +255,67 @@ export class DashboardView {
     this.root.querySelectorAll('details').forEach((detail, index) => { detail.open = openDetails[index] ?? false; });
     const page = this.root.querySelector('#page-content');
     if (page) page.scrollTop = pageScroll;
-    this.root.querySelector<HTMLButtonElement>('[data-pirate-mode]')?.focus({ preventScroll: true });
+    const toggles = Array.from(this.root.querySelectorAll<HTMLButtonElement>('[data-pirate-mode]'));
+    toggles.find(toggle => toggle.dataset.pirateMode === origin)?.focus({ preventScroll: true });
+  }
+
+  private applyCurrentTheme(): void {
+    if (this.themeId === CUSTOM_THEME_ID) applyThemeToDocument(customThemeFromPalette(this.customTheme.palette), REQUIRED_VAR_KEYS, AMBER_BACKGROUND);
+    else applyTheme(this.themeId);
+  }
+
+  private syncCustomThemeStatus(): void {
+    const status = this.root.querySelector<HTMLElement>('[data-custom-theme-status]');
+    if (status) {
+      status.textContent = this.customTheme.message ?? '';
+      status.hidden = !this.customTheme.message;
+      status.setAttribute('role', this.customTheme.error ? 'alert' : 'status');
+    }
+    const discard = this.root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]');
+    if (discard) discard.disabled = !this.customTheme.dirty;
+  }
+
+  private updateCustomTheme(target: EventTarget | null): boolean {
+    if (this.themeId !== CUSTOM_THEME_ID) return false;
+    if (target instanceof HTMLInputElement && target.dataset.customThemeColor) {
+      const field = CUSTOM_THEME_FIELDS.find(field => field.key === target.dataset.customThemeColor);
+      if (!field || !/^#[a-f\d]{6}$/i.test(target.value)) return true;
+      this.customTheme.palette = { ...this.customTheme.palette, [field.key]: target.value };
+      const output = target.parentElement?.querySelector('output');
+      if (output) output.textContent = target.value;
+    } else if (target instanceof HTMLSelectElement && target.matches('[data-custom-theme-mode]')) {
+      if (target.value !== 'dark' && target.value !== 'light') return true;
+      this.customTheme.palette = { ...this.customTheme.palette, mode: target.value };
+    } else if (target instanceof HTMLSelectElement && target.matches('[data-custom-theme-preset]')) {
+      this.customTheme.presetId = target.value;
+      return true;
+    } else return false;
+    this.customTheme.dirty = true;
+    this.customTheme.error = false;
+    this.customTheme.message = 'Previewing unsaved changes.';
+    this.applyCurrentTheme();
+    this.syncCustomThemeStatus();
+    return true;
+  }
+
+  private customThemeAction(action: 'save' | 'discard' | 'preset'): void {
+    if (this.themeId !== CUSTOM_THEME_ID) return;
+    if (action === 'save') {
+      const saved = saveCustomTheme(this.customTheme.palette) && saveThemeId(CUSTOM_THEME_ID);
+      this.customTheme.error = !saved;
+      this.customTheme.message = saved ? 'Custom theme saved in this browser.' : 'Custom theme could not be saved. Your preview is kept; enable browser storage and retry.';
+      if (saved) this.customTheme.dirty = false;
+      this.syncCustomThemeStatus();
+      return;
+    }
+    this.customTheme.palette = action === 'discard' ? loadCustomTheme() : createCustomTheme(this.customTheme.presetId);
+    this.customTheme.dirty = action === 'preset';
+    this.customTheme.error = false;
+    this.customTheme.message = action === 'preset' ? 'Previewing preset colors. Save to replace your custom theme.' : 'Unsaved changes discarded.';
+    this.applyCurrentTheme();
+    const editor = this.root.querySelector<HTMLElement>('[data-custom-theme-editor]');
+    if (editor) editor.innerHTML = renderCustomThemeEditor(this.customTheme);
+    this.root.querySelector<HTMLButtonElement>(action === 'preset' ? '[data-custom-theme-use-preset]' : '[data-custom-theme-save]')?.focus({ preventScroll: true });
   }
 
   destroy(): void {
@@ -759,6 +828,7 @@ export class DashboardView {
       selectedRepo: this.selectedRepo,
       themeId: this.themeId,
       loading: this.configLoading,
+      customTheme: this.customTheme,
       error: this.configError,
       unavailable: !this.configLoaded,
     }));
@@ -795,7 +865,12 @@ export class DashboardView {
     if (!(target instanceof Element)) return;
     const pirateToggle = target.closest<HTMLButtonElement>('[data-pirate-mode]');
     if (pirateToggle) {
-      if (!pirateToggle.disabled) this.changePirateMode(!isPirateMode());
+      if (!pirateToggle.disabled) this.changePirateMode(!isPirateMode(), pirateToggle.dataset.pirateMode);
+      return;
+    }
+    const customAction = target.closest<HTMLButtonElement>('[data-custom-theme-save], [data-custom-theme-discard], [data-custom-theme-use-preset]');
+    if (customAction) {
+      if (!customAction.disabled) this.customThemeAction(customAction.hasAttribute('data-custom-theme-save') ? 'save' : customAction.hasAttribute('data-custom-theme-discard') ? 'discard' : 'preset');
       return;
     }
     const link = target.closest<HTMLAnchorElement>('a.view-toggle, a.app-link');

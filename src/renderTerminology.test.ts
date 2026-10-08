@@ -32,11 +32,12 @@ describe('pirate interface wording', () => {
   it.each([true, false])('reflects mode=%s in the footer and keeps the Appearance reference and Communication link literal', enabled => {
     setPirateMode(enabled);
     const element = mount(renderConfigView({ config: {}, overridden: [] }, opts));
-    expect(element.querySelectorAll('[data-pirate-mode]')).toHaveLength(1);
+    expect(element.querySelectorAll('[data-pirate-mode]')).toHaveLength(2);
     expect(element.querySelector('.app-footer [data-pirate-mode]')?.getAttribute('aria-pressed')).toBe(String(enabled));
     expect(element.querySelector('.app-footer [data-pirate-mode]')?.getAttribute('title')).toBe(`Turn Pirate mode ${enabled ? 'off' : 'on'}`);
-    expect(element.querySelector('.ui-customization-panel [data-pirate-mode]')).toBeNull();
-    expect(element.querySelector('#pirate-mode-help')?.textContent).toContain('flag at the bottom-right');
+    expect(element.querySelector('.ui-customization-panel [data-pirate-mode]')?.getAttribute('role')).toBe('switch');
+    expect(element.querySelector('.ui-customization-panel [data-pirate-mode]')?.getAttribute('aria-checked')).toBe(String(enabled));
+    expect(element.querySelector('#pirate-mode-help')?.textContent).toContain('Your content stays unchanged');
     const rows = Array.from(element.querySelectorAll('.terminology-reference tbody tr'), row => Array.from(row.querySelectorAll('td'), cell => cell.textContent));
     expect(rows).toEqual(expect.arrayContaining([
       ['Dashboard', 'Helm'], ['Runs', 'Voyages'], ['Repositories', 'Galleons'],

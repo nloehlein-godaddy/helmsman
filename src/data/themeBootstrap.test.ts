@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { themeBootstrapScript } from '../../build-theme';
-import { AMBER_BACKGROUND, applyTheme, DEFAULT_THEME_ID, getTheme } from './themes';
+import { AMBER_BACKGROUND, applyTheme, createCustomTheme, CUSTOM_THEME_STORAGE_KEY, DEFAULT_THEME_ID, getTheme } from './themes';
 
 describe('initial theme bootstrap', () => {
   beforeEach(() => {
@@ -48,5 +48,32 @@ describe('initial theme bootstrap', () => {
     applyTheme('amber');
     expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe(AMBER_BACKGROUND);
     expect(document.documentElement.style.getPropertyValue('--bg')).toBe('');
+  });
+
+  it.each(['nord', 'github-light'])('matches runtime custom colors and mode before first paint from %s', preset => {
+    const palette = { ...createCustomTheme(preset), accent: '#123456' };
+    const values: Record<string, string> = {
+      'cmux.theme': 'custom',
+      [CUSTOM_THEME_STORAGE_KEY]: JSON.stringify({ version: 1, palette }),
+    };
+    vi.stubGlobal('localStorage', { getItem: (key: string) => values[key] ?? null });
+    new Function(themeBootstrapScript())();
+    const root = document.documentElement;
+    const initialStyles = root.getAttribute('style');
+    expect(root.dataset.theme).toBe('custom');
+    expect(root.style.colorScheme).toBe(palette.mode);
+    expect(root.style.getPropertyValue('--accent')).toBe(palette.accent);
+    applyTheme('custom');
+    expect(root.getAttribute('style')).toBe(initialStyles);
+    expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe(palette.bg);
+  });
+
+  it.each(['broken JSON', '{"version":1,"palette":{"mode":"dark"}}', JSON.stringify({ version: 1, palette: { ...createCustomTheme('nord'), accent: 'red' } })])('matches the runtime fallback for corrupt custom storage %s', raw => {
+    vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'cmux.theme' ? 'custom' : raw });
+    expect(() => new Function(themeBootstrapScript())()).not.toThrow();
+    const initialStyles = document.documentElement.getAttribute('style');
+    expect(document.documentElement.dataset.theme).toBe('custom');
+    applyTheme('custom');
+    expect(document.documentElement.getAttribute('style')).toBe(initialStyles);
   });
 });

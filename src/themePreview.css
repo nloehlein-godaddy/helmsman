@@ -108,6 +108,36 @@
 .ui-terminology-copy {
   display: grid;
   gap: 6px;
+  flex: 1 1 300px;
+}
+
+.ui-terminology-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.config-pirate-toggle { display: inline-flex; align-items: center; gap: 8px; min-width: 88px; min-height: 36px; justify-content: space-between; }
+.config-pirate-toggle::before { content: ''; display: block; width: 14px; height: 14px; border: 1px solid currentColor; border-radius: 50%; background: var(--control-bg); }
+.config-pirate-toggle[aria-checked='true'] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.config-pirate-toggle[aria-checked='true']::before { background: currentColor; }
+
+.custom-theme-editor { display: grid; gap: 20px; padding-block: 20px; border-block: 1px solid var(--line-faint); }
+.custom-theme-heading { display: grid; gap: 6px; }
+.custom-theme-heading h3 { margin: 0; font: 600 15px/1.4 var(--sans); color: var(--text); }
+.custom-theme-controls { display: grid; grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr); gap: 16px; }
+.custom-theme-controls label, .custom-theme-color label { display: block; margin-bottom: 6px; color: var(--text); font: 500 14px/1.4 var(--sans); }
+.custom-theme-controls select { width: 100%; min-width: 0; min-height: 36px; }
+.custom-theme-preset > div { display: flex; align-items: center; gap: 8px; }
+.custom-theme-preset button { flex-shrink: 0; min-height: 36px; }
+.custom-theme-colors { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; min-width: 0; padding: 0; margin: 0; border: 0; }
+.custom-theme-colors legend { padding: 0; margin-bottom: 16px; font: 600 15px/1.4 var(--sans); }
+.custom-theme-color { min-width: 0; }
+.custom-theme-color > div { display: flex; align-items: center; gap: 8px; }
+.custom-theme-color input[type='color'] { width: 44px; height: 36px; padding: 3px; cursor: pointer; }
+.custom-theme-color output { font: 13px/1.4 var(--mono); color: var(--text-dim); }
+.custom-theme-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.custom-theme-actions button { min-height: 36px; }
+.custom-theme-actions [data-custom-theme-save] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.custom-theme-editor [role='alert'] { color: var(--bad); }
+
+@media (pointer: coarse) {
+  .config-pirate-toggle, .custom-theme-editor button, .custom-theme-controls select, .custom-theme-color input[type='color'] { min-height: 44px; }
 }
 
 .ui-terminology-settings .terminology-reference {
@@ -129,4 +159,7 @@
   .ui-customization-body { padding: 16px; gap: 20px; }
   .ui-theme-control { grid-template-columns: minmax(0, 1fr); }
   .theme-preview-palette { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .custom-theme-controls { grid-template-columns: minmax(0, 1fr); }
+  .custom-theme-colors { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-terminology-settings { align-items: stretch; }
 }

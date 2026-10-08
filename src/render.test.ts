@@ -59,7 +59,8 @@ describe('application views', () => {
     expect(el.querySelector('.ui-theme-control label[for="ui-theme"]')?.textContent).toBe('Theme');
     expect(el.querySelector('.ui-theme-control #ui-theme-help')?.id).toBe(select?.getAttribute('aria-describedby'));
     expect(el.querySelector('.ui-terminology-settings .terminology-reference')?.hasAttribute('open')).toBe(false);
-    expect(el.querySelector('.ui-theme-control')?.nextElementSibling?.classList.contains('theme-preview')).toBe(true);
+    expect(el.querySelector('.ui-theme-control')?.nextElementSibling?.hasAttribute('data-custom-theme-editor')).toBe(true);
+    expect(el.querySelector<HTMLElement>('[data-custom-theme-editor]')?.hidden).toBe(true);
     expect(Array.from(select!.options).map((o) => o.value)).toEqual(THEMES.map((t) => t.id));
     expect(select!.querySelector<HTMLOptionElement>('option[selected]')?.value).toBe('dracula');
   });
