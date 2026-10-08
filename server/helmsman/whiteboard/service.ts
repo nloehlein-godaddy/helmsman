@@ -2,7 +2,7 @@ import { boundWhiteboardDiff } from './evidence';
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { WhiteboardSnapshotV1, WhiteboardTargetV1 } from '../../../src/plugins/whiteboard';
-import type { PullRequestInspectDiffV1, PullRequestInspectTargetV1 } from '../../../src/plugins/pull-request-inspect';
+import { parsePullRequestInspectTargetV1, type PullRequestInspectDiffV1, type PullRequestInspectTargetV1 } from '../../../src/plugins/pull-request-inspect';
 import type { RunRow } from '../db';
 import type { PullRequestInspectServerService } from '../pull-request-inspect-service';
 import { clarificationScope } from '../clarification-service-common';
@@ -51,21 +51,38 @@ export function createWhiteboardService(options: {
     if (run.attempt !== target.expectedAttempt) throw new WhiteboardError(409, 'attempt-changed');
     return run;
   }
+  function retainedComparison(run: RunRow): PullRequestInspectTargetV1 {
+    let task: Record<string, unknown> | null;
+    try { task = run.taskJson ? protocolRecord(JSON.parse(run.taskJson)) ?? null : null; } catch { throw new WhiteboardError(409, 'invalid-retained-target'); }
+    const source = protocolRecord(task?.pullRequestSource);
+    if (!source?.target) throw new WhiteboardError(409, 'pinned-comparison-required');
+    let comparison: PullRequestInspectTargetV1;
+    try { comparison = parsePullRequestInspectTargetV1(source.target); } catch { throw new WhiteboardError(409, 'invalid-retained-target'); }
+    if (comparison.repo !== run.repo || comparison.number !== run.prNumber || task?.prHeadSha !== undefined && task.prHeadSha !== comparison.headSha) throw new WhiteboardError(409, 'invalid-retained-target');
+    return comparison;
+  }
+  function checkStored(target: WhiteboardTargetV1, record: WhiteboardRecord | null): void {
+    if (target.kind !== 'run' || !record) return;
+    const run = check(target); if (!run) throw new WhiteboardError(404, 'not-found');
+    const comparison = retainedComparison(run);
+    if (record.baseSha !== comparison.baseSha || record.headSha !== comparison.headSha) throw new WhiteboardError(409, 'comparison-changed');
+  }
   async function evidence(target: WhiteboardTargetV1, signal: AbortSignal): Promise<WhiteboardEvidence> {
     const run = check(target);
     if (!options.repositoryPath(target.repo)) throw new WhiteboardError(503, 'repository-unavailable');
-    let task: Record<string, unknown> | null = null;
-    try { task = run?.taskJson ? protocolRecord(JSON.parse(run.taskJson)) ?? null : null; } catch { throw new WhiteboardError(409, 'invalid-retained-target'); }
-    const number = target.kind === 'pull-request' ? target.number : run?.prNumber;
-    if (!number) throw new WhiteboardError(409, 'pinned-pull-request-required');
-    const detail = await options.inspect.detail({ version: 1, repo: target.repo, number }, signal);
-    const pinnedHead = target.kind === 'pull-request' ? target.headSha : task?.prHeadSha;
-    if (typeof pinnedHead !== 'string' || detail.target.headSha !== pinnedHead) throw new WhiteboardError(409, 'head-changed');
-    if (target.kind === 'pull-request' && detail.target.baseSha !== target.baseSha) throw new WhiteboardError(409, 'base-changed');
-    const diff = await options.inspect.diff({ version: 1, target: detail.target }, signal);
-    if (diff.target.repo !== detail.target.repo || diff.target.number !== number || diff.target.baseSha !== detail.target.baseSha || diff.target.headSha !== detail.target.headSha) throw new WhiteboardError(502, 'invalid-comparison');
+    let comparison: PullRequestInspectTargetV1;
+    if (target.kind === 'pull-request') comparison = { repo: target.repo, number: target.number, baseSha: target.baseSha, headSha: target.headSha };
+    else {
+      if (!run) throw new WhiteboardError(404, 'not-found');
+      comparison = retainedComparison(run);
+    }
+    const detail = await options.inspect.detail({ version: 1, repo: target.repo, number: comparison.number }, signal);
+    if (detail.target.headSha !== comparison.headSha) throw new WhiteboardError(409, 'head-changed');
+    if (detail.target.baseSha !== comparison.baseSha) throw new WhiteboardError(409, 'base-changed');
+    const diff = await options.inspect.diff({ version: 1, target: comparison }, signal);
+    if (diff.target.repo !== comparison.repo || diff.target.number !== comparison.number || diff.target.baseSha !== comparison.baseSha || diff.target.headSha !== comparison.headSha) throw new WhiteboardError(502, 'invalid-comparison');
     check(target); signal.throwIfAborted();
-    const result: WhiteboardEvidence = { version: 1, target, title: redactText(detail.title), comparison: detail.target,
+    const result: WhiteboardEvidence = { version: 1, target, title: redactText(detail.title), comparison,
       diff: boundWhiteboardDiff({ ...diff, files: diff.files.map(file => ({ ...file, patch: file.patch === null ? null : redactText(file.patch) })) }),
       run: run ? { id: run.id, attempt: run.attempt, status: run.status, ticketId: run.ticketId } : null };
     if (Buffer.byteLength(JSON.stringify(result)) > 400 * 1024) throw new WhiteboardError(413, 'evidence-too-large');
@@ -74,6 +91,7 @@ export function createWhiteboardService(options: {
   async function create(target: WhiteboardTargetV1, signal?: AbortSignal): Promise<WhiteboardSnapshotV1> {
     signal?.throwIfAborted(); lifetime.signal.throwIfAborted(); check(target);
     const key = keyOf(target); const saved = store.read(key);
+    checkStored(target, saved);
     if (saved && saved.status !== 'failed') return snapshot(target, saved);
     const active = operations.get(key); if (active) return active;
     if (operations.size >= 8) throw new WhiteboardError(503, 'busy');
@@ -92,6 +110,7 @@ export function createWhiteboardService(options: {
         controller.throwIfAborted(); check(target);
         const current = await options.inspect.detail({ version: 1, repo: target.repo, number: input.comparison.number }, controller);
         if (current.target.headSha !== input.comparison.headSha || current.target.baseSha !== input.comparison.baseSha) throw new WhiteboardError(409, 'head-changed');
+        controller.throwIfAborted(); check(target);
         record.document = JSON.stringify(document); store.save(record);
         if (!record.sessionId) {
           const repositoryPath = options.repositoryPath(target.repo);
@@ -101,6 +120,7 @@ export function createWhiteboardService(options: {
           if (typeof sessionId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(sessionId)) throw new WhiteboardError(502, 'invalid-session');
           record.sessionId = sessionId; store.save(record); creating = false;
         }
+        controller.throwIfAborted(); check(target);
         await options.client.write(record.sessionId, document, controller);
         record.status = 'ready'; store.save(record);
         return snapshot(target, record);
@@ -113,10 +133,11 @@ export function createWhiteboardService(options: {
     operations.set(key, operation); return operation;
   }
   return {
-    async read(target, signal) { signal?.throwIfAborted(); check(target); return snapshot(target, store.read(keyOf(target))); },
+    async read(target, signal) { signal?.throwIfAborted(); check(target); const record = store.read(keyOf(target)); checkStored(target, record); return snapshot(target, record); },
     explain: create,
     async open(target, signal) {
       signal?.throwIfAborted(); check(target); const record = store.read(keyOf(target));
+      checkStored(target, record);
       if (record?.status !== 'ready' || !record.sessionId) throw new WhiteboardError(409, 'session-not-ready');
       await options.client.open(record.sessionId, signal); return snapshot(target, record);
     },

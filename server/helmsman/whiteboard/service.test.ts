@@ -77,13 +77,13 @@ describe('Whiteboard durable sessions', () => {
   });
   it('never reuses a failed run board against a changed PR base', async () => {
     const f = fixture(); const runTarget: WhiteboardTargetV1 = { kind: 'run', repo: target.repo, runId: 'run-1', expectedAttempt: 1 };
-    f.getRun.mockReturnValue({ id: 'run-1', repo: target.repo, attempt: 1, prNumber: 7, taskJson: JSON.stringify({ prHeadSha: headSha }) } as RunRow);
+    f.getRun.mockReturnValue({ id: 'run-1', repo: target.repo, attempt: 1, prNumber: 7, taskJson: JSON.stringify({ prHeadSha: headSha, pullRequestSource: { target: { repo: target.repo, number: 7, baseSha, headSha } } }) } as RunRow);
     f.client.write.mockRejectedValueOnce(new Error('write failed'));
     expect((await f.service.explain(runTarget)).status).toBe('failed');
     const moved = { repo: target.repo, number: 7, baseSha: 'c'.repeat(40), headSha };
     f.detail.mockResolvedValue({ target: moved, title: 'Moved base' } as PullRequestInspectDetailV1);
     f.diff.mockResolvedValue({ version: 1, target: moved, files: [], quality: 'complete', truncated: false } as unknown as PullRequestInspectDiffV1);
-    await expect(f.service.explain(runTarget)).rejects.toMatchObject({ reason: 'comparison-changed' });
+    await expect(f.service.explain(runTarget)).rejects.toMatchObject({ reason: 'base-changed' });
     expect(await f.service.read(runTarget)).toMatchObject({ status: 'failed', baseSha, headSha });
     expect(f.client.create).toHaveBeenCalledTimes(1); expect(f.client.write).toHaveBeenCalledTimes(1);
   });
@@ -108,5 +108,56 @@ describe('Whiteboard durable sessions', () => {
     expect(f.sql.prepare('SELECT evidence, document FROM whiteboard_sessions').get()).toEqual(saved);
     expect(f.generate).toHaveBeenCalledTimes(1); expect(f.client.create).toHaveBeenCalledTimes(1);
     expect(f.client.write).toHaveBeenLastCalledWith('a3dd14b8-f1a2-40ff-9770-5e3043ca44b9', cited, expect.any(AbortSignal));
+  });
+  it('blocks an advanced base before the first run explanation despite an unchanged head', async () => {
+    const f = fixture(); const runTarget: WhiteboardTargetV1 = { kind: 'run', repo: target.repo, runId: 'run-1', expectedAttempt: 1 };
+    f.getRun.mockReturnValue({ id: 'run-1', repo: target.repo, attempt: 1, prNumber: 7, taskJson: JSON.stringify({ prHeadSha: headSha, pullRequestSource: { target: { repo: target.repo, number: 7, baseSha, headSha } } }) } as RunRow);
+    f.detail.mockResolvedValue({ target: { repo: target.repo, number: 7, baseSha: 'c'.repeat(40), headSha }, title: 'Changed base' } as PullRequestInspectDetailV1);
+    await expect(f.service.explain(runTarget)).rejects.toMatchObject({ reason: 'base-changed' });
+    expect(f.diff).not.toHaveBeenCalled(); expect(f.generate).not.toHaveBeenCalled(); expect(f.client.create).not.toHaveBeenCalled();
+    expect(f.sql.prepare('SELECT COUNT(*) AS count FROM whiteboard_sessions').get()).toEqual({ count: 0 });
+  });
+  it('fails closed for legacy runs without a retained base instead of using the current PR comparison', async () => {
+    const f = fixture(); const runTarget: WhiteboardTargetV1 = { kind: 'run', repo: target.repo, runId: 'run-1', expectedAttempt: 1 };
+    f.getRun.mockReturnValue({ id: 'run-1', repo: target.repo, attempt: 1, prNumber: 7, taskJson: JSON.stringify({ prHeadSha: headSha }) } as RunRow);
+    await expect(f.service.explain(runTarget)).rejects.toMatchObject({ reason: 'pinned-comparison-required' });
+    expect(f.detail).not.toHaveBeenCalled(); expect(f.generate).not.toHaveBeenCalled(); expect(f.client.create).not.toHaveBeenCalled();
+  });
+  it('rejects a retained PR target belonging to another galleon or PR', async () => {
+    const f = fixture(); const runTarget: WhiteboardTargetV1 = { kind: 'run', repo: target.repo, runId: 'run-1', expectedAttempt: 1 };
+    f.getRun.mockReturnValue({ id: 'run-1', repo: target.repo, attempt: 1, prNumber: 7, taskJson: JSON.stringify({ prHeadSha: headSha, pullRequestSource: { target: { repo: 'other/project', number: 7, baseSha, headSha } } }) } as RunRow);
+    await expect(f.service.explain(runTarget)).rejects.toMatchObject({ reason: 'invalid-retained-target' });
+    expect(f.detail).not.toHaveBeenCalled(); expect(f.client.create).not.toHaveBeenCalled();
+  });
+  it('rechecks the run attempt after the final asynchronous PR inspection', async () => {
+    const f = fixture(); const runTarget: WhiteboardTargetV1 = { kind: 'run', repo: target.repo, runId: 'run-1', expectedAttempt: 1 };
+    const run = { id: 'run-1', repo: target.repo, attempt: 1, prNumber: 7, taskJson: JSON.stringify({ prHeadSha: headSha, pullRequestSource: { target: { repo: target.repo, number: 7, baseSha, headSha } } }) } as RunRow;
+    f.getRun.mockReturnValue(run);
+    let reads = 0;
+    f.detail.mockImplementation(async () => {
+      if (++reads === 2) f.getRun.mockReturnValue({ ...run, attempt: 2 });
+      return { target: { repo: target.repo, number: 7, baseSha, headSha }, title: 'Validate input' } as PullRequestInspectDetailV1;
+    });
+    expect((await f.service.explain(runTarget)).status).toBe('failed');
+    expect(f.client.create).not.toHaveBeenCalled(); expect(f.client.write).not.toHaveBeenCalled();
+  });
+  it('retains a created session when the run attempt changes during creation without writing into it', async () => {
+    const f = fixture(); const runTarget: WhiteboardTargetV1 = { kind: 'run', repo: target.repo, runId: 'run-1', expectedAttempt: 1 };
+    const run = { id: 'run-1', repo: target.repo, attempt: 1, prNumber: 7, taskJson: JSON.stringify({ prHeadSha: headSha, pullRequestSource: { target: { repo: target.repo, number: 7, baseSha, headSha } } }) } as RunRow;
+    f.getRun.mockReturnValue(run);
+    f.client.create.mockImplementation(async () => { f.getRun.mockReturnValue({ ...run, attempt: 2 }); return 'a3dd14b8-f1a2-40ff-9770-5e3043ca44b9'; });
+    expect(await f.service.explain(runTarget)).toMatchObject({ status: 'failed', sessionId: 'a3dd14b8-f1a2-40ff-9770-5e3043ca44b9' });
+    expect(f.sql.prepare('SELECT sessionId FROM whiteboard_sessions').get()).toEqual({ sessionId: 'a3dd14b8-f1a2-40ff-9770-5e3043ca44b9' });
+    expect(f.client.write).not.toHaveBeenCalled(); expect(f.client.create).toHaveBeenCalledTimes(1);
+  });
+  it('rejects an existing ready run board with a comparison inconsistent with retained provenance', async () => {
+    const f = fixture(); const runTarget: WhiteboardTargetV1 = { kind: 'run', repo: target.repo, runId: 'run-1', expectedAttempt: 1 };
+    f.getRun.mockReturnValue({ id: 'run-1', repo: target.repo, attempt: 1, prNumber: 7, taskJson: JSON.stringify({ prHeadSha: headSha, pullRequestSource: { target: { repo: target.repo, number: 7, baseSha, headSha } } }) } as RunRow);
+    expect((await f.service.explain(runTarget)).status).toBe('ready');
+    f.sql.prepare('UPDATE whiteboard_sessions SET baseSha=?').run('c'.repeat(40));
+    await expect(f.service.read(runTarget)).rejects.toMatchObject({ reason: 'comparison-changed' });
+    await expect(f.service.open(runTarget)).rejects.toMatchObject({ reason: 'comparison-changed' });
+    await expect(f.service.explain(runTarget)).rejects.toMatchObject({ reason: 'comparison-changed' });
+    expect(f.client.open).not.toHaveBeenCalled(); expect(f.client.create).toHaveBeenCalledTimes(1);
   });
 });
