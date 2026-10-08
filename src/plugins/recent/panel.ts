@@ -29,14 +29,16 @@ const iconPaths = {
   running: 'm9 5 11 7-11 7z',
   clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',
   attempt: 'M3 10a9 9 0 1 1 2.6 8.4M3 4v6h6',
+  refresh: 'M20 6v5h-5M4 18v-5h5M20 11a8 8 0 0 0-14-5l-2 2M4 13a8 8 0 0 0 14 5l2-2',
   attention: 'M12 3 2 21h20L12 3M12 9v4M12 17h.01',
   settlement: 'M9 12l2 2 4-4M12 3l8 4v5c0 5-8 9-8 9s-8-4-8-9V7z',
 } as const;
+const iconMarkup = (icon: keyof typeof iconPaths): string => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${iconPaths[icon]}"/></svg>`;
 const runInfo = (kind: string, icon: keyof typeof iconPaths | null, label: string, tooltipText: string, tooltipId: string, text?: string): HTMLSpanElement => {
   const info = node('span'); info.className = 'run-info';
   const trigger = node('button'); trigger.type = 'button'; trigger.dataset.runInfo = kind;
   trigger.setAttribute('aria-label', label); trigger.setAttribute('aria-describedby', tooltipId);
-  if (icon) trigger.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${iconPaths[icon]}"/></svg>`;
+  if (icon) trigger.innerHTML = iconMarkup(icon);
   if (text) trigger.append(node('span', text));
   const tooltip = node('span', tooltipText); tooltip.className = 'run-tooltip'; tooltip.id = tooltipId; tooltip.setAttribute('role', 'tooltip');
   trigger.addEventListener('blur', () => { delete info.dataset.tapped; });
@@ -76,6 +78,9 @@ const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16
 .plugin-run-list.plugin-recent{container-type:inline-size}
 .plugin-run-list.plugin-recent li{gap:12px;padding:20px 0}
 .plugin-run-list.plugin-recent li:first-child{padding-top:4px}
+.plugin-run-list.plugin-recent>ul{border-bottom:1px solid var(--line)}
+.plugin-run-list.plugin-recent .run-icon-action{display:inline-flex;align-items:center;justify-content:center;width:34px;min-height:34px;padding:8px}
+.plugin-run-list.plugin-recent .run-icon-action svg{width:16px;height:16px;flex-shrink:0}
 .plugin-run-list.plugin-recent .run-main{gap:4px 16px;grid-template-columns:minmax(0,1fr) auto}
 .plugin-run-list.plugin-recent .run-main>a{font-size:18px;font-weight:650;align-self:center}
 .plugin-run-list.plugin-recent .run-status{padding:0;border:0;background:transparent;color:var(--text-dim);grid-column:2;grid-row:1}
@@ -99,7 +104,7 @@ const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16
 .plugin-run-list.plugin-recent .run-info:not([data-dismissed=true]):focus-within>.run-tooltip{visibility:visible}
 @media(hover:hover){.plugin-run-list.plugin-recent .run-info:not([data-dismissed=true]):hover>.run-tooltip{visibility:visible}}
 .plugin-run-list.plugin-recent .run-supporting{font-size:14px;color:var(--text-dim)}
-@media(pointer:coarse){.plugin-run-list.plugin-recent .work-identity{display:inline-flex;align-items:center;min-height:44px}.plugin-run-list.plugin-recent button{min-height:44px}.plugin-run-list.plugin-recent .run-info>button{min-height:44px;min-width:44px}}
+@media(pointer:coarse){.plugin-run-list.plugin-recent .work-identity{display:inline-flex;align-items:center;min-height:44px}.plugin-run-list.plugin-recent button{min-height:44px}.plugin-run-list.plugin-recent .run-info>button{min-height:44px;min-width:44px}.plugin-run-list.plugin-recent .run-icon-action{width:44px;min-height:44px}}
 `;
 
 class RunListPanel implements PluginPanelInstance {
@@ -254,6 +259,9 @@ class RunListPanel implements PluginPanelInstance {
     return `/runs?${query}`;
   }
   private button(label: string, callback: () => void, disabled = false): HTMLButtonElement { const button = node('button', label); button.type = 'button'; button.disabled = disabled; button.addEventListener('click', callback); return button; }
+  private iconButton(label: string, icon: keyof typeof iconPaths, callback: () => void, disabled = false): HTMLButtonElement {
+    const button = this.button('', callback, disabled); button.className = 'run-icon-action'; button.title = label; button.setAttribute('aria-label', label); button.innerHTML = iconMarkup(icon); return button;
+  }
   private commandFeedback(parent: HTMLElement, command: CommandState): void {
     const receipt = command.receipt;
     const feedback = node('p', command.busy ? 'Updating request…' : receipt?.status === 'accepted'
@@ -323,7 +331,7 @@ class RunListPanel implements PluginPanelInstance {
       const actions = node('div'); actions.className = 'run-actions';
       const eligible = presentation.action === 'stop' ? run.status === 'running' : run.status === 'failed';
       if (eligible) {
-        const button = this.button(presentation.action === 'stop' ? 'Stop' : 'Retry', () => { void this.submit(run); }, !this.active() || !this.evidenceReady || !!command?.busy || !!command?.uncertain || !!command?.receipt && ['accepted', 'rejected'].includes(command.receipt.status));
+        const button = this.iconButton(presentation.action === 'stop' ? 'Stop' : 'Retry', presentation.action === 'stop' ? 'stopped' : 'attempt', () => { void this.submit(run); }, !this.active() || !this.evidenceReady || !!command?.busy || !!command?.uncertain || !!command?.receipt && ['accepted', 'rejected'].includes(command.receipt.status));
         button.setAttribute('aria-label', `${presentation.action === 'stop' ? 'Stop' : 'Retry'} ${this.state.pirateMode ? 'voyage' : 'run'} ${run.displayKey}, attempt ${run.attempt}`); actions.append(button);
       }
       if (actions.childElementCount) row.append(actions); if (command) this.commandFeedback(row, command); list.append(row);
@@ -335,7 +343,7 @@ class RunListPanel implements PluginPanelInstance {
     if (pending.length) { const saved = node('section'); saved.append(node('h3', `Saved requests (${pending.length})`)); for (const [, command] of pending) { const row = node('div', `${command.runId} · ${command.repo} · Attempt ${command.attempt}`); row.dataset.runKey = key({ repo: command.repo, id: command.runId, attempt: command.attempt }); this.commandFeedback(row, command); saved.append(row); } root.append(saved); }
     if (this.truncated) root.append(node('small', `Showing the first ${presentation.limit} ${presentation.kind === 'running' ? 'active' : 'recent'} runs.`));
     const history = new URLSearchParams({ pane: 'recent' }); if (this.state.repo) history.set('repo', this.state.repo);
-    const footer = node('footer'); footer.className = 'run-actions'; footer.append(this.link(this.state.pirateMode ? 'All voyages' : 'All runs', `/runs?${history}`), this.button('Refresh', () => { void this.refresh(); }, !this.active())); root.append(footer);
+    const footer = node('footer'); footer.className = 'run-actions'; footer.append(this.link(this.state.pirateMode ? 'All voyages' : 'All runs', `/runs?${history}`), this.iconButton('Refresh', 'refresh', () => { void this.refresh(); }, !this.active())); root.append(footer);
     const controls = Array.from(root.querySelectorAll<HTMLElement>('a,button'));
     for (const control of controls) control.dataset.runFocus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey ?? '', control.tagName, control.dataset.runInfo ?? control.getAttribute('aria-label') ?? control.textContent, control.getAttribute('href')]);
     this.container.replaceChildren(root);

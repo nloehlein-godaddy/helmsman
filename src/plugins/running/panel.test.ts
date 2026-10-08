@@ -27,7 +27,7 @@ function fixture(action: 'stop' | 'retry', pirateMode = false) {
     runs: { version: 1, list: vi.fn(), load: vi.fn(), log: vi.fn(), watchList, watchLoad: vi.fn(), watchLog: vi.fn() },
     runCommands: { version: 1, pending, submit, retry, receipt: reconcile, acknowledge: vi.fn(async () => {}) } }, saveState: vi.fn(), navigate: vi.fn(), onDispose: vi.fn() };
   const emit = (items: RunReadSummaryV1[], index = listeners.length - 1) => listeners[index]?.({ status: 'available', value: { version: 1, repo: state.repo, items, nextCursor: null } });
-  const button = (name: string) => [...container.querySelectorAll('button')].find(value => value.textContent === name)!;
+  const button = (name: string) => [...container.querySelectorAll('button')].find(value => value.textContent === name || value.title === name)!;
   const saved: RunCommandPendingV1 = { command: { version: 1, repo, requestId: receipt.requestId, action, target: { runId: run.id, expectedAttempt: run.attempt } }, receipt: null };
   return { container, lifetime, activity, state, item, context, cleanup, watchList, pending, submit, retry, reconcile, emit, button, saved };
 }
