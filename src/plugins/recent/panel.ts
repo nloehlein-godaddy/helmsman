@@ -22,6 +22,31 @@ const reviewSummary = (verdict: string | null | undefined, outcome: string): str
   return text.replace(prefix, '').trim();
 };
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
+const iconPaths = {
+  succeeded: 'M20 6 9 17l-5-5',
+  failed: 'M18 6 6 18M6 6l12 12',
+  stopped: 'M6 6h12v12H6z',
+  running: 'm9 5 11 7-11 7z',
+  clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',
+  attempt: 'M3 10a9 9 0 1 1 2.6 8.4M3 4v6h6',
+  attention: 'M12 3 2 21h20L12 3M12 9v4M12 17h.01',
+  settlement: 'M9 12l2 2 4-4M12 3l8 4v5c0 5-8 9-8 9s-8-4-8-9V7z',
+} as const;
+const runInfo = (kind: string, icon: keyof typeof iconPaths | null, label: string, tooltipText: string, tooltipId: string, text?: string): HTMLSpanElement => {
+  const info = node('span'); info.className = 'run-info';
+  const trigger = node('button'); trigger.type = 'button'; trigger.dataset.runInfo = kind;
+  trigger.setAttribute('aria-label', label); trigger.setAttribute('aria-describedby', tooltipId);
+  if (icon) trigger.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${iconPaths[icon]}"/></svg>`;
+  if (text) trigger.append(node('span', text));
+  const tooltip = node('span', tooltipText); tooltip.className = 'run-tooltip'; tooltip.id = tooltipId; tooltip.setAttribute('role', 'tooltip');
+  let tapped = false;
+  trigger.addEventListener('blur', () => { tapped = false; });
+  const reveal = () => { delete info.dataset.dismissed; };
+  info.addEventListener('pointerenter', reveal); trigger.addEventListener('focus', reveal);
+  trigger.addEventListener('click', () => { tapped = !tapped; info.dataset.dismissed = String(!tapped); });
+  trigger.addEventListener('keydown', event => { if (event.key === 'Escape') { tapped = false; info.dataset.dismissed = 'true'; event.stopPropagation(); } });
+  info.append(trigger, tooltip); return info;
+};
 const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:17px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .plugin-run-list{line-height:1.5;overflow-wrap:anywhere}
 .plugin-run-list :is(h2,h3,p){margin:0}
@@ -52,9 +77,11 @@ const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16
 .plugin-run-list.plugin-recent{container-type:inline-size}
 .plugin-run-list.plugin-recent li{gap:12px;padding:20px 0}
 .plugin-run-list.plugin-recent li:first-child{padding-top:4px}
-.plugin-run-list.plugin-recent .run-main{gap:4px 16px}
-.plugin-run-list.plugin-recent .run-main>a{font-size:18px;font-weight:650}
-.plugin-run-list.plugin-recent .run-status{padding:0;border:0;background:transparent;color:var(--text-dim);font-size:13px;font-weight:400;grid-row:1}
+.plugin-run-list.plugin-recent .run-main{gap:4px 16px;grid-template-columns:minmax(0,1fr) auto}
+.plugin-run-list.plugin-recent .run-main>a{font-size:18px;font-weight:650;align-self:center}
+.plugin-run-list.plugin-recent .run-status{padding:0;border:0;background:transparent;color:var(--text-dim);grid-column:2;grid-row:1}
+.plugin-run-list.plugin-recent .run-status[data-status=succeeded]{color:var(--good)}
+.plugin-run-list.plugin-recent .run-status[data-status=failed]{color:var(--bad)}
 .plugin-run-list.plugin-recent .run-review{display:grid;gap:4px}
 .plugin-run-list.plugin-recent .run-recommendation{font-size:14px;font-weight:600;color:var(--review,var(--accent))}
 .plugin-run-list.plugin-recent .run-recommendation[data-outcome=REQUEST_CHANGES]{color:var(--queued,var(--accent))}
@@ -62,10 +89,18 @@ const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16
 .plugin-run-list.plugin-recent .run-review-summary{font-size:16px;line-height:1.5;max-width:70ch}
 .plugin-run-list.plugin-recent .run-evidence{gap:4px 16px;font-size:13px;align-items:center}
 .plugin-run-list.plugin-recent .run-evidence .work-identity{font-family:var(--mono,monospace);font-size:13px;text-decoration:underline}
-.plugin-run-list.plugin-recent .run-evidence time{font-variant-numeric:tabular-nums}
+.plugin-run-list.plugin-recent .run-evidence{position:relative}
+.plugin-run-list.plugin-recent .run-evidence .run-info{position:static}
+.plugin-run-list.plugin-recent .run-info{position:relative;display:inline-flex;align-items:center}
+.plugin-run-list.plugin-recent .run-info>button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:24px;min-height:24px;padding:0;border:0;background:transparent;color:inherit;font-size:13px;font-variant-numeric:tabular-nums;cursor:pointer}
+.plugin-run-list.plugin-recent .run-info>button:hover{color:var(--text);background:transparent}
+.plugin-run-list.plugin-recent .run-info svg{width:16px;height:16px;flex-shrink:0}
+.plugin-run-list.plugin-recent .run-tooltip{position:absolute;top:100%;left:0;z-index:5;width:max-content;max-width:min(280px,80vw);padding:8px 12px;border:1px solid var(--line-strong);border-radius:6px;background:var(--panel);color:var(--text);font-size:13px;font-weight:400;line-height:1.5;visibility:hidden}
+.plugin-run-list.plugin-recent .run-status .run-tooltip{right:0;left:auto}
+.plugin-run-list.plugin-recent .run-info:not([data-dismissed=true]):focus-within>.run-tooltip{visibility:visible}
+@media(hover:hover){.plugin-run-list.plugin-recent .run-info:not([data-dismissed=true]):hover>.run-tooltip{visibility:visible}}
 .plugin-run-list.plugin-recent .run-supporting{font-size:14px;color:var(--text-dim)}
-@container(max-width:420px){.plugin-run-list.plugin-recent .run-main{grid-template-columns:minmax(0,1fr)}.plugin-run-list.plugin-recent .run-status{grid-column:1;grid-row:3;justify-self:start}}
-@media(pointer:coarse){.plugin-run-list.plugin-recent .work-identity{display:inline-flex;align-items:center;min-height:44px}.plugin-run-list.plugin-recent button{min-height:44px}}
+@media(pointer:coarse){.plugin-run-list.plugin-recent .work-identity{display:inline-flex;align-items:center;min-height:44px}.plugin-run-list.plugin-recent button{min-height:44px}.plugin-run-list.plugin-recent .run-info>button{min-height:44px;min-width:44px}}
 `;
 
 class RunListPanel implements PluginPanelInstance {
@@ -88,14 +123,19 @@ class RunListPanel implements PluginPanelInstance {
 
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.container = container; this.context = context; this.state = context.state;
+    document.addEventListener('keydown', this.dismissTooltips);
     context.onDispose(() => this.dispose()); context.signal.addEventListener('abort', this.dispose, { once: true });
     this.state.activity.signal.addEventListener('abort', this.cancel, { once: true });
     if (context.signal.aborted) this.dispose(); else { this.draw(); void this.refresh(); }
   }
   private active(generation = this.generation): boolean { return !this.disposed && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
   private cancel = () => { for (const command of this.commands.values()) command.busy = false; ++this.generation; this.controller?.abort(); this.controller = null; this.unsubscribe?.(); this.unsubscribe = null; this.pendingRead = null; this.evidenceReady = false; };
+  private dismissTooltips = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') for (const info of this.container.querySelectorAll<HTMLElement>('.run-info')) info.dataset.dismissed = 'true';
+  };
   dispose = () => {
     if (this.disposed) return; this.disposed = true; this.cancel();
+    document.removeEventListener('keydown', this.dismissTooltips);
     this.context.signal.removeEventListener('abort', this.dispose); this.state.activity.signal.removeEventListener('abort', this.cancel);
   };
   update(next: PluginPanelState): void {
@@ -246,8 +286,12 @@ class RunListPanel implements PluginPanelInstance {
       const row = node('li'); row.dataset.runId = run.id; row.dataset.runKey = id;
       const main = node('div'); main.className = 'run-main';
       const title = run.prNumber ? `${this.state.pirateMode ? 'Bounty' : 'PR'} #${run.prNumber} · ${run.displayKey}` : run.displayKey;
-      main.append(this.link(title, this.detail(run.id, run.repo)), node('small', run.repo), node('span', `Worker: ${run.status === 'running' && this.state.pirateMode ? 'Underway' : run.status}`));
-      const status = main.lastElementChild; if (status instanceof HTMLElement) { status.className = 'run-status'; status.dataset.status = run.status; } row.append(main);
+      const info = (kind: string, icon: keyof typeof iconPaths | null, label: string, description = label, text?: string) =>
+        runInfo(kind, icon, label, description, `run-info-${encodeURIComponent(JSON.stringify([this.state.instanceId, id, kind]))}`, text);
+      main.append(this.link(title, this.detail(run.id, run.repo)));
+      if (this.state.repo === null) main.append(node('small', run.repo));
+      const status = info('worker', run.status, `Worker: ${run.status}`); status.classList.add('run-status'); status.dataset.status = run.status;
+      main.append(status); row.append(main);
       const timestamp = Number.isFinite(Date.parse(run.startedAt)) ? new Date(run.startedAt).toLocaleString() : 'Unknown start time';
       const elapsed = Math.max(0, Math.floor((Date.now() - Date.parse(run.startedAt)) / 60_000));
       if (run.status === 'running' && Number.isFinite(elapsed)) row.append(node('small', `${elapsed < 60 ? `${elapsed}m` : `${Math.floor(elapsed / 60)}h ${elapsed % 60}m`} elapsed`));
@@ -262,13 +306,15 @@ class RunListPanel implements PluginPanelInstance {
         if (summary) { const verdict = node('p', summary); verdict.className = 'run-review-summary'; review.append(verdict); }
         row.append(review);
       }
-      if (run.sourceSettlement) { const settlement = node('p', `Source settlement: ${{ pending: 'pending', settled: 'settled', 'operator-required': 'operator action required' }[run.sourceSettlement.state]}. Worker outcome is unchanged.`); settlement.className = 'run-supporting'; row.append(settlement); }
       const evidence = node('div'); evidence.className = 'run-evidence';
-      const started = node('time', timestamp); started.dateTime = run.startedAt; started.title = `Started ${timestamp}`;
+      evidence.append(info('started', 'clock', 'Start time', `Started ${timestamp}`), info('attempt', 'attempt', `Attempt ${run.attempt}`, `Attempt ${run.attempt}`, String(run.attempt)));
+      if (run.costUsd !== null) evidence.append(info('spend', null, 'Observed spend', `$${run.costUsd.toFixed(2)} observed spend`, `$${run.costUsd.toFixed(2)}`));
+      if (run.sourceSettlement) {
+        const label = { pending: 'pending', settled: 'settled', 'operator-required': 'operator action required' }[run.sourceSettlement.state];
+        evidence.append(info('settlement', run.sourceSettlement.state === 'settled' ? 'settlement' : run.sourceSettlement.state === 'pending' ? 'clock' : 'attention', `Source settlement: ${label}`, `Source settlement: ${label}. Worker outcome is unchanged.`, run.sourceSettlement.state === 'operator-required' ? 'Needs action' : undefined));
+      }
       const identity = this.link(shortRunId(run.id), this.detail(run.id, run.repo)); identity.className = 'work-identity';
       identity.title = `Open run ${run.id}`; identity.setAttribute('aria-label', `Open run ${shortRunId(run.id)}`);
-      evidence.append(started, node('span', `Attempt ${run.attempt}`));
-      if (run.costUsd !== null) evidence.append(node('span', `$${run.costUsd.toFixed(2)} observed spend`));
       evidence.append(identity); row.append(evidence);
       const actions = node('div'); actions.className = 'run-actions';
       const eligible = presentation.action === 'stop' ? run.status === 'running' : run.status === 'failed';
@@ -287,7 +333,7 @@ class RunListPanel implements PluginPanelInstance {
     const history = new URLSearchParams({ pane: 'recent' }); if (this.state.repo) history.set('repo', this.state.repo);
     const footer = node('footer'); footer.className = 'run-actions'; footer.append(this.link(this.state.pirateMode ? 'All voyages' : 'All runs', `/runs?${history}`), this.button('Refresh', () => { void this.refresh(); }, !this.active())); root.append(footer);
     const controls = Array.from(root.querySelectorAll<HTMLElement>('a,button'));
-    for (const control of controls) control.dataset.runFocus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey ?? '', control.tagName, control.getAttribute('aria-label') ?? control.textContent, control.getAttribute('href')]);
+    for (const control of controls) control.dataset.runFocus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey ?? '', control.tagName, control.dataset.runInfo ?? control.getAttribute('aria-label') ?? control.textContent, control.getAttribute('href')]);
     this.container.replaceChildren(root);
     if (focus) controls.find(control => control.dataset.runFocus === focus)?.focus({ preventScroll: true });
   }

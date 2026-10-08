@@ -237,7 +237,7 @@ it.each(['slack', 'created'])('recent rows link a short %s digest to the full ru
   expect(f.container.querySelector('li .run-actions')).toBeNull();
   link.focus(); f.emit([{ ...f.item, id, status: 'succeeded', costUsd: 0 }]);
   expect(document.activeElement?.textContent).toBe('abc123deabc1');
-  expect(f.container.textContent).toContain('$0.00 observed spend');
+  expect(f.container.querySelector('[data-run-info=spend]')?.textContent).toBe('$0.00');
   f.lifetime.abort();
 });
 
@@ -246,5 +246,32 @@ it('recent comment-only reviews show the recommendation once while preserving th
   f.emit([{ ...f.item, status: 'succeeded', review: { outcome: 'COMMENT', verdict: 'Verdict: Comment only — Consider clearer wording.' } }]);
   expect(f.container.querySelector('.run-recommendation')?.textContent).toBe('Comment');
   expect(f.container.querySelector('.run-review-summary')?.textContent).toBe('Consider clearer wording.');
+  f.lifetime.abort();
+});
+
+it.each(['succeeded', 'failed', 'stopped'] as const)('recent %s worker icons retain accessible state and keyboard inspection', async status => {
+  const f = fixture('retry'); await recent.mount(f.container, f.context);
+  f.emit([{ ...f.item, status }]);
+  const worker = f.container.querySelector<HTMLButtonElement>('[data-run-info=worker]')!;
+  expect(worker.getAttribute('aria-label')).toBe(`Worker: ${status}`);
+  expect(worker.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  expect(worker.textContent).toBe('');
+  worker.focus(); f.emit([{ ...f.item, status: 'stopped' }]);
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('Worker: stopped');
+  const clock = f.container.querySelector<HTMLButtonElement>('[data-run-info=started]')!;
+  clock.focus(); clock.click();
+  expect(clock.parentElement?.dataset.dismissed).toBe('false');
+  expect(document.getElementById(clock.getAttribute('aria-describedby')!)?.textContent).toContain('Started');
+  clock.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  expect(clock.parentElement?.dataset.dismissed).toBe('true');
+  expect(document.activeElement).toBe(clock);
+  clock.click(); expect(clock.parentElement?.dataset.dismissed).toBe('false');
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  expect(clock.parentElement?.dataset.dismissed).toBe('true');
+  f.emit([{ ...f.item, status, startedAt: 'invalid', costUsd: 0 }]);
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('Start time');
+  const current = f.container.querySelector<HTMLButtonElement>('[data-run-info=started]')!;
+  expect(document.getElementById(current.getAttribute('aria-describedby')!)?.textContent).toBe('Started Unknown start time');
+  expect(f.container.querySelector('.run-main small')).toBeNull();
   f.lifetime.abort();
 });

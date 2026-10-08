@@ -1,7 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Route } from '@playwright/test';
 import { builtinCatalog } from './builtin-catalog';
 
-test('run panels retain exact-attempt requests across reload and keep worker, review, and settlement outcomes distinct', async ({ page }) => {
+test('run panels retain exact-attempt requests across reload and keep worker, review, and settlement outcomes distinct', async ({ page, browser }) => {
   await page.clock.setFixedTime(new Date('2026-09-20T12:30:00.000Z'));
   const enabled = new Set(['helmsman.costs', 'helmsman.helm', 'helmsman.backlog', 'helmsman.running', 'helmsman.recent']);
   const commands: { requestId: string; repo: string; action: string; target: { runId: string; expectedAttempt: number } }[] = [];
@@ -12,7 +12,7 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
   const rows = [{ ...base, id: 'active-run', displayKey: 'TASK-41', status: 'running' },
     { ...base, id: 'failed-run', displayKey: 'TASK-40', status: 'failed', endedAt: '2026-09-20T12:15:00.000Z', costUsd: 1.25, sourceSettlement: { state: 'pending' } },
     { ...base, id: reviewId, displayKey: 'Review', status: 'succeeded', prNumber: 7, endedAt: '2026-09-20T12:10:00.000Z', review: { outcome: 'REQUEST_CHANGES', verdict: 'Verdict: Request changes — Hidden-only preview content can pass the new reuse health gate. Add a regression test before merging.' }, sourceSettlement: { state: 'operator-required' } }];
-  await page.route('**/*', async route => {
+  const routeHandler = async (route: Route) => {
     const url = new URL(route.request().url());
     if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
     if (!url.pathname.startsWith('/api/')) return route.continue();
@@ -31,7 +31,8 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
     }
     if (url.pathname.startsWith('/api/run-commands/')) body = receipts.get(url.pathname.split('/').at(-1)!) ?? null;
     return route.fulfill({ json: body });
-  });
+  };
+  await page.route('**/*', routeHandler);
   await page.goto('/helm?repo=org/a'); await expect(page.locator('.plugin-helm')).toBeVisible();
   await page.locator('[data-helm-focus="page:edit"]').click();
   for (const name of ['running', 'recent']) {
@@ -44,7 +45,7 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
   await page.locator('[data-helm-focus="page:edit"]').click();
   const active = page.locator('.plugin-running'); const recent = page.locator('.plugin-recent');
   await expect(active.getByText('TASK-41', { exact: true })).toBeVisible();
-  await expect(recent.getByText('Worker: succeeded', { exact: true })).toBeVisible();
+  await expect(recent.getByRole('button', { name: 'Worker: succeeded', exact: true })).toBeVisible();
   await expect(recent.locator(`[data-run-id="${reviewId}"]`).getByRole('button', { name: /^Retry / })).toHaveCount(0);
   await expect(active).toHaveScreenshot('running-panel.png', { animations: 'disabled' });
   await expect(recent).toHaveScreenshot('recent-panel.png', { animations: 'disabled' });
@@ -53,10 +54,30 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
   const identity = recent.getByRole('link', { name: 'Open run abc123deabc1', exact: true });
   await expect(identity).toHaveText('abc123deabc1');
   await expect(identity).toHaveAttribute('href', `/runs?repo=org%2Fa&runRepo=org%2Fa&run=${reviewId}`);
-  await page.setViewportSize({ width: 390, height: 1200 });
-  await expect(recent).toHaveScreenshot('recent-panel-mobile.png', { animations: 'disabled' });
-  expect(await recent.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-  await page.setViewportSize({ width: 1440, height: 1000 });
+  const clock = recent.getByRole('button', { name: 'Start time', exact: true }).last();
+  const started = recent.locator(`[data-run-id="${reviewId}"] .run-tooltip`).filter({ hasText: 'Started' });
+  await clock.hover(); await expect(started).toBeVisible();
+  await page.mouse.move(0, 0); await clock.focus(); await expect(started).toBeVisible();
+  await clock.press('Escape'); await expect(started).toBeHidden();
+  await identity.focus();
+  const touchContext = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 1200 }, storageState: await page.context().storageState({ indexedDB: true }) });
+  const touchPage = await touchContext.newPage();
+  touchPage.on('pageerror', error => errors.push(error.message));
+  await touchPage.clock.setFixedTime(new Date('2026-09-20T12:30:00.000Z'));
+  await touchPage.route('**/*', routeHandler);
+  await touchPage.goto('http://127.0.0.1:4175/helm?repo=org/a');
+  const mobileRecent = touchPage.locator('.plugin-recent');
+  await expect(mobileRecent).toBeVisible();
+  await expect(mobileRecent).toHaveScreenshot('recent-panel-mobile.png', { animations: 'disabled' });
+  expect(await mobileRecent.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  const mobileClock = mobileRecent.getByRole('button', { name: 'Start time', exact: true }).last();
+  const mobileTime = mobileRecent.locator(`[data-run-id="${reviewId}"] .run-tooltip`).filter({ hasText: 'Started' });
+  const clockBounds = await mobileClock.boundingBox();
+  expect(clockBounds?.height).toBeGreaterThanOrEqual(44); expect(clockBounds?.width).toBeGreaterThanOrEqual(44);
+  await mobileClock.tap(); await expect(mobileTime).toBeVisible();
+  expect(await mobileRecent.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await mobileClock.tap(); await expect(mobileTime).toBeHidden();
+  await touchContext.close();
   await active.getByRole('button', { name: /^Stop / }).click();
   await expect(active.getByText('Stop requested. Worker status is reported separately.', { exact: true })).toBeVisible();
   await expect(active.getByText('Worker: Underway', { exact: true })).toBeVisible();
@@ -70,7 +91,7 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
   expect(commands).toHaveLength(2);
   await recent.getByRole('button', { name: 'Check request', exact: true }).click();
   await expect(recent.getByRole('link', { name: 'Open new voyage', exact: true })).toHaveAttribute('href', '/runs?repo=org%2Fa&runRepo=org%2Fa&run=new-run');
-  await expect(recent.getByText('Worker: failed', { exact: true })).toBeVisible();
+  await expect(recent.getByRole('button', { name: 'Worker: failed', exact: true })).toBeVisible();
   expect(commands).toHaveLength(2);
   enabled.delete('helmsman.recent');
   await expect(page.locator('.plugin-recent')).toHaveCount(0);
