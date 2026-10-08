@@ -8,7 +8,7 @@ export const styles = `
 .plugin-terminal .terminal-column-head { display:flex; justify-content:space-between; gap:.5rem; align-items:center; }
 .plugin-terminal .terminal-tabs { display:grid; gap:.4rem; }
 .plugin-terminal .terminal-tab { display:grid; gap:.3rem; text-align:left; width:100%; padding:.6rem; }
-.plugin-terminal .terminal-tab[aria-pressed=true] { border-color:var(--accent); color:var(--accent); }
+.plugin-terminal .terminal-tab[aria-pressed=true] { border-color:var(--accent); color:var(--accent-text,var(--accent)); }
 .plugin-terminal .terminal-tab small { color: var(--text-dim); overflow-wrap:anywhere; }
 .plugin-terminal button,.plugin-terminal select,.plugin-terminal input { color:var(--text); background:var(--rail); border:1px solid var(--line-strong); border-radius:6px; padding:.4rem .6rem; font:inherit; max-width:100%; }
 .plugin-terminal :is(input,select){background-color:var(--control-bg,var(--rail));border-color:var(--control-border,var(--line-strong))}

@@ -23,6 +23,7 @@ import { fetchAgents, type RunSummary } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
 import { applyTheme, applyThemeToDocument, AMBER_BACKGROUND, CUSTOM_THEME_FIELDS, CUSTOM_THEME_ID, DEFAULT_THEME_ID, createCustomTheme, customThemeFromPalette, loadCustomTheme, loadThemeId, REQUIRED_VAR_KEYS, saveCustomTheme, saveThemeId } from './data/themes';
 import { renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
+import { renderPirateModeIcon } from './renderPirateModeIcon';
 import {
   loadSavedRepoScope,
   saveRepoScope,
@@ -215,8 +216,10 @@ export class DashboardView {
       toggle.disabled = this.configSaves > 0;
       toggle.setAttribute(toggle.getAttribute('role') === 'switch' ? 'aria-checked' : 'aria-pressed', String(isPirateMode()));
       toggle.title = `Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}`;
-      const label = toggle.querySelector('span');
+      const label = toggle.querySelector('[data-pirate-mode-state]');
       if (label) label.textContent = isPirateMode() ? 'On' : 'Off';
+      const icon = toggle.querySelector('[data-pirate-mode-icon]');
+      if (icon) icon.innerHTML = renderPirateModeIcon(isPirateMode());
     }
   }
 

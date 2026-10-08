@@ -12,7 +12,7 @@ export const styles = `
 .plugin-bugs section{display:grid;gap:12px;min-width:0;padding:12px;border:1px solid var(--line);border-radius:6px}
 .plugin-bugs ul{list-style:none;padding:0;margin:0}
 .plugin-bugs li{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
-.plugin-bugs a{color:var(--accent)}
+.plugin-bugs a{color:var(--accent-text,var(--accent))}
 .plugin-bugs small{color:var(--text-dim)}
 .plugin-bugs [role=alert]{color:var(--bad)}
 .plugin-bugs dl{display:flex;gap:18px;flex-wrap:wrap}
@@ -26,8 +26,8 @@ export const styles = `
 .plugin-bugs .severity-badge{display:inline-block;border:1px solid currentColor;border-radius:999px;padding:1px 6px;font-weight:700;line-height:1.35}
 .plugin-bugs .severity-s0{color:var(--bad)}
 .plugin-bugs .severity-s1{color:var(--bad)}
-.plugin-bugs .severity-s2{color:var(--accent)}
-.plugin-bugs .severity-s3{color:var(--accent)}
+.plugin-bugs .severity-s2{color:var(--accent-text,var(--accent))}
+.plugin-bugs .severity-s3{color:var(--accent-text,var(--accent))}
 .plugin-bugs .severity-s4{color:var(--text-dim)}
 .plugin-bugs .severity-s5{color:var(--text-dim)}
 .plugin-bugs { font: 16px/1.5 var(--sans, sans-serif); color: var(--text); min-width: 0; }

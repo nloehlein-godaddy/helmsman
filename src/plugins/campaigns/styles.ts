@@ -35,7 +35,7 @@ export const styles = `
 .campaign-settings summary { cursor: pointer; color: var(--text-dim); }
 .campaign-settings > div { display: grid; gap: 12px; padding-top: 12px; }
 .campaign-hint { line-height: 1.6; }
-.campaign-page .campaign-primary { color: var(--accent); border-color: var(--accent); }
+.campaign-page .campaign-primary { color: var(--accent-text,var(--accent)); border-color: var(--accent); }
 .campaign-page .campaign-destructive { color: var(--bad); }
 .campaign-page .campaign-confirm button + button { margin-left: 8px; }
 .campaign-settings summary:focus-visible, .campaign-table-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

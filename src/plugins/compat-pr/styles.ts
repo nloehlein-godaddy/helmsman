@@ -1,8 +1,8 @@
 export const styles = `
 .plugin-public-pr .pr-inbox-grid { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
 .plugin-public-pr .pr-list-panel { min-width: 0; align-self: start; }
-.plugin-public-pr .pr-list-github { color: var(--accent); text-underline-offset: 3px; }
-.plugin-public-pr .pr-list-github:hover { color: var(--accent-bright); }
+.plugin-public-pr .pr-list-github { color: var(--accent-text,var(--accent)); text-underline-offset: 3px; }
+.plugin-public-pr .pr-list-github:hover { color: var(--accent-text-hover,var(--accent-bright)); }
 .plugin-public-pr .pr-list-count { margin-left: auto; font-size: 14px; color: var(--text-dim); }
 .plugin-public-pr .pr-list { max-height: 360px; overflow-y: auto; container: pr-list / inline-size; }
 .plugin-public-pr .pr-list-row { display:grid; grid-template-columns:7ch minmax(0,1fr) auto; align-items:start; gap:12px; padding:14px; }
@@ -25,7 +25,7 @@ export const styles = `
 .plugin-public-pr .diff-line { display: block; white-space: pre; }
 .plugin-public-pr .diff-add { color: var(--good); }
 .plugin-public-pr .diff-del { color: var(--bad); }
-.plugin-public-pr .diff-hunk { color: var(--accent); }
+.plugin-public-pr .diff-hunk { color: var(--accent-text,var(--accent)); }
 .plugin-public-pr .diff-ctx { color: var(--text-dim); }
 .plugin-public-pr .diff-nopatch { padding: 8px 10px; border-top: 1px solid var(--line-faint); }
 .plugin-public-pr .pr-panel { border: 1px solid var(--line); background: var(--panel-2); padding: 12px; display: flex; flex-direction: column; gap: 11px; margin-top: 6px; }
@@ -49,8 +49,8 @@ export const styles = `
 .plugin-public-pr .pr-ci { font-size: 14px; color: var(--good); }
 .plugin-public-pr .pr-ci-bad { color: var(--bad); }
 .plugin-public-pr .pr-branch, .plugin-public-pr .pr-comments { min-width: 0; overflow-wrap: anywhere; font-size: 14px; color: var(--text-dim); }
-.plugin-public-pr .pr-link { overflow-wrap: anywhere; font-family: var(--mono); font-size: 14px; color: var(--accent); text-decoration: none; }
-.plugin-public-pr .pr-link:hover { color: var(--accent-bright); }
+.plugin-public-pr .pr-link { overflow-wrap: anywhere; font-family: var(--mono); font-size: 14px; color: var(--accent-text,var(--accent)); text-decoration: none; }
+.plugin-public-pr .pr-link:hover { color: var(--accent-text-hover,var(--accent-bright)); }
 .plugin-public-pr .pr-review { display: flex; flex-direction: column; gap: 7px; }
 .plugin-public-pr .pr-review-body, .plugin-public-pr .pr-rerun-feedback { width: 100%; min-height: 46px; }
 .plugin-public-pr .pr-review-actions { display: flex; flex-wrap: wrap; gap: 8px; }

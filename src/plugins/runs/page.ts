@@ -8,7 +8,7 @@ const pageControlsStyles = `
 [data-composition-page] .composition-page-actions { display:flex; align-items:center; flex-shrink:0; gap:8px; margin:0; }
 [data-composition-page] .composition-icon-button { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; min-width:36px; padding:8px; color:var(--text); background:var(--panel-hi); border:1px solid var(--line-strong); border-radius:6px; }
 [data-composition-page] .composition-icon-button svg { width:18px; height:18px; pointer-events:none; }
-[data-composition-page] .composition-icon-button:hover:not(:disabled) { color:var(--accent); }
+[data-composition-page] .composition-icon-button:hover:not(:disabled) { color:var(--accent-text,var(--accent)); }
 [data-composition-page] .composition-page-editor { padding:16px; margin-bottom:16px; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
 [data-composition-page] .composition-page-editor[hidden] { display:none; }
 [data-composition-page] .composition-page-editor > p { margin:0 0 12px; color:var(--text-dim); }

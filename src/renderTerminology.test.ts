@@ -37,6 +37,9 @@ describe('pirate interface wording', () => {
     expect(element.querySelector('.app-footer [data-pirate-mode]')?.getAttribute('title')).toBe(`Turn Pirate mode ${enabled ? 'off' : 'on'}`);
     expect(element.querySelector('.ui-customization-panel [data-pirate-mode]')?.getAttribute('role')).toBe('switch');
     expect(element.querySelector('.ui-customization-panel [data-pirate-mode]')?.getAttribute('aria-checked')).toBe(String(enabled));
+    const icon = element.querySelector('.ui-customization-panel [data-pirate-icon]');
+    expect(icon?.getAttribute('data-pirate-icon')).toBe(enabled ? 'treasure-chest' : 'briefcase');
+    expect(icon?.getAttribute('aria-hidden')).toBe('true');
     expect(element.querySelector('#pirate-mode-help')?.textContent).toContain('Your content stays unchanged');
     const rows = Array.from(element.querySelectorAll('.terminology-reference tbody tr'), row => Array.from(row.querySelectorAll('td'), cell => cell.textContent));
     expect(rows).toEqual(expect.arrayContaining([

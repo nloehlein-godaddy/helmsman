@@ -13,7 +13,7 @@ export const styles = `
 .plugin-run-viewer section{min-width:0;display:grid;gap:12px}
 .plugin-run-viewer .run-row{padding:12px 0;border-bottom:1px solid var(--line);display:grid;gap:7px;overflow-wrap:anywhere}
 .plugin-run-viewer .run-log{box-sizing:border-box;max-height:420px;min-height:100px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:12px;background:var(--face);border:1px solid var(--line);font:14px/1.6 var(--mono,monospace)}
-.plugin-run-viewer [aria-selected=true]{border-color:var(--accent);color:var(--accent)}
+.plugin-run-viewer [aria-selected=true]{border-color:var(--accent);color:var(--accent-text,var(--accent))}
 .plugin-run-viewer details[open]{display:grid;gap:12px}
 .plugin-run-viewer .run-tab-status{display:block;font-size: 14px;color:var(--text-dim)}
 .plugin-run-viewer [data-run-status=succeeded] .run-tab-status{color:var(--good)}

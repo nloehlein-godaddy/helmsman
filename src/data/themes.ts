@@ -35,9 +35,12 @@ export const REQUIRED_VAR_KEYS: readonly string[] = [
   '--line-strong',
   '--line-faint',
   '--secondary',
+  '--secondary-text',
   '--on-accent',
   '--on-good',
   '--accent',
+  '--accent-text',
+  '--accent-text-hover',
   '--accent-bright',
   '--accent-dim',
   '--accent-plate',
@@ -150,6 +153,45 @@ function colorContrast(first: string, second: string): number {
   return (Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05);
 }
 
+function readableText(color: string, surfaces: readonly string[]): string {
+  const surfaceLuminances = surfaces.map(relativeLuminance);
+  const score = (candidate: string): number => {
+    const luminance = relativeLuminance(candidate);
+    return Math.min(...surfaceLuminances.map(surface => (Math.max(luminance, surface) + 0.05) / (Math.min(luminance, surface) + 0.05)));
+  };
+  if (score(color) >= 4.5) return color;
+  const channels = Object.values(hexToRgb(color));
+  const distance = (candidate: string): number => Object.values(hexToRgb(candidate)).reduce((sum, channel, index) => sum + (channel - channels[index]!) ** 2, 0);
+  let best = color;
+  let bestScore = score(color);
+  const passing: string[] = [];
+  for (const target of [0, 255]) {
+    const amounts = new Set<number>([1]);
+    for (const channel of channels) {
+      const steps = Math.abs(target - channel);
+      for (let step = 0; step < steps; step++) amounts.add((step + 0.5) / steps + 1e-10);
+    }
+    for (const amount of [...amounts].sort((first, second) => first - second)) {
+      const candidate = mixHex(color, target, Math.min(amount, 1));
+      const candidateScore = score(candidate);
+      if (candidateScore >= 4.5) {
+        passing.push(candidate);
+        break;
+      }
+      if (candidateScore > bestScore) {
+        best = candidate;
+        bestScore = candidateScore;
+      }
+    }
+  }
+  return passing.sort((first, second) => distance(first) - distance(second))[0] ?? best;
+}
+
+function filledInk(fill: string, preferred: string): string {
+  if (colorContrast(preferred, fill) >= 4.5) return preferred;
+  return colorContrast('#ffffff', fill) >= colorContrast('#000000', fill) ? '#ffffff' : '#000000';
+}
+
 function sectionNavVars(accent: string, companion: string, surfaces: readonly string[]): Record<string, string> {
   const separation = (color: string) => Math.min(...surfaces.map(surface => colorContrast(color, surface)));
   const background = separation(companion) >= separation(accent) ? companion : accent;
@@ -165,32 +207,41 @@ function sectionNavVars(accent: string, companion: string, surfaces: readonly st
 
 function deriveVars(anchors: ThemeAnchors): Record<string, string> {
   const navigation = anchors.id === 'field-guide' ? '#0a1714' : anchors.gutter;
+  const controlBackground = mixHex(anchors.panel, 0, anchors.mode === 'light' ? 0.1 : 0.65);
+  const surfaces = [anchors.bg, anchors.gutter, anchors.panel, anchors.panel2, anchors.panelHi, controlBackground];
+  const text = (color: string): string => anchors.id === CUSTOM_THEME_ID ? readableText(color, surfaces) : color;
+  const accentText = text(anchors.accent);
+  const accentHover = mixHex(accentText, anchors.mode === 'light' ? 0 : 255, 0.15);
+  const preferredInk = anchors.mode === 'light' ? '#ffffff' : '#08090c';
   return {
     ...sectionNavVars(anchors.accent, anchors.secondary, [navigation, anchors.gutter, anchors.bg, anchors.panel]),
     '--nav-bg': navigation,
-    '--nav-text': anchors.id === 'field-guide' ? '#f2f6f3' : anchors.text,
-    '--nav-muted': anchors.id === 'field-guide' ? '#a9c4b4' : anchors.textDim,
+    '--nav-text': anchors.id === 'field-guide' ? '#f2f6f3' : anchors.id === CUSTOM_THEME_ID ? readableText(anchors.text, [navigation, anchors.panelHi]) : anchors.text,
+    '--nav-muted': anchors.id === 'field-guide' ? '#a9c4b4' : anchors.id === CUSTOM_THEME_ID ? readableText(anchors.textDim, [navigation, anchors.panelHi]) : anchors.textDim,
     '--nav-active': anchors.id === 'field-guide' ? '#26463b' : anchors.panelHi,
     '--bg': anchors.bg,
     '--gutter': anchors.gutter,
     '--panel': anchors.panel,
     '--panel-2': anchors.panel2,
     '--panel-hi': anchors.panelHi,
-    '--control-bg': mixHex(anchors.panel, 0, anchors.mode === 'light' ? 0.1 : 0.65),
+    '--control-bg': controlBackground,
     '--control-border': mixHex(anchors.textDim, 0, anchors.mode === 'light' ? 0.05 : 0.18),
     '--line': rgbaFromHex(anchors.textDim, 0.32),
     '--line-strong': rgbaFromHex(anchors.textDim, anchors.mode === 'light' ? 0.76 : 0.72),
     '--line-faint': rgbaFromHex(anchors.textDim, 0.18),
     '--secondary': anchors.secondary,
-    '--on-accent': anchors.mode === 'light' ? '#ffffff' : '#08090c',
-    '--on-good': anchors.mode === 'light' ? '#ffffff' : '#08090c',
+    '--secondary-text': text(anchors.secondary),
+    '--on-accent': filledInk(anchors.accent, preferredInk),
+    '--on-good': filledInk(anchors.good, preferredInk),
     '--accent': anchors.accent,
+    '--accent-text': accentText,
+    '--accent-text-hover': anchors.id === CUSTOM_THEME_ID ? readableText(accentHover, surfaces) : accentHover,
     '--accent-bright': mixHex(anchors.accent, anchors.mode === 'light' ? 0 : 255, 0.15),
     '--accent-dim': rgbaFromHex(anchors.accent, 0.55),
     '--accent-plate': anchors.accent,
-    '--text': anchors.text,
-    '--text-dim': anchors.textDim,
-    '--text-faint': anchors.textFaint,
+    '--text': text(anchors.text),
+    '--text-dim': text(anchors.textDim),
+    '--text-faint': text(anchors.textFaint),
     '--bad': anchors.bad,
     '--good': anchors.good,
     '--review': anchors.review,
@@ -362,6 +413,7 @@ export function saveCustomTheme(palette: CustomThemePalette): boolean {
 export function customThemeBootstrapSource(): string {
   const serialize = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c');
   return `const CUSTOM_THEME_FIELDS = ${serialize(CUSTOM_THEME_FIELDS)};
+    const CUSTOM_THEME_ID = ${serialize(CUSTOM_THEME_ID)};
     ${parseCustomThemePalette.toString()}
     ${parseStoredCustomTheme.toString()}
     ${hexToRgb.toString()}
@@ -369,6 +421,8 @@ export function customThemeBootstrapSource(): string {
     ${mixHex.toString()}
     ${relativeLuminance.toString()}
     ${colorContrast.toString()}
+    ${readableText.toString()}
+    ${filledInk.toString()}
     ${sectionNavVars.toString()}
     ${deriveVars.toString()}
     let palette = ${serialize(createCustomTheme(DEFAULT_THEME_ID))};

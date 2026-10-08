@@ -4,7 +4,7 @@ export const styles = `
 .local-git-actions { margin-left: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 :is(.local-git-refresh, .local-git-release, .local-git-confirm-release) {
   border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
-  color: var(--accent); font: 16px var(--sans, sans-serif); padding: 5px 9px; cursor: pointer;
+  color: var(--accent-text,var(--accent)); font: 16px var(--sans, sans-serif); padding: 5px 9px; cursor: pointer;
 }
 :is(.local-git-refresh, .local-git-release, .local-git-confirm-release):hover:not(:disabled) { border-color: var(--accent); }
 :is(.local-git-refresh, .local-git-release, .local-git-confirm-release):disabled { opacity: 0.5; cursor: default; }

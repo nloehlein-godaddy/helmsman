@@ -12,7 +12,7 @@ export const styles = `
 .plugin-clarification-recovery .clarification-card h3, .plugin-clarification-recovery .clarification-answer, .plugin-clarification-recovery .clarification-contacts { overflow-wrap: anywhere; white-space: pre-wrap; }
 .plugin-clarification-recovery .clarification-card form, .plugin-clarification-recovery .trusted-contact-form { display: grid; gap: 12px; }
 .plugin-clarification-recovery .clarification-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--text-dim); font-size: 14px; overflow-wrap: anywhere; }
-.plugin-clarification-recovery .clarification-state { color: var(--accent); font-weight: 700; }
+.plugin-clarification-recovery .clarification-state { color: var(--accent-text,var(--accent)); font-weight: 700; }
 .plugin-clarification-recovery .clarification-help { color: var(--text-dim); font-size: 15px; }
 .plugin-clarification-recovery .clarification-empty { display: grid; gap: 8px; padding: 24px 0; border-top: 1px solid var(--line); }
 .plugin-clarification-recovery .clarification-empty p { color: var(--text-dim); }

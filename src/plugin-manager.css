@@ -12,8 +12,8 @@
 .plugin-manager .plugin-manager-icon { display:grid; place-items:center; width:36px; padding:6px; flex:none; }
 .plugin-manager-icon svg { width:18px; height:18px; }
 .plugin-manager-hint { margin:0; max-width:75ch; color:var(--text-dim); font-size:14px; }
-.plugin-manager a { color:var(--accent); text-underline-offset:3px; }
-.plugin-manager a:hover { color:var(--accent-bright); }
+.plugin-manager a { color:var(--accent-text,var(--accent)); text-underline-offset:3px; }
+.plugin-manager a:hover { color:var(--accent-text-hover,var(--accent-bright)); }
 .plugin-manager-status,.plugin-manager-error { margin:0; padding:10px 12px; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
 .plugin-manager-error { border-color:var(--bad); color:var(--bad); }
 .plugin-manager-preview { display:grid; gap:8px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }

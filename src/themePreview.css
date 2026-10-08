@@ -113,9 +113,9 @@
 
 .ui-terminology-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .config-pirate-toggle { display: inline-flex; align-items: center; gap: 8px; min-width: 88px; min-height: 36px; justify-content: space-between; }
-.config-pirate-toggle::before { content: ''; display: block; width: 14px; height: 14px; border: 1px solid currentColor; border-radius: 50%; background: var(--control-bg); }
+.config-pirate-toggle [data-pirate-mode-icon] { display: inline-flex; width: 20px; height: 20px; flex-shrink: 0; }
+.config-pirate-toggle svg { width: 20px; height: 20px; }
 .config-pirate-toggle[aria-checked='true'] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.config-pirate-toggle[aria-checked='true']::before { background: currentColor; }
 
 .custom-theme-editor { display: grid; gap: 20px; padding-block: 20px; border-block: 1px solid var(--line-faint); }
 .custom-theme-heading { display: grid; gap: 6px; }
@@ -148,7 +148,7 @@
 }
 
 .ui-terminology-settings .terminology-reference summary {
-  color: var(--secondary);
+  color: var(--secondary-text, var(--secondary));
 }
 
 @media (max-width: 900px) {

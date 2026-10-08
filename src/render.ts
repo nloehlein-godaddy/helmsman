@@ -1,6 +1,7 @@
 import { term, isPirateMode, TERMINOLOGY, TERMINOLOGY_REFERENCE_KEYS } from './logic/terminology';
 import { renderThemePreview } from './renderThemePreview';
 import { renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
+import { renderPirateModeIcon } from './renderPirateModeIcon';
 import { routeHref, type PageView } from './logic/routes';
 import { navigationSection, navigationChild } from './logic/navigation';
 import { appPages, builtinPageSlots } from './plugins/builtins';
@@ -254,7 +255,7 @@ function configCustomizationPanel(themeId: string, customTheme?: CustomThemeEdit
           ${renderThemePreview()}
           <div class="ui-terminology-settings">
             <div class="ui-terminology-copy">
-              <div class="ui-terminology-row"><h3 id="pirate-mode-label">Pirate mode</h3><button class="config-pirate-toggle" type="button" role="switch" data-pirate-mode="config" aria-labelledby="pirate-mode-label" aria-describedby="pirate-mode-help" aria-checked="${isPirateMode()}" title="Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}"><span aria-hidden="true">${isPirateMode() ? 'On' : 'Off'}</span></button></div>
+              <div class="ui-terminology-row"><h3 id="pirate-mode-label">Pirate mode</h3><button class="config-pirate-toggle" type="button" role="switch" data-pirate-mode="config" aria-labelledby="pirate-mode-label" aria-describedby="pirate-mode-help" aria-checked="${isPirateMode()}" title="Turn Pirate mode ${isPirateMode() ? 'off' : 'on'}"><span data-pirate-mode-icon>${renderPirateModeIcon(isPirateMode())}</span><span data-pirate-mode-state aria-hidden="true">${isPirateMode() ? 'On' : 'Off'}</span></button></div>
               <p id="pirate-mode-help">Switch application labels. Your content stays unchanged.</p>
             </div>
             <details class="terminology-reference"><summary>Terminology reference</summary><table><thead><tr><th scope="col">Plain</th><th scope="col">Pirate</th></tr></thead><tbody>${TERMINOLOGY_REFERENCE_KEYS.map(key => TERMINOLOGY[key]).map(({ plain, pirate }) => `<tr><td>${esc(plain)}</td><td>${esc(pirate)}</td></tr>`).join('')}</tbody></table></details>

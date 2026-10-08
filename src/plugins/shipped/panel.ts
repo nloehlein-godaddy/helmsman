@@ -2,7 +2,7 @@ import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, Plugin
 
 const presentation: { kind: 'repo-open' | 'authored-recent'; name: string; limit: number } = { kind: 'authored-recent', name: 'shipped', limit: 12 };
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
-const styles = `.plugin-pr-list{display:grid;gap:12px;font:16px var(--sans,sans-serif);color:var(--text);min-width:0}.plugin-pr-list h2,.plugin-pr-list p{margin:0}.plugin-pr-list h2{font-size:17px}.plugin-pr-list header,.plugin-pr-list .pr-identity,.plugin-pr-list .pr-links{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.plugin-pr-list header{justify-content:space-between}.plugin-pr-list ul{list-style:none;padding:0;margin:0}.plugin-pr-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-pr-list small{color:var(--text-dim)}.plugin-pr-list a,.plugin-pr-list button{font:inherit;color:var(--accent)}.plugin-pr-list button{background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;padding:5px 8px}.plugin-pr-list button:disabled{opacity:.5}.plugin-pr-list .pr-state{font-weight:600}.plugin-pr-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+const styles = `.plugin-pr-list{display:grid;gap:12px;font:16px var(--sans,sans-serif);color:var(--text);min-width:0}.plugin-pr-list h2,.plugin-pr-list p{margin:0}.plugin-pr-list h2{font-size:17px}.plugin-pr-list header,.plugin-pr-list .pr-identity,.plugin-pr-list .pr-links{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.plugin-pr-list header{justify-content:space-between}.plugin-pr-list ul{list-style:none;padding:0;margin:0}.plugin-pr-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-pr-list small{color:var(--text-dim)}.plugin-pr-list a,.plugin-pr-list button{font:inherit;color:var(--accent-text,var(--accent))}.plugin-pr-list button{background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;padding:5px 8px}.plugin-pr-list button:disabled{opacity:.5}.plugin-pr-list .pr-state{font-weight:600}.plugin-pr-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .plugin-pr-list{line-height:1.5;overflow-wrap:anywhere}
 .plugin-pr-list :is(h2,h3,p){margin:0}
 .plugin-pr-list h2{font-size:17px;font-weight:650}
@@ -18,9 +18,9 @@ const styles = `.plugin-pr-list{display:grid;gap:12px;font:16px var(--sans,sans-
 @media(prefers-reduced-motion:reduce){.plugin-pr-list button{transition:none}}
 .plugin-pr-list .pr-identity{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:start}
 .plugin-pr-list .pr-identity>a{font-size:17px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
-.plugin-pr-list .pr-identity>a:hover{color:var(--accent);text-decoration:underline}
+.plugin-pr-list .pr-identity>a:hover{color:var(--accent-text,var(--accent));text-decoration:underline}
 .plugin-pr-list .pr-state{padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:14px;background:var(--panel)}
-.plugin-pr-list .pr-state[data-state=merged]{color:var(--accent)}
+.plugin-pr-list .pr-state[data-state=merged]{color:var(--accent-text,var(--accent))}
 @media(max-width:480px){.plugin-pr-list .pr-identity{grid-template-columns:minmax(0,1fr)}.plugin-pr-list .pr-state{justify-self:start}}
 [role=tabpanel][aria-labelledby][data-panel-instance] .plugin-pr-list>header>h2{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 [role=tabpanel][aria-labelledby][data-panel-instance] .plugin-pr-list>header{display:contents}

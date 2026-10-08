@@ -214,6 +214,93 @@ describe('section navigation colors', () => {
   });
 });
 
+describe('custom theme text contrast', () => {
+  const surfaces = ['--bg', '--gutter', '--panel', '--panel-2', '--panel-hi', '--control-bg'];
+  const textRoles = ['--text', '--text-dim', '--text-faint', '--accent-text', '--accent-text-hover', '--secondary-text'];
+
+  it.each([
+    { preset: 'field-guide', accent: '#44005c', good: '#143a24', ink: '#ffffff' },
+    { preset: 'github-light', accent: '#ffff00', good: '#aaff88', ink: '#000000' },
+  ])('chooses filled-action ink from the actual colors for $preset', ({ preset, accent, good, ink }) => {
+    const palette = { ...createCustomTheme(preset), accent, good };
+    const theme = customThemeFromPalette(palette);
+    expect(theme.vars['--accent']).toBe(accent);
+    expect(theme.vars['--good']).toBe(good);
+    expect(theme.vars['--on-accent']).toBe(ink);
+    expect(theme.vars['--on-good']).toBe(ink);
+    expect(contrast(theme.vars['--on-accent']!, accent)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(theme.vars['--on-good']!, good)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(['field-guide', 'github-light'])('derives readable text without changing the selected palette in %s', preset => {
+    const palette = {
+      ...createCustomTheme(preset),
+      accent: '#44005c', secondary: '#666666', text: '#555555', textDim: '#666666', textFaint: '#777777',
+    };
+    const original = { ...palette };
+    const theme = customThemeFromPalette(palette);
+    for (const foreground of textRoles) {
+      for (const background of surfaces) {
+        expect(contrast(theme.vars[foreground]!, theme.vars[background]!), `${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    for (const foreground of ['--nav-text', '--nav-muted']) {
+      for (const background of ['--nav-bg', '--nav-active']) {
+        expect(contrast(theme.vars[foreground]!, theme.vars[background]!)).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    expect(theme.vars['--accent']).toBe(palette.accent);
+    expect(theme.vars['--secondary']).toBe(palette.secondary);
+    expect(palette).toEqual(original);
+  });
+
+  it('lightens the pictured purple text on the dark custom panel', () => {
+    const palette = {
+      ...createCustomTheme('field-guide'),
+      bg: '#061216', gutter: '#061216', panel: '#061216', panel2: '#061216', panelHi: '#061216', accent: '#44005c',
+    };
+    const theme = customThemeFromPalette(palette);
+    expect(luminance(theme.vars['--accent-text']!)).toBeGreaterThan(luminance(palette.accent));
+    expect(contrast(theme.vars['--accent-text']!, palette.panel)).toBeGreaterThanOrEqual(4.5);
+    expect(theme.vars['--on-accent']).toBe('#ffffff');
+  });
+
+  it('keeps already readable custom text unchanged', () => {
+    const palette = createCustomTheme('field-guide');
+    const theme = customThemeFromPalette(palette);
+    expect(theme.vars['--accent-text']).toBe(palette.accent);
+    expect(theme.vars['--secondary-text']).toBe(palette.secondary);
+    expect(theme.vars['--text']).toBe(palette.text);
+    expect(theme.vars['--text-dim']).toBe(palette.textDim);
+    expect(theme.vars['--text-faint']).toBe(palette.textFaint);
+  });
+
+  it('corrects a near-threshold gray using the closest passing derived shade', () => {
+    const palette = {
+      ...createCustomTheme('github-light'),
+      bg: '#ffffff', gutter: '#ffffff', panel: '#ffffff', panel2: '#ffffff', panelHi: '#ffffff', text: '#777777',
+    };
+    const theme = customThemeFromPalette(palette);
+    const derived = theme.vars['--text']!;
+    expect(contrast(derived, theme.vars['--control-bg']!)).toBeGreaterThanOrEqual(4.5);
+    const channel = parseInt(derived.slice(1, 3), 16);
+    const lighter = '#' + (channel + 1).toString(16).padStart(2, '0').repeat(3);
+    expect(contrast(lighter, theme.vars['--control-bg']!)).toBeLessThan(4.5);
+    expect(palette.text).toBe('#777777');
+  });
+
+  it('keeps impossible mixed surfaces unchanged and produces deterministic bounded text', () => {
+    const palette = { ...createCustomTheme('field-guide'), bg: '#000000', panel: '#ffffff', panelHi: '#777777', accent: '#44005c' };
+    const first = customThemeFromPalette(palette);
+    expect(customThemeFromPalette(palette)).toEqual(first);
+    expect(first.vars['--bg']).toBe(palette.bg);
+    expect(first.vars['--panel']).toBe(palette.panel);
+    expect(first.vars['--panel-hi']).toBe(palette.panelHi);
+    expect(first.vars['--accent-text']).toMatch(/^#[a-f\d]{6}$/i);
+    expect(Math.min(...surfaces.map(background => contrast(first.vars['--accent-text']!, first.vars[background]!)))).toBeLessThan(4.5);
+  });
+});
+
 describe('loadThemeId / saveThemeId', () => {
   let store: Record<string, string> = {};
 

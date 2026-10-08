@@ -8,7 +8,7 @@ export const styles = `
 .plugin-run-history button:disabled{opacity:.5;cursor:default}
 .plugin-run-history .run-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .plugin-run-history [role=alert]{color:var(--bad)}
-.plugin-run-history a{color:var(--accent);text-underline-offset:3px}
+.plugin-run-history a{color:var(--accent-text,var(--accent));text-underline-offset:3px}
 .plugin-run-history .run-subject{font-weight:600}
 .plugin-run-history small{color:var(--text-dim)}
 .plugin-run-history :is(button,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}

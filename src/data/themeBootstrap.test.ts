@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { themeBootstrapScript } from '../../build-theme';
-import { AMBER_BACKGROUND, applyTheme, createCustomTheme, CUSTOM_THEME_STORAGE_KEY, DEFAULT_THEME_ID, getTheme } from './themes';
+import { AMBER_BACKGROUND, applyTheme, createCustomTheme, CUSTOM_THEME_STORAGE_KEY, customThemeFromPalette, DEFAULT_THEME_ID, getTheme } from './themes';
 
 describe('initial theme bootstrap', () => {
   beforeEach(() => {
@@ -66,6 +66,30 @@ describe('initial theme bootstrap', () => {
     applyTheme('custom');
     expect(root.getAttribute('style')).toBe(initialStyles);
     expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe(palette.bg);
+  });
+
+  it.each([
+    { preset: 'field-guide', accent: '#44005c', ink: '#ffffff' },
+    { preset: 'github-light', accent: '#ffff00', ink: '#000000' },
+  ])('restores contrast-adjusted custom text before first paint for $preset', ({ preset, accent, ink }) => {
+    const palette = { ...createCustomTheme(preset), accent, text: '#777777' };
+    const values: Record<string, string> = {
+      'cmux.theme': 'custom',
+      [CUSTOM_THEME_STORAGE_KEY]: JSON.stringify({ version: 1, palette }),
+    };
+    vi.stubGlobal('localStorage', { getItem: (key: string) => values[key] ?? null });
+    new Function(themeBootstrapScript())();
+    const root = document.documentElement;
+    const runtime = customThemeFromPalette(palette);
+    for (const role of ['--on-accent', '--accent-text', '--accent-text-hover', '--secondary-text', '--text', '--text-dim', '--text-faint', '--nav-text', '--nav-muted']) {
+      expect(root.style.getPropertyValue(role)).toBe(runtime.vars[role]);
+    }
+    expect(root.style.getPropertyValue('--on-accent')).toBe(ink);
+    expect(root.style.getPropertyValue('--accent')).toBe(accent);
+    const initialStyles = root.getAttribute('style');
+    applyTheme('custom');
+    expect(root.getAttribute('style')).toBe(initialStyles);
+    expect(JSON.parse(values[CUSTOM_THEME_STORAGE_KEY]!).palette).toEqual(palette);
   });
 
   it.each(['broken JSON', '{"version":1,"palette":{"mode":"dark"}}', JSON.stringify({ version: 1, palette: { ...createCustomTheme('nord'), accent: 'red' } })])('matches the runtime fallback for corrupt custom storage %s', raw => {

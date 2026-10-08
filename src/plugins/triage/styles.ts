@@ -12,7 +12,7 @@ export const styles = `
 .plugin-triage section{display:grid;gap:12px;min-width:0;padding:12px;border:1px solid var(--line);border-radius:6px}
 .plugin-triage ul{list-style:none;padding:0;margin:0}
 .plugin-triage li{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
-.plugin-triage a{color:var(--accent)}
+.plugin-triage a{color:var(--accent-text,var(--accent))}
 .plugin-triage small{color:var(--text-dim)}
 .plugin-triage [role=alert]{color:var(--bad)}
 .plugin-triage dl{display:flex;gap:18px;flex-wrap:wrap}

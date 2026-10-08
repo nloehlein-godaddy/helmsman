@@ -17,9 +17,12 @@ colors:
   line-strong: "rgba(168, 190, 177, 0.72)"
   line-faint: "rgba(168, 190, 177, 0.18)"
   secondary: "#96cad3"
+  secondary-text: "#96cad3"
   on-accent: "#08090c"
   on-good: "#08090c"
   accent: "#82cbbb"
+  accent-text: "#82cbbb"
+  accent-text-hover: "#95d3c5"
   accent-bright: "#95d3c5"
   accent-dim: "rgba(130, 203, 187, 0.55)"
   accent-plate: "#82cbbb"
@@ -147,7 +150,7 @@ components:
     rounded: "{rounded.panel}"
   run-status:
     backgroundColor: "{colors.panel}"
-    textColor: "{colors.accent}"
+    textColor: "{colors.accent-text}"
     rounded: "{rounded.control}"
     padding: "2px 8px"
   run-log:
@@ -182,12 +185,12 @@ Evergreen navigation, dark green-neutral work surfaces and restrained teal selec
 
 ### Primary
 
-- **Teal selection** (`accent`, `accent-plate`): primary actions, selected panel tabs, links and focus outlines. `accent-bright` supplies primary-action hover; `accent-dim` supplies subordinate accents.
+- **Teal selection** (`accent`, `accent-plate`): primary-action fills, selected panel tabs and focus outlines. `accent-bright` supplies primary-action hover; `accent-dim` supplies subordinate accents. `accent-text` and `accent-text-hover` supply links, outlined action labels and inline commands.
 - **Evergreen navigation** (`nav-bg`, `nav-active`): navigation rail and selected destination; `nav-text` and `nav-muted` distinguish active and inactive destination text.
 
 ### Secondary
 
-- **Secondary teal** (`secondary`): supplementary links, including the terminology reference.
+- **Secondary teal** (`secondary`): supplementary fills and decoration. `secondary-text` supplies supplementary links, including the terminology reference.
 - **Section navigation**: the Config and Runs navigation band uses the theme's Companion or Accent color, choosing the stronger minimum contrast against the header, primary navigation, page and panel surfaces. Companion wins ties. Text uses whichever of black or white reads more clearly; selected links invert that pair. Hover strengthens text contrast. Preset and custom palettes derive these roles before first paint and during live changes.
 - **Semantic states** (`good`, `bad`, `review`, `queued`): success, failure, review and waiting, accompanied by readable state text or explicit control meaning. `on-good` and `on-accent` are foregrounds for filled treatments.
 
@@ -200,6 +203,8 @@ Evergreen navigation, dark green-neutral work surfaces and restrained teal selec
 - **Dividers** (`line`, `line-strong`, `line-faint`): panel boundaries, control boundaries and quiet row separation. Preserve source RGBA values.
 
 **The Theme Continuity Rule.** Use semantic CSS properties for surfaces, text, selection and state. Dark Field Guide is the fresh-install default; a saved theme keeps its palette.
+
+**The Custom Contrast Rule.** Custom palettes preserve raw fills. Derive text foregrounds toward 4.5:1 contrast on the background, navigation, panels and control ground when those surfaces permit a shared foreground. Filled-action ink follows the actual fill brightness independently of theme mode. A shared foreground cannot guarantee contrast across arbitrary mixed light and dark surfaces.
 
 ## Typography
 
