@@ -79,6 +79,17 @@ describe('source connection HTTP capabilities', () => {
     expect(cancel).toHaveBeenCalled();
   });
 
+  it('transports nested Jira rich-text JSON while bounding excessive response depth', async () => {
+    const content = Array.from({ length: 22 }).reduce<unknown>(value => ({ type: 'panel', content: [value] }), { type: 'text', text: 'Requirements' });
+    const body = { issues: [{ fields: { description: { type: 'doc', content: [content] } } }] };
+    const excessive = Array.from({ length: 65 }).reduce<unknown>(value => ({ value }), null);
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(JSON.stringify(body)))
+      .mockResolvedValueOnce(new Response(JSON.stringify(excessive)));
+    const { http } = setup({ fetcher });
+    expect(await http.get({ path: '/rest/api/3/search/jql', query: {} })).toEqual({ status: 200, body });
+    await expect(http.get({ path: '/rest/api/3/search/jql', query: {} })).rejects.toThrow('complexity');
+  });
+
   it.each([401, 403, 502])('preserves HTTP %s when the upstream error is plain text', async status => {
     const { http } = setup({ fetcher: vi.fn<typeof fetch>().mockResolvedValue(new Response('private upstream detail', { status })) });
     expect(await http.get({ path: '/issue/100', query: {} })).toEqual({ status, body: null });

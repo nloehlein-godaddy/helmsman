@@ -12,10 +12,12 @@ import { parsePluginPackage, validatePluginSetting, type PluginPackage } from '.
 import { storeConnection } from '../store-connection';
 import { immediateTransaction, registerPersistenceWriter } from '../persistence';
 
-export function pluginJson(value: unknown, limits = { maxNodes: 4096, maxBytes: 128 * 1024 }): PluginJson {
+export function pluginJson(value: unknown, limits: { maxNodes: number; maxBytes: number; maxDepth?: number } = { maxNodes: 4096, maxBytes: 128 * 1024 }): PluginJson {
+  const maxDepth = limits.maxDepth ?? 16;
+  if (!Number.isSafeInteger(maxDepth) || maxDepth < 0 || maxDepth > 64) throw new Error('Invalid plugin JSON depth limit.');
   let nodes = 0;
   function copy(input: unknown, depth: number): PluginJson {
-    if (++nodes > limits.maxNodes || depth > 16) throw new Error('Plugin JSON exceeds complexity limits.');
+    if (++nodes > limits.maxNodes || depth > maxDepth) throw new Error('Plugin JSON exceeds complexity limits.');
     if (input === null || typeof input === 'boolean' || typeof input === 'string') return input;
     if (typeof input === 'number' && Number.isFinite(input)) return input;
     if (!input || typeof input !== 'object' || !Array.isArray(input) && ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new Error('Plugin values must be plain JSON data.');

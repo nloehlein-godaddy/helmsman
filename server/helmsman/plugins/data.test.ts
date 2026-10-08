@@ -25,6 +25,18 @@ it('rejects getters, non-JSON values, cycles, and oversized persisted data witho
   }
 });
 
+it('permits deeper bounded JSON only when requested and retains other complexity limits', () => {
+  const nest = (depth: number) => Array.from({ length: depth }).reduce<unknown>(value => ({ value }), 'leaf');
+  const limits = { maxNodes: 100, maxBytes: 4096, maxDepth: 64 };
+  expect(() => pluginJson(nest(16))).not.toThrow();
+  expect(() => pluginJson(nest(17))).toThrow('complexity');
+  expect(pluginJson(nest(64), limits)).toEqual(nest(64));
+  expect(() => pluginJson(nest(65), limits)).toThrow('complexity');
+  expect(() => pluginJson(nest(20), { ...limits, maxNodes: 10 })).toThrow('complexity');
+  expect(() => pluginJson(nest(20), { ...limits, maxBytes: 10 })).toThrow('size');
+  for (const maxDepth of [-1, 1.5, 65, Infinity, NaN]) expect(() => pluginJson({}, { ...limits, maxDepth })).toThrow('depth limit');
+});
+
 it('bounds keys and atomically rolls back quota violations', async () => {
   const root = await temporary();
   const data = openPluginData(root, pkg);

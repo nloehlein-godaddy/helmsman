@@ -94,7 +94,7 @@ export function createSourceHttp(options: {
       try { decoded = JSON.parse(text); }
       catch { if (response.status < 400) throw new Error('Source HTTP response is not valid JSON'); }
     }
-    const body = pluginJson(decoded, { maxBytes, maxNodes: 100_000 });
+    const body = pluginJson(decoded, { maxBytes, maxNodes: 100_000, maxDepth: 64 });
     return { status: response.status, body };
   }
   const get: SourceReadHttpV1['get'] = input => request({ method: 'GET', path: input?.path, query: input?.query, body: null });
