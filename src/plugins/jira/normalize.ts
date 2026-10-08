@@ -79,6 +79,14 @@ export function jiraRichText(value: unknown, links: JiraLink[] = []): string {
       if (!url) throw new Error('Invalid Jira requirement link');
       links.push({ title: url, url }); return url;
     }
+    if (node.type === 'media' || node.type === 'mediaInline') {
+      if ((attrs?.type !== 'file' && attrs?.type !== 'link') || !jiraText(attrs?.id, 512)) throw new Error('Malformed Jira media');
+      if (node.content !== undefined) array(node.content, 0);
+      const alt = attrs?.alt;
+      if (alt !== undefined && (typeof alt !== 'string' || alt.length > 2048 || alt.includes('\0'))) throw new Error('Malformed Jira media alternative text');
+      const label = typeof alt === 'string' ? alt.trim().replace(/[\\`*_[\]<>]/g, '\\$&') : '';
+      return label ? `[Attachment: ${label}]` : '[Attachment]';
+    }
     if (node.type === 'status' && jiraText(attrs?.text, 240)) return attrs.text;
     const children = node.content === undefined ? [] : array(node.content, 1000);
     if (!children.length && !['doc', 'paragraph', 'heading', 'codeBlock', 'tableCell', 'tableHeader'].includes(node.type)) throw new Error('Unsupported Jira requirement node');

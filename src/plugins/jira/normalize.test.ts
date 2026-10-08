@@ -36,6 +36,38 @@ describe('Jira source normalization', () => {
     expect(() => jiraRichText({ type: 'doc', content: [{ type: 'unsupported-media', attrs: { private: 'data' } }] })).toThrow('Unsupported');
     expect(() => normalizeJiraIssue(jiraIssue({ attachment: [{ filename: 'spec', content: 'javascript:alert(1)' }] }))).toThrow();
   });
+  it('retains Jira media alternatives and attachment placeholders without constructing media URLs', () => {
+    const result = normalizeJiraIssue(jiraIssue({ description: { type: 'doc', content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Use this layout.' }] },
+      { type: 'mediaSingle', content: [{ type: 'media', attrs: { type: 'file', id: 'media-1', collection: '', alt: 'Expected layout', localId: 'private-local-id', width: 640, height: 480 } }] },
+      { type: 'mediaGroup', content: [{ type: 'media', attrs: { type: 'file', id: 'media-2', alt: '' } }] },
+      { type: 'paragraph', content: [{ type: 'mediaInline', attrs: { type: 'link', id: 'media-3' } }] },
+    ] }, attachment: [{ filename: 'layout.png', content: 'https://jira.example.com/attachment/1' }] }));
+    expect(result.requirements.description).toContain('Use this layout.');
+    expect(result.requirements.description).toContain('[Attachment: Expected layout]');
+    expect(result.requirements.description.match(/\[Attachment\]/g)).toHaveLength(2);
+    expect(result.requirements.links).toEqual([{ title: 'layout.png', url: 'https://jira.example.com/attachment/1' }]);
+    expect(JSON.stringify(result)).not.toContain('media-');
+    expect(JSON.stringify(result)).not.toContain('private-local-id');
+  });
+  it('renders media alternative text as a label rather than Markdown links', () => {
+    const links: { title: string; url: string }[] = [];
+    expect(jiraRichText({ type: 'media', attrs: { type: 'file', id: '1', alt: '[click](javascript:alert(1))' } }, links))
+      .toBe('[Attachment: \\[click\\](javascript:alert(1))]');
+    expect(links).toEqual([]);
+  });
+  it.each([
+    { type: 'media' },
+    { type: 'media', attrs: { type: 'file' } },
+    { type: 'media', attrs: { type: 'unsupported', id: '1' } },
+    { type: 'media', attrs: { type: 'file', id: '1', alt: {} } },
+    { type: 'media', attrs: { type: 'file', id: '1', alt: 'x'.repeat(2049) } },
+    { type: 'media', attrs: { type: 'file', id: '1', alt: '\0' } },
+    { type: 'media', attrs: { type: 'file', id: '1' }, content: [{ type: 'text', text: 'unexpected' }] },
+    { type: 'mediaGroup', content: [] },
+  ])('rejects malformed or unsupported media instead of silently discarding it', value => {
+    expect(() => jiraRichText(value)).toThrow();
+  });
   it('normalizes priority and state using the existing Jira display policy', () => {
     expect(['P0 critical', 'Highest', 'High', 'Medium', 'Low', 'Lowest', null].map(jiraPriority)).toEqual([0, 1, 1, 2, 3, 4, 3]);
     expect(normalizeJiraIssue(jiraIssue({ status: { id: '4', name: 'In Review', statusCategory: { key: 'indeterminate' } } })).state).toBe('review');

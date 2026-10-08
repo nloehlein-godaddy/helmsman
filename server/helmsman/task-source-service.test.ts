@@ -72,6 +72,41 @@ describe('core task source services', () => {
     expect(store.alias(source.id, 'TODO-1')).toBeNull();
   });
 
+  it('removes replaced artifacts from discovery while retaining their recorded obligations', () => {
+    const f = setup();
+    const claim = f.store.reserveWork({ ref: { sourceId: f.source.id, externalId: 'TODO-1' }, admissionId: 'retained', runId: 'retained-run',
+      instanceId: f.instance.id, expectedInstanceRevision: f.instance.revision, expectedSourceRevision: f.source.revision });
+    const replacementBinding = { ...f.instance.binding, artifactHash: 'b'.repeat(64) };
+    f.registry.publish([f.registry.stage(replacementBinding, { identityFormats: ['helmsman.local-task/v1'], effectIds: [],
+      commandIds: ['create', 'update', 'delete'], access: ['local-records'] }, todosProvider)]);
+    const replacement = f.store.provision({ provisioningKey: 'replacement', label: 'Tasks', identityEvidence: f.source.identityEvidence,
+      storageLayout: 'documents', binding: replacementBinding, settings: {}, allowedRepos: [f.scope.repo] }).instance;
+    writeTaskSource(f.store, { ...f.store.source(f.source.id)!, currentInstanceId: replacement.id, revision: 2 });
+
+    expect(f.service.instances(f.scope.repo).map(instance => instance.id)).toEqual([replacement.id]);
+    expect(f.service.instances(null).map(instance => instance.id)).toEqual([replacement.id]);
+    expect(f.store.instances(f.source.id)).toHaveLength(2);
+    expect(f.store.claim(claim.id)?.instance).toEqual(f.instance);
+    expect(() => f.service.context(f.instance, f.scope.repo, f.signal, 'obligation')).not.toThrow();
+    expect(() => f.service.assertLaunch({ ...f.scope, ref: { sourceId: f.source.id, externalId: 'TODO-2' } })).toThrow('selection changed');
+  });
+
+  it('preserves distinct configurations sharing the current provider artifact and current unavailable sources', () => {
+    const f = setup();
+    const additional = f.store.provision({ provisioningKey: 'additional', label: 'My tasks', identityEvidence: f.source.identityEvidence,
+      storageLayout: 'documents', binding: f.instance.binding, settings: { query: 'assignee = currentUser()' }, allowedRepos: [f.scope.repo] }).instance;
+    const elsewhere = f.store.provision({ provisioningKey: 'elsewhere', label: 'Other tasks', identityEvidence: f.source.identityEvidence,
+      storageLayout: 'documents', binding: f.instance.binding, settings: {}, allowedRepos: ['other/project'] }).instance;
+
+    expect(f.service.instances(f.scope.repo).map(instance => instance.id).sort()).toEqual([f.instance.id, additional.id].sort());
+    expect(f.service.instances(null).map(instance => instance.id).sort()).toEqual([f.instance.id, additional.id, elsewhere.id].sort());
+    f.store.configureInstance({ instanceId: f.instance.id, expectedRevision: f.instance.revision, desiredEnabled: false });
+    expect(f.service.instances(f.scope.repo)).toContainEqual(expect.objectContaining({ id: f.instance.id, available: false, desiredEnabled: false }));
+    f.registry.removePlugin(f.instance.binding.pluginId);
+    expect(f.service.instances(f.scope.repo)).toHaveLength(2);
+    expect(f.service.instances(f.scope.repo).every(instance => !instance.available)).toBe(true);
+  });
+
   it('replays command receipts before preparing an update or deletion against changed records', async () => {
     const { service, scope, signal } = setup();
     const create = { ...scope, commandId: 'create', requestId: 'create', input: { title: 'Task', repo: scope.repo, description: 'Requirements' } };

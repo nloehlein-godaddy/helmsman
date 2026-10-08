@@ -22,6 +22,12 @@ export function createTaskSourceService(options: {
   http(instance: SourceInstanceV1, repo: string | null, signal: AbortSignal, purpose: SourceResolutionPurpose, authorize: () => void): SourceReadHttpV1;
 }) {
   const { store, registry, local } = options;
+  function ownsCurrentBinding(instance: SourceInstanceV1): boolean {
+    const source = store.source(instance.sourceId);
+    const selected = source && store.instance(source.currentInstanceId);
+    return !!selected && selected.binding.pluginId === instance.binding.pluginId
+      && selected.binding.providerId === instance.binding.providerId && selected.binding.artifactHash === instance.binding.artifactHash;
+  }
   function assertScope(instance: SourceInstanceV1, repo: string | null, purpose: SourceResolutionPurpose): void {
     registry.resolve(instance, purpose);
     if (repo !== null && !instance.allowedRepos.includes(parseTaskRepo(repo))) throw new PersistenceConflictError('Task source is not authorized for this galleon');
@@ -76,7 +82,7 @@ export function createTaskSourceService(options: {
     },
     instances(repo: string | null) {
       if (repo !== null) parseTaskRepo(repo);
-      return store.instances().filter(instance => repo === null || instance.allowedRepos.includes(repo)).map(instance => {
+      return store.instances().filter(instance => ownsCurrentBinding(instance) && (repo === null || instance.allowedRepos.includes(repo))).map(instance => {
         let available = true;
         try { assertScope(instance, repo, 'admission'); } catch { available = false; }
         const registration = available ? registry.resolve(instance, 'admission') : null;
