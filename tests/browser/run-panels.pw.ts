@@ -47,6 +47,12 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
   await expect(active.getByText('TASK-41', { exact: true })).toBeVisible();
   await expect(recent.getByRole('button', { name: 'Worker: succeeded', exact: true })).toBeVisible();
   await expect(recent.locator(`[data-run-id="${reviewId}"]`).getByRole('button', { name: /^Retry / })).toHaveCount(0);
+  const phosphor = recent.locator('.run-phosphor').first();
+  await expect(phosphor).toBeVisible();
+  expect(await phosphor.evaluate(async el => {
+    const face = await document.fonts.load('16px "Helmsman Phosphor Regular"', (el as HTMLElement).dataset.glyph);
+    return face.length > 0 && face.every(font => font.status === 'loaded');
+  })).toBe(true);
   await expect(active).toHaveScreenshot('running-panel.png', { animations: 'disabled' });
   await expect(recent).toHaveScreenshot('recent-panel.png', { animations: 'disabled' });
   await expect(recent.getByRole('button', { name: 'Copy run ID' })).toHaveCount(0);

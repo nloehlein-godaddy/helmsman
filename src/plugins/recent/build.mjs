@@ -15,4 +15,5 @@ const bundled = output.replace(/from ['"]@helmsman\/plugin-sdk['"]/g, "from './l
 if (bundled === output) throw new Error('Loading wheel import was not bundled.');
 await writeFile(panel, bundled);
 await copyFile(new URL('./loading-wheel.js', import.meta.resolve('@helmsman/plugin-sdk')), new URL('./dist/loading-wheel.js', import.meta.url));
+for (const asset of ['phosphor-regular.woff2', 'phosphor-LICENSE.txt']) await copyFile(new URL(asset, import.meta.url), new URL(`./dist/${asset}`, import.meta.url));
 await copyFile(new URL('./plugin-package.json', import.meta.url), new URL('./dist/plugin-package.json', import.meta.url));

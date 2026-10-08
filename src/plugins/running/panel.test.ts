@@ -254,7 +254,7 @@ it.each(['succeeded', 'failed', 'stopped'] as const)('recent %s worker icons ret
   f.emit([{ ...f.item, status }]);
   const worker = f.container.querySelector<HTMLButtonElement>('[data-run-info=worker]')!;
   expect(worker.getAttribute('aria-label')).toBe(`Worker: ${status}`);
-  expect(worker.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  expect(worker.querySelector('.run-phosphor')?.getAttribute('aria-hidden')).toBe('true');
   expect(worker.textContent).toBe('');
   worker.focus(); f.emit([{ ...f.item, status: 'stopped' }]);
   expect(document.activeElement?.getAttribute('aria-label')).toBe('Worker: stopped');

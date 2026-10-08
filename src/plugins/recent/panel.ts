@@ -22,23 +22,27 @@ const reviewSummary = (verdict: string | null | undefined, outcome: string): str
   return text.replace(prefix, '').trim();
 };
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
-const iconPaths = {
-  succeeded: 'M20 6 9 17l-5-5',
-  failed: 'M18 6 6 18M6 6l12 12',
-  stopped: 'M6 6h12v12H6z',
-  running: 'm9 5 11 7-11 7z',
-  clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',
-  attempt: 'M3 10a9 9 0 1 1 2.6 8.4M3 4v6h6',
-  refresh: 'M20 6v5h-5M4 18v-5h5M20 11a8 8 0 0 0-14-5l-2 2M4 13a8 8 0 0 0 14 5l2-2',
-  attention: 'M12 3 2 21h20L12 3M12 9v4M12 17h.01',
-  settlement: 'M9 12l2 2 4-4M12 3l8 4v5c0 5-8 9-8 9s-8-4-8-9V7z',
+const phosphorGlyphs = {
+  succeeded: '\ue182',
+  failed: '\ue4f6',
+  stopped: '\ue46c',
+  running: '\ue3d0',
+  clock: '\ue19a',
+  attempt: '\ue038',
+  refresh: '\ue094',
+  attention: '\ue4e0',
+  settlement: '\ue40c',
+  pending: '\ue2b2',
 } as const;
-const iconMarkup = (icon: keyof typeof iconPaths): string => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${iconPaths[icon]}"/></svg>`;
-const runInfo = (kind: string, icon: keyof typeof iconPaths | null, label: string, tooltipText: string, tooltipId: string, text?: string): HTMLSpanElement => {
+const createIcon = (icon: keyof typeof phosphorGlyphs): HTMLSpanElement => {
+  const glyph = node('span'); glyph.className = 'run-phosphor'; glyph.dataset.glyph = phosphorGlyphs[icon]; glyph.setAttribute('aria-hidden', 'true'); return glyph;
+};
+const phosphorFontUrl = new URL('./phosphor-regular.woff2', import.meta.url).href;
+const runInfo = (kind: string, icon: keyof typeof phosphorGlyphs | null, label: string, tooltipText: string, tooltipId: string, text?: string): HTMLSpanElement => {
   const info = node('span'); info.className = 'run-info';
   const trigger = node('button'); trigger.type = 'button'; trigger.dataset.runInfo = kind;
   trigger.setAttribute('aria-label', label); trigger.setAttribute('aria-describedby', tooltipId);
-  if (icon) trigger.innerHTML = iconMarkup(icon);
+  if (icon) trigger.append(createIcon(icon));
   if (text) trigger.append(node('span', text));
   const tooltip = node('span', tooltipText); tooltip.className = 'run-tooltip'; tooltip.id = tooltipId; tooltip.setAttribute('role', 'tooltip');
   trigger.addEventListener('blur', () => { delete info.dataset.tapped; });
@@ -48,7 +52,8 @@ const runInfo = (kind: string, icon: keyof typeof iconPaths | null, label: strin
   trigger.addEventListener('keydown', event => { if (event.key === 'Escape') { delete info.dataset.tapped; info.dataset.dismissed = 'true'; event.stopPropagation(); } });
   info.append(trigger, tooltip); return info;
 };
-const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:17px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+const styles = `@font-face{font-family:"Helmsman Phosphor Regular";src:url("${phosphorFontUrl}") format("woff2");font-weight:400;font-style:normal;font-display:block}
+.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:17px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .plugin-run-list{line-height:1.5;overflow-wrap:anywhere}
 .plugin-run-list :is(h2,h3,p){margin:0}
 .plugin-run-list h2{font-size:17px;font-weight:650}
@@ -80,7 +85,8 @@ const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16
 .plugin-run-list.plugin-recent li:first-child{padding-top:4px}
 .plugin-run-list.plugin-recent>ul{border-bottom:1px solid var(--line)}
 .plugin-run-list.plugin-recent .run-icon-action{display:inline-flex;align-items:center;justify-content:center;width:34px;min-height:34px;padding:8px}
-.plugin-run-list.plugin-recent .run-icon-action svg{width:16px;height:16px;flex-shrink:0}
+.plugin-run-list.plugin-recent .run-phosphor{display:inline-block;width:16px;height:16px;flex-shrink:0;font-family:"Helmsman Phosphor Regular";font-size:16px;font-weight:400;font-style:normal;font-synthesis:none;line-height:1;letter-spacing:normal;text-transform:none}
+.plugin-run-list.plugin-recent .run-phosphor::before{content:attr(data-glyph)}
 .plugin-run-list.plugin-recent .run-main{gap:4px 16px;grid-template-columns:minmax(0,1fr) auto}
 .plugin-run-list.plugin-recent .run-main>a{font-size:18px;font-weight:650;align-self:center}
 .plugin-run-list.plugin-recent .run-status{padding:0;border:0;background:transparent;color:var(--text-dim);grid-column:2;grid-row:1}
@@ -98,7 +104,6 @@ const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16
 .plugin-run-list.plugin-recent .run-info{position:relative;display:inline-flex;align-items:center}
 .plugin-run-list.plugin-recent .run-info>button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:24px;min-height:24px;padding:0;border:0;background:transparent;color:inherit;font-size:13px;font-variant-numeric:tabular-nums;cursor:pointer}
 .plugin-run-list.plugin-recent .run-info>button:hover{color:var(--text);background:transparent}
-.plugin-run-list.plugin-recent .run-info svg{width:16px;height:16px;flex-shrink:0}
 .plugin-run-list.plugin-recent .run-tooltip{position:absolute;top:100%;left:0;z-index:5;width:max-content;max-width:min(280px,80vw);padding:8px 12px;border:1px solid var(--line-strong);border-radius:6px;background:var(--panel);color:var(--text);font-size:13px;font-weight:400;line-height:1.5;visibility:hidden}
 .plugin-run-list.plugin-recent .run-status .run-tooltip{right:0;left:auto}
 .plugin-run-list.plugin-recent .run-info:not([data-dismissed=true]):focus-within>.run-tooltip{visibility:visible}
@@ -259,8 +264,8 @@ class RunListPanel implements PluginPanelInstance {
     return `/runs?${query}`;
   }
   private button(label: string, callback: () => void, disabled = false): HTMLButtonElement { const button = node('button', label); button.type = 'button'; button.disabled = disabled; button.addEventListener('click', callback); return button; }
-  private iconButton(label: string, icon: keyof typeof iconPaths, callback: () => void, disabled = false): HTMLButtonElement {
-    const button = this.button('', callback, disabled); button.className = 'run-icon-action'; button.title = label; button.setAttribute('aria-label', label); button.innerHTML = iconMarkup(icon); return button;
+  private iconButton(label: string, icon: keyof typeof phosphorGlyphs, callback: () => void, disabled = false): HTMLButtonElement {
+    const button = this.button('', callback, disabled); button.className = 'run-icon-action'; button.title = label; button.setAttribute('aria-label', label); button.append(createIcon(icon)); return button;
   }
   private commandFeedback(parent: HTMLElement, command: CommandState): void {
     const receipt = command.receipt;
@@ -298,7 +303,7 @@ class RunListPanel implements PluginPanelInstance {
       const row = node('li'); row.dataset.runId = run.id; row.dataset.runKey = id;
       const main = node('div'); main.className = 'run-main';
       const title = run.prNumber ? `${this.state.pirateMode ? 'Bounty' : 'PR'} #${run.prNumber} · ${run.displayKey}` : run.displayKey;
-      const info = (kind: string, icon: keyof typeof iconPaths | null, label: string, description = label, text?: string) =>
+      const info = (kind: string, icon: keyof typeof phosphorGlyphs | null, label: string, description = label, text?: string) =>
         runInfo(kind, icon, label, description, `run-info-${encodeURIComponent(JSON.stringify([this.state.instanceId, id, kind]))}`, text);
       main.append(this.link(title, this.detail(run.id, run.repo)));
       if (this.state.repo === null) main.append(node('small', run.repo));
@@ -323,7 +328,7 @@ class RunListPanel implements PluginPanelInstance {
       if (run.costUsd !== null) evidence.append(info('spend', null, 'Observed spend', `$${run.costUsd.toFixed(2)} observed spend`, `$${run.costUsd.toFixed(2)}`));
       if (run.sourceSettlement) {
         const label = { pending: 'pending', settled: 'settled', 'operator-required': 'operator action required' }[run.sourceSettlement.state];
-        evidence.append(info('settlement', run.sourceSettlement.state === 'settled' ? 'settlement' : run.sourceSettlement.state === 'pending' ? 'clock' : 'attention', `Source settlement: ${label}`, `Source settlement: ${label}. Worker outcome is unchanged.`, run.sourceSettlement.state === 'operator-required' ? 'Needs action' : undefined));
+        evidence.append(info('settlement', run.sourceSettlement.state === 'settled' ? 'settlement' : run.sourceSettlement.state === 'pending' ? 'pending' : 'attention', `Source settlement: ${label}`, `Source settlement: ${label}. Worker outcome is unchanged.`, run.sourceSettlement.state === 'operator-required' ? 'Needs action' : undefined));
       }
       const identity = this.link(shortRunId(run.id), this.detail(run.id, run.repo)); identity.className = 'work-identity';
       identity.title = `Open run ${run.id}`; identity.setAttribute('aria-label', `Open run ${shortRunId(run.id)}`);
