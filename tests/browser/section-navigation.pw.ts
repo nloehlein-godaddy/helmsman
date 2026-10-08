@@ -75,14 +75,21 @@ test('section navigation stands apart and stays readable in every theme', async 
         return getComputedStyle(node);
       };
       const luminance = (color: string) => {
-        const channels = color.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+        const channels = color.startsWith('#') ? [1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16)) : color.match(/[\d.]+/g)?.slice(0, 3).map(Number);
         if (!channels || channels.length !== 3) throw new Error(`Unsupported color: ${color}`);
         const [r, g, b] = channels.map(value => { const channel = value / 255; return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4; });
         return .2126 * r! + .7152 * g! + .0722 * b!;
       };
       const ratio = (a: string, b: string) => { const x = luminance(a); const y = luminance(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
       const bar = css('.section-nav'); const link = css('.section-link:not(.is-active)'); const active = css('.section-link.is-active');
+      const root = getComputedStyle(document.documentElement);
+      const accent = root.getPropertyValue('--accent').trim(); const companion = root.getPropertyValue('--secondary').trim();
+      const surfaces = ['.page-tabs', '.helm-head', '.page-content', '.config-panel'].map(selector => css(selector).backgroundColor);
+      const score = (color: string) => Math.min(...surfaces.map(surface => ratio(color, surface)));
+      const winner = score(companion) >= score(accent) ? companion : accent;
+      const expected = `rgb(${[1, 3, 5].map(index => parseInt(winner.slice(index, index + 2), 16)).join(', ')})`;
       return {
+        winner: bar.backgroundColor === expected,
         surfaces: ['.page-tabs', '.helm-head', '.page-content', '.config-panel'].map(selector => ratio(bar.backgroundColor, css(selector).backgroundColor)),
         text: ratio(link.color, link.backgroundColor === 'rgba(0, 0, 0, 0)' ? bar.backgroundColor : link.backgroundColor),
         selected: ratio(active.color, active.backgroundColor),
@@ -91,6 +98,7 @@ test('section navigation stands apart and stays readable in every theme', async 
     });
     await page.mouse.move(0, 0);
     const normal = await contrast();
+    expect(normal.winner, `${theme.id} uses its most distinct accent`).toBe(true);
     expect(normal.surfaces.every(value => value >= 3), theme.id).toBe(true);
     expect(normal.text, theme.id).toBeGreaterThanOrEqual(4.5);
     expect(normal.selected, theme.id).toBeGreaterThanOrEqual(4.5);

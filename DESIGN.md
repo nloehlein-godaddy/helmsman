@@ -130,26 +130,17 @@ components:
     backgroundColor: "{colors.nav-active}"
     textColor: "{colors.nav-text}"
   section-nav:
-    backgroundColor: "#b894e5"
-  section-nav-light:
-    backgroundColor: "#503469"
+    backgroundColor: "var(--section-nav-bg)"
   section-link:
-    textColor: "#241035"
+    textColor: "var(--section-nav-text)"
     typography: "{typography.navigation}"
     rounded: "{rounded.control}"
     padding: "8px 12px"
-  section-link-light:
-    textColor: "#f7efff"
   section-link-hover:
-    backgroundColor: "#cbb0ee"
-  section-link-hover-light:
-    backgroundColor: "#684780"
+    backgroundColor: "var(--section-nav-hover)"
   section-link-active:
-    backgroundColor: "#38214f"
-    textColor: "#f7efff"
-  section-link-active-light:
-    backgroundColor: "#ead5ff"
-    textColor: "#291639"
+    backgroundColor: "var(--section-nav-selected)"
+    textColor: "var(--section-nav-ink)"
   panel:
     backgroundColor: "{colors.panel}"
     textColor: "{colors.text}"
@@ -197,7 +188,7 @@ Evergreen navigation, dark green-neutral work surfaces and restrained teal selec
 ### Secondary
 
 - **Secondary teal** (`secondary`): supplementary links, including the terminology reference.
-- **Section navigation violet**: the Config and Runs navigation band has its own color pair, separate from evergreen navigation and work surfaces. The default dark mode uses a lavender ground (`#b894e5`) and deep violet selected link (`#38214f`); an explicit light theme mode switches to a deep violet ground (`#503469`) and pale lavender selected link (`#ead5ff`). Text and focus ink invert with the selected treatment. The mode comes from the root `data-theme-mode` attribute, so every selected theme receives the correct pair.
+- **Section navigation**: the Config and Runs navigation band uses the theme's Companion or Accent color, choosing the stronger minimum contrast against the header, primary navigation, page and panel surfaces. Companion wins ties. Text uses whichever of black or white reads more clearly; selected links invert that pair. Hover strengthens text contrast. Preset and custom palettes derive these roles before first paint and during live changes.
 - **Semantic states** (`good`, `bad`, `review`, `queued`): success, failure, review and waiting, accompanied by readable state text or explicit control meaning. `on-good` and `on-accent` are foregrounds for filled treatments.
 
 ### Neutral
@@ -233,7 +224,7 @@ Evergreen navigation, dark green-neutral work surfaces and restrained teal selec
 
 A full-width header carries identity, repository scope, readouts and notifications. A (200px) desktop navigation column sits beside the flexible work area; logs and the compact footer sit below that area. Desktop content padding is (28px), with (24px) shell gaps. At (1200px), readouts move to a second header row. At (840px), navigation becomes a horizontally scrolling row and content padding becomes (20px 16px).
 
-Config and Runs keep a horizontal secondary navigation row above the independently scrolling work area on their parent and child pages. Its violet or lavender band has a selected-color bottom divider, a (4px) gap and (8px 28px) padding. At (840px), it sits below the primary navigation with (8px 12px) padding. Secondary links stay on one line and scroll horizontally when needed; navigation and resize reveal the current destination within that row. Unrelated pages hide the row.
+Config and Runs keep a horizontal secondary navigation row above the independently scrolling work area on their parent and child pages. Its theme-derived band has a selected-color bottom divider, a (4px) gap and (8px 28px) padding. At (840px), it sits below the primary navigation with (8px 12px) padding. Secondary links stay on one line and scroll horizontally when needed; navigation and resize reveal the current destination within that row. Unrelated pages hide the row.
 
 Authored Helm uses the saved column count, a (16px) grid gap and (16px) panel-body padding. At (760px), panel bodies use (12px) padding and saved columns interleave into one real DOM reading order: first stack from each column, then second stack from each column. Widening restores the columns without remounting panels or saving a layout change. The older rack has a separate (1080px) single-column breakpoint.
 
@@ -273,7 +264,7 @@ Desktop destinations form a vertical evergreen rail. Hover and selection use the
 
 Config and Runs remain selected in primary navigation throughout their child pages. Their secondary navigation starts with Overview, followed by sibling destination links. Overview is current on the parent page; a child page marks its exact destination with `aria-current="page"` while its primary parent remains selected. Config includes Task sources, Execution, Product feedback, Jira, GitHub, Notifications and Local Git; Runs includes History and run details. Config Overview uses this row as the single location for those destinations. Destination labels follow terminology settings and selected replacement pages. Links preserve the header scope; a directly opened alternative page receives its own current link when it differs from the selected destination.
 
-Secondary links use the navigation type role and control corners. Hover lightens the violet or lavender band; the current destination uses an inverted fill and ink with stronger weight (650). Keyboard focus uses a (2px) band-text outline inset by (2px), switching to selected ink on the current destination. These are native links in a named navigation region, with the current destination revealed by horizontal scrolling without moving page content.
+Secondary links use the navigation type role and control corners. Hover increases the contrast of the band’s text; the current destination uses an inverted fill and ink with stronger weight (650). Keyboard focus uses a (2px) band-text outline inset by (2px), switching to selected ink on the current destination. These are native links in a named navigation region, with the current destination revealed by horizontal scrolling without moving page content.
 
 ### Cards / Containers
 

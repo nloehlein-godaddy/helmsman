@@ -45,6 +45,11 @@
   --line-strong: rgba(196, 198, 197, 0.72);
   --line-faint: rgba(196, 198, 197, 0.18);
   --secondary: #8fcee0;
+  --section-nav-bg: var(--secondary);
+  --section-nav-hover: color-mix(in srgb, var(--secondary) 88%, white);
+  --section-nav-text: #000000;
+  --section-nav-selected: #000000;
+  --section-nav-ink: var(--secondary);
   --on-accent: #08090c;
   --on-good: #08090c;
   --accent: #f5a623;
@@ -155,8 +160,7 @@ html, body {
 .page-tab { flex-shrink: 0; text-decoration: none; font: 500 15px/1.4 var(--sans); color: var(--nav-muted, var(--text-dim)); border: 1px solid transparent; border-radius: var(--radius); padding: 10px 14px; cursor: pointer; }
 .page-tab:hover { color: var(--nav-text, var(--text)); background: var(--nav-active, var(--panel-hi)); }
 .page-tab.is-active { color: var(--nav-text, var(--text)); background: var(--nav-active, var(--panel-hi)); border-color: var(--nav-muted, var(--line)); font-weight: 650; }
-.section-nav { --section-nav-bg: #b894e5; --section-nav-hover: #cbb0ee; --section-nav-text: #241035; --section-nav-selected: #38214f; --section-nav-ink: #f7efff; grid-area: section; position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; padding: 8px 28px; border-bottom: 1px solid var(--section-nav-selected); background: var(--section-nav-bg); scrollbar-color: var(--section-nav-selected) var(--section-nav-bg); }
-[data-theme-mode="light"] .section-nav { --section-nav-bg: #503469; --section-nav-hover: #684780; --section-nav-text: #f7efff; --section-nav-selected: #ead5ff; --section-nav-ink: #291639; }
+.section-nav { grid-area: section; position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; padding: 8px 28px; border-bottom: 1px solid var(--section-nav-selected); background: var(--section-nav-bg); scrollbar-color: var(--section-nav-selected) var(--section-nav-bg); }
 .section-nav[hidden] { display: none; }
 .section-nav .section-link { flex-shrink: 0; padding: 8px 12px; border-radius: var(--radius); font: 500 15px/1.4 var(--sans); color: var(--section-nav-text); text-decoration: none; white-space: nowrap; }
 .section-nav .section-link:hover { color: var(--section-nav-text); background: var(--section-nav-hover); }

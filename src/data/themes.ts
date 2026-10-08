@@ -15,6 +15,11 @@ export const CUSTOM_THEME_STORAGE_KEY = 'cmux.theme.custom';
 export const AMBER_BACKGROUND = '#08090c';
 
 export const REQUIRED_VAR_KEYS: readonly string[] = [
+  '--section-nav-bg',
+  '--section-nav-hover',
+  '--section-nav-text',
+  '--section-nav-selected',
+  '--section-nav-ink',
   '--nav-bg',
   '--nav-text',
   '--nav-muted',
@@ -131,9 +136,38 @@ function mixHex(hex: string, target: number, amount: number): string {
   return `#${mix(r)}${mix(g)}${mix(b)}`;
 }
 
-function deriveVars(anchors: ThemeAnchors): Record<string, string> {
+function relativeLuminance(hex: string): number {
+  const { r, g, b } = hexToRgb(hex);
+  const channels = [r, g, b].map(channel => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+}
+
+function colorContrast(first: string, second: string): number {
+  const firstLuminance = relativeLuminance(first); const secondLuminance = relativeLuminance(second);
+  return (Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05);
+}
+
+function sectionNavVars(accent: string, companion: string, surfaces: readonly string[]): Record<string, string> {
+  const separation = (color: string) => Math.min(...surfaces.map(surface => colorContrast(color, surface)));
+  const background = separation(companion) >= separation(accent) ? companion : accent;
+  const ink = colorContrast(background, '#000000') >= colorContrast(background, '#ffffff') ? '#000000' : '#ffffff';
   return {
-    '--nav-bg': anchors.id === 'field-guide' ? '#0a1714' : anchors.gutter,
+    '--section-nav-bg': background,
+    '--section-nav-hover': mixHex(background, ink === '#000000' ? 255 : 0, 0.12),
+    '--section-nav-text': ink,
+    '--section-nav-selected': ink,
+    '--section-nav-ink': background,
+  };
+}
+
+function deriveVars(anchors: ThemeAnchors): Record<string, string> {
+  const navigation = anchors.id === 'field-guide' ? '#0a1714' : anchors.gutter;
+  return {
+    ...sectionNavVars(anchors.accent, anchors.secondary, [navigation, anchors.gutter, anchors.bg, anchors.panel]),
+    '--nav-bg': navigation,
     '--nav-text': anchors.id === 'field-guide' ? '#f2f6f3' : anchors.text,
     '--nav-muted': anchors.id === 'field-guide' ? '#a9c4b4' : anchors.textDim,
     '--nav-active': anchors.id === 'field-guide' ? '#26463b' : anchors.panelHi,
@@ -333,6 +367,9 @@ export function customThemeBootstrapSource(): string {
     ${hexToRgb.toString()}
     ${rgbaFromHex.toString()}
     ${mixHex.toString()}
+    ${relativeLuminance.toString()}
+    ${colorContrast.toString()}
+    ${sectionNavVars.toString()}
     ${deriveVars.toString()}
     let palette = ${serialize(createCustomTheme(DEFAULT_THEME_ID))};
     try { palette = parseStoredCustomTheme(localStorage.getItem(${serialize(CUSTOM_THEME_STORAGE_KEY)})) || palette; } catch {}

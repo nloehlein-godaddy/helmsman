@@ -192,6 +192,28 @@ describe('THEMES data', () => {
   );
 });
 
+describe('section navigation colors', () => {
+  it.each(themePalettes)('$id uses the most distinct theme accent and readable navigation ink', theme => {
+    const surfaces = ['--nav-bg', '--gutter', '--bg', '--panel'].map(key => theme.vars[key] ?? theme.vars['--gutter']!);
+    const score = (color: string) => Math.min(...surfaces.map(surface => contrast(color, surface)));
+    const background = theme.vars['--section-nav-bg']!;
+    expect([theme.vars['--accent'], theme.vars['--secondary']]).toContain(background);
+    expect(score(background)).toBeGreaterThanOrEqual(Math.max(score(theme.vars['--accent']!), score(theme.vars['--secondary']!)));
+    expect(contrast(theme.vars['--section-nav-text']!, background)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(theme.vars['--section-nav-ink']!, theme.vars['--section-nav-selected']!)).toBeGreaterThanOrEqual(4.5);
+    if (theme.id !== 'amber') expect(contrast(theme.vars['--section-nav-text']!, theme.vars['--section-nav-hover']!)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each([
+    { accent: '#ffffff', secondary: '#777777', expected: '#ffffff' },
+    { accent: '#777777', secondary: '#ffffff', expected: '#ffffff' },
+    { accent: '#cccccc', secondary: '#cccccc', expected: '#cccccc' },
+  ])('recomputes custom navigation from the palette %j', ({ expected, ...colors }) => {
+    const theme = customThemeFromPalette({ ...createCustomTheme('field-guide'), ...colors });
+    expect(theme.vars['--section-nav-bg']).toBe(expected);
+  });
+});
+
 describe('loadThemeId / saveThemeId', () => {
   let store: Record<string, string> = {};
 
