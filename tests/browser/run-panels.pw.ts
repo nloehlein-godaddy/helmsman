@@ -8,9 +8,10 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
   const receipts = new Map<string, unknown>();
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   const base = { version: 1, repo: 'org/a', attempt: 3, startedAt: '2026-09-20T12:00:00.000Z', endedAt: null, prNumber: null, costUsd: null, review: null, sourceSettlement: null };
+  const reviewId = `created-${'abc123de'.repeat(8)}`;
   const rows = [{ ...base, id: 'active-run', displayKey: 'TASK-41', status: 'running' },
     { ...base, id: 'failed-run', displayKey: 'TASK-40', status: 'failed', endedAt: '2026-09-20T12:15:00.000Z', costUsd: 1.25, sourceSettlement: { state: 'pending' } },
-    { ...base, id: 'review-run', displayKey: 'Review', status: 'succeeded', prNumber: 7, endedAt: '2026-09-20T12:10:00.000Z', review: { outcome: 'REQUEST_CHANGES', verdict: 'Add a regression test before merging.' }, sourceSettlement: { state: 'operator-required' } }];
+    { ...base, id: reviewId, displayKey: 'Review', status: 'succeeded', prNumber: 7, endedAt: '2026-09-20T12:10:00.000Z', review: { outcome: 'REQUEST_CHANGES', verdict: 'Verdict: Request changes — Hidden-only preview content can pass the new reuse health gate. Add a regression test before merging.' }, sourceSettlement: { state: 'operator-required' } }];
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
@@ -44,9 +45,18 @@ test('run panels retain exact-attempt requests across reload and keep worker, re
   const active = page.locator('.plugin-running'); const recent = page.locator('.plugin-recent');
   await expect(active.getByText('TASK-41', { exact: true })).toBeVisible();
   await expect(recent.getByText('Worker: succeeded', { exact: true })).toBeVisible();
-  await expect(recent.locator('[data-run-id="review-run"]').getByRole('button', { name: /^Retry / })).toHaveCount(0);
+  await expect(recent.locator(`[data-run-id="${reviewId}"]`).getByRole('button', { name: /^Retry / })).toHaveCount(0);
   await expect(active).toHaveScreenshot('running-panel.png', { animations: 'disabled' });
   await expect(recent).toHaveScreenshot('recent-panel.png', { animations: 'disabled' });
+  await expect(recent.getByRole('button', { name: 'Copy run ID' })).toHaveCount(0);
+  await expect(recent.getByText('Spend unknown', { exact: true })).toHaveCount(0);
+  const identity = recent.getByRole('link', { name: 'Open run abc123deabc1', exact: true });
+  await expect(identity).toHaveText('abc123deabc1');
+  await expect(identity).toHaveAttribute('href', `/runs?repo=org%2Fa&runRepo=org%2Fa&run=${reviewId}`);
+  await page.setViewportSize({ width: 390, height: 1200 });
+  await expect(recent).toHaveScreenshot('recent-panel-mobile.png', { animations: 'disabled' });
+  expect(await recent.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await active.getByRole('button', { name: /^Stop / }).click();
   await expect(active.getByText('Stop requested. Worker status is reported separately.', { exact: true })).toBeVisible();
   await expect(active.getByText('Worker: Underway', { exact: true })).toBeVisible();

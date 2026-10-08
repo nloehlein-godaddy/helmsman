@@ -11,6 +11,15 @@ const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null 
   if (state === 'awaiting_decision') return run?.status === 'running' ? 'Awaiting decision' : 'Feedback remaining';
   return state === 'changes_remaining' ? 'Feedback remaining' : null;
 };
+const shortRunId = (id: string): string => {
+  const digest = /^(?:slack|created)-([a-f0-9]+)$/i.exec(id)?.[1] ?? id;
+  return /^[a-f0-9]{12,}$/i.test(digest) ? digest.slice(0, 12) : digest;
+};
+const reviewSummary = (verdict: string | null | undefined, outcome: string): string => {
+  const text = verdict?.trim() ?? '';
+  const prefix = new RegExp(`^(?:Verdict:\\s*)?${outcome}(?:\\s*[—–:.-]\\s*|$)`, 'i');
+  return text.replace(prefix, '').trim();
+};
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:17px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .plugin-run-list{line-height:1.5;overflow-wrap:anywhere}
@@ -39,6 +48,23 @@ const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16
 @media(max-width:480px){.plugin-run-list .run-main{grid-template-columns:minmax(0,1fr)}.plugin-run-list .run-status{grid-column:1;grid-row:3;justify-self:start}}
 [role=tabpanel][aria-labelledby][data-panel-instance] .plugin-run-list>header>h2{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 [role=tabpanel][aria-labelledby][data-panel-instance] .plugin-run-list>header{display:contents}
+.plugin-run-list.plugin-recent{container-type:inline-size}
+.plugin-run-list.plugin-recent li{gap:12px;padding:20px 0}
+.plugin-run-list.plugin-recent li:first-child{padding-top:4px}
+.plugin-run-list.plugin-recent .run-main{gap:4px 16px}
+.plugin-run-list.plugin-recent .run-main>a{font-size:18px;font-weight:650}
+.plugin-run-list.plugin-recent .run-status{padding:0;border:0;background:transparent;color:var(--text-dim);font-size:13px;font-weight:400;grid-row:1}
+.plugin-run-list.plugin-recent .run-review{display:grid;gap:4px}
+.plugin-run-list.plugin-recent .run-recommendation{font-size:14px;font-weight:600;color:var(--review,var(--accent))}
+.plugin-run-list.plugin-recent .run-recommendation[data-outcome=REQUEST_CHANGES]{color:var(--queued,var(--accent))}
+.plugin-run-list.plugin-recent .run-recommendation[data-outcome=APPROVE]{color:var(--good)}
+.plugin-run-list.plugin-recent .run-review-summary{font-size:16px;line-height:1.5;max-width:70ch}
+.plugin-run-list.plugin-recent .run-evidence{gap:4px 16px;font-size:13px;align-items:center}
+.plugin-run-list.plugin-recent .run-evidence .work-identity{font-family:var(--mono,monospace);font-size:13px;text-decoration:underline}
+.plugin-run-list.plugin-recent .run-evidence time{font-variant-numeric:tabular-nums}
+.plugin-run-list.plugin-recent .run-supporting{font-size:14px;color:var(--text-dim)}
+@container(max-width:420px){.plugin-run-list.plugin-recent .run-main{grid-template-columns:minmax(0,1fr)}.plugin-run-list.plugin-recent .run-status{grid-column:1;grid-row:3;justify-self:start}}
+@media(pointer:coarse){.plugin-run-list.plugin-recent .work-identity{display:inline-flex;align-items:center;min-height:44px}.plugin-run-list.plugin-recent button{min-height:44px}}
 `;
 
 class RunListPanel implements PluginPanelInstance {
@@ -218,29 +244,38 @@ class RunListPanel implements PluginPanelInstance {
       const id = key(run); visible.add(id); const command = this.commands.get(id);
       const row = node('li'); row.dataset.runId = run.id; row.dataset.runKey = id;
       const main = node('div'); main.className = 'run-main';
-      const title = run.prNumber ? `${run.displayKey} · ${this.state.pirateMode ? 'Bounty' : 'PR'} #${run.prNumber}` : run.displayKey;
+      const title = run.prNumber ? `${this.state.pirateMode ? 'Bounty' : 'PR'} #${run.prNumber} · ${run.displayKey}` : run.displayKey;
       main.append(this.link(title, this.detail(run.id, run.repo)), node('small', run.repo), node('span', `Worker: ${run.status === 'running' && this.state.pirateMode ? 'Underway' : run.status}`));
       const status = main.lastElementChild; if (status instanceof HTMLElement) { status.className = 'run-status'; status.dataset.status = run.status; } row.append(main);
       const timestamp = Number.isFinite(Date.parse(run.startedAt)) ? new Date(run.startedAt).toLocaleString() : 'Unknown start time';
       const elapsed = Math.max(0, Math.floor((Date.now() - Date.parse(run.startedAt)) / 60_000));
       if (run.status === 'running' && Number.isFinite(elapsed)) row.append(node('small', `${elapsed < 60 ? `${elapsed}m` : `${Math.floor(elapsed / 60)}h ${elapsed % 60}m`} elapsed`));
-      const evidence = node('div'); evidence.className = 'run-evidence';
-      const identity = node('span', run.id); identity.className = 'work-identity';
-      evidence.append(identity, node('span', `Attempt ${run.attempt}`), node('span', `Started ${timestamp}`), node('span', run.costUsd === null ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`)); row.append(evidence);
       const feedback = feedbackLabel(run);
       if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = run.feedbackOutcome?.summary ?? ''; row.append(outcome); }
-      if (run.review) row.append(node('p', `Review recommendation: ${{ APPROVE: 'Approve', REQUEST_CHANGES: 'Request changes', COMMENT: 'Comment' }[run.review.outcome]}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
-      if (run.sourceSettlement) row.append(node('p', `Source settlement: ${{ pending: 'pending', settled: 'settled', 'operator-required': 'operator action required' }[run.sourceSettlement.state]}. Worker outcome is unchanged.`));
+      if (run.review) {
+        const label = { APPROVE: 'Approve', REQUEST_CHANGES: 'Request changes', COMMENT: 'Comment' }[run.review.outcome];
+        const review = node('div'); review.className = 'run-review';
+        const recommendation = node('p', label); recommendation.className = 'run-recommendation'; recommendation.dataset.outcome = run.review.outcome;
+        recommendation.title = `Review recommendation: ${label}`; review.append(recommendation);
+        const summary = reviewSummary(run.review.verdict, label);
+        if (summary) { const verdict = node('p', summary); verdict.className = 'run-review-summary'; review.append(verdict); }
+        row.append(review);
+      }
+      if (run.sourceSettlement) { const settlement = node('p', `Source settlement: ${{ pending: 'pending', settled: 'settled', 'operator-required': 'operator action required' }[run.sourceSettlement.state]}. Worker outcome is unchanged.`); settlement.className = 'run-supporting'; row.append(settlement); }
+      const evidence = node('div'); evidence.className = 'run-evidence';
+      const started = node('time', timestamp); started.dateTime = run.startedAt; started.title = `Started ${timestamp}`;
+      const identity = this.link(shortRunId(run.id), this.detail(run.id, run.repo)); identity.className = 'work-identity';
+      identity.title = `Open run ${run.id}`; identity.setAttribute('aria-label', `Open run ${shortRunId(run.id)}`);
+      evidence.append(started, node('span', `Attempt ${run.attempt}`));
+      if (run.costUsd !== null) evidence.append(node('span', `$${run.costUsd.toFixed(2)} observed spend`));
+      evidence.append(identity); row.append(evidence);
       const actions = node('div'); actions.className = 'run-actions';
       const eligible = presentation.action === 'stop' ? run.status === 'running' : run.status === 'failed';
       if (eligible) {
         const button = this.button(presentation.action === 'stop' ? 'Stop' : 'Retry', () => { void this.submit(run); }, !this.active() || !this.evidenceReady || !!command?.busy || !!command?.uncertain || !!command?.receipt && ['accepted', 'rejected'].includes(command.receipt.status));
         button.setAttribute('aria-label', `${presentation.action === 'stop' ? 'Stop' : 'Retry'} ${this.state.pirateMode ? 'voyage' : 'run'} ${run.displayKey}, attempt ${run.attempt}`); actions.append(button);
       }
-      const copy = this.button('Copy run ID', () => {
-        void Promise.resolve().then(() => navigator.clipboard.writeText(run.id)).then(() => { copy.textContent = 'Copied'; }).catch(() => { copy.textContent = 'Copy unavailable'; });
-      });
-      actions.append(copy); row.append(actions); if (command) this.commandFeedback(row, command); list.append(row);
+      if (actions.childElementCount) row.append(actions); if (command) this.commandFeedback(row, command); list.append(row);
     }
     if (this.loading) { const loading = node('li'); loading.append(createLoadingWheelV1('Loading runs…')); list.append(loading); }
     if (!this.rows.length && !this.loading && !this.error) list.append(node('li', presentation.kind === 'running' ? this.state.pirateMode ? 'No deckhand tasks underway.' : 'No agent tasks running.' : this.state.pirateMode ? 'No past voyages.' : 'No past runs.'));

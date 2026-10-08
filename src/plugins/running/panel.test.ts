@@ -184,10 +184,10 @@ describe.each([['running', running, 'stop', 'Stop', 100], ['recent', recent, 're
     await vi.waitFor(() => expect(f.button('Check request')).toBeDefined()); f.emit([]);
     expect(f.container.textContent).toContain('Saved requests'); expect(f.container.textContent).toContain(run.id); f.lifetime.abort();
   });
-  it('uses literal text, scoped links, pirate terminology and unknown spend', async () => {
+  it('uses literal text, scoped links, pirate terminology and available spend', async () => {
     const f = fixture(action); f.context = { ...f.context, state: { ...f.state, repo: null, pirateMode: true } }; await module.mount(f.container, f.context);
     f.emit([{ ...f.item, displayKey: '<img src=x onerror=alert(1)>', prNumber: 7 }]);
-    expect(f.container.querySelector('img')).toBeNull(); expect(f.container.textContent).toContain('Bounty #7'); expect(f.container.textContent).toContain('Spend unknown');
+    expect(f.container.querySelector('img')).toBeNull(); expect(f.container.textContent).toContain('Bounty #7'); if (action === 'stop') expect(f.container.textContent).toContain('Spend unknown'); else expect(f.container.textContent).not.toContain('Spend unknown');
     expect(f.container.textContent).toContain(action === 'stop' ? 'Deckhand tasks' : 'Recent voyages');
     const link = f.container.querySelector('a')!; const target = new URL(link.href); expect(target.searchParams.has('repo')).toBe(false); expect(target.searchParams.get('runRepo')).toBe(repo); link.click(); expect(f.context.navigate).toHaveBeenCalledWith(link.getAttribute('href')); f.lifetime.abort();
   });
@@ -197,7 +197,7 @@ describe('recent worker outcome', () => {
   it('keeps successful request-changes reviews and pending source settlement separate; only failed workers can retry', async () => {
     const f = fixture('retry'); await recent.mount(f.container, f.context);
     f.emit([{ ...f.item, status: 'succeeded', review: { outcome: 'REQUEST_CHANGES', verdict: 'Fix tests' }, sourceSettlement: { state: 'pending' } }]);
-    expect(f.container.textContent).toContain('Worker: succeeded'); expect(f.container.textContent).toContain('Review recommendation: Request changes');
+    expect(f.container.textContent).toContain('Worker: succeeded'); expect(f.container.querySelector<HTMLElement>('.run-recommendation')?.title).toBe('Review recommendation: Request changes');
     expect(f.container.textContent).toContain('Source settlement: pending'); expect(f.button('Retry')).toBeUndefined(); f.lifetime.abort();
   });
 });
@@ -216,4 +216,27 @@ it.each([false, true])('renders feedback states separately from worker status in
     { ...run, id: 'failed', status: 'failed', feedbackOutcome: { ...feedbackOutcome, state: 'completed' } }]);
   expect([...past.container.querySelectorAll('.run-feedback-outcome')].map(el => el.textContent)).toEqual(['Feedback completed', 'Feedback remaining']);
   expect(past.container.textContent).toContain('Worker: failed'); recentPanel.dispose();
+});
+
+it.each(['slack', 'created'])('recent rows link a short %s digest to the full run and omit redundant metadata', async prefix => {
+  const f = fixture('retry');
+  f.context = { ...f.context, state: { ...f.state, headerRepo: 'owner/header' } };
+  await recent.mount(f.container, f.context);
+  const id = `${prefix}-${'abc123de'.repeat(8)}`;
+  f.emit([{ ...f.item, id, status: 'succeeded', prNumber: 42, review: { outcome: 'REQUEST_CHANGES', verdict: 'Verdict: Request changes — Hidden content passes the gate.' } }]);
+  const link = f.container.querySelector<HTMLAnchorElement>('.work-identity')!;
+  expect(link.textContent).toBe('abc123deabc1');
+  expect(new URL(link.href).searchParams.get('run')).toBe(id);
+  expect(new URL(link.href).searchParams.get('repo')).toBe('owner/header');
+  link.click(); expect(f.context.navigate).toHaveBeenCalledWith(link.getAttribute('href'));
+  expect(f.container.querySelector('.run-review-summary')?.textContent).toBe('Hidden content passes the gate.');
+  expect(f.container.querySelector('.run-recommendation')?.textContent).toBe('Request changes');
+  expect(f.container.textContent).not.toContain(`${prefix}-`);
+  expect(f.container.textContent).not.toContain('Spend unknown');
+  expect(f.button('Copy run ID')).toBeUndefined();
+  expect(f.container.querySelector('li .run-actions')).toBeNull();
+  link.focus(); f.emit([{ ...f.item, id, status: 'succeeded', costUsd: 0 }]);
+  expect(document.activeElement?.textContent).toBe('abc123deabc1');
+  expect(f.container.textContent).toContain('$0.00 observed spend');
+  f.lifetime.abort();
 });

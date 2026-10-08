@@ -283,6 +283,8 @@ Authored Helm stacks use panel ground, a thin semantic line and panel corners. H
 
 Running/recent work uses a prominent linked title, technical identifier, compact outlined state and aligned evidence. State labels use (2px 8px) padding and control corners. Row separation uses the semantic line; the last row removes it. Titles wrap as needed, evidence wraps independently, and narrow-screen order keeps identity ahead of state and actions. Theme-preview status chips use sentence-case sans with compact corners.
 
+Recent runs lead with the PR/task link, followed by galleon scope and a quiet worker state. Review recommendations use labeled semantic color above the explanation; repeated verdict prefixes are omitted. A subordinate evidence row groups start time, attempt, observed spend when available, and a linked 12-character run digest. Internal `slack-` and `created-` prefixes stay out of visible identifiers; links retain full run IDs and header scope. Recent rows use (20px) vertical separation and adapt to their panel width.
+
 The degraded-state banner uses a (6%) accent tint mixed into panel ground, a strong semantic boundary and bright accent text. Its tint follows the selected theme.
 
 ### Loading and focus continuity
