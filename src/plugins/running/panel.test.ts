@@ -272,6 +272,12 @@ it.each(['succeeded', 'failed', 'stopped'] as const)('recent %s worker icons ret
   expect(document.activeElement?.getAttribute('aria-label')).toBe('Start time');
   const current = f.container.querySelector<HTMLButtonElement>('[data-run-info=started]')!;
   expect(document.getElementById(current.getAttribute('aria-describedby')!)?.textContent).toBe('Started Unknown start time');
+  expect(current.parentElement?.dataset.dismissed).toBe('true');
+  current.click(); expect(current.parentElement?.dataset.dismissed).toBe('false');
+  f.emit([{ ...f.item, status, startedAt: 'invalid', costUsd: 0 }]);
+  const refreshed = f.container.querySelector<HTMLButtonElement>('[data-run-info=started]')!;
+  expect(document.activeElement).toBe(refreshed);
+  refreshed.click(); expect(refreshed.parentElement?.dataset.dismissed).toBe('true');
   expect(f.container.querySelector('.run-main small')).toBeNull();
   f.lifetime.abort();
 });

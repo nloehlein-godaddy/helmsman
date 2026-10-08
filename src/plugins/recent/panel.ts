@@ -39,12 +39,11 @@ const runInfo = (kind: string, icon: keyof typeof iconPaths | null, label: strin
   if (icon) trigger.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${iconPaths[icon]}"/></svg>`;
   if (text) trigger.append(node('span', text));
   const tooltip = node('span', tooltipText); tooltip.className = 'run-tooltip'; tooltip.id = tooltipId; tooltip.setAttribute('role', 'tooltip');
-  let tapped = false;
-  trigger.addEventListener('blur', () => { tapped = false; });
+  trigger.addEventListener('blur', () => { delete info.dataset.tapped; });
   const reveal = () => { delete info.dataset.dismissed; };
   info.addEventListener('pointerenter', reveal); trigger.addEventListener('focus', reveal);
-  trigger.addEventListener('click', () => { tapped = !tapped; info.dataset.dismissed = String(!tapped); });
-  trigger.addEventListener('keydown', event => { if (event.key === 'Escape') { tapped = false; info.dataset.dismissed = 'true'; event.stopPropagation(); } });
+  trigger.addEventListener('click', () => { const tapped = info.dataset.tapped !== 'true'; info.dataset.tapped = String(tapped); info.dataset.dismissed = String(!tapped); });
+  trigger.addEventListener('keydown', event => { if (event.key === 'Escape') { delete info.dataset.tapped; info.dataset.dismissed = 'true'; event.stopPropagation(); } });
   info.append(trigger, tooltip); return info;
 };
 const styles = `.plugin-run-list{display:grid;gap:12px;color:var(--text);font:16px var(--sans,sans-serif);min-width:0}.plugin-run-list h2{margin:0;font-size:17px}.plugin-run-list ul{list-style:none;margin:0;padding:0}.plugin-run-list li{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-run-list .run-main,.plugin-run-list .run-actions,.plugin-run-list header{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.plugin-run-list header{justify-content:space-between}.plugin-run-list small{color:var(--text-dim)}.plugin-run-list :is(a,button){font:inherit;color:var(--accent)}.plugin-run-list button{padding:5px 8px;background:var(--face-hi);border:1px solid var(--line-strong);border-radius:6px;cursor:pointer}.plugin-run-list button:disabled{opacity:.5;cursor:default}.plugin-run-list [role=alert]{color:var(--bad)}.plugin-run-list .run-status{font-weight:600}.plugin-run-list :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -131,7 +130,7 @@ class RunListPanel implements PluginPanelInstance {
   private active(generation = this.generation): boolean { return !this.disposed && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
   private cancel = () => { for (const command of this.commands.values()) command.busy = false; ++this.generation; this.controller?.abort(); this.controller = null; this.unsubscribe?.(); this.unsubscribe = null; this.pendingRead = null; this.evidenceReady = false; };
   private dismissTooltips = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') for (const info of this.container.querySelectorAll<HTMLElement>('.run-info')) info.dataset.dismissed = 'true';
+    if (event.key === 'Escape') for (const info of this.container.querySelectorAll<HTMLElement>('.run-info')) { delete info.dataset.tapped; info.dataset.dismissed = 'true'; }
   };
   dispose = () => {
     if (this.disposed) return; this.disposed = true; this.cancel();
@@ -276,6 +275,11 @@ class RunListPanel implements PluginPanelInstance {
   private draw(): void {
     if (this.disposed) return;
     const focus = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.runFocus : undefined;
+    const inspections = new Map<string, { dismissed: string | undefined; tapped: string | undefined }>();
+    for (const trigger of this.container.querySelectorAll<HTMLElement>('[data-run-info]')) {
+      const identity = trigger.dataset.runFocus; const info = trigger.parentElement;
+      if (identity && info) inspections.set(identity, { dismissed: info.dataset.dismissed, tapped: info.dataset.tapped });
+    }
     const root = node('section'); root.className = `plugin-run-list plugin-${presentation.name}`;
     root.setAttribute('aria-busy', String(this.loading)); root.append(node('style', styles));
     const header = node('header'); header.append(node('h2', presentation.kind === 'running' ? this.state.pirateMode ? 'Deckhand tasks' : 'Agent tasks' : this.state.pirateMode ? 'Recent voyages' : 'Recent runs')); root.append(header);
@@ -336,6 +340,13 @@ class RunListPanel implements PluginPanelInstance {
     for (const control of controls) control.dataset.runFocus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey ?? '', control.tagName, control.dataset.runInfo ?? control.getAttribute('aria-label') ?? control.textContent, control.getAttribute('href')]);
     this.container.replaceChildren(root);
     if (focus) controls.find(control => control.dataset.runFocus === focus)?.focus({ preventScroll: true });
+    for (const control of controls) {
+      const inspection = inspections.get(control.dataset.runFocus ?? ''); const info = control.parentElement;
+      if (inspection && info) {
+        if (inspection.dismissed !== undefined) info.dataset.dismissed = inspection.dismissed;
+        if (inspection.tapped !== undefined) info.dataset.tapped = inspection.tapped;
+      }
+    }
   }
 }
 const panel: PluginPanelModule = { mount(container, context) {
