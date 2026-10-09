@@ -24,8 +24,8 @@ it('keeps approvals, requested changes, and discussion comments distinct from un
   const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'review-requested', quality: 'partial', truncated: true, browseUrl: null,
     items: [{ repo: 'org/b', number: 42, title: 'Review', url: null, status: 'open', createdAt: detail.observedAt, mergedAt: null, draft: null, ticketId: null, reviewDecision: null, comments: 7, reviews: { approved: 2, changesRequested: 1, commented: null, requested: null } }] };
   const node = mount(renderList('review-requested', page, '', false));
-  expect(node.querySelectorAll('.pr-list-stat')).toHaveLength(4);
-  expect(node.textContent).toContain('2 approvals'); expect(node.textContent).toContain('1 changes requested'); expect(node.textContent).toContain('7 discussion comments'); expect(node.textContent).toContain('unknown pending reviews'); expect(node.textContent).toContain('More may be available in the full list');
+  expect(node.querySelectorAll('.pr-list-stat')).toHaveLength(3);
+  expect(node.textContent).toContain('2 approvals'); expect(node.textContent).toContain('1 changes requested'); expect(node.textContent).toContain('7 discussion comments'); expect(node.textContent).not.toContain('unknown pending reviews'); expect(node.textContent).toContain('More may be available in the full list');
 });
 it.each([true, false])('keeps recent run identity and user text literal in pirate mode %s', pirate => {
   const run: RunReadSummaryV1 = { version: 1, id: 'review-agent', repo: 'org/agent-review', displayKey: 'Review PR tokens voyage', status: 'failed', attempt: 1, startedAt: detail.observedAt, endedAt: null, prNumber: 42, costUsd: null, review: null, sourceSettlement: null };
@@ -44,6 +44,22 @@ it.each(['complete', 'partial', 'degraded'] as const)('distinguishes an empty %s
   const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'authored-recent', quality, truncated: false, browseUrl: null, items: [] };
   const node = mount(renderList('authored-recent', page, '', true));
   expect(node.textContent).not.toContain('Results unavailable or incomplete');
-  expect(node.textContent).toContain(quality === 'complete' ? 'No matching pull requests.' : quality === 'partial' ? 'Only some results were returned.' : 'Refresh to try again.');
+  expect(node.textContent).toContain(quality === 'complete' ? 'No matching pull requests.' : quality === 'partial' ? 'Only some results were returned.' : 'Refresh page to try again.');
   expect(node.textContent?.includes('No matching')).toBe(quality === 'complete');
+});
+
+it('makes the title the selection control and keeps scoped galleon metadata quiet', () => {
+  const item = { repo: 'org/b', number: 42, title: 'Clear title', url: null, status: 'open' as const, createdAt: detail.observedAt, mergedAt: null, draft: false, ticketId: null, reviewDecision: null, comments: 0, reviews: null };
+  const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'authored-recent', quality: 'complete', truncated: false, browseUrl: null, items: Array.from({ length: 10 }, (_, index) => ({ ...item, number: index + 1 })) };
+  const node = mount(renderList('authored-recent', page, '', false));
+  expect(node.querySelector('.pr-list-select .pr-list-title')?.textContent).toBe('Clear title');
+  expect(node.querySelectorAll('.pr-list-stat')).toHaveLength(0);
+  expect(node.querySelector('.pr-list-meta')?.textContent).not.toContain('org/b');
+  expect(node.querySelector(':scope > section > .pr-list')?.children).toHaveLength(8);
+  const more = node.querySelector<HTMLDetailsElement>('details'); expect(more?.open).toBe(false); expect(more?.querySelectorAll('.pr-list-row')).toHaveLength(2);
+  const all = mount(renderList('authored-recent', { ...page, repo: null }, '', false)); expect(all.querySelector('.pr-list-meta')?.textContent).toContain('org/b');
+});
+it('keeps recent run history collapsed until requested', () => {
+  const node = mount(renderRuns([], false, '', false));
+  expect(node.querySelector<HTMLDetailsElement>('[data-pr-disclosure="recent-runs"]')?.open).toBe(false);
 });

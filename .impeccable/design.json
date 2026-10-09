@@ -736,7 +736,7 @@
       },
       {
         "name": "The Plain Selection and PR Results Rule",
-        "body": "Panel controls use \u201cUse top selection\u201d to restore the galleon selection made at the top of Helmsman; the tooltip explains this relationship, and the current selection is labeled \u201cShowing\u201d. PR lists keep readable results when later reads fail, distinguish a confirmed empty list from an incomplete read, and give a plain-language refresh or full-list action instead of exposing internal quality values.",
+        "body": "Campaign and Terminal panels use \u201cUse top selection\u201d to restore the galleon selection made at the top of Helmsman. The PR page inherits that selection without a permanent reset control. Inspection leads the page, with selected detail and diff immediately below it. Close inspection appears only for a selected PR and restores the top selection without changing it. The composed page owns one Refresh action; a standalone PR panel retains its own. PR lists use independent-height desktop columns and document flow on mobile, without inner list scrollbars. Full-width title-first selection controls lead each row; PR number, state, date and known meaningful counts are subordinate. Compact notices distinguish confirmed empty lists from incomplete reads, retain readable results, and offer a scoped full-list action. Recent PR runs sit after the lists in a collapsed native disclosure that preserves its open state during refresh.",
         "section": "components"
       }
     ],

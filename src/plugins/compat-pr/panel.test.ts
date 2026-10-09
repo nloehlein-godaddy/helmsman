@@ -124,9 +124,30 @@ it('does not restore the previous explicit target while lookup changes scope', a
   fill(f.container, '[data-pr-compat-lookup]', 'org/c#9'); click(f.container, '[data-load]'); await vi.waitFor(() => expect(f.context.navigate).toHaveBeenCalled());
   expect(f.state().activity.repo).toBe('org/c'); expect(vi.mocked(f.context.setScope!).mock.calls).toEqual([[{ kind: 'galleon', repo: 'org/c' }]]);
 });
-it('returns to inherited header scope without restoring an explicit route target', async () => {
-  const f = await fixture({ pullRequest: { version: 1, repo: 'org/b', number: 42, mode: null } }); await ready(f); click(f.container, '[data-inherit]');
-  await vi.waitFor(() => expect(f.context.setScope).toHaveBeenCalledWith({ kind: 'inherit' })); expect(f.state().activity.repo).toBe('org/a'); expect(f.container.querySelector('.pr-panel')).toBeNull(); expect(f.context.navigate).toHaveBeenCalled();
+it('closes inspection, clears its route and restores inherited scope while keeping drafts', async () => {
+  const route = new URLSearchParams({ repo: 'org/a', prRepo: 'org/b', pr: '42', mode: 'review', pane: 'diff', panelState: JSON.stringify({ 'helmsman.compat-pr/panel': { version: 1, value: { target: { repo: 'org/b', number: 42 } } }, other: { version: 1, value: {} } }) });
+  history.replaceState(null, '', `/prs?${route}`);
+  const f = await fixture({ pullRequest: { version: 1, repo: 'org/b', number: 42, mode: null } }); await ready(f);
+  fill(f.container, '.pr-review-body', 'Keep the review draft'); click(f.container, '[data-close-inspection]');
+  await vi.waitFor(() => expect(f.context.setScope).toHaveBeenCalledWith({ kind: 'inherit' }));
+  expect(f.state().activity.repo).toBe('org/a'); expect(f.container.querySelector('.pr-panel')).toBeNull(); expect(f.container.querySelector('[data-close-inspection]')).toBeNull();
+  const navigated = new URL(vi.mocked(f.context.navigate).mock.calls.at(-1)![0], window.location.origin);
+  for (const key of ['pr', 'prRepo', 'mode', 'pane']) expect(navigated.searchParams.has(key)).toBe(false);
+  expect(JSON.parse(navigated.searchParams.get('panelState')!)).toEqual({ other: { version: 1, value: {} } });
+  fill(f.container, '[data-pr-compat-lookup]', 'org/b#42'); click(f.container, '[data-load]'); await ready(f);
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Keep the review draft');
+});
+it('closes inspection in an older standalone host without scope mutation support', async () => {
+  const f = await fixture({}, context => { delete (context as { setScope?: PluginPanelContext['setScope'] }).setScope; }); await ready(f); click(f.container, '[data-close-inspection]');
+  await vi.waitFor(() => expect(f.context.saveState).toHaveBeenCalledWith({ version: 1, value: { target: null } }));
+  expect(f.container.querySelector('.pr-panel')).toBeNull(); expect(f.container.querySelector<HTMLInputElement>('[data-pr-compat-lookup]')?.value).toBe('');
+});
+it('keeps run history disclosure state and summary focus across refresh', async () => {
+  const f = await fixture(); await ready(f);
+  const history = f.container.querySelector<HTMLDetailsElement>('[data-pr-disclosure="recent-runs"]')!; expect(history.open).toBe(false); history.open = true;
+  history.querySelector<HTMLElement>('summary')!.focus(); await f.instance.refresh?.();
+  expect(f.container.querySelector<HTMLDetailsElement>('[data-pr-disclosure="recent-runs"]')?.open).toBe(true);
+  expect(document.activeElement).toBe(f.container.querySelector('[data-pr-disclosure="recent-runs"]>summary'));
 });
 it('focuses pane-only navigation without issuing commands', async () => {
   const scroll = vi.fn(); Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll });

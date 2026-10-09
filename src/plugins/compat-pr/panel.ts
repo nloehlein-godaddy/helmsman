@@ -119,7 +119,7 @@ class PrPanel implements PluginPanelInstance {
     if (button.matches('[data-load]')) void this.lookupTarget();
     else if (button.matches('[data-save-draft]')) this.saveDraft();
     else if (button.matches('[data-refresh]')) void this.refresh();
-    else if (button.matches('[data-inherit]')) void this.inherit();
+    else if (button.matches('[data-close-inspection]')) void this.closeInspection();
     else if (button.dataset.selectRepo) { const next = target({ repo: button.dataset.selectRepo, number: Number(button.dataset.selectNumber) }); if (next) void this.select(next); }
     else if (button.dataset.run && button.dataset.repo) this.context.selectPresentation?.({ version: 1, kind: 'run', repo: button.dataset.repo, runId: button.dataset.run });
     else if (button.dataset.review) void this.review(button.dataset.review as 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT');
@@ -143,13 +143,27 @@ class PrPanel implements PluginPanelInstance {
     }
     await this.select(next);
   }
-  private async inherit() {
-    if (!this.context.setScope) return;
-    try { this.localTarget = true; this.selected = null; this.lookup = ''; this.detail = null; this.diff = null;
-      const url = new URL(window.location.href); for (const key of ['pr', 'prRepo', 'mode']) url.searchParams.delete(key);
-      try { const states: unknown = JSON.parse(url.searchParams.get('panelState') ?? '{}'); if (states && typeof states === 'object' && !Array.isArray(states)) { delete (states as Record<string, unknown>)[this.context.contributionId!]; url.searchParams.set('panelState', JSON.stringify(states)); } } catch { url.searchParams.delete('panelState'); }
-      this.context.navigate(url.pathname + url.search); await this.context.setScope({ kind: 'inherit' }); if (!this.unsupported) await this.context.saveState({ version: 1, value: { target: null } }); await this.refresh(); }
-    catch { this.error = 'Could not use the top selection. Refresh and try again.'; this.draw(); }
+  private async closeInspection() {
+    this.cancel(); this.localTarget = true; this.selected = null; this.lookup = ''; this.detail = null; this.diff = null;
+    this.focusMode = null; this.focusPane = null; this.error = ''; this.readDraft(); this.draw();
+    try {
+      const url = new URL(window.location.href);
+      for (const key of ['pr', 'prRepo', 'mode', 'pane']) url.searchParams.delete(key);
+      try {
+        const states: unknown = JSON.parse(url.searchParams.get('panelState') ?? '{}');
+        if (states && typeof states === 'object' && !Array.isArray(states)) {
+          const values = states as Record<string, unknown>;
+          if (this.context.contributionId) delete values[this.context.contributionId];
+          if (Object.keys(values).length) url.searchParams.set('panelState', JSON.stringify(values));
+          else url.searchParams.delete('panelState');
+        }
+      } catch { url.searchParams.delete('panelState'); }
+      this.context.navigate(url.pathname + url.search);
+      await this.context.setScope?.({ kind: 'inherit' });
+      if (!this.unsupported) await this.context.saveState({ version: 1, value: { target: null } });
+      await this.refresh();
+      this.container.querySelector<HTMLInputElement>('[data-pr-compat-lookup]')?.focus({ preventScroll: true });
+    } catch { this.error = 'Could not close the inspection. Refresh and try again.'; this.draw(); }
   }
   private async select(next: Identity) {
     if (this.busy) return;
@@ -187,7 +201,7 @@ class PrPanel implements PluginPanelInstance {
         if (!this.active(generation)) return;
         if (result?.status !== 'available' || !validList(result.value, repo)) throw new Error(`Pull request list unavailable: ${result?.status === 'unavailable' ? result.reason : 'invalid response'}`);
         this.lists[name] = result.value; this.listErrors[name] = '';
-      } catch (error) { if (this.active(generation)) this.listErrors[name] = error instanceof Error ? error.message : 'Pull request list unavailable.'; }
+      } catch (error) { if (this.active(generation)) this.listErrors[name] = this.lists[name]?.items.length ? 'Could not refresh pull requests. Showing previous results.' : 'Could not load pull requests.'; }
     };
     const detail = async () => {
       if (!current || repo !== null && current.repo !== repo) { this.detail = null; this.diff = null; return; }
@@ -217,7 +231,7 @@ class PrPanel implements PluginPanelInstance {
     const repo = this.state.activity.repo; const generation = this.generation;
     for (const [kind, name] of [['review-requested', 'requested'], ['authored-recent', 'authored']] as const) this.watches.push(this.context.services.pullRequests!.watchList({ version: 1, repo, kind, limit: 50 }, result => {
       if (!this.active(generation)) return;
-      if (result?.status === 'available' && validList(result.value, repo)) { this.lists[name] = result.value; this.listErrors[name] = ''; } else this.listErrors[name] = this.lists[name]?.items.length ? 'Could not refresh pull requests. Showing previous results. Refresh to try again.' : 'Could not load pull requests. Refresh to try again.';
+      if (result?.status === 'available' && validList(result.value, repo)) { this.lists[name] = result.value; this.listErrors[name] = ''; } else this.listErrors[name] = this.lists[name]?.items.length ? 'Could not refresh pull requests. Showing previous results.' : 'Could not load pull requests.';
       this.draw();
     }, this.state.activity.signal));
   }
@@ -294,21 +308,32 @@ class PrPanel implements PluginPanelInstance {
     if (this.disposed) return;
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
     const field = focused?.dataset.draft; const action = focused?.dataset.launch ? ['data-launch', focused.dataset.launch] : focused?.dataset.review ? ['data-review', focused.dataset.review] : focused?.dataset.pendingId ? ['data-pending-id', focused.dataset.pendingId] : null; const lookupFocus = focused?.matches('[data-pr-compat-lookup]'); const selection = focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement ? [focused.selectionStart, focused.selectionEnd] as const : null;
-    const opened = new Set([...this.container.querySelectorAll<HTMLDetailsElement>('details[open]')].map(detail => detail.querySelector('.diff-file-name')?.textContent));
-    this.container.innerHTML = `<section class="plugin-public-pr" aria-busy="${this.loading}"><style>${styles}</style><div class="pr-review-actions"><button data-refresh>Refresh</button><button data-inherit title="Match the selection at the top of Helmsman."${!this.context.setScope ? ' disabled' : ''}>Use top selection</button><span>Showing: ${esc(this.state.activity.repo ?? (this.state.pirateMode ? 'All galleons' : 'All repositories'))}</span></div>
+    const disclosureKey = (detail: HTMLDetailsElement) => detail.dataset.prDisclosure ?? detail.querySelector('.diff-file-name')?.textContent ?? null;
+    const opened = new Set([...this.container.querySelectorAll<HTMLDetailsElement>('details[open]')].map(disclosureKey).filter(key => key !== null));
+    const selectedFocus = focused?.dataset.selectRepo ? [focused.dataset.selectRepo, focused.dataset.selectNumber] : null;
+    const runFocus = focused?.dataset.run;
+    const disclosureFocus = focused?.matches('summary') && focused.parentElement instanceof HTMLDetailsElement ? disclosureKey(focused.parentElement) : null;
+    const composed = this.container.closest('[data-composition-page]') !== null;
+    const refreshLabel = composed ? 'Refresh page' : 'Refresh panel';
+    const headerRepo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
+    this.container.innerHTML = `<section class="plugin-public-pr" aria-busy="${this.loading}"><style>${styles}</style>${composed ? '' : '<div class="pr-panel-tools"><button data-refresh>Refresh panel</button></div>'}
       ${this.unsupported ? '<p role="alert">Saved panel state uses an unsupported format. Its original data is kept.</p>' : ''}<p role="alert" data-storage-error>${esc(this.storageError)}</p><button data-save-draft${this.storageError ? '' : ' hidden'}>Save current draft</button>${this.error ? `<p role="alert" class="pr-review-error">${esc(this.error)}</p>` : ''}${this.result ? `<p role="status" class="pr-command-result">${esc(this.result)}</p>` : ''}
-      <div class="pr-inbox">${renderList('review-requested', this.lists.requested, this.listErrors.requested, this.state.pirateMode)}${renderList('authored-recent', this.lists.authored, this.listErrors.authored, this.state.pirateMode)}</div>${renderRuns(this.runs, this.moreRuns, this.runsError, this.state.pirateMode)}
-      <section class="pr-lookup-panel panel" data-pr-pane="lookup"><h3>${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3><div class="pr-lookup-form"><label class="interface-field">Pull request number, URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup placeholder="PR number, #number, URL or owner/name#number" value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo, this.state.pirateMode) : `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : this.selected ? 'Pull request unavailable. Refresh to retry.' : 'Select a pull request from the inbox or enter its URL.'}</p>`}</div></section>${this.diff ? renderDiff(this.diff) : ''}<section aria-label="Retained pull request commands">${this.pendingMarkup()}</section><section aria-label="Saved command results">${this.savedResults()}</section></section>`;
+      <section class="pr-lookup-panel panel" data-pr-pane="lookup"><div class="pr-lookup-heading"><h3>${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3>${this.selected ? '<button data-close-inspection>Close inspection</button>' : ''}</div>${this.state.activity.repo !== headerRepo ? `<p class="pr-scope-override">Inspection scope: ${esc(this.state.activity.repo ?? (this.state.pirateMode ? 'All galleons' : 'All repositories'))}</p>` : ''}<div class="pr-lookup-form"><label class="interface-field">Pull request number, URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup placeholder="PR number, #number, URL or owner/name#number" value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, headerRepo, this.state.pirateMode) : this.selected ? `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : `Pull request unavailable. ${refreshLabel} to retry.`}</p>` : ''}</div></section>${this.diff ? renderDiff(this.diff) : ''}
+      <div class="pr-inbox">${renderList('review-requested', this.lists.requested, this.listErrors.requested, this.state.pirateMode, refreshLabel)}${renderList('authored-recent', this.lists.authored, this.listErrors.authored, this.state.pirateMode, refreshLabel)}</div>${renderRuns(this.runs, this.moreRuns, this.runsError, this.state.pirateMode)}
+      <section aria-label="Retained pull request commands">${this.pendingMarkup()}</section><section aria-label="Saved command results">${this.savedResults()}</section></section>`;
     this.whiteboard.update(this.state, this.detail ? { kind: 'pull-request', ...this.detail.target } : null);
     this.container.querySelector('.pr-lookup-result')?.append(this.whiteboard.element);
     if (focused?.isConnected && this.whiteboard.element.contains(focused)) focused.focus({ preventScroll: true });
-    for (const detail of this.container.querySelectorAll<HTMLDetailsElement>('details')) if (opened.has(detail.querySelector('.diff-file-name')?.textContent)) detail.open = true;
+    for (const detail of this.container.querySelectorAll<HTMLDetailsElement>('details')) if (opened.has(disclosureKey(detail) ?? '')) detail.open = true;
     if (!this.active() || this.busy) this.container.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = true; }); this.paintSafety();
     const next = field ? this.container.querySelector<HTMLTextAreaElement>(`[data-draft="${field}"]`) : lookupFocus ? this.container.querySelector<HTMLInputElement>('[data-pr-compat-lookup]') : null;
     if (next) { next.focus({ preventScroll: true }); if (selection && (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement)) next.setSelectionRange(...selection); }
+    if (selectedFocus) [...this.container.querySelectorAll<HTMLElement>('[data-select-repo]')].find(control => control.dataset.selectRepo === selectedFocus[0] && control.dataset.selectNumber === selectedFocus[1])?.focus({ preventScroll: true });
+    if (runFocus) [...this.container.querySelectorAll<HTMLElement>('[data-run]')].find(control => control.dataset.run === runFocus)?.focus({ preventScroll: true });
+    if (disclosureFocus) [...this.container.querySelectorAll<HTMLDetailsElement>('details')].find(detail => disclosureKey(detail) === disclosureFocus)?.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
     if (action) [...this.container.querySelectorAll<HTMLElement>(`[${action[0]}]`)].find(control => control.getAttribute(action[0]!) === action[1])?.focus({ preventScroll: true });
     if (this.focusMode && this.active()) { const control = this.container.querySelector<HTMLElement>(this.focusMode === 'rerun' ? '.pr-rerun-feedback' : '.pr-review-agent'); if (control && !(control instanceof HTMLButtonElement && control.disabled)) { this.focusMode = null; control.focus({ preventScroll: true }); control.scrollIntoView?.({ block: 'nearest' }); } }
-    else if (this.focusPane && !this.loading) { const pane = [...this.container.querySelectorAll<HTMLElement>('[data-pr-pane]')].find(node => node.dataset.prPane === this.focusPane); if (pane) { pane.scrollIntoView?.({ block: 'start' }); this.focusPane = null; } }
+    else if (this.focusPane && !this.loading) { const pane = [...this.container.querySelectorAll<HTMLElement>('[data-pr-pane]')].find(node => node.dataset.prPane === this.focusPane); if (pane) { if (pane instanceof HTMLDetailsElement) pane.open = true; pane.scrollIntoView?.({ block: 'start' }); this.focusPane = null; } }
   }
 }
 const panel: PluginPanelModule = { mount(container, context) {
