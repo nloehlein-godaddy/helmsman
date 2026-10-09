@@ -4,6 +4,8 @@ Independently buildable page and replaceable panel using only `@helmsman/plugin-
 
 This package supplies the built-in `/triage` alias and canonical `/plugins/helmsman.triage/page` route through operator-controlled page selection. Disabling the selected package shows it as unavailable; it does not restore legacy presentation. Alias cutover acceptance is tracked in the [implementation ledger](../../../docs/plugin-implementation-progress.md). The composition identity is `helmsman/triage-page`; replaceable panels implement `helmsman/triage-panel@1`. Saved layouts survive replacement, including intentionally empty layouts; defaults only initialize an absent layout.
 
+The composed page owns Refresh and the page heading; standalone panels retain both. The filter band and column headers use generated theme surfaces. Task titles lead each row, followed by identifiers, readable UTC dates, labeled states and contextual actions. Icons use the unmodified Regular WOFF2 from [`@phosphor-icons/web@2.1.2`](https://www.npmjs.com/package/@phosphor-icons/web/v/2.1.2), served relative to the plugin module. The standalone build includes the font and upstream MIT notice in `phosphor-LICENSE.txt`.
+
 Panels inherit the header repository; explicit panel overrides remain scoped by the host. Hidden or suspended panels cancel reads. Source disablement preserves saved selections and reports unavailability.
 
 Three independent groups retain priority, updated-date, page-size, source and collapse settings per panel. Filtering precedes provider pagination; each group retains up to 20 pages under one observation window. Partial and unavailable groups stay explicit. Unknown saved-state versions require an explicit source choice before replacement.

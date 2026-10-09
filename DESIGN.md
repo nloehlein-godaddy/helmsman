@@ -300,6 +300,10 @@ Activity uses compact per-source seven-day count strips, with known nonzero coun
 
 The degraded-state banner uses a (6%) accent tint mixed into panel ground, a strong semantic boundary and bright accent text. Its tint follows the selected theme.
 
+PR inspection uses the stronger panel-hi ground and an accent-filled Load action, with paired accent ink. Lists retain neutral panel ground; recent history recedes to canvas ground. Local Phosphor Regular icons identify sections, review actions and labeled states. Red marks failures and requested changes, green marks success, blue marks review, and yellow marks pending checks. Status labels stay readable independently of color; icons and their license ship with the standalone plugin.
+
+Triage has one composed Refresh and page heading, with a standalone fallback. A contrasting panel-2 filter band groups labeled source, priority, update window and page-size controls. Backlog, To do and My open work columns use panel-hi headers over panel ground; source context is subordinate and the header galleon is not repeated. Same-label sources retain distinguishing instance identifiers. Task titles use readable body ink, with ticket identifiers, readable UTC dates, labeled states and priority flags below. Local Phosphor icons identify task states, priority and launch. Description toggles and contextual assignment, launch and related-run actions stay compact; columns flow vertically on small screens, with 44px coarse-pointer controls. Saved selection, filters, descriptions, collapse state, paging and command recovery remain intact; unsupported saved selection still permits choosing a source.
+
 ### Loading and focus continuity
 
 Deferred page loading presents readable status text with `role="status"` and marks its host busy. Hidden, unmounted panels wait until visible to load. Existing error recovery remains available when loading fails.

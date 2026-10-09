@@ -63,3 +63,18 @@ it('keeps recent run history collapsed until requested', () => {
   const node = mount(renderRuns([], false, '', false));
   expect(node.querySelector<HTMLDetailsElement>('[data-pr-disclosure="recent-runs"]')?.open).toBe(false);
 });
+
+it('keeps labels explicit alongside decorative status and action icons', () => {
+  const node = mount(renderDetail({ ...detail, draft: true }, draft, null, false));
+  expect(node.querySelector('.pr-list-status')?.textContent).toBe('Status: open');
+  expect(node.querySelector('.pr-list-status')?.getAttribute('data-tone')).toBe('review');
+  expect(node.querySelector('.pr-draft')?.textContent).toBe('Draft');
+  expect(node.querySelector('.pr-request-changes [data-icon="bad"]')).not.toBeNull();
+  expect(node.querySelectorAll('.pr-phosphor').length).toBeGreaterThan(0);
+  for (const icon of node.querySelectorAll('.pr-phosphor')) { expect(icon.getAttribute('aria-hidden')).toBe('true'); expect(icon.textContent).toBe(''); }
+});
+it.each([['running', 'review', 'running'], ['succeeded', 'good', 'good'], ['failed', 'bad', 'bad']] as const)('renders %s run status with its semantic role and meaningful icon', (status, tone, icon) => {
+  const run: RunReadSummaryV1 = { version: 1, id: 'review-agent', repo: 'org/agent-review', displayKey: 'Review current work', status, attempt: 1, startedAt: detail.observedAt, endedAt: null, prNumber: 42, costUsd: null, review: null, sourceSettlement: null };
+  const node = mount(renderRuns([run], false, '', false));
+  const statusNode = node.querySelector('.pr-list-status'); expect(statusNode?.textContent).toBe(`Status: ${status}`); expect(statusNode?.getAttribute('data-tone')).toBe(tone); expect(statusNode?.querySelector('.pr-phosphor')?.getAttribute('data-icon')).toBe(icon);
+});

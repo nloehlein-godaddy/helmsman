@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { builtinCatalog } from './builtin-catalog';
-import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette } from '../../src/data/themeGenerator';
+import { expectReadableSurfaces } from './theme-contrast';
+import { DEFAULT_THEME_GENERATOR_SETTINGS, createThemeRecipeFromPalette, generateThemePalette } from '../../src/data/themeGenerator';
 
 const at = '2026-10-09T12:00:00.000Z';
 const row = (repo: string, number: number, title: string, status: 'open' | 'merged') => ({ repo, number, title,
@@ -39,11 +40,16 @@ async function mockInbox(page: Page) {
   return { state, scopes, writes };
 }
 
-for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode: 'dark' }, { width: 390, mode: 'dark' }, { width: 1440, mode: 'light' }] as const) test.describe(`Bounties hierarchy at ${width}px in ${mode}`, () => {
+for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode: 'dark' }, { width: 390, mode: 'dark' }, { width: 1440, mode: 'light' }, { width: 390, mode: 'custom' }] as const) test.describe(`Bounties hierarchy at ${width}px in ${mode}`, () => {
   test.use({ viewport: { width, height: 1100 }, hasTouch: width === 390 });
   test('prioritizes lookup and titles while retaining scoped results and compact states', async ({ page }) => {
     if (mode === 'light') await page.addInitScript(value => localStorage.setItem('cmux.theme.custom', value), JSON.stringify({ version: 3,
       palette: generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'light'), recipe: { settings: DEFAULT_THEME_GENERATOR_SETTINGS, overrides: {} } }));
+    if (mode === 'custom') {
+      const recipe = createThemeRecipeFromPalette(['#780000', '#c1121f', '#fdf0d5', '#003049', '#669bbc']);
+      if (!recipe) throw new Error('Invalid custom palette fixture');
+      await page.addInitScript(value => localStorage.setItem('cmux.theme.custom', value), JSON.stringify({ version: 3, recipe, palette: generateThemePalette(recipe.settings, 'dark', recipe.overrides, recipe.sourcePalette) }));
+    }
     const f = await mockInbox(page);
     await page.goto('/prs?repo=org%2Fa');
     const panel = page.locator('.plugin-public-pr');
@@ -73,6 +79,12 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(history).toHaveAttribute('open', '');
     await summary.focus(); await summary.press('Space');
     await expect(history).not.toHaveAttribute('open', '');
+    const surfaces = await expectReadableSurfaces(panel, ['.pr-lookup-heading h3', '.pr-lookup-go', '[data-pr-pane="authored"] h3', '.pr-list-title', '.pr-recent-runs summary']);
+    expect(surfaces[0]?.background).not.toBe(surfaces[2]?.background);
+    expect(surfaces[2]?.background).not.toBe(surfaces[4]?.background);
+    await expect(panel.locator('.pr-phosphor').first()).toHaveAttribute('aria-hidden', 'true');
+    await expectReadableSurfaces(panel, ['.pr-lookup-go .pr-phosphor', '.pr-list-status .pr-phosphor'], 3);
+    if (width === 390) expect((await panel.locator('.pr-lookup-go').boundingBox())?.height).toBeGreaterThanOrEqual(44);
     await page.locator('#page-content').evaluate(content => { content.scrollTop = 0; });
     await page.mouse.move(0, 0);
     await expect(page).toHaveScreenshot(`pr-inbox-${width}-${mode}.png`);

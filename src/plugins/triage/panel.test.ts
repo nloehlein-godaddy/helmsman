@@ -28,6 +28,30 @@ function fixture() {
 }
 afterEach(() => document.body.replaceChildren());
 describe('standalone Triage presentation', () => {
+  it('uses title-first rows and concise columns within the composed page scope', async () => {
+    const f = fixture(); f.container.dataset.compositionPage = 'triage';
+    await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Launch')).toHaveLength(3));
+    expect(f.container.querySelector('h2')).toBeNull(); expect(f.buttons('Refresh')).toHaveLength(0);
+    expect([...f.container.querySelectorAll('.triage-column h3')].map(value => value.textContent)).toEqual(['Backlog', 'To do', 'My open work']);
+    expect(f.container.querySelector('.triage-task-title')?.textContent).toBe('Canonical task');
+    expect(f.container.querySelector('.triage-task-identity')?.textContent).toBe('TASK-2Updated Sep 20, 2026');
+    expect(f.container.querySelector('.triage-column-source')?.textContent).toBe('Tasks');
+    expect(f.container.querySelector('.triage-filters [aria-label="Task source"]')).not.toBeNull();
+    expect(f.container.querySelector('.triage-task-state')?.textContent).toBe('Ready');
+    expect(f.container.querySelector('.triage-task-priority')?.textContent).toBe('P1'); f.lifetime.abort();
+  });
+  it('keeps standalone refresh and unknown task metadata explicit', async () => {
+    const f = fixture(); const original = f.triage.getMockImplementation()!;
+    f.triage.mockImplementation(async (...args) => {
+      const result = await original(...args); if (result.status !== 'available') return result;
+      return { ...result, value: { ...result.value, page: { ...result.value.page, items: [{ ...task, priority: null, updatedAt: null } as unknown as TaskTriageItemV1] } } };
+    });
+    await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelectorAll('.triage-task')).toHaveLength(3));
+    expect(f.buttons('Refresh')).toHaveLength(1); expect(f.container.querySelector('h2')?.textContent).toBe('Triage');
+    expect(f.container.textContent).toContain('Priority unknown');
+    expect(f.container.textContent).toContain('Update date unknown'); expect(f.container.textContent).not.toContain('Pnull'); f.lifetime.abort();
+  });
+
   it('loads independent groups and uses exact source identity for launch and related-run links', async () => {
     const f = fixture(); await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.buttons('Launch')[0]?.disabled).toBe(false));
     expect(f.triage.mock.calls.map(([query]) => query.group)).toEqual(['unassigned-backlog', 'unassigned-todo', 'mine-open']);
@@ -131,7 +155,8 @@ describe('standalone Triage presentation', () => {
   it('does not rewrite an unknown saved-state version through filter controls', async () => {
     const f = fixture(); f.context = { ...f.context, state: { ...f.state, savedState: { version: 99, value: { future: true } } } };
     await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('unsupported data'));
-    expect(f.container.querySelector('fieldset')?.disabled).toBe(true);
+    expect(f.container.querySelector<HTMLInputElement>('[aria-label="Priority P1"]')?.disabled).toBe(true);
+    expect(f.container.querySelector<HTMLSelectElement>('[aria-label="Task source"]')?.disabled).toBe(false);
     const priority = f.container.querySelector<HTMLInputElement>('[aria-label="Priority P1"]')!; priority.dispatchEvent(new Event('change'));
     expect(f.context.saveState).not.toHaveBeenCalled(); f.lifetime.abort();
   });
@@ -161,7 +186,7 @@ it.each([true, false])('renders provider text literally and preserves accurate g
   const f = fixture(); f.context = { ...f.context, state: { ...f.state, pirateMode } }; const original = f.triage.getMockImplementation()!;
   f.triage.mockImplementation(async (...args) => { const result = await original(...args); return result.status === 'available' ? { ...result, value: { ...result.value, page: { ...result.value.page, items: [{ ...task, title: '<img src=x onerror=alert(1)>' }] } } } : result; });
   await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('<img src=x onerror=alert(1)>'));
-  expect(f.container.querySelector('img,script')).toBeNull(); expect(f.container.textContent).toContain('Mine · Open'); f.lifetime.abort();
+  expect(f.container.querySelector('img,script')).toBeNull(); expect(f.container.textContent).toContain('My open work'); f.lifetime.abort();
 });
 
 it('clears old rows during an active repository change and rejects a late previous-scope response', async () => {

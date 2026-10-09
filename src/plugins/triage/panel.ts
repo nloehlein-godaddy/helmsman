@@ -8,7 +8,7 @@ const assignmentKey = (input: SourceRemoteActionInputV1) => JSON.stringify([inpu
 const actionSourceKey = (source: TaskReadSourceV1) => JSON.stringify([source.repo, source.sourceId, source.instanceId, source.instanceRevision]);
 interface Description { readonly status: 'loading' | 'loaded' | 'unavailable'; readonly text?: string; readonly truncated?: boolean; readonly message?: string; }
 const groups: readonly TaskTriageGroupV1[] = ['unassigned-backlog', 'unassigned-todo', 'mine-open'];
-const titles: Record<TaskTriageGroupV1, string> = { 'unassigned-backlog': 'Unassigned · Backlog', 'unassigned-todo': 'Unassigned · To Do', 'mine-open': 'Mine · Open' };
+const titles: Record<TaskTriageGroupV1, string> = { 'unassigned-backlog': 'Backlog', 'unassigned-todo': 'To do', 'mine-open': 'My open work' };
 const dayOptions = [0, 30, 7, 1]; const pageSizes = [5, 10, 25, 50, 100];
 interface LaunchState { input: RunCommandInputV1; requestId: string | null; receipt: RunCommandReceiptV1 | null; busy: boolean; message: string; }
 function commandKey(input: RunCommandInputV1): string | null {
@@ -18,6 +18,17 @@ const key = (source: Selection): string => JSON.stringify([source.repo, source.s
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => {
   const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value;
 };
+
+const phosphorGlyphs = { ready: '\ue3fe', in_progress: '\ue3d2', review: '\ue282', done: '\ue184', blocked: '\ue3de', unknown: '\ue4e2', priority: '\ue244', refresh: '\ue094', run: '\ue3d2' } as const;
+const createIcon = (name: keyof typeof phosphorGlyphs): HTMLSpanElement => {
+  const icon = element('span'); icon.className = 'triage-phosphor'; icon.dataset.glyph = phosphorGlyphs[name]; icon.setAttribute('aria-hidden', 'true'); return icon;
+};
+const taskStates = { ready: 'Ready', in_progress: 'In progress', review: 'In review', done: 'Done', blocked: 'Blocked' } as const;
+function updatedDate(value: string | null): string {
+  if (!value) return 'Update date unknown';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Update date unknown' : `Updated ${new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date)}`;
+}
 
 function selection(value: unknown): Selection | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -235,12 +246,14 @@ class TriagePanel implements PluginPanelInstance {
     else { const text = element('p', state.text); text.className = 'triage-description-text'; content.append(text); if (state.truncated) content.append(element('p', 'Description truncated for display.')); }
     view.append(content); return view;
   }
-  private filters(page: HTMLElement): void {
-    const filters = element('fieldset'); filters.disabled = this.invalidSelection; filters.append(element('legend', 'Filter all triage columns'));
-    for (let priority = 0; priority < 5; priority++) { const label = element('label', `P${priority}`); const input = element('input'); input.type = 'checkbox'; input.checked = this.priorities.includes(priority); input.setAttribute('aria-label', `Priority P${priority}`); input.dataset.triageFocus = `priority-${priority}`;
-      input.addEventListener('change', () => { this.priorities = [0, 1, 2, 3, 4].filter(number => number === priority ? input.checked : this.priorities.includes(number)); this.filterChanged(); }); label.prepend(input); filters.append(label); }
+  private filters(page: HTMLElement, sourceLabel: HTMLElement): void {
+    const filters = element('fieldset'); filters.className = 'triage-filters'; filters.append(element('legend', 'Filters'), sourceLabel);
+    const priorities = element('div'); priorities.className = 'triage-priorities'; priorities.setAttribute('role', 'group'); priorities.setAttribute('aria-label', 'Priorities'); priorities.append(element('span', 'Priority'));
+    for (let priority = 0; priority < 5; priority++) { const label = element('label', `P${priority}`); const input = element('input'); input.type = 'checkbox'; input.disabled = this.invalidSelection; input.checked = this.priorities.includes(priority); input.setAttribute('aria-label', `Priority P${priority}`); input.dataset.triageFocus = `priority-${priority}`;
+      input.addEventListener('change', () => { this.priorities = [0, 1, 2, 3, 4].filter(number => number === priority ? input.checked : this.priorities.includes(number)); this.filterChanged(); }); label.prepend(input); priorities.append(label); }
+    filters.append(priorities);
     for (const [title, values, current, apply] of [['Last updated', dayOptions, this.days, (value: number) => { this.days = value; }], ['Tickets per column', pageSizes, this.pageSize, (value: number) => { this.pageSize = value; }]] as const) {
-      const label = element('label', title); const select = element('select'); select.setAttribute('aria-label', title); select.dataset.triageFocus = title;
+      const label = element('label', title); const select = element('select'); select.disabled = this.invalidSelection; select.setAttribute('aria-label', title); select.dataset.triageFocus = title;
       for (const value of values) { const option = element('option', title === 'Last updated' ? value ? `Last ${value} ${value === 1 ? 'day' : 'days'}` : 'Any time' : String(value)); option.value = String(value); select.append(option); }
       select.value = String(current); select.addEventListener('change', () => { const value = Number(select.value); if (!values.includes(value)) return; apply(value); this.filterChanged(); }); label.append(select); filters.append(label);
     } page.append(filters);
@@ -397,19 +410,24 @@ class TriagePanel implements PluginPanelInstance {
       page.append(box);
     }
   }
+  private sourceLabel(source: TaskReadSourceV1): string {
+    const repeated = this.sources.filter(item => item.label === source.label && item.repo === source.repo).length > 1;
+    return `${source.label}${repeated ? ` · ${source.instanceId}` : ''}${source.repo === this.state.repo ? '' : ` · ${source.repo}`}`;
+  }
   private draw(): void {
     if (this.disposed) return;
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.triageFocus : null;
-    const page = element('div'); page.className = 'plugin-triage'; page.append(element('style', styles));
-    const toolbar = element('div'); toolbar.className = 'triage-toolbar'; toolbar.append(element('h2', 'Triage'));
+    const page = element('div'); page.className = 'plugin-triage triage-panel'; page.append(element('style', styles));
+    const composed = this.container.closest('[data-composition-page]') !== null;
+    const toolbar = element('div'); toolbar.className = 'triage-toolbar'; if (!composed) toolbar.append(element('h2', 'Triage'));
     const select = element('select'); select.setAttribute('aria-label', 'Task source'); select.dataset.triageFocus = 'source';
     const all = element('option', 'All task sources'); all.value = ''; select.append(all);
     if (this.invalidSelection) { const unsupported = element('option', 'Saved source selection unavailable'); unsupported.value = 'unsupported'; select.append(unsupported); }
-    for (const source of this.sources) { const option = element('option', `${source.label} · ${source.repo}${source.availability === 'available' ? '' : ` (${source.availability})`}`); option.value = key(source); select.append(option); }
+    for (const source of this.sources) { const option = element('option', `${this.sourceLabel(source)}${source.availability === 'available' ? '' : ` (${source.availability})`}`); option.value = key(source); select.append(option); }
     if (this.chosen && !this.sources.some(source => key(source) === key(this.chosen!))) { const option = element('option', `Unavailable source · ${this.chosen.repo}`); option.value = key(this.chosen); select.append(option); }
-    select.value = this.invalidSelection ? 'unsupported' : this.chosen ? key(this.chosen) : ''; select.addEventListener('change', () => { void this.choose(select.value); }); toolbar.append(select);
-    const refresh = element('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.triageFocus = 'refresh'; refresh.disabled = Boolean(this.pending); refresh.addEventListener('click', () => { void this.refresh(); }); toolbar.append(refresh); page.append(toolbar);
-    this.filters(page); this.drawAssignments(page);
+    select.value = this.invalidSelection ? 'unsupported' : this.chosen ? key(this.chosen) : ''; select.addEventListener('change', () => { void this.choose(select.value); }); const sourceLabel = element('label', 'Task source'); sourceLabel.className = 'triage-source-filter'; sourceLabel.append(select);
+    const refresh = element('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.triageFocus = 'refresh'; refresh.disabled = Boolean(this.pending); refresh.addEventListener('click', () => { void this.refresh(); }); refresh.prepend(createIcon('refresh')); if (!composed) { toolbar.append(refresh); page.append(toolbar); }
+    this.filters(page, sourceLabel); this.drawAssignments(page);
     for (const message of [...this.messages, ...(this.saveError ? [this.saveError] : []), ...(this.commandError ? [this.commandError] : [])]) { const note = element('p', message); note.setAttribute('role', 'status'); page.append(note); }
     if (this.state.repo === null) page.append(element('p', this.state.pirateMode ? 'Select one galleon to launch work.' : 'Select one repository to launch work.'));
     for (const command of this.commands.values()) {
@@ -442,45 +460,56 @@ class TriagePanel implements PluginPanelInstance {
     if (routeSections.length) { for (const section of routeSections) this.expand(section); this.revealedRoute = routeKey; }
     const sections = element('div'); sections.className = 'triage-grid';
     for (const section of this.sections) {
-      const view = element('section'); view.dataset.triageGroup = section.group; view.dataset.triageFocus = `group:${this.sectionKey(section)}`; view.tabIndex = -1; view.append(element('h3', `${section.source.label} · ${section.source.repo} · ${titles[section.group]}`));
+      const view = element('section'); view.dataset.triageGroup = section.group; view.dataset.triageFocus = `group:${this.sectionKey(section)}`; view.tabIndex = -1; view.className = 'triage-column';
+      const heading = element('div'); heading.className = 'triage-column-heading';
+      const identity = element('div'); identity.className = 'triage-column-identity'; identity.append(element('h3', titles[section.group]));
+      const sourceContext = element('small', this.sourceLabel(section.source)); sourceContext.className = 'triage-column-source'; identity.append(sourceContext); heading.append(identity); view.append(heading);
       if (section.group !== 'mine-open' && this.actionErrors.has(actionSourceKey(section.source))) { const note = element('p', this.actionErrors.get(actionSourceKey(section.source))); note.setAttribute('role', 'status'); view.append(note); }
       if (section.error) { const error = element('p', section.error); error.setAttribute('role', 'status'); view.append(error); }
       const collapse = element('button', this.isCollapsed(section) ? 'Expand group' : 'Collapse group'); collapse.type = 'button'; collapse.setAttribute('aria-label', `${collapse.textContent} ${titles[section.group]}`);
+      collapse.className = 'triage-collapse'; collapse.setAttribute('aria-expanded', String(!this.isCollapsed(section)));
       collapse.dataset.triageFocus = `collapse:${this.sectionKey(section)}`;
-      collapse.addEventListener('click', () => { const id = this.sectionKey(section); const expanding = this.isCollapsed(section); if (expanding) this.expand(section); else { this.expanded.delete(id); this.collapsed.add(id); } this.draw(); if (expanding) this.reloadExpandedDescriptions(this.generation); void this.persistSettings(); }); view.append(collapse);
+      collapse.addEventListener('click', () => { const id = this.sectionKey(section); const expanding = this.isCollapsed(section); if (expanding) this.expand(section); else { this.expanded.delete(id); this.collapsed.add(id); } this.draw(); if (expanding) this.reloadExpandedDescriptions(this.generation); void this.persistSettings(); }); heading.append(collapse);
       if (this.isCollapsed(section)) { sections.append(view); continue; }
       const snapshot = section.snapshots[section.pages - 1];
       if (snapshot?.page.quality === 'partial') view.append(element('p', 'Partial coverage. Continue to inspect more matching tasks.'));
       if (snapshot && snapshot.relatedRunsQuality !== 'complete') view.append(element('p', 'Some related runs are unavailable.'));
       const list = element('ul');
       for (const task of section.tasks) {
-        const row = element('li');
-        if (task.url) { const link = element('a', `${task.displayKey}: ${task.title}`); link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; row.append(link); }
-        else row.append(element('span', `${task.displayKey}: ${task.title}`));
-        row.append(element('small', `P${task.priority} · ${task.state} · Updated ${task.updatedAt}`)); list.append(row);
+        const row = element('li'); row.className = 'triage-task';
+        const title = element(task.url ? 'a' : 'span', task.title); title.className = 'triage-task-title';
+        if (title instanceof HTMLAnchorElement && task.url) { title.href = task.url; title.target = '_blank'; title.rel = 'noopener noreferrer'; }
+        row.append(title);
+        const identity = element('div'); identity.className = 'triage-task-identity'; identity.append(element('small', task.displayKey));
+        const date = element('small', updatedDate(task.updatedAt)); if (task.updatedAt) date.title = task.updatedAt; identity.append(date); row.append(identity);
+        const metadata = element('div'); metadata.className = 'triage-task-metadata';
+        const knownState = task.state && Object.hasOwn(taskStates, task.state) ? task.state as keyof typeof taskStates : 'unknown';
+        const state = element('span', knownState === 'unknown' ? 'Status unknown' : taskStates[knownState]); state.className = 'triage-task-state'; state.dataset.state = knownState; state.prepend(createIcon(knownState)); metadata.append(state);
+        const priority = element('span', task.priority !== null && Number.isInteger(task.priority) && task.priority >= 0 && task.priority <= 4 ? `P${task.priority}` : 'Priority unknown'); priority.className = 'triage-task-priority'; priority.dataset.priority = task.priority === null ? 'unknown' : String(task.priority); priority.prepend(createIcon('priority')); metadata.append(priority); row.append(metadata); list.append(row);
         row.append(this.description(section, task));
+        const actions = element('div'); actions.className = 'triage-task-actions'; row.append(actions);
         const assignment = this.assignmentInput(section, task);
         if (assignment) {
           const assign = element('button', 'Assign to me'); assign.type = 'button'; assign.setAttribute('aria-label', `Assign ${task.displayKey} to me`);
           assign.dataset.triageFocus = `assign:${this.descriptionFocusKey(section, task)}`; assign.dataset.assignmentKey = assignmentKey(assignment);
           assign.disabled = !this.assignmentReady || !this.current(this.generation) || Boolean(this.pending) || section.loading || Boolean(section.error) || this.assignments.has(assignmentKey(assignment));
-          assign.addEventListener('click', () => { assign.focus({ preventScroll: true }); void this.assign(section, task); }); row.append(assign);
+          assign.addEventListener('click', () => { assign.focus({ preventScroll: true }); void this.assign(section, task); }); actions.append(assign);
         }
         const related = snapshot?.relatedRuns.find(run => run.ref.sourceId === task.ref.sourceId && run.ref.externalId === task.ref.externalId);
-        if (related) { const href = `/runs?${new URLSearchParams({ repo: related.repo, run: related.runId })}`; const link = element('a', this.state.pirateMode ? 'Open related voyage' : 'Open related run'); link.href = href; row.append(link); }
-        if (this.state.repo !== null && task.state !== 'ready') row.append(element('small', 'Not ready for a new run.'));
+        if (related) { const href = `/runs?${new URLSearchParams({ repo: related.repo, run: related.runId })}`; const link = element('a', this.state.pirateMode ? 'Open related voyage' : 'Open related run'); link.href = href; link.prepend(createIcon('run')); actions.append(link); }
+        if (this.state.repo !== null && task.state !== 'ready') { const note = element('small', 'Not ready for a new run.'); note.className = 'triage-launch-note'; row.append(note); }
         if (this.state.repo !== null && task.state === 'ready') {
-          const launch = element('button', 'Launch'); launch.type = 'button';
+          const launch = element('button', 'Launch'); launch.type = 'button'; launch.className = 'triage-launch'; launch.prepend(createIcon('ready')); launch.setAttribute('aria-label', `Launch ${task.displayKey}`);
           launch.disabled = !this.evidenceReady || !this.state.visible || !this.state.activity.active || this.state.repo !== section.source.repo
             || Boolean(this.pending) || section.loading || Boolean(section.error) || this.hasCommand(JSON.stringify([section.source.repo, task.ref.sourceId, task.ref.externalId]));
-          launch.addEventListener('click', () => { void this.launch(section, task); }); row.append(launch);
+          launch.addEventListener('click', () => { void this.launch(section, task); }); actions.append(launch);
         }
       }
       view.append(list);
       if (!section.tasks.length && !section.error) view.append(element('p', section.loading ? 'Loading tasks…' : 'No tasks match these filters.'));
       const previous = element('button', 'Previous'); previous.type = 'button'; previous.setAttribute('aria-label', `Previous page for ${titles[section.group]}`); previous.disabled = section.pages <= 1 || Boolean(this.pending); previous.addEventListener('click', () => this.showPage(section, section.pages - 1));
       const next = element('button', 'Next'); next.type = 'button'; next.setAttribute('aria-label', `Next page for ${titles[section.group]}`); next.disabled = !section.cursor || section.pages >= 20 || Boolean(this.pending); next.addEventListener('click', () => this.more(section));
-      view.append(previous, element('span', `Page ${Math.max(1, section.pages)}`), next);
+      const pagination = element('nav'); pagination.className = 'triage-pagination'; pagination.setAttribute('aria-label', `${titles[section.group]} pages`); pagination.append(previous, element('span', `Page ${Math.max(1, section.pages)}`), next); view.append(pagination);
       if (section.cursor && section.pages >= 20) view.append(element('p', 'Coverage is limited to 20 pages per group. Narrow the filters.'));
       sections.append(view);
     }
