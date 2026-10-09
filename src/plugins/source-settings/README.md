@@ -97,3 +97,7 @@ Thirteen focused tests cover schema defaults/JSON validation, revision merging, 
 The builtin alias and Config link replace the legacy source-settings presentation. Historical APIs remain available for existing clients and recovery. Current cutover validation and remaining rollout work are tracked in [implementation progress](../../../docs/plugin-implementation-progress.md).
 
 Delivery retry requires the host's optional `retry({ repo, requestId }, signal)` operation. It reads only the original caller-owned retained request and never reserves another identity. Missing requests remain unavailable; older hosts disable retry while keeping receipt checks available. New intentional submissions use `submit` separately.
+
+## Interface guidance
+
+The Task sources page separates source-wide settings, saved automatic source selection and automatic starts for the current server session. Field and action help explains scope, persistence and effects on existing work. Buttons fit their labels and wrap in action groups; inputs retain the available form width. Source IDs, request IDs and connector hashes remain in native detail disclosures. Replacement controls start collapsed and stay open through edits and redraws. Provider-format hints are associated with their fields, and default reset controls update immediately after edits.

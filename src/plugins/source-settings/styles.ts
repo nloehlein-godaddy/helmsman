@@ -25,7 +25,7 @@ export const styles = `
 .plugin-source-settings h2 { font-size: 20px; }
 .plugin-source-settings h3 { font-size: 18px; }
 .plugin-source-settings :is(button,input:not([type=checkbox]):not([type=radio]),select,textarea) { box-sizing: border-box; border-radius: 6px; font: 16px/1.4 var(--sans, sans-serif); min-height: 36px; }
-.plugin-source-settings button { padding: 6px 12px; text-transform: none; letter-spacing: normal; transition: background-color 160ms ease-out, border-color 160ms ease-out; }
+.plugin-source-settings button { justify-self: start; align-self: start; width: fit-content; flex: 0 0 auto; padding: 6px 12px; text-transform: none; letter-spacing: normal; transition: background-color 160ms ease-out, border-color 160ms ease-out; }
 .plugin-source-settings button:hover:not(:disabled) { background-color: var(--face-hi); border-color: var(--line-strong); }
 .plugin-source-settings button:disabled { cursor: default; opacity: .5; }
 .plugin-source-settings :is(input:not([type=checkbox]):not([type=radio]),select,textarea) { padding: 6px 12px; color: var(--text); background: var(--control-bg, var(--face-hi)); border: 1px solid var(--control-border, var(--line-strong)); max-width: 100%; }
@@ -39,4 +39,23 @@ export const styles = `
  }
 .plugin-source-settings section { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 16px 0; gap: 12px; }
 .plugin-source-settings fieldset { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 16px 0; }
+
+.plugin-source-settings .admin-help { color: var(--text-dim); font-size: 14px; line-height: 1.5; max-width: 70ch; }
+.plugin-source-settings .admin-field { display: grid; gap: 5px; min-width: 0; }
+.plugin-source-settings .admin-field label { font-weight: 500; }
+.plugin-source-settings .admin-field :is(input,textarea,select) { width: 100%; font-weight: 400; }
+.plugin-source-settings .admin-field .admin-toggle input { width: auto; flex-shrink: 0; }
+.plugin-source-settings .admin-field .admin-toggle { font-weight: 400; }
+.plugin-source-settings .admin-actions { gap: 8px 12px; }
+.plugin-source-settings .admin-details { min-width: 0; }
+.plugin-source-settings .admin-details > summary { cursor: pointer; width: fit-content; max-width: 100%; min-height: 36px; align-content: center; }
+.plugin-source-settings .admin-details[open] > summary { margin-bottom: 12px; }
+.plugin-source-settings .admin-details-body { display: grid; gap: 12px; min-width: 0; }
+.plugin-source-settings .admin-source-details { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 4px 16px; margin: 0; font-size: 13px; }
+.plugin-source-settings .admin-source-details dt { color: var(--text-dim); }
+.plugin-source-settings .admin-source-details dd { margin: 0; overflow-wrap: anywhere; font-family: var(--mono,monospace); }
+.plugin-source-settings .admin-default { display: grid; gap: 4px; }
+.plugin-source-settings .admin-runtime { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.plugin-source-settings .admin-runtime p { font-size: 14px; font-weight: 600; }
+@media(pointer:coarse) { .plugin-source-settings :is(button,summary),.plugin-source-settings .admin-toggle { min-height: 44px; } }
 `;

@@ -98,10 +98,10 @@ const persistence = openPersistence(process.env.HELMSMAN_DB); try {
     await page.goto(`${origin}/bugs?repo=org/a`);
     await expect(page.locator('[data-panel-instance="bugs"] .plugin-bugs')).toContainText('No source provides bug metrics in this scope.');
     await page.goto(`${origin}/config?repo=org/a`);
-    const settingsLink = page.locator('.config-panel').filter({ has: page.getByRole('heading', { name: 'Task sources', exact: true }) }).getByRole('link', { name: 'Source settings', exact: true });
+    const settingsLink = page.getByRole('navigation', { name: 'Config pages' }).getByRole('link', { name: 'Task sources', exact: true });
     await expect(settingsLink).toHaveAttribute('href', '/source-settings?repo=org%2Fa'); await settingsLink.click();
     await expect(page.locator('[data-panel-instance="settings"] .plugin-source-settings')).toBeVisible();
-    await expect(page.getByRole('combobox', { name: 'Administration galleon', exact: true })).toHaveValue('org/a');
+    await expect(page.getByRole('combobox', { name: 'Panel galleon', exact: true })).toHaveValue('org/a');
     for (const [id, route, marker] of [['helmsman.todos-ui', 'todos', '.plugin-todos'], ['helmsman.triage', 'triage', '.plugin-triage'], ['helmsman.bugs', 'bugs', '.plugin-bugs'], ['helmsman.source-settings', 'source-settings', '.plugin-source-settings']]) {
       await host.cli('disable', id!); await page.goto(`${origin}/${route}?repo=org/a`);
       await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible(); await expect(page.locator(marker!)).toHaveCount(0);
@@ -126,11 +126,11 @@ const persistence = openPersistence(process.env.HELMSMAN_DB); try {
         transaction.oncomplete = () => { database.close(); resolve(); }; transaction.onabort = () => { database.close(); reject(transaction.error); };
       };
     }));
-    await page.reload(); await expect(page.getByText('Add a panel to view Triage.', { exact: true })).toBeVisible();
+    await page.reload(); await expect(page.getByText('No visible panels. Choose Edit page to add or show a panel.', { exact: true })).toBeVisible();
     await host.cli('select', 'helmsman/triage-page', 'default'); await page.reload();
-    await expect(page.getByRole('heading', { name: 'Triage', exact: true })).toBeVisible(); await expect(page.locator('[data-panel-instance]')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Triage', exact: true })).toBeVisible(); await expect(page.getByRole('tabpanel', { name: 'Triage', exact: true }).locator('[data-panel-instance]')).toHaveCount(0);
     origin = await host.start(); await page.goto(`${origin}/triage?repo=org/a&pane=mine`);
-    await expect(page.getByText('Add a panel to view Triage.', { exact: true })).toBeVisible();
+    await expect(page.getByText('No visible panels. Choose Edit page to add or show a panel.', { exact: true })).toBeVisible();
     await expect(page.getByText(/The requested panel .* is not present in this layout/)).toBeVisible();
     const retained = await savedComposition(page, 'helmsman/triage-page');
     expect(retained.layout.instances).toEqual([]); expect(retained.archive).toEqual(migrated.archive);

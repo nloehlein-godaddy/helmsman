@@ -149,10 +149,10 @@ test('builtin Todo pane links retain one draft, reveal its hidden editor and inc
     await expect(page.locator('[data-plugin-page="helmsman.todos-ui/page"]')).toBeVisible(); await expect(page.getByRole('heading', { name: 'Automatic starts', exact: true })).toBeVisible();
     await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Retained pane-link draft'); await page.getByRole('button', { name: 'Save drafts', exact: true }).click();
     await page.reload(); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Retained pane-link draft'); await expect(page.getByRole('combobox', { name: 'Saved draft' }).locator('option')).toHaveCount(2);
-    await page.getByRole('button', { name: 'Hide Todo editor', exact: true }).click(); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toBeHidden();
+    await page.getByRole('button', { name: 'Edit page', exact: true }).click(); await page.getByRole('button', { name: 'Hide Todo editor', exact: true }).click(); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toBeHidden();
     await page.goto(`${origin}/todos?repo=org/a&pane=list`); await expect(page.getByRole('searchbox', { name: 'Search Todos', exact: true })).toBeFocused(); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Retained pane-link draft');
     await page.goto(`${origin}/todos?repo=org/a&pane=new&panel=missing`); await expect(page.getByText(/requested panel \(missing\)/)).toBeVisible(); await expect(page.getByRole('combobox', { name: 'Saved draft' }).locator('option')).toHaveCount(2);
-    await page.goto(`${origin}/source-settings?repo=org/a`); await expect(page.locator('[data-plugin-page="helmsman.source-settings/page"]')).toBeVisible(); await expect(page.getByRole('combobox', { name: 'Source instance' })).toBeVisible();
+    await page.goto(`${origin}/source-settings?repo=org/a`); await expect(page.locator('[data-plugin-page="helmsman.source-settings/page"]')).toBeVisible(); await expect(page.getByRole('combobox', { name: 'Task source' })).toBeVisible();
     await page.goto(`${origin}/todos?repo=org/a&pane=new`); await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Retained pane-link draft'); await expect(page.getByRole('combobox', { name: 'Saved draft' }).locator('option')).toHaveCount(2);
   } finally { await host.close(); }
 });

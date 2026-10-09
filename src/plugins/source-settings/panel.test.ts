@@ -31,7 +31,7 @@ function button(f: ReturnType<typeof fixture>, label: string) { const value = [.
 function field(f: ReturnType<typeof fixture>, label: string) { const value = [...f.container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('[aria-label]')].find(item => item.getAttribute('aria-label') === label); if (!value) throw new Error(`Missing ${label}`); return value; }
 function edit(f: ReturnType<typeof fixture>, label: string, value: string) { const input = field(f, label); input.value = value; input.dispatchEvent(new Event(input instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); }
 async function ready(f: ReturnType<typeof fixture>) { await vi.waitFor(() => expect(button(f, 'Enable automatic starts').disabled).toBe(false)); }
-async function open(f: ReturnType<typeof fixture>) { await ready(f); edit(f, 'Source instance', 'local'); }
+async function open(f: ReturnType<typeof fixture>) { await ready(f); edit(f, 'Task source', 'local'); }
 
 describe('source settings authored state', () => {
   it('preserves omitted provider defaults and validates explicit JSON field edits', () => {
@@ -54,58 +54,58 @@ describe('source settings authored state', () => {
 });
 describe('source settings authored panel', () => {
   it('persists a configuration before sending and retries only the original intent after edits', async () => {
-    const f = fixture(); await panel.mount(f.container, f.context); await open(f); edit(f, 'Source label', 'Original submission'); button(f, 'Apply source configuration').click();
-    await vi.waitFor(() => expect(f.submit).toHaveBeenCalledOnce()); await vi.waitFor(() => expect(button(f, 'Retry original settings request').disabled).toBe(false));
+    const f = fixture(); await panel.mount(f.container, f.context); await open(f); edit(f, 'Source label', 'Original submission'); button(f, 'Save source settings').click();
+    await vi.waitFor(() => expect(f.submit).toHaveBeenCalledOnce()); await vi.waitFor(() => expect(button(f, 'Retry same request').disabled).toBe(false));
     expect(f.saveState.mock.invocationCallOrder[0]).toBeLessThan(f.submit.mock.invocationCallOrder[0]!);
-    edit(f, 'Source label', 'Newer draft'); button(f, 'Retry original settings request').click(); await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId: f.journal[0]?.command.requestId }, expect.any(AbortSignal))); expect(f.submit).toHaveBeenCalledOnce(); expect(field(f, 'Source label').value).toBe('Newer draft');
+    edit(f, 'Source label', 'Newer draft'); button(f, 'Retry same request').click(); await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId: f.journal[0]?.command.requestId }, expect.any(AbortSignal))); expect(f.submit).toHaveBeenCalledOnce(); expect(field(f, 'Source label').value).toBe('Newer draft');
   });
   it('does not acknowledge outcomes if saving the consumed state fails', async () => {
     const f = fixture(); const input = { version: 1 as const, kind: 'runtime' as const, repo, epoch: f.current().runtimes[0]!.epoch, expectedRevision: 0, enabled: true }; const requestId = '33333333-3333-4333-8333-333333333333';
     f.journal.push({ command: { ...input, requestId }, receipt: { version: 1, requestId, input, status: 'expired', result: null, message: 'Old process' } });
-    await panel.mount(f.container, f.context); await vi.waitFor(() => expect(button(f, 'Accept outcome and dismiss').disabled).toBe(false)); f.saveState.mockRejectedValue(new Error('offline')); button(f, 'Accept outcome and dismiss').click();
+    await panel.mount(f.container, f.context); await vi.waitFor(() => expect(button(f, 'Accept result and dismiss').disabled).toBe(false)); f.saveState.mockRejectedValue(new Error('offline')); button(f, 'Accept result and dismiss').click();
     await vi.waitFor(() => expect(f.container.textContent).toContain('Drafts could not be saved')); expect(f.acknowledge).not.toHaveBeenCalled(); expect(f.submit).not.toHaveBeenCalled();
   });
   it('shows draft retry only after an asynchronous save failure and emphasizes live save actions', async () => {
     const f = fixture(); await panel.mount(f.container, f.context); await open(f);
-    const retry = button(f, 'Retry saving drafts'); expect(retry.hidden).toBe(true); expect(f.container.textContent).toContain('saved as drafts automatically');
-    expect(button(f, 'Apply source configuration').classList.contains('primary-action')).toBe(true);
-    expect(button(f, 'Save automatic source selection').classList.contains('primary-action')).toBe(true);
+    const retry = button(f, 'Retry draft save'); expect(retry.hidden).toBe(true); expect(f.container.textContent).toContain('saved as drafts automatically');
+    expect(button(f, 'Save source settings').classList.contains('primary-action')).toBe(true);
+    expect(button(f, 'Save selected sources').classList.contains('primary-action')).toBe(true);
     f.saveState.mockRejectedValueOnce(new Error('offline')); edit(f, 'Source label', 'Retained edit');
     await vi.waitFor(() => expect(retry.hidden).toBe(false)); expect(f.container.textContent).toContain('Drafts could not be saved');
     let hidden = retry.hidden; Object.defineProperty(retry, 'hidden', { configurable: true, get: () => hidden, set: value => { if (value && document.activeElement === retry) retry.blur(); hidden = value; } });
     retry.focus(); retry.click(); await vi.waitFor(() => expect(retry.hidden).toBe(true));
-    expect(document.activeElement).toBe(button(f, 'Refresh source settings'));
+    expect(document.activeElement).toBe(button(f, 'Refresh settings'));
   });
   it('shows historical enabled receipts separately from current disabled runtime and never reenables automatically', async () => {
     const f = fixture(); const input = { version: 1 as const, kind: 'runtime' as const, repo, epoch: '55555555-5555-4555-8555-555555555555', expectedRevision: 0, enabled: true }; const requestId = '33333333-3333-4333-8333-333333333333';
     f.journal.push({ command: { ...input, requestId }, receipt: { version: 1, requestId, input, status: 'succeeded', result: { kind: 'runtime', runtime: { repo, epoch: input.epoch, revision: 1, enabled: true } }, message: null } });
-    await automatic.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('historical receipt')); expect(f.container.textContent).toContain('Current process automatic starts: disabled'); expect(button(f, 'Enable automatic starts').disabled).toBe(true); expect(f.submit).not.toHaveBeenCalled();
+    await automatic.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('earlier request')); expect(f.container.textContent).toContain('Automatic starts: disabled'); expect(button(f, 'Enable automatic starts').disabled).toBe(true); expect(f.submit).not.toHaveBeenCalled();
   });
   it('pins validated replacement evidence and invalidates it as soon as actor text changes', async () => {
-    const f = fixture(); await panel.mount(f.container, f.context); await open(f); edit(f, 'Replacement candidate', JSON.stringify(source.replacements[0])); edit(f, 'Replacement actor', 'operator'); edit(f, 'Replacement reason', 'upgrade'); button(f, 'Validate replacement').click();
-    await vi.waitFor(() => expect(button(f, 'Apply validated replacement').disabled).toBe(false)); expect(f.validateReplacement.mock.calls[0]?.[0]).toMatchObject({ target: source.target, artifactHash: 'a'.repeat(64) });
-    edit(f, 'Replacement actor', 'another'); button(f, 'Apply validated replacement').click(); await Promise.resolve(); expect(f.submit).not.toHaveBeenCalled();
+    const f = fixture(); await panel.mount(f.container, f.context); await open(f); edit(f, 'Replacement connector', JSON.stringify(source.replacements[0])); edit(f, 'Changed by', 'operator'); edit(f, 'Reason for replacement', 'upgrade'); button(f, 'Check replacement').click();
+    await vi.waitFor(() => expect(button(f, 'Replace source').disabled).toBe(false)); expect(f.validateReplacement.mock.calls[0]?.[0]).toMatchObject({ target: source.target, artifactHash: 'a'.repeat(64) });
+    edit(f, 'Changed by', 'another'); button(f, 'Replace source').click(); await Promise.resolve(); expect(f.submit).not.toHaveBeenCalled();
   });
   it.each([
     ['jira-credentials-rejected', 'Update the token in Config → Jira'],
     ['jira-access-denied', 'Check its Jira permissions and token scopes'],
   ] as const)('shows actionable %s validation failures and clears previously validated replacement', async (diagnostic, message) => {
     const f = fixture(); await panel.mount(f.container, f.context); await open(f);
-    edit(f, 'Replacement candidate', JSON.stringify(source.replacements[0])); edit(f, 'Replacement actor', 'operator'); edit(f, 'Replacement reason', 'upgrade');
-    button(f, 'Validate replacement').click(); await vi.waitFor(() => expect(button(f, 'Apply validated replacement').disabled).toBe(false));
+    edit(f, 'Replacement connector', JSON.stringify(source.replacements[0])); edit(f, 'Changed by', 'operator'); edit(f, 'Reason for replacement', 'upgrade');
+    button(f, 'Check replacement').click(); await vi.waitFor(() => expect(button(f, 'Replace source').disabled).toBe(false));
     f.validateReplacement.mockResolvedValueOnce({ status: 'unavailable', reason: 'service-unavailable', diagnostic });
-    button(f, 'Validate replacement').click(); await vi.waitFor(() => expect(f.container.textContent).toContain(message));
-    expect(f.container.textContent).not.toContain('Apply validated replacement'); expect(f.submit).not.toHaveBeenCalled();
+    button(f, 'Check replacement').click(); await vi.waitFor(() => expect(f.container.textContent).toContain(message));
+    expect([...f.container.querySelectorAll('button')].find(control => control.textContent === 'Replace source')).toBeUndefined(); expect(f.submit).not.toHaveBeenCalled();
   });
   it('preserves focused unsent configuration and its caret through refresh', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await open(f); edit(f, 'Source label', 'Unsent label'); const input = field(f, 'Source label') as HTMLInputElement; input.focus(); input.setSelectionRange(2, 6);
     await instance.refresh?.(); const refreshed = field(f, 'Source label') as HTMLInputElement; expect(refreshed.value).toBe('Unsent label'); expect(document.activeElement).toBe(refreshed); expect(refreshed.selectionStart).toBe(2); expect(refreshed.selectionEnd).toBe(6);
   });
   it('keeps replacement text across revision refresh and requires explicit reconciliation', async () => {
-    const f = fixture(); const instance = await panel.mount(f.container, f.context); await open(f); edit(f, 'Replacement actor', 'Keep actor'); edit(f, 'Replacement reason', 'Keep reason');
+    const f = fixture(); const instance = await panel.mount(f.container, f.context); await open(f); edit(f, 'Changed by', 'Keep actor'); edit(f, 'Reason for replacement', 'Keep reason');
     f.setSnapshot({ ...f.current(), sources: [{ ...source, target: { ...source.target, instanceRevision: 2 } }] }); await instance.refresh?.();
-    expect(field(f, 'Replacement actor').value).toBe('Keep actor'); expect(field(f, 'Replacement reason').value).toBe('Keep reason'); expect(button(f, 'Validate replacement').disabled).toBe(true);
-    button(f, 'Reconcile replacement draft').click(); expect(field(f, 'Replacement actor').value).toBe('Keep actor');
+    expect(field(f, 'Changed by').value).toBe('Keep actor'); expect(field(f, 'Reason for replacement').value).toBe('Keep reason'); expect(button(f, 'Check replacement').disabled).toBe(true);
+    button(f, 'Update replacement draft').click(); expect(field(f, 'Changed by').value).toBe('Keep actor');
   });
   it('prunes acknowledged receipt markers before their bounded history can block saves', async () => {
     const f = fixture(); const saved = emptyState(); saved.consumed = Array.from({ length: 1000 }, (_, index) => `old-${index}`);
@@ -114,13 +114,13 @@ describe('source settings authored panel', () => {
   });
   it('lets operators remove saved source selections no longer visible in discovery', async () => {
     const f = fixture(); f.setSnapshot({ ...f.current(), schedules: [{ repo, revision: 1, instanceIds: ['retired'] }] }); await automatic.mount(f.container, f.context); await ready(f);
-    const checkbox = field(f, 'Unavailable scheduled source retired') as HTMLInputElement; checkbox.checked = false; checkbox.dispatchEvent(new Event('change', { bubbles: true })); button(f, 'Save automatic source selection').click();
+    const checkbox = field(f, 'Unavailable scheduled source retired') as HTMLInputElement; checkbox.checked = false; checkbox.dispatchEvent(new Event('change', { bubbles: true })); button(f, 'Save selected sources').click();
     await vi.waitFor(() => expect(f.submit).toHaveBeenCalledOnce()); expect(f.submit.mock.calls[0]?.[0]).toMatchObject({ kind: 'schedule', expectedRevision: 1, instanceIds: [] });
   });
   it('keeps changed values from removed schemas visible until explicitly discarded', async () => {
     const f = fixture(); const saved = emptyState(); const baseline = rawValues(source); saved.selected = source.target.instanceId; saved.configurations.push({ target: source.target, baseline, values: { ...baseline, fields: { obsolete: 'Keep this text' } } });
     await panel.mount(f.container, { ...f.context, state: { ...f.state, savedState: saveValue(saved) } }); await ready(f); expect(f.container.textContent).toContain('Keep this text');
-    button(f, 'Discard unsupported setting draft obsolete').click(); button(f, 'Apply source configuration').click(); await vi.waitFor(() => expect(f.submit).toHaveBeenCalledOnce()); expect(f.submit.mock.calls[0]?.[0]).toMatchObject({ changes: { settings: {} } });
+    button(f, 'Discard unsupported setting draft obsolete').click(); button(f, 'Save source settings').click(); await vi.waitFor(() => expect(f.submit).toHaveBeenCalledOnce()); expect(f.submit.mock.calls[0]?.[0]).toMatchObject({ changes: { settings: {} } });
   });
   it('never overwrites unsupported saved state', async () => {
     const f = fixture(); await panel.mount(f.container, { ...f.context, state: { ...f.state, savedState: { version: 2, value: { future: true } } } }); expect(f.container.textContent).toContain('unsupported'); expect(f.snapshot).not.toHaveBeenCalled(); expect(f.saveState).not.toHaveBeenCalled();
@@ -130,9 +130,9 @@ describe('source settings authored panel', () => {
 it.each([['configuration', panel], ['automatic', automatic]] as const)('%s retry never recreates a peer-acknowledged request or changes a newer reservation', async (_name, module) => {
   const f = fixture(); const input = { version: 1 as const, kind: 'runtime' as const, repo, epoch: f.current().runtimes[0]!.epoch, expectedRevision: 0, enabled: true };
   const requestId = '33333333-3333-4333-8333-333333333333'; f.journal.push({ command: { ...input, requestId }, receipt: null });
-  await module.mount(f.container, f.context); await vi.waitFor(() => expect(button(f, 'Retry original settings request').disabled).toBe(false));
+  await module.mount(f.container, f.context); await vi.waitFor(() => expect(button(f, 'Retry same request').disabled).toBe(false));
   const next = { command: { ...input, requestId: '55555555-5555-4555-8555-555555555555', enabled: false }, receipt: null };
-  f.journal.splice(0, f.journal.length, next); button(f, 'Retry original settings request').click();
+  f.journal.splice(0, f.journal.length, next); button(f, 'Retry same request').click();
   await vi.waitFor(() => expect(f.retry).toHaveBeenCalledWith({ repo, requestId }, expect.any(AbortSignal)));
   await vi.waitFor(() => expect(f.container.textContent).toContain('Original request unavailable: not-found'));
   expect(f.journal).toEqual([next]); expect(f.submit).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled();
@@ -140,6 +140,6 @@ it.each([['configuration', panel], ['automatic', automatic]] as const)('%s retry
 it('keeps source settings receipt checks available when exact retry is absent', async () => {
   const f = fixture(); delete f.context.services.sourceAdmin!.retry;
   f.journal.push({ command: { version: 1, kind: 'runtime', repo, epoch: f.current().runtimes[0]!.epoch, expectedRevision: 0, enabled: true, requestId: '33333333-3333-4333-8333-333333333333' }, receipt: null });
-  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(button(f, 'Check saved request').disabled).toBe(false));
-  expect(button(f, 'Retry original settings request').disabled).toBe(true); button(f, 'Retry original settings request').click(); expect(f.submit).not.toHaveBeenCalled(); expect(f.retry).not.toHaveBeenCalled();
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(button(f, 'Check result').disabled).toBe(false));
+  expect(button(f, 'Retry same request').disabled).toBe(true); button(f, 'Retry same request').click(); expect(f.submit).not.toHaveBeenCalled(); expect(f.retry).not.toHaveBeenCalled();
 });

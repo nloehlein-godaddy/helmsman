@@ -82,14 +82,14 @@ function setting(schema: SourceSettingSchemaV1, raw: string | boolean | undefine
   return object as Record<string, string>;
 }
 export function configuration(draft: ConfigDraft, source: SourceAdminSourceV1) {
-  if (!sameTarget(draft.target, source.target)) throw new Error('The source revision changed. Reconcile the saved draft before applying it.');
+  if (!sameTarget(draft.target, source.target)) throw new Error('This source changed elsewhere. Update your settings draft before saving.');
   const label = draft.values.label.trim(); if (!label) throw new Error('Enter a source label.');
   const allowedRepos = [...new Set(draft.values.allowed.split(/\r?\n/).map(value => value.trim()).filter(Boolean))];
   if (allowedRepos.length > 1000 || allowedRepos.some(repo => !validRepo(repo))) throw new Error('Enter allowed galleons as owner/project, one per line.');
-  if (Object.keys(draft.values.fields).some(key => !Object.hasOwn(source.settingsFields, key))) throw new Error('The source settings schema changed. Reconcile this draft.');
+  if (Object.keys(draft.values.fields).some(key => !Object.hasOwn(source.settingsFields, key))) throw new Error('The connector’s settings changed. Update your settings draft before saving.');
   const settings: Record<string, PluginJson> = Object.create(null);
   for (const key of Object.keys(draft.values.fields)) {
-    const field = source.settingsFields[key]; if (!field) throw new Error('The source settings schema changed. Reconcile this draft.');
+    const field = source.settingsFields[key]; if (!field) throw new Error('The connector’s settings changed. Update your settings draft before saving.');
     try { settings[key] = setting(field.schema, draft.values.fields[key]); } catch (error) { throw new Error(`${field.label}: ${error instanceof Error ? error.message : 'Invalid value'}`); }
   }
   return { label, desiredEnabled: draft.values.enabled, allowedRepos, settings };
