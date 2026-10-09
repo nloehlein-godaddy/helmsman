@@ -15,7 +15,7 @@ const SWATCHES = [
 export function renderThemePreview(): string {
   return `<section class="theme-preview" aria-labelledby="theme-preview-title">
     <div class="theme-preview-heading">
-      <h3 id="theme-preview-title">Selected theme preview</h3>
+      <h3 id="theme-preview-title">Theme preview</h3>
     </div>
     <div class="theme-preview-samples">
       <div class="theme-preview-palette-group">

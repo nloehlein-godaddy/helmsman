@@ -21,8 +21,9 @@ import { LOCAL_POLL_MS } from './data/live';
 import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderConfigView } from './render';
 import { fetchAgents, type RunSummary } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
-import { applyTheme, applyThemeToDocument, AMBER_BACKGROUND, CUSTOM_THEME_FIELDS, CUSTOM_THEME_ID, DEFAULT_THEME_ID, createCustomTheme, customThemeFromPalette, loadCustomTheme, loadThemeId, REQUIRED_VAR_KEYS, saveCustomTheme, saveThemeId } from './data/themes';
-import { renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
+import { applyCustomTheme, CUSTOM_THEME_ID, loadCustomTheme, loadCustomThemeRecipe, saveCustomTheme } from './data/themes';
+import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette } from './data/themeGenerator';
+import { CUSTOM_THEME_OVERRIDE_FIELDS, renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
 import { renderPirateModeIcon } from './renderPirateModeIcon';
 import {
   loadSavedRepoScope,
@@ -73,9 +74,8 @@ export class DashboardView {
   private routeSeq: number = 0;
   private readonly onResize = (): void => { this.revealActiveTab(); };
   private readonly onPopState = (): void => { void this.navigate(parseRoute(new URL(window.location.href)), 'none'); };
-  private themeId: string = loadThemeId();
-  private themePreferenceSaved = true;
-  private customTheme: CustomThemeEditorState = { palette: loadCustomTheme(), presetId: DEFAULT_THEME_ID, dirty: false, message: null, error: false };
+  private themeId: string = CUSTOM_THEME_ID;
+  private customTheme: CustomThemeEditorState = { palette: loadCustomTheme(), recipe: loadCustomThemeRecipe() ?? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} }, dirty: false, message: null, error: false };
   private configSaves: number = 0;
   private jiraEnabled: boolean = true;
   private unsubscribePages: (() => void) | null = null;
@@ -87,7 +87,7 @@ export class DashboardView {
   constructor(root: HTMLElement) {
     this.root = root;
     this.questionsAttention = new PageAttentionHost(attention => { this.questionsNeedAttention = attention; this.paintQuestionsAttention(); });
-    applyTheme(this.themeId);
+    this.applyCurrentTheme();
     this.root.addEventListener('click', (event: MouseEvent): void => this.handleClick(event), { signal: this.rootEvents.signal });
     this.root.addEventListener('toggle', event => {
       if (event.target instanceof HTMLDetailsElement && event.target.matches('.plugin-auxiliary-slot')) this.rehomeRunViewer();
@@ -122,15 +122,6 @@ export class DashboardView {
         if (this.route.pr && !this.route.prRepo) delete nextPanelState['helmsman.compat-pr/panel'];
         void this.navigate({ ...this.route, view: this.view, repo: control.value || null, prRepo: null, pr: null, run: null,
           panelState: Object.keys(nextPanelState).length ? JSON.stringify(nextPanelState) : null });
-      } else if (control.matches('.theme-select')) {
-        this.themeId = control.value;
-        this.applyCurrentTheme();
-        this.themePreferenceSaved = saveThemeId(this.themeId);
-        const help = this.root.querySelector('#ui-theme-help');
-        if (help) help.textContent = this.themePreferenceSaved ? 'Applies immediately. Saved in this browser.' : 'Applied for this session. Browser storage is unavailable.';
-        const editor = this.root.querySelector<HTMLElement>('[data-custom-theme-editor]');
-        if (editor) editor.hidden = this.themeId !== CUSTOM_THEME_ID;
-        if (this.isPluginPage()) this.paintPluginPage();
       }
     }, { capture: true, signal: this.rootEvents.signal });
     this.root.addEventListener('input', event => this.updateCustomTheme(event.target), { signal: this.rootEvents.signal });
@@ -264,8 +255,7 @@ export class DashboardView {
   }
 
   private applyCurrentTheme(): void {
-    if (this.themeId === CUSTOM_THEME_ID) applyThemeToDocument(customThemeFromPalette(this.customTheme.palette), REQUIRED_VAR_KEYS, AMBER_BACKGROUND);
-    else applyTheme(this.themeId);
+    applyCustomTheme(this.customTheme.palette);
   }
 
   private syncCustomThemeStatus(): void {
@@ -277,23 +267,41 @@ export class DashboardView {
     }
     const discard = this.root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]');
     if (discard) discard.disabled = !this.customTheme.dirty;
+    const resetOverrides = this.root.querySelector<HTMLButtonElement>('[data-custom-theme-reset-overrides]');
+    if (resetOverrides) resetOverrides.disabled = !Object.keys(this.customTheme.recipe.overrides).length;
+    for (const field of CUSTOM_THEME_OVERRIDE_FIELDS) {
+      const control = this.root.querySelector<HTMLInputElement>(`[data-custom-theme-color="${field.key}"]`);
+      if (control) {
+        control.value = this.customTheme.palette[field.key];
+        const output = control.parentElement?.querySelector('output');
+        if (output) output.textContent = control.value;
+      }
+    }
+    for (const key of ['hue', 'saturation', 'brightness'] as const) {
+      const output = this.root.querySelector<HTMLOutputElement>(`[data-custom-theme-setting-output="${key}"]`);
+      if (output) output.textContent = `${this.customTheme.recipe.settings[key]}${key === 'hue' ? '°' : '%'}`;
+    }
   }
 
   private updateCustomTheme(target: EventTarget | null): boolean {
-    if (this.themeId !== CUSTOM_THEME_ID) return false;
     if (target instanceof HTMLInputElement && target.dataset.customThemeColor) {
-      const field = CUSTOM_THEME_FIELDS.find(field => field.key === target.dataset.customThemeColor);
+      const field = CUSTOM_THEME_OVERRIDE_FIELDS.find(field => field.key === target.dataset.customThemeColor);
       if (!field || !/^#[a-f\d]{6}$/i.test(target.value)) return true;
-      this.customTheme.palette = { ...this.customTheme.palette, [field.key]: target.value };
-      const output = target.parentElement?.querySelector('output');
-      if (output) output.textContent = target.value;
+      this.customTheme.recipe.overrides = { ...this.customTheme.recipe.overrides, [field.key]: target.value };
+    } else if (target instanceof HTMLInputElement && target.dataset.customThemeSetting) {
+      const key = target.dataset.customThemeSetting;
+      if (key !== 'hue' && key !== 'saturation' && key !== 'brightness') return true;
+      const value = Number(target.value);
+      if (!Number.isFinite(value) || value < 0 || value > (key === 'hue' ? 360 : 100)) return true;
+      this.customTheme.recipe.settings = { ...this.customTheme.recipe.settings, [key]: value };
     } else if (target instanceof HTMLSelectElement && target.matches('[data-custom-theme-mode]')) {
       if (target.value !== 'dark' && target.value !== 'light') return true;
       this.customTheme.palette = { ...this.customTheme.palette, mode: target.value };
-    } else if (target instanceof HTMLSelectElement && target.matches('[data-custom-theme-preset]')) {
-      this.customTheme.presetId = target.value;
-      return true;
+    } else if (target instanceof HTMLSelectElement && target.matches('[data-custom-theme-harmony]')) {
+      if (target.value !== 'analogous' && target.value !== 'complementary' && target.value !== 'triadic') return true;
+      this.customTheme.recipe.settings = { ...this.customTheme.recipe.settings, harmony: target.value };
     } else return false;
+    this.customTheme.palette = generateThemePalette(this.customTheme.recipe.settings, this.customTheme.palette.mode, this.customTheme.recipe.overrides);
     this.customTheme.dirty = true;
     this.customTheme.error = false;
     this.customTheme.message = 'Previewing unsaved changes.';
@@ -302,29 +310,34 @@ export class DashboardView {
     return true;
   }
 
-  private customThemeAction(action: 'save' | 'discard' | 'preset'): void {
-    if (this.themeId !== CUSTOM_THEME_ID) return;
+  private customThemeAction(action: 'save' | 'discard' | 'reset' | 'reset-overrides'): void {
     if (action === 'save') {
-      const paletteSaved = saveCustomTheme(this.customTheme.palette);
-      if (paletteSaved) this.themePreferenceSaved = saveThemeId(CUSTOM_THEME_ID);
-      this.customTheme.error = !paletteSaved || !this.themePreferenceSaved;
-      this.customTheme.message = !paletteSaved ? 'Custom theme could not be saved. Your preview is kept; enable browser storage and retry.'
-        : this.themePreferenceSaved ? 'Custom theme saved in this browser.'
-          : 'Custom palette saved. Custom is active for this session; theme selection could not be saved. Enable browser storage and retry.';
-      if (paletteSaved) this.customTheme.dirty = false;
-      const help = this.root.querySelector('#ui-theme-help');
-      if (help) help.textContent = this.themePreferenceSaved ? 'Applies immediately. Saved in this browser.' : 'Applied for this session. Browser storage is unavailable.';
+      const saved = saveCustomTheme(this.customTheme.palette, this.customTheme.recipe);
+      this.customTheme.error = !saved;
+      this.customTheme.message = saved ? 'Theme saved in this browser.' : 'Theme could not be saved. Your preview is kept; enable browser storage and retry.';
+      if (saved) this.customTheme.dirty = false;
       this.syncCustomThemeStatus();
       return;
     }
-    this.customTheme.palette = action === 'discard' ? loadCustomTheme() : createCustomTheme(this.customTheme.presetId);
-    this.customTheme.dirty = action === 'preset';
+    if (action === 'discard') {
+      this.customTheme.palette = loadCustomTheme();
+      this.customTheme.recipe = loadCustomThemeRecipe() ?? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} };
+    } else {
+      this.customTheme.recipe = action === 'reset' ? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} } : { ...this.customTheme.recipe, overrides: {} };
+      this.customTheme.palette = generateThemePalette(this.customTheme.recipe.settings, action === 'reset' ? 'dark' : this.customTheme.palette.mode, this.customTheme.recipe.overrides);
+    }
+    this.customTheme.dirty = action !== 'discard';
     this.customTheme.error = false;
-    this.customTheme.message = action === 'preset' ? 'Previewing preset colors. Save to replace your custom theme.' : 'Unsaved changes discarded.';
+    this.customTheme.message = action === 'discard' ? 'Unsaved changes discarded.' : action === 'reset' ? 'Previewing the default theme. Save to keep it.' : 'Color overrides cleared. Save to keep these changes.';
     this.applyCurrentTheme();
     const editor = this.root.querySelector<HTMLElement>('[data-custom-theme-editor]');
-    if (editor) editor.innerHTML = renderCustomThemeEditor(this.customTheme);
-    this.root.querySelector<HTMLButtonElement>(action === 'preset' ? '[data-custom-theme-use-preset]' : '[data-custom-theme-save]')?.focus({ preventScroll: true });
+    const advancedOpen = editor?.querySelector<HTMLDetailsElement>('.custom-theme-advanced')?.open ?? false;
+    if (editor) {
+      editor.innerHTML = renderCustomThemeEditor(this.customTheme);
+      const advanced = editor.querySelector<HTMLDetailsElement>('.custom-theme-advanced');
+      if (advanced) advanced.open = advancedOpen;
+    }
+    this.root.querySelector<HTMLButtonElement>(action === 'reset' ? '[data-custom-theme-reset]' : '[data-custom-theme-save]')?.focus({ preventScroll: true });
   }
 
   destroy(): void {
@@ -838,7 +851,6 @@ export class DashboardView {
       themeId: this.themeId,
       loading: this.configLoading,
       customTheme: this.customTheme,
-      themePreferenceSaved: this.themePreferenceSaved,
       error: this.configError,
       unavailable: !this.configLoaded,
     }));
@@ -878,9 +890,9 @@ export class DashboardView {
       if (!pirateToggle.disabled) this.changePirateMode(!isPirateMode(), pirateToggle.dataset.pirateMode);
       return;
     }
-    const customAction = target.closest<HTMLButtonElement>('[data-custom-theme-save], [data-custom-theme-discard], [data-custom-theme-use-preset]');
+    const customAction = target.closest<HTMLButtonElement>('[data-custom-theme-save], [data-custom-theme-discard], [data-custom-theme-reset], [data-custom-theme-reset-overrides]');
     if (customAction) {
-      if (!customAction.disabled) this.customThemeAction(customAction.hasAttribute('data-custom-theme-save') ? 'save' : customAction.hasAttribute('data-custom-theme-discard') ? 'discard' : 'preset');
+      if (!customAction.disabled) this.customThemeAction(customAction.hasAttribute('data-custom-theme-save') ? 'save' : customAction.hasAttribute('data-custom-theme-discard') ? 'discard' : customAction.hasAttribute('data-custom-theme-reset-overrides') ? 'reset-overrides' : 'reset');
       return;
     }
     const link = target.closest<HTMLAnchorElement>('a.view-toggle, a.app-link');

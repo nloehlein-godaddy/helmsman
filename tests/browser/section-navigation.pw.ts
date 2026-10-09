@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
 import { builtinCatalog } from './builtin-catalog';
-import { THEMES } from '../../src/data/themes';
 
 for (const width of [1440, 390]) test(`section navigation persists across parent and child pages at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });
@@ -52,7 +51,7 @@ for (const width of [1440, 390]) test(`section navigation persists across parent
 });
 
 
-test('section navigation stands apart and stays readable in every theme', async ({ page }) => {
+test('section navigation stands apart and stays readable in dark and light generated themes', async ({ page }) => {
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
@@ -64,8 +63,8 @@ test('section navigation stands apart and stays readable in every theme', async 
   await page.goto('/config?repo=org/a');
   await expect(page.locator('#boot')).toHaveCount(0);
   await expect(page.locator('#page-content a.app-link')).toHaveCount(0);
-  for (const theme of THEMES) {
-    await page.locator('.theme-select').selectOption(theme.id);
+  for (const mode of ['dark', 'light']) {
+    await page.locator('[data-custom-theme-mode]').selectOption(mode);
     const nav = page.locator('.section-nav');
     const inactive = nav.getByRole('link', { name: 'Task sources', exact: true });
     const contrast = async () => page.evaluate(() => {
@@ -98,15 +97,15 @@ test('section navigation stands apart and stays readable in every theme', async 
     });
     await page.mouse.move(0, 0);
     const normal = await contrast();
-    expect(normal.winner, `${theme.id} uses its most distinct accent`).toBe(true);
-    expect(normal.surfaces.every(value => value >= 3), theme.id).toBe(true);
-    expect(normal.text, theme.id).toBeGreaterThanOrEqual(4.5);
-    expect(normal.selected, theme.id).toBeGreaterThanOrEqual(4.5);
-    expect(normal.selection, theme.id).toBeGreaterThanOrEqual(3);
+    expect(normal.winner, `${mode} uses its most distinct accent`).toBe(true);
+    expect(normal.surfaces.every(value => value >= 3), mode).toBe(true);
+    expect(normal.text, mode).toBeGreaterThanOrEqual(4.5);
+    expect(normal.selected, mode).toBeGreaterThanOrEqual(4.5);
+    expect(normal.selection, mode).toBeGreaterThanOrEqual(3);
     await inactive.hover();
-    expect((await contrast()).text, `${theme.id} hover`).toBeGreaterThanOrEqual(4.5);
+    expect((await contrast()).text, `${mode} hover`).toBeGreaterThanOrEqual(4.5);
   }
-  await page.locator('.theme-select').selectOption('github-light');
+  await page.locator('[data-custom-theme-mode]').selectOption('light');
   await page.mouse.move(0, 0);
   await expect(page).toHaveScreenshot('config-navigation-light.png');
 });

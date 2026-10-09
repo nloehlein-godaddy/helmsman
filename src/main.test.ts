@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardView } from './main';
 import { loadDashboard as loadMockSnapshot } from './data/mock';
 import type { DashboardResponse } from './data/live';
-import { DEFAULT_THEME_ID, getTheme } from './data/themes';
+import { DEFAULT_THEME_ID } from './data/themes';
+import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette } from './data/themeGenerator';
 
 const views: DashboardView[] = [];
 function createView(root: HTMLElement): DashboardView {
@@ -178,63 +179,97 @@ describe('DashboardView settings interactions', () => {
     view.destroy();
   });
 
-  it('applies the persisted theme to documentElement before the first paint', async () => {
+  it('disregards retired themes and applies the generated default before first paint', async () => {
     localStorage.setItem('cmux.theme', 'dracula');
-    const response: DashboardResponse = await buildResponse();
-    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => response }) as unknown as Response) as typeof globalThis.fetch;
-
-    const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = createView(root);
-
-    expect(document.documentElement.dataset.theme).toBe('dracula');
-    expect(document.documentElement.style.getPropertyValue('--accent')).toBe(getTheme('dracula')?.vars['--accent']);
-
-    await view.refresh();
-    expect(root.querySelector('.theme-select')).toBeNull();
-    root.querySelector<HTMLAnchorElement>('.page-tab[data-view="config"]')?.click();
-    await vi.waitFor(() => expect(root.querySelector('.ui-customization-panel .theme-select')).not.toBeNull());
-    const select: HTMLSelectElement | null = root.querySelector<HTMLSelectElement>('.theme-select');
-    expect(select!.value).toBe('dracula');
-    view.destroy();
-  });
-
-  it('defaults to the Quarterdeck theme when nothing is persisted', async () => {
-    const response: DashboardResponse = await buildResponse();
-    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => response }) as unknown as Response) as typeof globalThis.fetch;
-
-    const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    void createView(root);
-
+    const root = document.querySelector<HTMLElement>('#app')!;
+    createView(root);
     expect(document.documentElement.dataset.theme).toBe(DEFAULT_THEME_ID);
-    expect(document.documentElement.style.getPropertyValue('--accent')).toBe(getTheme(DEFAULT_THEME_ID)?.vars['--accent']);
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe(generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'dark').accent);
   });
 
-  it('applies and persists a new theme on select change without a full data refetch', async () => {
-    const response: DashboardResponse = await buildResponse();
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => response }) as unknown as Response);
+  async function openThemeEditor(): Promise<{ root: HTMLElement; fetchMock: ReturnType<typeof vi.fn> }> {
+    const response = await buildResponse();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => ({ ok: true, status: 200, json: async () => String(input).includes('/api/config') ? { config: {}, overridden: [] } : response }) as unknown as Response);
     globalThis.fetch = fetchMock as typeof globalThis.fetch;
-
-    const root: HTMLElement = document.querySelector<HTMLElement>('#app')!;
-    const view: DashboardView = createView(root);
+    const root = document.querySelector<HTMLElement>('#app')!;
+    const view = createView(root);
     await view.refresh();
-
-    expect(root.querySelector('.theme-select')).toBeNull();
     root.querySelector<HTMLAnchorElement>('.page-tab[data-view="config"]')?.click();
-    await vi.waitFor(() => expect(root.querySelector('.ui-customization-panel .theme-select')).not.toBeNull());
-    const select: HTMLSelectElement = root.querySelector<HTMLSelectElement>('.theme-select')!;
+    await vi.waitFor(() => expect(root.querySelector('[data-custom-theme-setting="hue"]')).not.toBeNull());
+    return { root, fetchMock };
+  }
+
+  it('updates the generated theme live without replacing sliders, losing focus, or fetching data', async () => {
+    const { root, fetchMock } = await openThemeEditor();
+    const slider = root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')!;
     const preview = root.querySelector('.theme-preview');
-    expect(preview).not.toBeNull();
-    const callsBefore: number = fetchMock.mock.calls.length;
-
-    select.value = 'nord';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-
-    expect(document.documentElement.dataset.theme).toBe('nord');
-    expect(document.documentElement.style.getPropertyValue('--accent')).toBe(getTheme('nord')?.vars['--accent']);
-    expect(localStorage.getItem('cmux.theme')).toBe('nord');
+    slider.focus();
+    const callsBefore = fetchMock.mock.calls.length;
+    slider.value = '270';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe(generateThemePalette({ ...DEFAULT_THEME_GENERATOR_SETTINGS, hue: 270 }, 'dark').accent);
+    expect(root.querySelector('[data-custom-theme-setting="hue"]')).toBe(slider);
+    expect(document.activeElement).toBe(slider);
+    expect(root.querySelector('[data-custom-theme-setting-output="hue"]')?.textContent).toBe('270°');
     expect(root.querySelector('.theme-preview')).toBe(preview);
     expect(fetchMock.mock.calls.length).toBe(callsBefore);
-    view.destroy();
+    expect(root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')?.disabled).toBe(false);
+    expect(localStorage.getItem('cmux.theme.custom')).toBeNull();
+  });
+
+  it('keeps advanced overrides through generator changes and clears them explicitly', async () => {
+    const { root } = await openThemeEditor();
+    const color = root.querySelector<HTMLInputElement>('[data-custom-theme-color="controlBg"]')!;
+    color.value = '#ffffff';
+    color.dispatchEvent(new Event('input', { bubbles: true }));
+    const slider = root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')!;
+    slider.value = '280';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(color.value).toBe('#ffffff');
+    expect(document.documentElement.style.getPropertyValue('--control-bg')).toBe('#ffffff');
+    expect(root.querySelector<HTMLButtonElement>('[data-custom-theme-reset-overrides]')?.disabled).toBe(false);
+    root.querySelector<HTMLButtonElement>('[data-custom-theme-reset-overrides]')!.click();
+    expect(document.documentElement.style.getPropertyValue('--control-bg')).toBe(generateThemePalette({ ...DEFAULT_THEME_GENERATOR_SETTINGS, hue: 280 }, 'dark').controlBg);
+    expect(root.querySelector<HTMLButtonElement>('[data-custom-theme-reset-overrides]')?.disabled).toBe(true);
+    expect(root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')?.value).toBe('280');
+  });
+
+  it('saves the recipe and appearance, restores both on discard, and previews defaults on reset', async () => {
+    const { root } = await openThemeEditor();
+    const slider = root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')!;
+    slider.value = '42';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    const appearance = root.querySelector<HTMLSelectElement>('[data-custom-theme-mode]')!;
+    appearance.value = 'light';
+    appearance.dispatchEvent(new Event('change', { bubbles: true }));
+    root.querySelector<HTMLButtonElement>('[data-custom-theme-save]')!.click();
+    const saved = JSON.parse(localStorage.getItem('cmux.theme.custom')!);
+    expect(saved.recipe.settings.hue).toBe(42);
+    expect(saved.palette.mode).toBe('light');
+    expect(root.querySelector('[data-custom-theme-status]')?.textContent).toBe('Theme saved in this browser.');
+    root.querySelector<HTMLButtonElement>('[data-custom-theme-reset]')!.click();
+    expect(root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')?.value).toBe(String(DEFAULT_THEME_GENERATOR_SETTINGS.hue));
+    root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')!.click();
+    expect(root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')?.value).toBe('42');
+    expect(root.querySelector<HTMLSelectElement>('[data-custom-theme-mode]')?.value).toBe('light');
+    expect(root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')?.disabled).toBe(true);
+  });
+
+  it('retains the preview and dirty state when atomic theme saving fails', async () => {
+    const { root } = await openThemeEditor();
+    const slider = root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')!;
+    slider.value = '250';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    const storageFailure = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Unavailable'); });
+    root.querySelector<HTMLButtonElement>('[data-custom-theme-save]')!.click();
+    expect(root.querySelector('[data-custom-theme-status]')?.getAttribute('role')).toBe('alert');
+    expect(root.querySelector('[data-custom-theme-status]')?.textContent).toContain('enable browser storage and retry');
+    expect(root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')?.value).toBe('250');
+    expect(root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')?.disabled).toBe(false);
+    storageFailure.mockRestore();
+    root.querySelector<HTMLButtonElement>('[data-custom-theme-save]')!.click();
+    expect(root.querySelector('[data-custom-theme-status]')?.getAttribute('role')).toBe('status');
+    expect(root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')?.disabled).toBe(true);
   });
 
   it.each([1024, 390])('moves tab focus with orientation-aware arrows at %ipx without navigating until Space activates it', async width => {

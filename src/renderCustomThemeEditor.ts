@@ -1,26 +1,32 @@
-import { CUSTOM_THEME_FIELDS, CUSTOM_THEME_ID, DEFAULT_THEME_ID, loadCustomTheme, THEMES, type CustomThemePalette } from './data/themes';
+import { CUSTOM_THEME_FIELDS, loadCustomTheme, loadCustomThemeRecipe, type CustomThemePalette } from './data/themes';
+import { DEFAULT_THEME_GENERATOR_SETTINGS, type ThemeGeneratorRecipe } from './data/themeGenerator';
 import { escapeHtml as esc } from './logic/html';
 
 export interface CustomThemeEditorState {
   palette: CustomThemePalette;
-  presetId: string;
+  recipe: ThemeGeneratorRecipe;
   dirty: boolean;
   message: string | null;
   error: boolean;
 }
 
+export const CUSTOM_THEME_OVERRIDE_FIELDS = CUSTOM_THEME_FIELDS.filter(field => !['bad', 'good', 'review', 'queued'].includes(field.key));
+
 export function renderCustomThemeEditor(state?: CustomThemeEditorState): string {
-  const current = state ?? { palette: loadCustomTheme(), presetId: DEFAULT_THEME_ID, dirty: false, message: null, error: false };
-  const presets = THEMES.filter(theme => theme.id !== CUSTOM_THEME_ID && theme.id !== 'amber').map(theme =>
-    `<option value="${esc(theme.id)}"${theme.id === current.presetId ? ' selected' : ''}>${esc(theme.label)}</option>`).join('');
+  const current = state ?? { palette: loadCustomTheme(), recipe: loadCustomThemeRecipe() ?? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} }, dirty: false, message: null, error: false };
+  const sliders = ([['hue', 'Hue', 360, '°'], ['saturation', 'Saturation', 100, '%'], ['brightness', 'Brightness', 100, '%']] as const).map(([key, label, max, unit]) => `<div class="custom-theme-slider"><div><label for="custom-theme-${key}">${label}</label><output for="custom-theme-${key}" data-custom-theme-setting-output="${key}">${current.recipe.settings[key]}${unit}</output></div><input type="range" id="custom-theme-${key}" min="0" max="${max}" step="1" value="${current.recipe.settings[key]}" data-custom-theme-setting="${key}"></div>`).join('');
   return `<div class="custom-theme-editor">
-    <div class="custom-theme-heading"><h3>Custom theme</h3><p>One personal palette, saved in this browser. Changes preview immediately; save to keep them.</p></div>
+    <div class="custom-theme-heading"><h3>Your theme</h3><p>Choose a base color. Surfaces, accents, and readable text update together. Save to keep your changes in this browser.</p></div>
+    <div class="custom-theme-generator">${sliders}</div>
     <div class="custom-theme-controls">
-      <div class="custom-theme-preset"><label for="custom-theme-preset">Start from</label><div><select id="custom-theme-preset" data-custom-theme-preset>${presets}</select><button type="button" data-custom-theme-use-preset>Use preset</button></div></div>
       <div><label for="custom-theme-mode">Appearance</label><select id="custom-theme-mode" data-custom-theme-mode><option value="dark"${current.palette.mode === 'dark' ? ' selected' : ''}>Dark</option><option value="light"${current.palette.mode === 'light' ? ' selected' : ''}>Light</option></select></div>
+      <div><label for="custom-theme-harmony">Color harmony</label><select id="custom-theme-harmony" data-custom-theme-harmony>${(['analogous', 'complementary', 'triadic'] as const).map(value => `<option value="${value}"${current.recipe.settings.harmony === value ? ' selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></div>
     </div>
-    <fieldset class="custom-theme-colors"><legend>Palette colors</legend>${CUSTOM_THEME_FIELDS.map(({ key, label }) => `<div class="custom-theme-color"><label for="custom-theme-${esc(key)}">${esc(label)}</label><div><input type="color" id="custom-theme-${esc(key)}" data-custom-theme-color="${esc(key)}" value="${esc(current.palette[key])}"><output for="custom-theme-${esc(key)}">${esc(current.palette[key])}</output></div></div>`).join('')}</fieldset>
-    <div class="custom-theme-actions"><button type="button" data-custom-theme-save>Save custom theme</button><button type="button" data-custom-theme-discard${current.dirty ? '' : ' disabled'}>Discard changes</button></div>
+    <p>Errors stay red, success green, review blue, and queued yellow.</p>
+    <details class="custom-theme-advanced"><summary>Advanced color overrides</summary><div class="custom-theme-advanced-body"><p>Override individual colors. Your overrides stay in place when you adjust the base color.</p>
+    <fieldset class="custom-theme-colors"><legend class="sr-only">Color overrides</legend>${CUSTOM_THEME_OVERRIDE_FIELDS.map(({ key, label }) => `<div class="custom-theme-color"><label for="custom-theme-${esc(key)}">${esc(label)}</label><div><input type="color" id="custom-theme-${esc(key)}" data-custom-theme-color="${esc(key)}" value="${esc(current.palette[key])}"><output for="custom-theme-${esc(key)}">${esc(current.palette[key])}</output></div></div>`).join('')}</fieldset>
+    <button type="button" data-custom-theme-reset-overrides${Object.keys(current.recipe.overrides).length ? '' : ' disabled'}>Reset overrides</button></div></details>
+    <div class="custom-theme-actions"><button type="button" data-custom-theme-save>Save theme</button><button type="button" data-custom-theme-discard${current.dirty ? '' : ' disabled'}>Discard changes</button><button type="button" data-custom-theme-reset>Reset theme</button></div>
     <p data-custom-theme-status role="${current.error ? 'alert' : 'status'}"${current.message ? '' : ' hidden'}>${esc(current.message ?? '')}</p>
   </div>`;
 }

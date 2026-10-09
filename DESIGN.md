@@ -2,39 +2,40 @@
 name: "Helmsman — Field Guide"
 description: "Scientific field-guide classification for supervising coding-agent work."
 colors:
-  nav-bg: "#0a1714"
-  nav-text: "#f2f6f3"
-  nav-muted: "#a9c4b4"
-  nav-active: "#26463b"
-  bg: "#0e1b19"
-  gutter: "#0a1412"
-  panel: "#172a25"
-  panel-2: "#1c322c"
-  panel-hi: "#244238"
-  control-bg: "#080f0d"
-  input-text: "#e5efe8"
-  input-placeholder: "#a8beb1"
-  control-border: "#8a9c91"
-  line: "rgba(168, 190, 177, 0.32)"
-  line-strong: "rgba(168, 190, 177, 0.72)"
-  line-faint: "rgba(168, 190, 177, 0.18)"
-  secondary: "#96cad3"
-  secondary-text: "#96cad3"
+  nav-bg: "#030705"
+  nav-text: "#eaf0ed"
+  nav-muted: "#babfbc"
+  nav-active: "#1a211e"
+  bg: "#050a07"
+  gutter: "#030705"
+  panel: "#0d1410"
+  panel-2: "#131a17"
+  panel-hi: "#1a211e"
+  control-bg: "#070d0a"
+  input-text: "#eaf0ed"
+  input-placeholder: "#babfbc"
+  input-accent: "#79b198"
+  control-border: "#999d9a"
+  line: "rgba(186, 191, 188, 0.32)"
+  line-strong: "rgba(186, 191, 188, 0.72)"
+  line-faint: "rgba(186, 191, 188, 0.18)"
+  secondary: "#79aeb1"
+  secondary-text: "#79aeb1"
   on-accent: "#08090c"
   on-good: "#08090c"
-  accent: "#82cbbb"
-  accent-text: "#82cbbb"
-  accent-text-hover: "#95d3c5"
-  accent-bright: "#95d3c5"
-  accent-dim: "rgba(130, 203, 187, 0.55)"
-  accent-plate: "#82cbbb"
-  text: "#e5efe8"
-  text-dim: "#a8beb1"
-  text-faint: "#9aafa3"
-  bad: "#ff9b88"
-  good: "#91d2ad"
-  review: "#a0c9ed"
-  queued: "#e4c17e"
+  accent: "#79b198"
+  accent-text: "#79b198"
+  accent-text-hover: "#8dbda7"
+  accent-bright: "#8dbda7"
+  accent-dim: "rgba(121, 177, 152, 0.55)"
+  accent-plate: "#79b198"
+  text: "#eaf0ed"
+  text-dim: "#babfbc"
+  text-faint: "#949a97"
+  bad: "#ed8b83"
+  good: "#77be7a"
+  review: "#74adf5"
+  queued: "#c2a946"
 typography:
   page-title:
     fontFamily: "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
@@ -169,13 +170,13 @@ components:
 
 **Creative North Star: "Field Guide"**
 
-Field Guide uses scientific field-guide classification to make work identifiable at a glance: task titles, compact labeled states and subordinate evidence. Evergreen navigation frames dark green-neutral work surfaces; restrained teal marks selection and action. Controls and text use system sans, with JetBrains Mono reserved for identifiers and logs.
+Field Guide uses scientific field-guide classification to make work identifiable at a glance: task titles, compact labeled states and subordinate evidence. A generated personal palette frames work surfaces; restrained accents mark selection and action. Controls and text use system sans, with JetBrains Mono reserved for identifiers and logs.
 
-Standard web controls and the plugin composition model remain intact. Panels share an index-like rhythm of identity, state and aligned evidence; tab selection and collapse occupy one header row. The dark default palette applies to fresh installs, while existing user-selected palettes retain their colors. Motion provides bounded state feedback with reduced-motion support.
+Standard web controls and the plugin composition model remain intact. Panels share an index-like rhythm of identity, state and aligned evidence; tab selection and collapse occupy one header row. One generated personal theme applies throughout the app. Hue, saturation, brightness, appearance and color harmony derive the palette; previous preset and saved palettes are discarded. Motion provides bounded state feedback with reduced-motion support.
 
 **Key Characteristics:**
 
-- Evergreen navigation, dark green-neutral work surfaces and restrained teal selection.
+- Theme-derived navigation and work surfaces with restrained selection accents.
 - Task identity first, labeled state alongside it, supporting evidence below.
 - System sans for controls and text; JetBrains Mono for identifiers and logs.
 - Twelve-pixel panels and six-pixel controls, with native affordances.
@@ -183,30 +184,30 @@ Standard web controls and the plugin composition model remain intact. Panels sha
 
 ## Colors
 
-Evergreen navigation, dark green-neutral work surfaces and restrained teal selection follow the selected Field Guide contract. Frontmatter records the resolved default palette from `src/data/themes.ts`; selecting a theme replaces the same semantic properties at runtime.
+The Field Guide layout uses one generated personal palette. Frontmatter records the resolved dark default from `generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'dark')` and `customThemeFromPalette` in `src/data/themeGenerator.ts` and `src/data/themes.ts`. Hue (165°), saturation (35%), brightness (45%) and analogous harmony establish the default. Runtime changes replace the same semantic properties.
 
 ### Primary
 
-- **Teal selection** (`accent`, `accent-plate`): primary-action fills, selected panel tabs and focus outlines. `accent-bright` supplies primary-action hover; `accent-dim` supplies subordinate accents. `accent-text` and `accent-text-hover` supply links, outlined action labels and inline commands.
-- **Evergreen navigation** (`nav-bg`, `nav-active`): navigation rail and selected destination; `nav-text` and `nav-muted` distinguish active and inactive destination text.
+- **Selection accent** (`accent`, `accent-plate`): primary-action fills and selected panel tabs. `accent-text` supplies readable keyboard-focus outlines. `accent-bright` supplies primary-action hover; `accent-dim` supplies subordinate accents. `accent-text` and `accent-text-hover` supply links, outlined action labels and inline commands.
+- **Primary navigation** (`nav-bg`, `nav-active`): navigation rail and selected destination; `nav-text` and `nav-muted` distinguish active and inactive destination text.
 
 ### Secondary
 
-- **Secondary teal** (`secondary`): supplementary fills and decoration. `secondary-text` supplies supplementary links, including the terminology reference.
-- **Section navigation**: the Config and Runs navigation band uses the theme's Companion or Accent color, choosing the stronger minimum contrast against the header, primary navigation, page and panel surfaces. Companion wins ties. Text uses whichever of black or white reads more clearly; selected links invert that pair. Hover strengthens text contrast. Preset and custom palettes derive these roles before first paint and during live changes.
-- **Semantic states** (`good`, `bad`, `review`, `queued`): success, failure, review and waiting, accompanied by readable state text or explicit control meaning. `on-good` and `on-accent` are foregrounds for filled treatments.
+- **Companion accent** (`secondary`): supplementary fills and decoration. `secondary-text` supplies supplementary links, including the terminology reference.
+- **Section navigation**: the Config and Runs navigation band uses the theme's Companion or Accent color, choosing the stronger minimum contrast against the header, primary navigation, page and panel surfaces. Companion wins ties. Text uses whichever of black or white reads more clearly; selected links invert that pair. Hover strengthens text contrast. Generated palettes derive these roles before first paint and during live changes.
+- **Semantic states** (`good`, `bad`, `review`, `queued`): success green, failure red, review blue and waiting yellow, with locked semantic hue families and theme-derived saturation and lightness, accompanied by readable state text or explicit control meaning. `on-good` and `on-accent` are foregrounds for filled treatments.
 
 ### Neutral
 
-- **Dark green-neutral work ground** (`bg`, `gutter`): work area and outer ground.
+- **Work ground** (`bg`, `gutter`): work area and outer ground.
 - **Work surfaces** (`panel`, `panel-2`, `panel-hi`): panels, subordinate areas and raised-tone controls or hover feedback.
 - **Text** (`text`, `text-dim`, `text-faint`): task identity, supporting text and quiet metadata.
-- **Field ground and boundary** (`control-bg`, `control-border`): native inputs, selects and textareas. Custom palettes expose Input background separately from panel ground; `input-text` and `input-placeholder` derive readable input values and placeholder text against that ground.
+- **Field ground and boundary** (`control-bg`, `control-border`): native inputs, selects and textareas. Advanced overrides expose Input background separately from panel ground; `input-text` and `input-placeholder` derive readable input values and placeholder text against that ground. `input-accent` supplies contrast-derived native range control color.
 - **Dividers** (`line`, `line-strong`, `line-faint`): panel boundaries, control boundaries and quiet row separation. Preserve source RGBA values.
 
-**The Theme Continuity Rule.** Use semantic CSS properties for surfaces, text, selection and state. Dark Field Guide is the fresh-install default; a saved theme keeps its palette.
+**The Generated Theme Rule.** Use semantic CSS properties for surfaces, text, selection and state. A single browser-local recipe generates the personal palette in OKLCH, with gamut-mapped sRGB output. Analogous harmony offsets the companion hue by 35°; complementary uses 180°; triadic uses 120° for the companion and 240° for the lightly tinted surfaces. Error, success, review and queued stay in their red, green, blue and yellow families. Previous presets and saved palettes are removed; only the current generated theme is saved.
 
-**The Custom Contrast Rule.** Custom palettes preserve raw fills. Derive shared text foregrounds toward 4.5:1 contrast on the background, navigation and panels when those surfaces permit a shared foreground. Derive input values and placeholders independently to at least 4.5:1 against the selected Input background; changing that ground does not change page text. Filled-action ink follows the actual fill brightness independently of theme mode. A shared foreground cannot guarantee contrast across arbitrary mixed light and dark surfaces.
+**The Custom Contrast Rule.** Generated palettes and advanced overrides preserve raw fills. Derive shared text foregrounds toward 4.5:1 contrast on the background, navigation and panels when those surfaces permit a shared foreground. Derive input values and placeholders independently to at least 4.5:1 against the selected Input background; changing that ground does not change page text. Native range controls derive input-accent against that ground; shared keyboard-focus outlines use accent-text. Filled-action ink follows the actual fill brightness independently of theme mode. A shared foreground cannot guarantee contrast across arbitrary mixed light and dark surfaces.
 
 ## Typography
 
@@ -253,21 +254,27 @@ Use panel and control radii for their corresponding surfaces. Compact preview ba
 
 ### Buttons
 
-Primary authored-plugin actions use teal fill, contrasting foreground and medium-bold text; hover uses the brighter accent. Authored-plugin controls use (36px) minimum height; Helm and its task panels use (34px). Launch has (7px 16px) padding and a mixed accent/text hover. Secondary controls use raised neutral ground. The shell default uses panel ground and (8px 12px) padding. Disabled controls reduce opacity to (0.5). Focus is a (2px) accent outline, offset (1px) on shell buttons or (2px) in authored plugins.
+Primary authored-plugin actions use accent fill, contrasting foreground and medium-bold text; hover uses the brighter accent. Authored-plugin controls use (36px) minimum height; Helm and its task panels use (34px). Launch has (7px 16px) padding and a mixed accent/text hover. Secondary controls use raised neutral ground. The shell default uses panel ground and (8px 12px) padding. Disabled controls reduce opacity to (0.5). Focus is a (2px) contrast-derived `accent-text` outline, offset (1px) on shell buttons or (2px) in authored plugins.
 
-Settings panels keep Refresh settings above the fields and place the teal Save GitHub settings or Update Jira token action below them. Secondary Discard changes or Clear entered token appears only while there is a draft to remove. Revision conflicts reveal Keep my changes or Keep entered token beside the conflict text; choosing it uses the latest revision and still requires the primary action. GitHub edits save locally as a draft while typing, with Retry saving draft shown only after a storage error. Communication settings uses a teal Save communication settings action, contextual Discard changes or Use saved settings, and Retry saving draft only after a storage error. Source settings likewise save drafts automatically, then use teal Apply source configuration and Save automatic source selection actions at the ends of their respective sections. Execution settings uses a primary Save execution settings action, or Retry saved change for a pending request.
+Settings panels keep Refresh settings above the fields and place the accent-filled Save GitHub settings or Update Jira token action below them. Secondary Discard changes or Clear entered token appears only while there is a draft to remove. Revision conflicts reveal Keep my changes or Keep entered token beside the conflict text; choosing it uses the latest revision and still requires the primary action. GitHub edits save locally as a draft while typing, with Retry saving draft shown only after a storage error. Communication settings uses an accent-filled Save communication settings action, contextual Discard changes or Use saved settings, and Retry saving draft only after a storage error. Source settings likewise save drafts automatically, then use accent-filled Apply source configuration and Save automatic source selection actions at the ends of their respective sections. Execution settings uses a primary Save execution settings action, or Retry saved change for a pending request.
 
 Global buttons transition background and color over (150ms); authored plugins use (160ms) state transitions. Reduced-motion rules remove them. Question-tab attention changes a boundary over (1.8s) and stops under reduced motion.
 
 When any pointer is coarse, shell buttons, disclosures, selects and non-checkbox/radio inputs have a minimum target of (44px) in both dimensions. Primary, secondary, installed-page and recovery navigation links have a minimum height of (44px). Helm controls follow the same target size; its collapse button and run-viewer icon controls use (44px) squares. Fine-pointer-only layouts retain their compact sizes.
 
+### Personal theme editor
+
+Config exposes one always-visible theme editor. Native Hue (0–360°), Saturation (0–100%) and Brightness (0–100%) sliders preview the generated palette immediately without remounting controls or losing keyboard focus. Native slider tracks and thumbs use `input-accent`, derived from the accent to at least 4.5:1 against the independently adjustable input ground. Appearance selects Dark or Light; Color harmony selects Analogous, Complementary or Triadic. The default is dark with analogous harmony.
+
+Advanced color overrides use a closed native disclosure with individual non-status color inputs, including Input background. Explicit overrides survive generator changes. Reset overrides clears them; Reset theme previews dark default settings with no overrides. Save theme writes palette and recipe atomically to the browser; Discard changes restores the saved recipe and appearance. Storage errors keep the preview and expose retry guidance. Status hues are never editable.
+
 ### Inputs / Fields
 
-Inputs, selects and textareas share field ground, field boundary and control corners. Authored-plugin fields use (6px 12px) padding; launch uses (7px 9px), and global fields use (6px 9px). Keep labels visible, preserve native behavior, and use accent borders plus the visible focus outline. Launch textareas have a (110px) minimum height and resize vertically. Errors retain explicit alert text.
+Inputs, selects and textareas share field ground, field boundary and control corners. Authored-plugin fields use (6px 12px) padding; launch uses (7px 9px), and global fields use (6px 9px). Keep labels visible, preserve native behavior, and use accent borders plus the visible contrast-derived focus outline. Launch textareas have a (110px) minimum height and resize vertically. Errors retain explicit alert text.
 
 ### Navigation
 
-Desktop destinations form a vertical evergreen rail. Hover and selection use the active navigation surface; selection adds a boundary and stronger weight. Small-screen destinations form an overflowing horizontal row. Panel tabs share a header with collapse: selected tabs fill with the accent when multiple tabs exist; a single tab stays neutral. The collapse icon rotates over (160ms), with reduced-motion support.
+Desktop destinations form a vertical theme-derived rail. Hover and selection use the active navigation surface; selection adds a boundary and stronger weight. Small-screen destinations form an overflowing horizontal row. Panel tabs share a header with collapse: selected tabs fill with the accent when multiple tabs exist; a single tab stays neutral. The collapse icon rotates over (160ms), with reduced-motion support.
 
 Config and Runs remain selected in primary navigation throughout their child pages. Their secondary navigation starts with Overview, followed by sibling destination links. Overview is current on the parent page; a child page marks its exact destination with `aria-current="page"` while its primary parent remains selected. Config includes Task sources, Execution, Product feedback, Jira, GitHub, Notifications and Local Git; Runs includes History and run details. Config Overview uses this row as the single location for those destinations. Destination labels follow terminology settings and selected replacement pages. Links preserve the header scope; a directly opened alternative page receives its own current link when it differs from the selected destination.
 
@@ -293,7 +300,7 @@ Campaign and New Run redraws preserve the focused action or disclosure by identi
 
 ### Startup scope
 
-The startup repository selector uses the semantic panel background directly, including outside the application shell. It shares panel corners, (24px) padding and a bounded width of `min(100% - 32px, 540px)`. Boot HTML uses the default dark work ground and text colors as fallbacks before runtime theme application; the selected theme then controls these properties.
+The startup repository selector uses the semantic panel background directly, including outside the application shell. It shares panel corners, (24px) padding and a bounded width of `min(100% - 32px, 540px)`. Boot HTML uses the default dark work ground and text colors as fallbacks before runtime theme application; the generated personal theme then controls these properties.
 
 ### Logs, disclosures and page editing
 
@@ -305,7 +312,7 @@ The 16 generic composition pages and both Helm implementations keep compact Refr
 
 ### Do:
 
-- Do use semantic theme properties so existing palettes continue to work.
+- Do use semantic theme properties so generated colors and advanced overrides apply consistently.
 - Do present task titles, labeled states and subordinate evidence in the shared index-like rhythm.
 - Do preserve the accessible heading when suppressing a repeated visible panel heading.
 - Do keep tab selection and collapse together, and preserve saved panel order when adapting to a narrow screen.
@@ -320,7 +327,7 @@ The 16 generic composition pages and both Helm implementations keep compact Refr
 - Don't use a status hue as the only way to identify state.
 - Don't turn a viewport change into a saved layout edit.
 
-Source evidence: `index.html`, `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/render.ts`, `src/logic/navigation.ts`, `src/main.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/campaigns/panel.ts`, `src/plugins/lazy-modules.ts`, `src/plugins/page-host.ts`, `src/plugins/panel-host.ts`, `src/plugins/composition-host.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
+Source evidence: `index.html`, `src/style.css`, `src/themePreview.css`, `src/data/themes.ts`, `src/data/themeGenerator.ts`, `src/renderCustomThemeEditor.ts`, `src/render.ts`, `src/logic/navigation.ts`, `src/main.ts`, `src/plugins/helm/styles.ts`, `src/plugins/helm/page.ts`, `src/plugins/running/panel.ts`, `src/plugins/recent/panel.ts`, `src/plugins/repoprs/panel.ts`, `src/plugins/newrun/panel.ts`, `src/plugins/campaigns/panel.ts`, `src/plugins/lazy-modules.ts`, `src/plugins/page-host.ts`, `src/plugins/panel-host.ts`, `src/plugins/composition-host.ts`, `src/plugins/run-viewer/styles.ts`, `src/plugins/run-history/styles.ts`, and `src/plugins/communication/styles.ts`. Direction: `.impeccable/surfaces/src-main-ts.md`.
 
 Settings evidence: `src/plugins/github-settings/page.ts`, `src/plugins/github-settings/panel.ts`, `src/plugins/jira-settings/page.ts`, `src/plugins/jira-settings/panel.ts`, `src/plugins/communication/page.ts`, `src/plugins/communication/settings.ts`, `src/plugins/execution-settings/page.ts`, `src/plugins/execution-settings/panel.ts`, and `src/plugins/source-settings/panel.ts`.
 

@@ -1,292 +1,202 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Locator } from '@playwright/test';
 import { builtinCatalog } from './builtin-catalog';
+import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette } from '../../src/data/themeGenerator';
 
-async function customThemeContrast(page: Page) {
-  return page.evaluate(() => {
-    const style = (selector: string): CSSStyleDeclaration => {
-      const node = document.querySelector(selector);
-      if (!node) throw new Error(`Missing ${selector}`);
-      return getComputedStyle(node);
-    };
-    const luminance = (color: string): number => {
-      const values = color.match(/[\d.]+/g)?.slice(0, 3).map(Number);
-      if (!values || values.length !== 3) throw new Error(`Unsupported computed color ${color}`);
-      const channels = values.map(value => {
-        const channel = value / 255;
-        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
-      });
-      return .2126 * channels[0]! + .7152 * channels[1]! + .0722 * channels[2]!;
-    };
-    const contrast = (first: string, second: string): number => {
-      const a = luminance(first); const b = luminance(second);
-      return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
-    };
-    const button = style('[data-custom-theme-save]');
-    const command = style('.config-warning .mono');
-    const warning = document.querySelector('.config-warning');
-    const panel = warning?.closest('.config-panel');
-    if (!panel) throw new Error('Missing runtime settings panel');
-    return {
-      button: contrast(button.color, button.backgroundColor),
-      command: contrast(command.color, getComputedStyle(panel).backgroundColor),
-      buttonInk: button.color,
-      buttonFill: button.backgroundColor,
-      vars: Object.fromEntries(['--accent', '--on-accent', '--accent-text', '--accent-text-hover', '--secondary-text'].map(key => [key, document.documentElement.style.getPropertyValue(key)])),
-    };
+async function mockConfig(page: Page) {
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    const json = url.pathname === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.todos-ui']) }
+      : url.pathname === '/api/context' ? { repos: ['org/a', 'org/b'], jiraBaseUrl: null }
+      : url.pathname === '/api/config' ? { config: { CUSTOM_NOTE: 'Repository pirate agent content stays mine.' }, overridden: [] }
+      : url.pathname === '/api/agents' ? { runs: [], autoClaim: [], caps: {} }
+      : url.pathname === '/api/task-edit' ? { version: 1, repo: url.searchParams.get('repo'), sources: [] }
+      : url.pathname === '/api/task-sources' ? { instances: [] } : {};
+    return route.fulfill({ json });
   });
 }
 
-for (const width of [1440, 390]) test(`custom theme and Pirate mode persist without changing scope at ${width}px`, async ({ page }) => {
+async function setRange(range: Locator, value: number) {
+  await range.evaluate((node, value) => {
+    if (!(node instanceof HTMLInputElement)) throw new Error('Missing generator range');
+    node.value = String(value);
+    node.dispatchEvent(new Event('input', { bubbles: true }));
+  }, value);
+  await expect(range).toHaveValue(String(value));
+}
+
+async function storedTheme(page: Page) {
+  return page.evaluate(() => JSON.parse(localStorage.getItem('cmux.theme.custom') ?? 'null'));
+}
+
+async function themeVars(page: Page) {
+  return page.evaluate(() => Object.fromEntries(['--bg', '--accent', '--secondary', '--text', '--control-bg', '--input-text', '--input-placeholder', '--input-accent', '--bad', '--good', '--review', '--queued'].map(key => [key, document.documentElement.style.getPropertyValue(key)])));
+}
+
+for (const width of [1440, 390]) test(`personal theme generation, overrides and Pirate mode persist at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1100 });
   const writes: string[] = [];
   const errors: string[] = [];
-  const iconAsset = page.waitForResponse(response => new URL(response.url()).pathname === '/icons/pirate-mode.svg');
+  page.on('request', request => { if (request.url().includes('/api/') && request.method() !== 'GET') writes.push(request.url()); });
   page.on('pageerror', error => errors.push(error.message));
-  await page.route('**/api/**', route => {
-    const request = route.request();
-    const path = new URL(request.url()).pathname;
-    if (request.method() !== 'GET') writes.push(path);
-    const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
-      : path === '/api/context' ? { repos: ['org/a', 'org/b'], jiraBaseUrl: null }
-      : path === '/api/config' ? { config: { CUSTOM_NOTE: 'Repository pirate agent content stays mine.' }, overridden: [] }
-      : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
-    return route.fulfill({ json });
-  });
+  await mockConfig(page);
   await page.goto('/config?repo=org%2Fa');
-  const panel = page.locator('.ui-customization-panel');
-  const editor = panel.locator('[data-custom-theme-editor]');
-  const theme = panel.locator('.theme-select');
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  const editor = page.locator('[data-custom-theme-editor]');
+  const hue = editor.getByRole('slider', { name: 'Hue', exact: true });
+  const saturation = editor.getByRole('slider', { name: 'Saturation', exact: true });
+  const brightness = editor.getByRole('slider', { name: 'Brightness', exact: true });
+  const mode = editor.getByLabel('Appearance', { exact: true });
+  const harmony = editor.getByLabel('Color harmony', { exact: true });
+  const save = editor.getByRole('button', { name: 'Save theme', exact: true });
+  const discard = editor.getByRole('button', { name: 'Discard changes', exact: true });
+  const advanced = editor.locator('details');
   const accent = editor.locator('[data-custom-theme-color="accent"]');
-  const savedPalette = () => page.evaluate(() => {
-    const value = localStorage.getItem('cmux.theme.custom');
-    return value ? JSON.parse(value) : null;
-  });
-  const previewAccent = () => page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'));
-  await expect(editor).toBeHidden();
-  await expect(theme.locator('option[value="custom"]')).toHaveCount(1);
-  await theme.selectOption('custom');
   await expect(editor).toBeVisible();
-  await expect(accent).toHaveAttribute('type', 'color');
-  await accent.fill('#91d2ad');
-  expect(await previewAccent()).toBe('#91d2ad');
-  expect(await savedPalette()).toBeNull();
-  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
-  expect(await savedPalette()).toMatchObject({ version: 2, palette: { accent: '#91d2ad', mode: 'dark' } });
-  await page.reload();
-  await expect(theme).toHaveValue('custom');
-  await expect(accent).toHaveValue('#91d2ad');
-  expect(await previewAccent()).toBe('#91d2ad');
-  await accent.fill('#abcdef');
-  await editor.locator('[data-custom-theme-mode]').selectOption('light');
-  await expect(page.locator('html')).toHaveAttribute('data-theme-mode', 'light');
-  expect(await savedPalette()).toMatchObject({ palette: { accent: '#91d2ad', mode: 'dark' } });
-  await editor.getByRole('button', { name: 'Discard changes', exact: true }).click();
-  await expect(accent).toHaveValue('#91d2ad');
-  await expect(page.locator('html')).toHaveAttribute('data-theme-mode', 'dark');
-  await editor.getByLabel('Start from', { exact: true }).selectOption('github-light');
-  await editor.getByRole('button', { name: 'Use preset', exact: true }).click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme-mode', 'light');
-  expect(await savedPalette()).toMatchObject({ palette: { accent: '#91d2ad', mode: 'dark' } });
-  await editor.getByRole('button', { name: 'Discard changes', exact: true }).click();
-  await expect(accent).toHaveValue('#91d2ad');
-
-  const configToggle = panel.locator('.ui-terminology-settings button[data-pirate-mode]');
-  const footerToggle = page.locator('.footer-controls button[data-pirate-mode]');
-  const content = page.locator('[data-key="CUSTOM_NOTE"] input');
-  await expect(configToggle).toHaveAttribute('role', 'switch');
-  const iconResponse = await iconAsset;
-  expect(iconResponse.status()).toBe(200);
-  const iconSvg = await iconResponse.text();
-  expect(iconSvg).toContain('<symbol id="treasure-chest"');
-  expect(iconSvg).toContain('<symbol id="briefcase"');
-  const expectIcon = async (enabled: boolean) => {
-    const name = enabled ? 'treasure-chest' : 'briefcase';
-    const icon = configToggle.locator('svg[data-pirate-icon]');
-    await expect(icon).toHaveAttribute('data-pirate-icon', name);
-    await expect(icon).toHaveAttribute('fill', 'currentColor');
-    await expect(icon.locator('use')).toHaveAttribute('href', `/icons/pirate-mode.svg#${name}`);
-    await expect(configToggle.locator('[data-pirate-mode-state]')).toHaveText(enabled ? 'On' : 'Off');
-    expect(await icon.evaluate(svg => getComputedStyle(svg).fill === getComputedStyle(svg.closest('button') ?? svg).color)).toBe(true);
-    await expect.poll(() => icon.locator('use').evaluate(use => (use as SVGGraphicsElement).getBBox().width)).toBeGreaterThan(0);
-  };
-  const initiallyEnabled = await configToggle.getAttribute('aria-checked');
-  await expectIcon(initiallyEnabled === 'true');
-  await configToggle.click();
-  const nowEnabled = initiallyEnabled === 'true' ? 'false' : 'true';
-  await expect(configToggle).toHaveAttribute('aria-checked', nowEnabled);
-  await expect(footerToggle).toHaveAttribute('aria-pressed', nowEnabled);
-  await expect(configToggle).toBeFocused();
-  await expectIcon(nowEnabled === 'true');
-  if (width === 1440) await expect(configToggle).toHaveScreenshot('pirate-mode-off-switch.png');
-  await expect(content).toHaveValue('Repository pirate agent content stays mine.');
-  await expect(page.locator('.repo-select')).toHaveValue('org/a');
-  await footerToggle.click();
-  await expect(configToggle).toHaveAttribute('aria-checked', initiallyEnabled ?? 'true');
-  await expect(footerToggle).toHaveAttribute('aria-pressed', initiallyEnabled ?? 'true');
-  await expect(footerToggle).toBeFocused();
-  await expectIcon(initiallyEnabled === 'true');
-  await theme.selectOption('field-guide');
-  await expect(editor).toBeHidden();
-  await theme.selectOption('custom');
-  await expect(accent).toHaveValue('#91d2ad');
-  await accent.fill('#96cad3');
-  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
-  await page.reload();
-  await expect(accent).toHaveValue('#96cad3');
-  expect(await savedPalette()).toMatchObject({ version: 2, palette: { accent: '#96cad3', mode: 'dark' } });
-  expect(await page.evaluate(() => localStorage.getItem('cmux.theme'))).toBe('custom');
-  expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('cmux.theme.custom')))).toEqual(['cmux.theme.custom']);
+  await expect(page.locator('.theme-select, [data-custom-theme-preset], [data-custom-theme-use-preset]')).toHaveCount(0);
+  await expect(hue).toHaveAttribute('min', '0');
+  await expect(hue).toHaveAttribute('max', '360');
+  for (const range of [saturation, brightness]) {
+    await expect(range).toHaveAttribute('min', '0');
+    await expect(range).toHaveAttribute('max', '100');
+  }
+  await expect(hue).toHaveValue('165');
+  await expect(saturation).toHaveValue('35');
+  await expect(brightness).toHaveValue('45');
+  await expect(harmony).toHaveValue('analogous');
+  await expect(advanced).not.toHaveAttribute('open', '');
+  const defaults = await themeVars(page);
   await page.mouse.move(0, 0);
-  await theme.scrollIntoViewIfNeeded();
-  await theme.focus();
-  await expect(page).toHaveScreenshot(`custom-theme-editor-${width}.png`);
-  await configToggle.scrollIntoViewIfNeeded();
-  await configToggle.focus();
-  await expect(page).toHaveScreenshot(`custom-theme-pirate-row-${width}.png`);
+  await hue.scrollIntoViewIfNeeded();
+  await hue.focus();
+  await expect(page).toHaveScreenshot(`personal-theme-editor-${width}.png`);
+  await setRange(hue, 275);
+  await setRange(saturation, 70);
+  await setRange(brightness, 60);
+  await harmony.selectOption('triadic');
+  expect((await themeVars(page))['--accent']).not.toBe(defaults['--accent']);
+  expect(await storedTheme(page)).toBeNull();
+  await editor.getByText('Advanced color overrides', { exact: true }).click();
+  await expect(accent).toBeVisible();
+  await expect(editor.locator('[data-custom-theme-color="bad"], [data-custom-theme-color="good"], [data-custom-theme-color="review"], [data-custom-theme-color="queued"]')).toHaveCount(0);
+  await accent.fill('#44005c');
+  await setRange(hue, 220);
+  await expect(accent).toHaveValue('#44005c');
+  expect((await themeVars(page))['--accent']).toBe('#44005c');
+  await save.click();
+  expect(await storedTheme(page)).toMatchObject({ version: 3, recipe: { settings: { hue: 220, saturation: 70, brightness: 60, harmony: 'triadic' }, overrides: { accent: '#44005c' } }, palette: { mode: 'dark', accent: '#44005c' } });
+  await page.reload();
+  await expect(page.locator('#boot')).toHaveCount(0);
+  await expect(hue).toHaveValue('220');
+  await expect(harmony).toHaveValue('triadic');
+  await editor.getByText('Advanced color overrides', { exact: true }).click();
+  await expect(accent).toHaveValue('#44005c');
+  await mode.selectOption('light');
+  await setRange(hue, 100);
+  await expect(page.locator('html')).toHaveAttribute('data-theme-mode', 'light');
+  await discard.click();
+  await expect(hue).toHaveValue('220');
+  await expect(mode).toHaveValue('dark');
+  await expect(accent).toHaveValue('#44005c');
+  await editor.getByRole('button', { name: 'Reset overrides', exact: true }).click();
+  await expect(accent).not.toHaveValue('#44005c');
+  await discard.click();
+  await expect(accent).toHaveValue('#44005c');
+  await editor.getByRole('button', { name: 'Reset theme', exact: true }).click();
+  await expect(hue).toHaveValue('165');
+  await expect(saturation).toHaveValue('35');
+  await expect(brightness).toHaveValue('45');
+  await expect(harmony).toHaveValue('analogous');
+  await expect(mode).toHaveValue('dark');
+  expect(await themeVars(page)).toEqual(defaults);
+  await discard.click();
+  await expect(accent).toHaveValue('#44005c');
+  await page.mouse.move(0, 0);
+  if (width === 390) {
+    await advanced.evaluate(detail => detail.scrollIntoView({ block: 'start' }));
+    await accent.evaluate(input => (input as HTMLInputElement).focus({ preventScroll: true }));
+  } else {
+    await accent.scrollIntoViewIfNeeded();
+    await accent.focus();
+  }
+  await expect(page).toHaveScreenshot(`personal-theme-advanced-${width}.png`);
+
+  const configToggle = page.locator('.ui-terminology-settings button[data-pirate-mode]');
+  const footerToggle = page.locator('.footer-controls button[data-pirate-mode]');
+  const initial = await configToggle.getAttribute('aria-checked');
+  await configToggle.click();
+  await expect(configToggle).toHaveAttribute('aria-checked', initial === 'true' ? 'false' : 'true');
+  await expect(configToggle).toBeFocused();
+  await expect(configToggle.locator('svg')).toHaveAttribute('fill', 'currentColor');
+  await expect(configToggle.locator('[data-pirate-mode-state]')).toHaveText(initial === 'true' ? 'Off' : 'On');
+  await footerToggle.click();
+  await expect(configToggle).toHaveAttribute('aria-checked', initial ?? 'true');
+  await expect(footerToggle).toBeFocused();
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toHaveValue('Repository pirate agent content stays mine.');
+  await expect(page.locator('.repo-select')).toHaveValue('org/a');
+  await editor.getByRole('button', { name: 'Reset overrides', exact: true }).click();
+  await save.click();
+  expect(await storedTheme(page)).toMatchObject({ version: 3, recipe: { overrides: {} } });
+  await page.reload();
+  await expect(page.locator('#boot')).toHaveCount(0);
+  await expect(hue).toHaveValue('220');
+  await editor.getByText('Advanced color overrides', { exact: true }).click();
+  await expect(accent).not.toHaveValue('#44005c');
+  await editor.getByRole('button', { name: 'Reset theme', exact: true }).click();
+  await save.click();
+  await page.reload();
+  await expect(page.locator('#boot')).toHaveCount(0);
+  await expect(hue).toHaveValue('165');
+  expect(await themeVars(page)).toEqual(defaults);
+  expect(await storedTheme(page)).toMatchObject({ recipe: { settings: { hue: 165, saturation: 35, brightness: 45, harmony: 'analogous' }, overrides: {} }, palette: { mode: 'dark' } });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(writes).toEqual([]);
   expect(errors).toEqual([]);
 });
 
-test('custom theme saving retains the preview when browser storage fails and supports retry', async ({ page }) => {
-  await page.route('**/api/**', route => {
-    const path = new URL(route.request().url()).pathname;
-    const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
-      : path === '/api/context' ? { repos: ['org/a'], jiraBaseUrl: null }
-      : path === '/api/config' ? { config: {}, overridden: [] }
-      : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
-    return route.fulfill({ json });
-  });
+for (const version of [1, 2]) test(`ignores legacy palette version ${version} and obsolete selection`, async ({ page }) => {
+  const palette = generateThemePalette({ ...DEFAULT_THEME_GENERATOR_SETTINGS, hue: 10 }, 'light', { accent: '#ff0000' });
+  const { controlBg: _controlBg, ...oldPalette } = palette;
+  await page.addInitScript(value => {
+    localStorage.setItem('cmux.theme', 'github-light');
+    localStorage.setItem('cmux.theme.custom', value);
+  }, JSON.stringify({ version, palette: version === 1 ? oldPalette : palette }));
+  await mockConfig(page);
   await page.goto('/config?repo=org%2Fa');
-  await page.locator('.theme-select').selectOption('custom');
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
   const editor = page.locator('[data-custom-theme-editor]');
-  await editor.locator('[data-custom-theme-color="accent"]').fill('#abcdef');
+  await expect(editor).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'custom');
+  await expect(editor.getByLabel('Appearance', { exact: true })).toHaveValue('dark');
+  await expect(editor.getByRole('slider', { name: 'Hue', exact: true })).toHaveValue('165');
+  expect((await themeVars(page))['--accent']).not.toBe('#ff0000');
+});
+
+test('theme save storage failure retains live preview and supports retry', async ({ page }) => {
+  await mockConfig(page);
+  await page.goto('/config?repo=org%2Fa');
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  const editor = page.locator('[data-custom-theme-editor]');
+  await setRange(editor.getByRole('slider', { name: 'Hue', exact: true }), 300);
+  const preview = await themeVars(page);
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;
-    Storage.prototype.setItem = function (key: string, value: string): void {
-      if (key.startsWith('cmux.theme')) throw new DOMException('Browser storage disabled', 'SecurityError');
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'cmux.theme.custom') throw new DOMException('Storage unavailable', 'SecurityError');
       original.call(this, key, value);
     };
     Object.assign(window, { restoreAppearanceStorage: () => { Storage.prototype.setItem = original; } });
   });
-  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
+  await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
   await expect(editor.getByRole('alert')).toContainText('could not be saved');
-  expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))).toBe('#abcdef');
-  expect(await page.evaluate(() => localStorage.getItem('cmux.theme.custom'))).toBeNull();
+  expect(await themeVars(page)).toEqual(preview);
+  expect(await storedTheme(page)).toBeNull();
   await expect(editor.getByRole('button', { name: 'Discard changes', exact: true })).toBeEnabled();
-  await page.evaluate(() => {
-    const restore = (window as unknown as { restoreAppearanceStorage?: () => void }).restoreAppearanceStorage;
-    restore?.();
-  });
-  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
+  await page.evaluate(() => (window as unknown as { restoreAppearanceStorage?: () => void }).restoreAppearanceStorage?.());
+  await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
   await expect(editor.locator('[data-custom-theme-status]')).toContainText('saved in this browser');
-  await expect(editor.getByRole('button', { name: 'Discard changes', exact: true })).toBeDisabled();
   await page.reload();
-  await expect(editor.locator('[data-custom-theme-color="accent"]')).toHaveValue('#abcdef');
-});
-
-test('custom palette survives a theme selection storage failure without claiming the selection was saved', async ({ page }) => {
-  await page.route('**/api/**', route => {
-    const path = new URL(route.request().url()).pathname;
-    const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
-      : path === '/api/context' ? { repos: ['org/a'], jiraBaseUrl: null }
-      : path === '/api/config' ? { config: {}, overridden: [] }
-      : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
-    return route.fulfill({ json });
-  });
-  await page.goto('/config?repo=org%2Fa');
-  const theme = page.locator('.theme-select');
-  const editor = page.locator('[data-custom-theme-editor]');
-  await theme.selectOption('custom');
-  await editor.locator('[data-custom-theme-color="accent"]').fill('#abcdef');
-  await page.evaluate(() => {
-    localStorage.setItem('cmux.theme', 'field-guide');
-    const original = Storage.prototype.setItem;
-    Storage.prototype.setItem = function (key: string, value: string): void {
-      if (key === 'cmux.theme') throw new DOMException('Theme selection storage disabled', 'SecurityError');
-      original.call(this, key, value);
-    };
-  });
-  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
-  await expect(editor.getByRole('alert')).toContainText('Custom palette saved');
-  await expect(editor.getByRole('alert')).toContainText('selection could not be saved');
-  await expect(editor.getByRole('button', { name: 'Discard changes', exact: true })).toBeDisabled();
-  expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))).toBe('#abcdef');
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cmux.theme.custom') ?? 'null'))).toMatchObject({ palette: { accent: '#abcdef' } });
-  expect(await page.evaluate(() => localStorage.getItem('cmux.theme'))).toBe('field-guide');
-  await page.locator('.ui-terminology-settings button[data-pirate-mode]').click();
-  await expect(page.locator('#ui-theme-help')).toHaveText('Applied for this session. Browser storage is unavailable.');
-  await expect(editor.getByRole('alert')).toContainText('selection could not be saved');
-  await page.reload();
-  await expect(theme).toHaveValue('field-guide');
-  await expect(editor).toBeHidden();
-  await theme.selectOption('custom');
-  await expect(editor.locator('[data-custom-theme-color="accent"]')).toHaveValue('#abcdef');
-  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
-  await expect(editor.locator('[data-custom-theme-status]')).toHaveText('Custom theme saved in this browser.');
-  await expect(page.locator('#ui-theme-help')).toHaveText('Applies immediately. Saved in this browser.');
-  expect(await page.evaluate(() => localStorage.getItem('cmux.theme'))).toBe('custom');
-  await page.reload();
-  await expect(theme).toHaveValue('custom');
-  await expect(editor.locator('[data-custom-theme-color="accent"]')).toHaveValue('#abcdef');
-});
-
-for (const width of [1440, 390]) test(`custom accent contrast stays readable during preview and reload at ${width}px`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 1100 });
-  await page.route('**/api/**', route => {
-    const path = new URL(route.request().url()).pathname;
-    const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
-      : path === '/api/context' ? { repos: ['org/a'], jiraBaseUrl: null }
-      : path === '/api/config' ? { config: {}, overridden: [] }
-      : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
-    return route.fulfill({ json });
-  });
-  await page.goto('/config?repo=org%2Fa');
-  await page.locator('.theme-select').selectOption('custom');
-  const editor = page.locator('[data-custom-theme-editor]');
-  const accent = editor.locator('[data-custom-theme-color="accent"]');
-  const save = editor.getByRole('button', { name: 'Save custom theme', exact: true });
-  await accent.fill('#44005c');
-  await page.mouse.move(0, 0);
-  const dark = await customThemeContrast(page);
-  expect(dark.button).toBeGreaterThanOrEqual(4.5);
-  expect(dark.command).toBeGreaterThanOrEqual(4.5);
-  expect(dark.buttonInk).toBe('rgb(255, 255, 255)');
-  expect(dark.buttonFill).toBe('rgb(68, 0, 92)');
-  expect(dark.vars['--accent']).toBe('#44005c');
-  expect(await page.evaluate(() => localStorage.getItem('cmux.theme.custom'))).toBeNull();
-  await save.click();
-  await page.reload();
-  await expect(accent).toHaveValue('#44005c');
-  expect((await customThemeContrast(page)).vars).toEqual(dark.vars);
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cmux.theme.custom') ?? 'null'))).toMatchObject({ palette: { accent: '#44005c' } });
-  await save.evaluate(button => button.scrollIntoView({ block: 'start' }));
-  await save.focus();
-  await page.mouse.move(0, 0);
-  await expect(page).toHaveScreenshot(`custom-theme-purple-contrast-${width}.png`);
-
-  await editor.locator('[data-custom-theme-mode]').selectOption('light');
-  const changedMode = await customThemeContrast(page);
-  expect(changedMode.button).toBeGreaterThanOrEqual(4.5);
-  expect(changedMode.command).toBeGreaterThanOrEqual(4.5);
-  await editor.getByLabel('Start from', { exact: true }).selectOption('github-light');
-  await editor.getByRole('button', { name: 'Use preset', exact: true }).click();
-  await accent.fill('#ffcc00');
-  await page.mouse.move(0, 0);
-  const bright = await customThemeContrast(page);
-  expect(bright.button).toBeGreaterThanOrEqual(4.5);
-  expect(bright.command).toBeGreaterThanOrEqual(4.5);
-  expect(bright.buttonInk).toBe('rgb(0, 0, 0)');
-  expect(bright.buttonFill).toBe('rgb(255, 204, 0)');
-  await editor.getByRole('button', { name: 'Discard changes', exact: true }).click();
-  await expect(accent).toHaveValue('#44005c');
-  expect((await customThemeContrast(page)).vars).toEqual(dark.vars);
-  await page.route('**/assets/*.js', route => route.abort());
-  await page.reload();
-  await expect(page.locator('#boot')).toBeVisible();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'custom');
-  const bootstrapVars = await page.evaluate(() => Object.fromEntries(['--accent', '--on-accent', '--accent-text', '--accent-text-hover', '--secondary-text'].map(key => [key, document.documentElement.style.getPropertyValue(key)])));
-  expect(bootstrapVars).toEqual(dark.vars);
+  await expect(page.locator('#boot')).toHaveCount(0);
+  await expect(editor.getByRole('slider', { name: 'Hue', exact: true })).toHaveValue('300');
 });
 
 async function inputThemeContrast(page: Page, selectors: string[]) {
@@ -316,85 +226,114 @@ async function inputThemeContrast(page: Page, selectors: string[]) {
     const page = document.querySelector('.page-content');
     if (!page) throw new Error('Missing page surface');
     const pageStyle = getComputedStyle(page);
-    return { controls, textAnchor: root.style.getPropertyValue('--text'),
+    const save = document.querySelector('[data-custom-theme-save]');
+    const saveStyle = save ? getComputedStyle(save) : undefined;
+    const command = document.querySelector('.config-warning .mono');
+    const panel = command?.closest('.config-panel');
+    const slider = document.querySelector('[data-custom-theme-setting="hue"]');
+    const sliderStyle = slider ? getComputedStyle(slider) : undefined;
+    const sliderPanel = slider?.closest('.config-panel');
+    return { controls, slider: slider && sliderStyle && sliderPanel ? {
+        focused: slider.matches(':focus-visible'),
+        outline: ratio(sliderStyle.outlineColor, getComputedStyle(sliderPanel).backgroundColor),
+        accent: ratio(sliderStyle.accentColor, sliderStyle.backgroundColor),
+      } : undefined, button: saveStyle ? ratio(saveStyle.color, saveStyle.backgroundColor) : undefined,
+      command: command && panel ? ratio(getComputedStyle(command).color, getComputedStyle(panel).backgroundColor) : undefined,
+      textAnchor: root.style.getPropertyValue('--text'),
       body: ratio(pageStyle.color, pageStyle.backgroundColor),
       vars: Object.fromEntries(['--control-bg', '--input-text', '--input-placeholder', '--text', '--text-dim', '--text-faint'].map(key => [key, root.style.getPropertyValue(key)])) };
   }, selectors);
 }
 
-for (const width of [1440, 390]) test(`custom input backgrounds preserve readable values and placeholders at ${width}px`, async ({ page }) => {
+for (const width of [1440, 390]) test(`input overrides preserve body, values, caret and placeholders at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1100 });
-  await page.route('**/api/**', route => {
-    const url = new URL(route.request().url());
-    const json = url.pathname === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.todos-ui']) }
-      : url.pathname === '/api/context' ? { repos: ['org/a'], jiraBaseUrl: null }
-      : url.pathname === '/api/config' ? { config: { CUSTOM_NOTE: 'A readable custom input value' }, overridden: [] }
-      : url.pathname === '/api/agents' ? { runs: [], autoClaim: [], caps: {} }
-      : url.pathname === '/api/task-edit' ? { version: 1, repo: url.searchParams.get('repo'), sources: [] }
-      : url.pathname === '/api/task-sources' ? { instances: [] } : {};
-    return route.fulfill({ json });
-  });
+  await mockConfig(page);
   await page.goto('/config?repo=org%2Fa');
-  await page.locator('.theme-select').selectOption('custom');
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
   const editor = page.locator('[data-custom-theme-editor]');
-  const inputBackground = editor.locator('[data-custom-theme-color="controlBg"]');
-  await expect(inputBackground).toHaveAccessibleName('Input background');
-  const selectors = ['[data-key="CUSTOM_NOTE"] input', '.theme-select', '[data-custom-theme-preset]', '[data-custom-theme-mode]'];
-  const original = await inputThemeContrast(page, selectors);
-  await inputBackground.fill('#ffffff');
-  const white = await inputThemeContrast(page, selectors);
-  expect(white.textAnchor).toBe(original.textAnchor);
-  expect(white.body).toBeGreaterThanOrEqual(4.5);
-  for (const control of white.controls) {
-    expect(control.background, control.selector).toBe('rgb(255, 255, 255)');
-    expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
-    expect(control.caret, control.selector).toBeGreaterThanOrEqual(4.5);
+  const initialText = (await themeVars(page))['--text'];
+  for (const [fill, computed] of [['#ffffff', 'rgb(255, 255, 255)'], ['#000000', 'rgb(0, 0, 0)']]) {
+    await editor.getByText('Advanced color overrides', { exact: true }).click();
+    await editor.locator('[data-custom-theme-color="controlBg"]').fill(fill!);
+    await editor.locator('[data-custom-theme-color="accent"]').fill('#44005c');
+    const hue = editor.getByRole('slider', { name: 'Hue', exact: true });
+    await hue.focus();
+    await hue.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(hue).toBeFocused();
+    const result = await inputThemeContrast(page, ['[data-key="CUSTOM_NOTE"] input', '[data-custom-theme-mode]', '[data-custom-theme-harmony]']);
+    expect(result.textAnchor).toBe(initialText);
+    expect(result.slider?.focused).toBe(true);
+    expect(result.slider?.outline).toBeGreaterThanOrEqual(3);
+    expect(result.slider?.accent).toBeGreaterThanOrEqual(3);
+    expect(result.body).toBeGreaterThanOrEqual(4.5);
+    for (const control of result.controls) {
+      expect(control.background).toBe(computed);
+      expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
+      expect(control.caret, control.selector).toBeGreaterThanOrEqual(4.5);
+    }
+    await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
+    expect(await storedTheme(page)).toMatchObject({ version: 3, recipe: { overrides: { controlBg: fill, accent: '#44005c' } }, palette: { controlBg: fill, accent: '#44005c' } });
+    if (fill === '#ffffff') {
+      await editor.getByText('Advanced color overrides', { exact: true }).click();
+      await hue.focus();
+      await hue.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      await page.mouse.move(0, 0);
+      await expect(page).toHaveScreenshot(`personal-theme-focus-${width}.png`);
+    }
+    await page.reload();
+    await expect(page.locator('#boot')).toHaveCount(0);
+    await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+    expect((await inputThemeContrast(page, ['[data-key="CUSTOM_NOTE"] input'])).vars).toEqual(result.vars);
+    await page.goto('/todos?repo=org%2Fa');
+    const search = page.getByRole('searchbox', { name: 'Search Todos', exact: true });
+    await expect(search).toHaveAttribute('placeholder', 'Search Todos');
+    const todos = await inputThemeContrast(page, ['.todo-list input[type="search"]', '.todo-list select']);
+    for (const control of todos.controls) {
+      expect(control.background).toBe(computed);
+      expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
+      expect(control.placeholder, control.selector).toBeGreaterThanOrEqual(4.5);
+      expect(control.caret, control.selector).toBeGreaterThanOrEqual(4.5);
+    }
+    await search.fill('Readable search value');
+    await expect(search).toHaveValue('Readable search value');
+    await page.goto('/config?repo=org%2Fa');
+    await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
   }
-  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toHaveValue('A readable custom input value');
-  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
-  const storedWhite = await page.evaluate(() => JSON.parse(localStorage.getItem('cmux.theme.custom') ?? 'null'));
-  expect(storedWhite).toMatchObject({ version: 2, palette: { controlBg: '#ffffff', text: '#e5efe8' } });
-  await page.reload();
-  await expect(inputBackground).toHaveValue('#ffffff');
-  expect((await inputThemeContrast(page, selectors)).vars).toEqual(white.vars);
-  await page.goto('/todos?repo=org%2Fa');
-  const search = page.getByRole('searchbox', { name: 'Search Todos', exact: true });
-  await expect(search).toHaveAttribute('placeholder', 'Search Todos');
-  const todoWhite = await inputThemeContrast(page, ['.todo-list input[type="search"]', '.todo-list select']);
-  for (const control of todoWhite.controls) {
-    expect(control.background, control.selector).toBe('rgb(255, 255, 255)');
-    expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
-    expect(control.placeholder, control.selector).toBeGreaterThanOrEqual(4.5);
-  }
-  await search.scrollIntoViewIfNeeded();
-  await search.focus();
-  await page.mouse.move(0, 0);
-  await expect(page).toHaveScreenshot(`custom-theme-white-inputs-${width}.png`);
-  await search.fill('Readable search value');
-  await expect(search).toHaveValue('Readable search value');
-  await page.goto('/config?repo=org%2Fa');
-  await inputBackground.fill('#000000');
-  const black = await inputThemeContrast(page, selectors);
-  expect(black.textAnchor).toBe(original.textAnchor);
-  expect(black.body).toBeGreaterThanOrEqual(4.5);
-  for (const control of black.controls) {
-    expect(control.background, control.selector).toBe('rgb(0, 0, 0)');
-    expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
-    expect(control.caret, control.selector).toBeGreaterThanOrEqual(4.5);
-  }
-  await editor.getByRole('button', { name: 'Save custom theme', exact: true }).click();
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cmux.theme.custom') ?? 'null'))).toMatchObject({ version: 2, palette: { controlBg: '#000000', text: '#e5efe8' } });
-  await page.goto('/todos?repo=org%2Fa');
-  await expect(search).toBeVisible();
-  const todoBlack = await inputThemeContrast(page, ['.todo-list input[type="search"]', '.todo-list select']);
-  for (const control of todoBlack.controls) {
-    expect(control.background, control.selector).toBe('rgb(0, 0, 0)');
-    expect(control.value, control.selector).toBeGreaterThanOrEqual(4.5);
-    expect(control.placeholder, control.selector).toBeGreaterThanOrEqual(4.5);
-  }
+  const saved = await themeVars(page);
   await page.route('**/assets/*.js', route => route.abort());
   await page.reload();
   await expect(page.locator('#boot')).toBeVisible();
-  const bootstrapVars = await page.evaluate(() => Object.fromEntries(['--control-bg', '--input-text', '--input-placeholder', '--text', '--text-dim', '--text-faint'].map(key => [key, document.documentElement.style.getPropertyValue(key)])));
-  expect(bootstrapVars).toEqual(black.vars);
+  expect(await themeVars(page)).toEqual(saved);
+});
+
+test('dark and light harmonies and range extremes retain semantic status families and contrast', async ({ page }) => {
+  await mockConfig(page);
+  await page.goto('/config?repo=org%2Fa');
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  const editor = page.locator('[data-custom-theme-editor]');
+  for (const mode of ['dark', 'light']) for (const harmony of ['analogous', 'complementary', 'triadic']) for (const extreme of [0, 100]) {
+    await editor.getByLabel('Appearance', { exact: true }).selectOption(mode);
+    await editor.getByLabel('Color harmony', { exact: true }).selectOption(harmony);
+    await setRange(editor.getByRole('slider', { name: 'Hue', exact: true }), extreme === 0 ? 0 : 360);
+    await setRange(editor.getByRole('slider', { name: 'Saturation', exact: true }), extreme);
+    await setRange(editor.getByRole('slider', { name: 'Brightness', exact: true }), extreme);
+    const vars = await themeVars(page);
+    const channels = (key: string) => vars[key]!.slice(1).match(/.{2}/g)?.map(channel => parseInt(channel, 16)) ?? [];
+    const [badR = 0, badG = 0, badB = 0] = channels('--bad');
+    const [goodR = 0, goodG = 0, goodB = 0] = channels('--good');
+    const [reviewR = 0, reviewG = 0, reviewB = 0] = channels('--review');
+    const [queuedR = 0, queuedG = 0, queuedB = 0] = channels('--queued');
+    expect(badR).toBeGreaterThan(Math.max(badG, badB));
+    expect(goodG).toBeGreaterThan(Math.max(goodR, goodB));
+    expect(reviewB).toBeGreaterThan(Math.max(reviewR, reviewG));
+    expect(Math.min(queuedR, queuedG)).toBeGreaterThan(queuedB);
+    const result = await inputThemeContrast(page, ['[data-key="CUSTOM_NOTE"] input']);
+    expect(result.body).toBeGreaterThanOrEqual(4.5);
+    expect(result.button).toBeGreaterThanOrEqual(4.5);
+    expect(result.command).toBeGreaterThanOrEqual(4.5);
+    expect(result.controls[0]?.value).toBeGreaterThanOrEqual(4.5);
+    expect(result.controls[0]?.caret).toBeGreaterThanOrEqual(4.5);
+  }
 });

@@ -293,16 +293,20 @@ describe('registered plugin page integration', () => {
     expect(plugin.dispose).not.toHaveBeenCalled();
   });
 
-  it('forwards the host theme-change event to the mounted module', async () => {
+  it('updates shared theme colors without remounting a plugin', async () => {
     const plugin = sample();
     register(plugin);
     await start();
-    const control = document.createElement('select');
-    control.className = 'theme-select';
-    control.innerHTML = '<option value="abyss">Abyss</option>';
+    const originalAccent = document.documentElement.style.getPropertyValue('--accent');
+    const control = document.createElement('input');
+    control.type = 'range';
+    control.max = '360';
+    control.dataset.customThemeSetting = 'hue';
+    control.value = '280';
     document.querySelector('.helm-head')?.append(control);
-    control.dispatchEvent(new Event('change', { bubbles: true }));
-    await vi.waitFor(() => expect(plugin.states.at(-1)?.themeId).toBe('abyss'));
+    control.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(document.documentElement.style.getPropertyValue('--accent')).not.toBe(originalAccent);
+    expect(plugin.states.at(-1)?.themeId).toBe('custom');
     expect(plugin.mount).toHaveBeenCalledOnce();
   });
 

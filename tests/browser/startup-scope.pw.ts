@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette } from '../../src/data/themeGenerator';
 
-for (const theme of ['field-guide', 'github-light', 'quarterdeck']) for (const width of [1440, 390]) test(`startup requires and remembers a scope in ${theme} at ${width}px`, async ({ page }) => {
+for (const mode of ['dark', 'light'] as const) for (const width of [1440, 390]) test(`startup requires and remembers a scope in ${mode} at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
-  if (theme !== 'field-guide') await page.addInitScript(value => localStorage.setItem('cmux.theme', value), theme);
+  const recipe = { settings: DEFAULT_THEME_GENERATOR_SETTINGS, overrides: {} };
+  await page.addInitScript(value => localStorage.setItem('cmux.theme.custom', value), JSON.stringify({ version: 3, palette: generateThemePalette(recipe.settings, mode), recipe }));
   const requests: string[] = [];
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname; requests.push(path);
@@ -31,7 +33,7 @@ for (const theme of ['field-guide', 'github-light', 'quarterdeck']) for (const w
   expect(requests.every(path => ['/api/plugins/catalog', '/api/context'].includes(path))).toBe(true);
   await expect(page.locator('[name="startupRepo"]')).toHaveValue('');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await expect(page).toHaveScreenshot(`startup-scope-${theme}-${width}.png`);
+  await expect(page).toHaveScreenshot(`startup-scope-${mode}-${width}.png`);
   await page.locator('[name="startupRepo"]').selectOption('org/b'); await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.locator('.repo-select')).toHaveValue('org/b');
   await page.goto('/config'); await expect(page.locator('.repo-select')).toHaveValue('org/b'); await expect(page.locator('.startup-scope')).toHaveCount(0);

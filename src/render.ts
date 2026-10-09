@@ -9,7 +9,6 @@ import { escapeHtml as esc } from './logic/html';
 import { PRE_PR_CONFIG_KEYS } from './logic/prePrSettings';
 
 import type { UiConfig } from './data/config';
-import { CUSTOM_THEME_ID, THEMES } from './data/themes';
 
 
 export const CONFIG_HELP: Record<string, string> = {
@@ -212,7 +211,6 @@ export interface ConfigViewOpts {
   error?: string | null;
   unavailable?: boolean;
   customTheme?: CustomThemeEditorState;
-  themePreferenceSaved?: boolean;
 }
 
 function configRowsHtml(uiConfig: UiConfig): string {
@@ -239,19 +237,11 @@ function configRowsHtml(uiConfig: UiConfig): string {
 }
 
 
-function configCustomizationPanel(themeId: string, customTheme?: CustomThemeEditorState, themePreferenceSaved = true): string {
-  const themeOptions = THEMES.map(
-    (theme) => `<option value="${esc(theme.id)}"${theme.id === themeId ? ' selected' : ''}>${esc(theme.label)}</option>`,
-  ).join('');
+function configCustomizationPanel(customTheme?: CustomThemeEditorState): string {
   return `      <section class="panel config-panel ui-customization-panel" aria-labelledby="ui-customization-title">
         <div class="panel-head"><span class="panel-title" id="ui-customization-title">UI customization</span></div>
         <div class="ui-customization-body">
-          <div class="ui-theme-control">
-            <label for="ui-theme">Theme</label>
-            <select id="ui-theme" class="theme-select" aria-describedby="ui-theme-help">${themeOptions}</select>
-            <p id="ui-theme-help">${themePreferenceSaved ? 'Applies immediately. Saved in this browser.' : 'Applied for this session. Browser storage is unavailable.'}</p>
-          </div>
-          <div data-custom-theme-editor${themeId === CUSTOM_THEME_ID ? '' : ' hidden'}>${renderCustomThemeEditor(customTheme)}</div>
+          <div data-custom-theme-editor>${renderCustomThemeEditor(customTheme)}</div>
           ${renderThemePreview()}
           <div class="ui-terminology-settings">
             <div class="ui-terminology-copy">
@@ -265,7 +255,7 @@ function configCustomizationPanel(themeId: string, customTheme?: CustomThemeEdit
 }
 
 export function renderConfigView(uiConfig: UiConfig, opts: ConfigViewOpts): string {
-  const customization = configCustomizationPanel(opts.themeId, opts.customTheme, opts.themePreferenceSaved);
+  const customization = configCustomizationPanel(opts.customTheme);
   const intro = `<header class="page-intro"><h1>Config</h1><p>Configure work sources, integrations, and ${term('agent').toLowerCase()} defaults. Save each setting separately.</p></header>`;
   const status = `${opts.error ? `<div class="config-load-error degraded-banner" role="alert">${esc(opts.error)}${opts.unavailable ? '' : ' Showing the last loaded settings.'} <button type="button" data-config-retry${opts.loading ? ' disabled' : ''}>Try again</button></div>` : ''}${opts.loading ? '<p class="empty-note" role="status">Loading configuration…</p>' : ''}`;
   if (opts.unavailable) {

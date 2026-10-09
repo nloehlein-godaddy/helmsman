@@ -1,306 +1,64 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import {
-  applyTheme,
-  createCustomTheme,
-  CUSTOM_THEME_FIELDS,
-  CUSTOM_THEME_STORAGE_KEY,
-  customThemeFromPalette,
-  DEFAULT_THEME_ID,
-  getTheme,
-  loadThemeId,
-  loadCustomTheme,
-  saveCustomTheme,
-  saveThemeId,
-  THEMES,
-  REQUIRED_VAR_KEYS,
-  type Theme,
-  type CustomThemePalette,
-} from './themes';
-
-const stylesheet = readFileSync('src/style.css', 'utf8');
-const rootStyles = stylesheet.match(/:root\s*\{([^}]+)\}/)?.[1];
-if (!rootStyles) throw new Error('Missing fallback theme styles');
-const fallbackVars = Object.fromEntries(Array.from(rootStyles.matchAll(/(--[\w-]+):\s*([^;]+);/g), match => [match[1], match[2]?.trim()]));
-const resolvedFallbackVars = Object.fromEntries(Object.entries(fallbackVars).map(([key, value]) => {
-  const reference = value?.match(/^var\((--[\w-]+)\)$/)?.[1];
-  return [key, reference ? fallbackVars[reference] ?? '' : value ?? ''];
-}));
-const themePalettes = THEMES.map(theme => ({ ...theme, vars: theme.id === 'amber' ? resolvedFallbackVars : theme.vars }));
+import { applyCustomTheme, CUSTOM_THEME_FIELDS, CUSTOM_THEME_STORAGE_KEY, customThemeFromPalette, DEFAULT_THEME_ID, loadCustomTheme, loadCustomThemeRecipe, REQUIRED_VAR_KEYS, saveCustomTheme, type CustomThemePalette } from './themes';
+import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, type ThemeGeneratorRecipe } from './themeGenerator';
 
 function luminance(hex: string): number {
-  const channels: number[] = (hex.match(/[a-f\d]{2}/gi) ?? []).map((channel) => {
-    const value: number = parseInt(channel, 16) / 255;
+  const channels = (hex.match(/[a-f\d]{2}/gi) ?? []).map(channel => {
+    const value = parseInt(channel, 16) / 255;
     return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
   });
-  const [r = 0, g = 0, b = 0] = channels;
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return 0.2126 * (channels[0] ?? 0) + 0.7152 * (channels[1] ?? 0) + 0.0722 * (channels[2] ?? 0);
 }
 
-function contrast(foreground: string, background: string): number {
-  const lighter = Math.max(luminance(foreground), luminance(background));
-  const darker = Math.min(luminance(foreground), luminance(background));
-  return (lighter + 0.05) / (darker + 0.05);
+function contrast(first: string, second: string): number {
+  return (Math.max(luminance(first), luminance(second)) + 0.05) / (Math.min(luminance(first), luminance(second)) + 0.05);
 }
 
-function compositeBorder(border: string, background: string): string {
-  const rgba = /^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/.exec(border);
-  if (!rgba || !/^#[a-f\d]{6}$/i.test(background)) {
-    throw new Error(`Unsupported border/background: ${border} / ${background}`);
-  }
-  const alpha = Number(rgba[4]);
-  return '#' + [0, 1, 2].map(index => {
-    const foregroundChannel = Number(rgba[index + 1]);
-    const backgroundChannel = parseInt(background.slice(1 + index * 2, 3 + index * 2), 16);
-    return Math.round(foregroundChannel * alpha + backgroundChannel * (1 - alpha)).toString(16).padStart(2, '0');
-  }).join('');
-}
+const defaultPalette = () => generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'dark');
+const defaultRecipe = (): ThemeGeneratorRecipe => ({ settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} });
 
-describe('THEMES data', () => {
-  it('has unique ids', () => {
-    const ids: string[] = THEMES.map((t) => t.id);
-    expect(new Set(ids).size).toBe(ids.length);
+describe('generated theme roles', () => {
+  it('supplies every required role for the sole custom theme', () => {
+    const theme = customThemeFromPalette(defaultPalette());
+    expect(theme.id).toBe(DEFAULT_THEME_ID);
+    expect(theme.id).toBe('custom');
+    for (const key of REQUIRED_VAR_KEYS) expect(theme.vars[key], key).toBeTruthy();
+    expect(CUSTOM_THEME_FIELDS.map(field => field.key)).toContain('controlBg');
   });
 
-  it('lists Field Guide first as the default theme', () => {
-    expect(THEMES[0]?.id).toBe('field-guide');
-    expect(THEMES[0]?.id).toBe(DEFAULT_THEME_ID);
-    expect(THEMES[0]?.mode).toBe('dark');
-  });
-
-  it('has at least 11 presets', () => {
-    expect(THEMES.length).toBeGreaterThanOrEqual(11);
-  });
-
-  it('getTheme resolves the default theme id', () => {
-    expect(getTheme(DEFAULT_THEME_ID)?.id).toBe(DEFAULT_THEME_ID);
-  });
-
-  it('getTheme returns undefined for an unknown id', () => {
-    expect(getTheme('does-not-exist')).toBeUndefined();
-  });
-
-  it('GUARD: every non-amber theme defines every required role variable', () => {
-    const nonAmber: Theme[] = THEMES.filter((t) => t.id !== 'amber');
-    expect(nonAmber.length).toBeGreaterThan(0);
-    for (const theme of nonAmber) {
-      const keys: string[] = Object.keys(theme.vars).sort();
-      expect(keys, `theme "${theme.id}" var keys`).toEqual([...REQUIRED_VAR_KEYS].sort());
-    }
-  });
-
-  it('EXEMPTION: amber is exempt from the role guard because it applies by clearing overrides', () => {
-    const amber: Theme | undefined = getTheme('amber');
-    expect(amber).toBeDefined();
-    expect(Object.keys(amber!.vars).length).toBe(0);
-  });
-
-  it('uses neutral dividers independently of the action accent', () => {
-    const dracula = getTheme('dracula');
-    expect(dracula?.vars['--line']).toBe('rgba(184, 184, 192, 0.32)');
-    expect(dracula?.vars['--line-strong']).toBe('rgba(184, 184, 192, 0.72)');
-    expect(dracula?.vars['--line-faint']).toBe('rgba(184, 184, 192, 0.18)');
-    expect(dracula?.vars['--secondary']).not.toBe(dracula?.vars['--accent']);
-  });
-
-  it('sets --accent-plate equal to --accent for every non-amber theme', () => {
-    for (const theme of THEMES.filter((t) => t.id !== 'amber')) {
-      expect(theme.vars['--accent-plate']).toBe(theme.vars['--accent']);
-    }
-  });
-
-  it('includes both dark and light modes', () => {
-    const modes: Set<string> = new Set(THEMES.map((t) => t.mode));
-    expect(modes.has('dark')).toBe(true);
-    expect(modes.has('light')).toBe(true);
-  });
-
-  it.each(THEMES.filter(theme => theme.id !== 'amber'))('$id keeps navigation labels readable on idle and selected surfaces', theme => {
-    for (const foreground of ['--nav-text', '--nav-muted']) {
-      for (const background of ['--nav-bg', '--nav-active']) {
-        expect(contrast(theme.vars[foreground] ?? '', theme.vars[background] ?? ''), `${theme.id}: ${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
-      }
-    }
-  });
-
-  it.each(themePalettes)(
-    '$id keeps control outlines distinguishable from each control surface',
-    theme => {
-      const border = theme.vars['--line-strong'] ?? '';
-      for (const surface of ['--panel', '--panel-2', '--panel-hi']) {
-        const background = theme.vars[surface] ?? '';
-        expect(contrast(compositeBorder(border, background), background), `${theme.id}: control outline on ${surface}`).toBeGreaterThanOrEqual(3);
-      }
-    },
-  );
-
-  it.each(themePalettes)(
-    '$id separates editable fields while keeping their text and boundaries legible',
-    theme => {
-      const background = theme.vars['--control-bg'] ?? '';
-      const border = theme.vars['--control-border'] ?? '';
-      expect(background).toMatch(/^#[a-f\d]{6}$/i);
-      expect(border).toMatch(/^#[a-f\d]{6}$/i);
-      for (const foreground of ['--text', '--text-dim', '--text-faint']) {
-        expect(contrast(theme.vars[foreground] ?? '', background), `${theme.id}: ${foreground} in input`).toBeGreaterThanOrEqual(4.5);
-      }
-      for (const surface of ['--panel', '--panel-2']) {
-        expect(contrast(background, theme.vars[surface] ?? ''), `${theme.id}: input fill on ${surface}`).toBeGreaterThanOrEqual(1.1);
-      }
-      for (const surface of ['--panel', '--panel-2', '--panel-hi']) {
-        expect(contrast(border, theme.vars[surface] ?? ''), `${theme.id}: input boundary on ${surface}`).toBeGreaterThanOrEqual(3);
-      }
-      expect(contrast(border, background), `${theme.id}: input boundary against fill`).toBeGreaterThanOrEqual(3);
-      expect(contrast(theme.vars['--accent'] ?? '', background), `${theme.id}: input focus against fill`).toBeGreaterThanOrEqual(3);
-    },
-  );
-
-  it.each(themePalettes)(
-    '$id keeps labels readable on filled actions and success statuses',
-    theme => {
-      for (const [foreground, background] of [['--on-accent', '--accent'], ['--on-good', '--good']] as const) {
-        expect(contrast(theme.vars[foreground] ?? '', theme.vars[background] ?? ''), `${theme.id}: ${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
-      }
-    },
-  );
-
-  it.each(themePalettes)(
-    '$id separates its page from its main panel surface',
-    theme => {
-      expect(contrast(theme.vars['--bg'] ?? '', theme.vars['--panel'] ?? ''), `${theme.id}: page versus panel`).toBeGreaterThanOrEqual(1.05);
-    },
-  );
-
-  it.each(themePalettes)(
-    '$id keeps text, accents, and status colors readable across its surfaces',
-    (theme) => {
-      const { id } = theme;
-      const foregrounds: string[] = ['--text', '--text-dim', '--text-faint', '--accent', '--secondary', '--bad', '--good', '--review', '--queued'];
-      const backgrounds: string[] = ['--bg', '--gutter', '--panel', '--panel-2', '--panel-hi'];
-      for (const foreground of foregrounds) {
-        for (const background of backgrounds) {
-          const foregroundHex: string = theme.vars[foreground] ?? '';
-          const backgroundHex: string = theme.vars[background] ?? '';
-          expect(foregroundHex).toMatch(/^#[a-f\d]{6}$/i);
-          expect(backgroundHex).toMatch(/^#[a-f\d]{6}$/i);
-          const lighter: number = Math.max(luminance(foregroundHex), luminance(backgroundHex));
-          const darker: number = Math.min(luminance(foregroundHex), luminance(backgroundHex));
-          expect((lighter + 0.05) / (darker + 0.05), `${id}: ${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
+  it.each(['dark', 'light'] as const)('keeps all text and semantic roles readable in generated %s palettes', mode => {
+    for (const hue of [0, 95, 165, 255, 359]) {
+      for (const saturation of [0, 100]) {
+        for (const brightness of [0, 100]) {
+          const palette = generateThemePalette({ hue, saturation, brightness, harmony: 'triadic' }, mode);
+          const { vars } = customThemeFromPalette(palette);
+          for (const role of ['--text', '--text-dim', '--text-faint', '--accent-text', '--accent-text-hover', '--secondary-text', '--bad', '--good', '--review', '--queued']) {
+            for (const surface of ['--bg', '--gutter', '--panel', '--panel-2', '--panel-hi']) {
+              expect(contrast(vars[role]!, vars[surface]!), `${mode} ${hue}/${saturation}/${brightness} ${role} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+            }
+          }
+          expect(contrast(vars['--on-accent']!, vars['--accent']!)).toBeGreaterThanOrEqual(4.5);
+          expect(contrast(vars['--on-good']!, vars['--good']!)).toBeGreaterThanOrEqual(4.5);
+          expect(contrast(vars['--section-nav-text']!, vars['--section-nav-bg']!)).toBeGreaterThanOrEqual(4.5);
+          expect(contrast(vars['--section-nav-text']!, vars['--section-nav-hover']!)).toBeGreaterThanOrEqual(4.5);
         }
       }
-    },
-  );
-});
-
-describe('section navigation colors', () => {
-  it.each(themePalettes)('$id uses the most distinct theme accent and readable navigation ink', theme => {
-    const surfaces = ['--nav-bg', '--gutter', '--bg', '--panel'].map(key => theme.vars[key] ?? theme.vars['--gutter']!);
-    const score = (color: string) => Math.min(...surfaces.map(surface => contrast(color, surface)));
-    const background = theme.vars['--section-nav-bg']!;
-    expect([theme.vars['--accent'], theme.vars['--secondary']]).toContain(background);
-    expect(score(background)).toBeGreaterThanOrEqual(Math.max(score(theme.vars['--accent']!), score(theme.vars['--secondary']!)));
-    expect(contrast(theme.vars['--section-nav-text']!, background)).toBeGreaterThanOrEqual(4.5);
-    expect(contrast(theme.vars['--section-nav-ink']!, theme.vars['--section-nav-selected']!)).toBeGreaterThanOrEqual(4.5);
-    if (theme.id !== 'amber') expect(contrast(theme.vars['--section-nav-text']!, theme.vars['--section-nav-hover']!)).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it.each([
-    { accent: '#ffffff', secondary: '#777777', expected: '#ffffff' },
-    { accent: '#777777', secondary: '#ffffff', expected: '#ffffff' },
-    { accent: '#cccccc', secondary: '#cccccc', expected: '#cccccc' },
-  ])('recomputes custom navigation from the palette %j', ({ expected, ...colors }) => {
-    const theme = customThemeFromPalette({ ...createCustomTheme('field-guide'), ...colors });
-    expect(theme.vars['--section-nav-bg']).toBe(expected);
-  });
-});
-
-describe('custom theme text contrast', () => {
-  const surfaces = ['--bg', '--gutter', '--panel', '--panel-2', '--panel-hi'];
-  const textRoles = ['--text', '--text-dim', '--text-faint', '--accent-text', '--accent-text-hover', '--secondary-text'];
-
-  it.each([
-    { preset: 'field-guide', accent: '#44005c', good: '#143a24', ink: '#ffffff' },
-    { preset: 'github-light', accent: '#ffff00', good: '#aaff88', ink: '#000000' },
-  ])('chooses filled-action ink from the actual colors for $preset', ({ preset, accent, good, ink }) => {
-    const palette = { ...createCustomTheme(preset), accent, good };
-    const theme = customThemeFromPalette(palette);
-    expect(theme.vars['--accent']).toBe(accent);
-    expect(theme.vars['--good']).toBe(good);
-    expect(theme.vars['--on-accent']).toBe(ink);
-    expect(theme.vars['--on-good']).toBe(ink);
-    expect(contrast(theme.vars['--on-accent']!, accent)).toBeGreaterThanOrEqual(4.5);
-    expect(contrast(theme.vars['--on-good']!, good)).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it.each(['field-guide', 'github-light'])('derives readable text without changing the selected palette in %s', preset => {
-    const palette = {
-      ...createCustomTheme(preset),
-      accent: '#44005c', secondary: '#666666', text: '#555555', textDim: '#666666', textFaint: '#777777',
-    };
-    const original = { ...palette };
-    const theme = customThemeFromPalette(palette);
-    for (const foreground of textRoles) {
-      for (const background of surfaces) {
-        expect(contrast(theme.vars[foreground]!, theme.vars[background]!), `${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
-      }
     }
-    for (const foreground of ['--nav-text', '--nav-muted']) {
-      for (const background of ['--nav-bg', '--nav-active']) {
-        expect(contrast(theme.vars[foreground]!, theme.vars[background]!)).toBeGreaterThanOrEqual(4.5);
-      }
+  });
+
+  it.each(['dark', 'light'] as const)('keeps independently overridden inputs readable in %s mode', mode => {
+    for (const controlBg of ['#ffffff', '#000000', '#777777', '#44005c']) {
+      const palette = generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, mode, { controlBg, accent: '#44005c' });
+      const theme = customThemeFromPalette(palette);
+      for (const role of ['--input-text', '--input-placeholder', '--input-accent']) expect(contrast(theme.vars[role]!, controlBg)).toBeGreaterThanOrEqual(4.5);
+      expect(theme.vars['--control-bg']).toBe(controlBg);
+      expect(palette.controlBg).toBe(controlBg);
     }
-    expect(theme.vars['--accent']).toBe(palette.accent);
-    expect(theme.vars['--secondary']).toBe(palette.secondary);
-    expect(palette).toEqual(original);
   });
 
-  it('lightens the pictured purple text on the dark custom panel', () => {
-    const palette = {
-      ...createCustomTheme('field-guide'),
-      bg: '#061216', gutter: '#061216', panel: '#061216', panel2: '#061216', panelHi: '#061216', accent: '#44005c',
-    };
-    const theme = customThemeFromPalette(palette);
-    expect(luminance(theme.vars['--accent-text']!)).toBeGreaterThan(luminance(palette.accent));
-    expect(contrast(theme.vars['--accent-text']!, palette.panel)).toBeGreaterThanOrEqual(4.5);
-    expect(theme.vars['--on-accent']).toBe('#ffffff');
-  });
-
-  it.each([
-    { preset: 'field-guide', controlBg: '#ffffff' },
-    { preset: 'github-light', controlBg: '#000000' },
-    { preset: 'field-guide', controlBg: '#777777' },
-  ])('keeps input and page text independently readable with $controlBg inputs on $preset', ({ preset, controlBg }) => {
-    const palette = { ...createCustomTheme(preset), controlBg };
-    const theme = customThemeFromPalette(palette);
-    expect(theme.vars['--control-bg']).toBe(controlBg);
-    for (const role of ['--input-text', '--input-placeholder']) {
-      expect(contrast(theme.vars[role]!, controlBg)).toBeGreaterThanOrEqual(4.5);
-    }
-    for (const role of textRoles) {
-      for (const background of surfaces) {
-        expect(contrast(theme.vars[role]!, theme.vars[background]!), `${role} on ${background}`).toBeGreaterThanOrEqual(4.5);
-      }
-    }
-    expect(palette.controlBg).toBe(controlBg);
-  });
-
-  it('keeps already readable custom text unchanged', () => {
-    const palette = createCustomTheme('field-guide');
-    const theme = customThemeFromPalette(palette);
-    expect(theme.vars['--accent-text']).toBe(palette.accent);
-    expect(theme.vars['--secondary-text']).toBe(palette.secondary);
-    expect(theme.vars['--text']).toBe(palette.text);
-    expect(theme.vars['--text-dim']).toBe(palette.textDim);
-    expect(theme.vars['--text-faint']).toBe(palette.textFaint);
-  });
-
-  it('corrects a near-threshold gray using the closest passing derived shade', () => {
-    const palette = {
-      ...createCustomTheme('github-light'),
-      bg: '#ffffff', gutter: '#ffffff', panel: '#ffffff', panel2: '#ffffff', panelHi: '#ffffff', text: '#777777',
-    };
-    const theme = customThemeFromPalette(palette);
-    const derived = theme.vars['--text']!;
+  it('corrects near-threshold text with the closest passing derived gray', () => {
+    const palette = { ...defaultPalette(), bg: '#ffffff', gutter: '#ffffff', panel: '#ffffff', panel2: '#ffffff', panelHi: '#ffffff', text: '#777777' };
+    const derived = customThemeFromPalette(palette).vars['--text']!;
     expect(contrast(derived, palette.panel)).toBeGreaterThanOrEqual(4.5);
     const channel = parseInt(derived.slice(1, 3), 16);
     const lighter = '#' + (channel + 1).toString(16).padStart(2, '0').repeat(3);
@@ -308,210 +66,94 @@ describe('custom theme text contrast', () => {
     expect(palette.text).toBe('#777777');
   });
 
-  it('keeps impossible mixed surfaces unchanged and produces deterministic bounded text', () => {
-    const palette = { ...createCustomTheme('field-guide'), bg: '#000000', panel: '#ffffff', panelHi: '#777777', accent: '#44005c' };
+  it('bounds impossible mixed-surface contrast deterministically without changing saved colors', () => {
+    const palette = { ...defaultPalette(), bg: '#000000', panel: '#ffffff', panelHi: '#777777', accent: '#44005c' };
     const first = customThemeFromPalette(palette);
     expect(customThemeFromPalette(palette)).toEqual(first);
     expect(first.vars['--bg']).toBe(palette.bg);
     expect(first.vars['--panel']).toBe(palette.panel);
-    expect(first.vars['--panel-hi']).toBe(palette.panelHi);
     expect(first.vars['--accent-text']).toMatch(/^#[a-f\d]{6}$/i);
-    expect(Math.min(...surfaces.map(background => contrast(first.vars['--accent-text']!, first.vars[background]!)))).toBeLessThan(4.5);
+    expect(Math.min(...[palette.bg, palette.panel, palette.panelHi].map(surface => contrast(first.vars['--accent-text']!, surface)))).toBeLessThan(4.5);
+  });
+
+  it('chooses filled ink for the actual fill and preserves raw fills', () => {
+    for (const accent of ['#44005c', '#ffff00']) {
+      const theme = customThemeFromPalette({ ...defaultPalette(), accent });
+      expect(theme.vars['--accent']).toBe(accent);
+      expect(contrast(theme.vars['--on-accent']!, accent)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
 
-describe('loadThemeId / saveThemeId', () => {
-  let store: Record<string, string> = {};
-
+describe('atomic generated theme storage', () => {
+  let values: Map<string, string>;
   beforeEach(() => {
-    store = {};
-    (globalThis as { localStorage: Storage }).localStorage = {
-      getItem: (key: string): string | null => store[key] ?? null,
-      setItem: (key: string, value: string): void => {
-        store[key] = value;
-      },
-      removeItem: (key: string): void => {
-        delete store[key];
-      },
-      clear: (): void => {
-        store = {};
-      },
-      key: (): string | null => null,
-      length: 0,
-    } as Storage;
+    values = new Map();
+    vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
   });
+  afterEach(() => vi.unstubAllGlobals());
 
-  afterEach(() => {
-    store = {};
-    vi.restoreAllMocks();
-  });
-
-  it('returns the default theme id when nothing is stored', () => {
-    expect(loadThemeId()).toBe(DEFAULT_THEME_ID);
-  });
-
-  it('returns the default theme id when the stored value is unknown', () => {
-    store['cmux.theme'] = 'not-a-real-theme';
-    expect(loadThemeId()).toBe(DEFAULT_THEME_ID);
-  });
-
-  it('returns a valid stored theme id', () => {
-    store['cmux.theme'] = 'nord';
-    expect(loadThemeId()).toBe('nord');
-  });
-
-  it('saveThemeId persists the id for loadThemeId to read back', () => {
-    expect(saveThemeId('dracula')).toBe(true);
-    expect(store['cmux.theme']).toBe('dracula');
-    expect(loadThemeId()).toBe('dracula');
-  });
-
-  it('stores exactly one custom palette and derives it when selected', () => {
-    const palette = { ...createCustomTheme('github-light'), accent: '#123456' };
-    expect(saveCustomTheme(palette)).toBe(true);
-    saveThemeId('custom');
-    expect(loadThemeId()).toBe('custom');
+  it('saves exact palette and recipe together as version 3', () => {
+    const recipe: ThemeGeneratorRecipe = { settings: { hue: 275, saturation: 80, brightness: 60, harmony: 'complementary' }, overrides: { controlBg: '#ffffff', accent: '#44005c' } };
+    const palette = generateThemePalette(recipe.settings, 'light', recipe.overrides);
+    expect(saveCustomTheme(palette, recipe)).toBe(true);
+    expect(JSON.parse(values.get(CUSTOM_THEME_STORAGE_KEY)!)).toEqual({ version: 3, palette, recipe });
     expect(loadCustomTheme()).toEqual(palette);
-    expect(getTheme('custom')).toEqual(customThemeFromPalette(palette));
-    expect(JSON.parse(store[CUSTOM_THEME_STORAGE_KEY] ?? '{}')).toEqual({ version: 2, palette });
-    const replacement = createCustomTheme('nord');
-    expect(saveCustomTheme(replacement)).toBe(true);
-    expect(loadCustomTheme()).toEqual(replacement);
-    expect(Object.keys(store)).toEqual([CUSTOM_THEME_STORAGE_KEY, 'cmux.theme']);
+    expect(loadCustomThemeRecipe()).toEqual(recipe);
+    recipe.overrides.controlBg = '#000000';
+    expect(loadCustomThemeRecipe()?.overrides.controlBg).toBe('#ffffff');
+    expect(values.size).toBe(1);
   });
 
-  it.each(['nord', 'github-light'])('preserves version 1 %s palettes with their original input fill', preset => {
-    const original = { ...createCustomTheme(preset), accent: '#345678', panel: '#345678' };
-    const { controlBg: _controlBg, ...legacy } = original;
-    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette: legacy });
-    const migrated = loadCustomTheme();
-    const amount = legacy.mode === 'light' ? 0.1 : 0.65;
-    const expectedFill = '#' + ['34', '56', '78'].map(channel => Math.round(parseInt(channel, 16) * (1 - amount)).toString(16).padStart(2, '0')).join('');
-    expect(migrated).toEqual({ ...legacy, controlBg: expectedFill });
-    expect(customThemeFromPalette(migrated).vars['--control-bg']).toBe(expectedFill);
-    expect(JSON.parse(store[CUSTOM_THEME_STORAGE_KEY]!)).toEqual({ version: 1, palette: legacy });
-    expect(saveCustomTheme(migrated)).toBe(true);
-    expect(JSON.parse(store[CUSTOM_THEME_STORAGE_KEY]!)).toEqual({ version: 2, palette: migrated });
-  });
-
-  it('requires the new input color in version 2 and rejects unknown legacy fields', () => {
-    const { controlBg: _controlBg, ...legacy } = createCustomTheme('nord');
-    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 2, palette: legacy });
-    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
-    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette: { ...legacy, unknown: '#123456' } });
-    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
-    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette: { ...legacy, panel: 'red' } });
-    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
-  });
-
-  it.each(THEMES.filter(theme => theme.id !== 'amber' && theme.id !== 'custom'))('$id seeds editable inputs with its existing preset fill', preset => {
-    const palette = createCustomTheme(preset.id);
-    expect(palette.controlBg).toBe(preset.vars['--control-bg']);
-    expect(CUSTOM_THEME_FIELDS).toContainEqual({ key: 'controlBg', label: 'Input background' });
-  });
-
-  it('provides all editable anchors without retaining preset identity', () => {
-    const palette = createCustomTheme('nord');
-    expect(Object.keys(palette).sort()).toEqual(['mode', ...CUSTOM_THEME_FIELDS.map(field => field.key)].sort());
-    expect(palette).not.toHaveProperty('id');
-    expect(palette).not.toHaveProperty('label');
-    expect(createCustomTheme('amber')).toEqual(createCustomTheme(DEFAULT_THEME_ID));
-    expect(createCustomTheme('missing')).toEqual(createCustomTheme(DEFAULT_THEME_ID));
-  });
-
-  it.each(['not JSON', 'null', '[]', '{"version":2,"palette":{}}', '{"version":1,"palette":{}}'])('falls back safely for corrupt stored palette %s', raw => {
-    store[CUSTOM_THEME_STORAGE_KEY] = raw;
-    store['cmux.theme'] = 'custom';
-    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
-    expect(getTheme(loadThemeId())?.id).toBe('custom');
+  it.each([1, 2])('discards version %s themes instead of retaining obsolete themes', version => {
+    values.set(CUSTOM_THEME_STORAGE_KEY, JSON.stringify({ version, palette: { ...defaultPalette(), accent: '#44005c' } }));
+    expect(loadCustomTheme()).toEqual(defaultPalette());
+    expect(loadCustomThemeRecipe()).toBeUndefined();
   });
 
   it.each([
-    { accent: '#fff' },
-    { accent: 'red' },
-    { accent: '#123456;display:none' },
-    { mode: 'auto' },
-    { unknown: '#123456' },
-    { text: null },
-    { controlBg: '#fff' },
-    { controlBg: '#ffffff;display:none' },
-    { controlBg: null },
-  ])('rejects invalid palette changes %j without replacing saved data', changes => {
-    const original = createCustomTheme('nord');
-    saveCustomTheme(original);
-    const invalid = { ...original, ...changes } as CustomThemePalette;
-    expect(saveCustomTheme(invalid)).toBe(false);
-    expect(loadCustomTheme()).toEqual(original);
-    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette: invalid });
-    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+    '{',
+    JSON.stringify({ version: 3, palette: defaultPalette() }),
+    JSON.stringify({ version: 3, palette: defaultPalette(), recipe: defaultRecipe(), extra: true }),
+    JSON.stringify({ version: 3, palette: { ...defaultPalette(), accent: 'red' }, recipe: defaultRecipe() }),
+    JSON.stringify({ version: 3, palette: defaultPalette(), recipe: { ...defaultRecipe(), overrides: { bad: '#000000' } } }),
+    JSON.stringify({ version: 3, palette: defaultPalette(), recipe: { ...defaultRecipe(), settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS, hue: 361 } } }),
+  ])('rejects malformed stored envelope %s', raw => {
+    values.set(CUSTOM_THEME_STORAGE_KEY, raw);
+    expect(loadCustomTheme()).toEqual(defaultPalette());
+    expect(loadCustomThemeRecipe()).toBeUndefined();
   });
 
-  it('rejects missing colors and unknown envelope keys', () => {
-    const palette = createCustomTheme('nord');
-    const { accent: _accent, ...incomplete } = palette;
-    expect(saveCustomTheme(incomplete as CustomThemePalette)).toBe(false);
-    store[CUSTOM_THEME_STORAGE_KEY] = JSON.stringify({ version: 1, palette, extra: true });
-    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
+  it('does not replace a saved theme when the new palette or recipe is invalid', () => {
+    saveCustomTheme(defaultPalette(), defaultRecipe());
+    const saved = values.get(CUSTOM_THEME_STORAGE_KEY);
+    expect(saveCustomTheme({ ...defaultPalette(), accent: 'red' }, defaultRecipe())).toBe(false);
+    expect(saveCustomTheme(defaultPalette())).toBe(false);
+    expect(saveCustomTheme({ ...defaultPalette(), bad: '#000000' }, defaultRecipe())).toBe(false);
+    expect(saveCustomTheme(defaultPalette(), { ...defaultRecipe(), overrides: { bad: '#ffffff' } } as ThemeGeneratorRecipe)).toBe(false);
+    const { controlBg: _controlBg, ...incomplete } = defaultPalette();
+    expect(saveCustomTheme(incomplete as CustomThemePalette, defaultRecipe())).toBe(false);
+    expect(values.get(CUSTOM_THEME_STORAGE_KEY)).toBe(saved);
   });
 
-  it('reports failed persistence and tolerates denied storage reads', () => {
-    vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
-    expect(saveCustomTheme(createCustomTheme('nord'))).toBe(false);
-    expect(saveThemeId('custom')).toBe(false);
-    vi.spyOn(localStorage, 'getItem').mockImplementation(() => { throw new DOMException('Access denied', 'SecurityError'); });
-    expect(loadCustomTheme()).toEqual(createCustomTheme(DEFAULT_THEME_ID));
-    expect(() => applyTheme('custom')).not.toThrow();
-  });
-
-  it('validates theme preferences and safely derives malformed preview palettes', () => {
-    expect(saveThemeId('unknown')).toBe(false);
-    expect(store['cmux.theme']).toBeUndefined();
-    const invalid = { ...createCustomTheme('nord'), accent: 'red' };
-    expect(customThemeFromPalette(invalid)).toEqual(customThemeFromPalette(createCustomTheme(DEFAULT_THEME_ID)));
+  it('reports denied writes and safely handles denied reads', () => {
+    vi.stubGlobal('localStorage', { setItem: () => { throw new Error('Denied'); }, getItem: () => { throw new Error('Denied'); } });
+    expect(saveCustomTheme(defaultPalette(), defaultRecipe())).toBe(false);
+    expect(loadCustomTheme()).toEqual(defaultPalette());
+    expect(loadCustomThemeRecipe()).toBeUndefined();
   });
 });
 
-describe('applyTheme (DOM)', () => {
-  beforeEach(() => {
-    document.documentElement.removeAttribute('style');
-    document.documentElement.removeAttribute('data-theme');
-  });
-
-  afterEach(() => {
-    document.documentElement.removeAttribute('style');
-    document.documentElement.removeAttribute('data-theme');
-  });
-
-  it('sets inline vars, dataset.theme, and colorScheme for a non-amber theme', () => {
-    applyTheme('dracula');
-    const root: HTMLElement = document.documentElement;
-    expect(root.style.getPropertyValue('--accent')).toBe(getTheme('dracula')?.vars['--accent']);
-    expect(root.dataset.theme).toBe('dracula');
-    expect(root.dataset.themeMode).toBe('dark');
-    expect(root.style.colorScheme).toBe('dark');
-  });
-
-  it('sets colorScheme to light for a light theme', () => {
-    applyTheme('github-light');
-    expect(document.documentElement.style.colorScheme).toBe('light');
-    expect(document.documentElement.dataset.theme).toBe('github-light');
-    expect(document.documentElement.dataset.themeMode).toBe('light');
-  });
-
-  it('clears all inline role vars and sets dataset.theme=amber when applying amber', () => {
-    applyTheme('dracula');
-    applyTheme('amber');
-    const root: HTMLElement = document.documentElement;
-    expect(root.style.getPropertyValue('--accent')).toBe('');
-    expect(root.style.getPropertyValue('--bg')).toBe('');
-    expect(root.dataset.theme).toBe('amber');
-    expect(root.style.colorScheme).toBe('dark');
-  });
-
-  it('falls back to the default theme for an unknown id', () => {
-    applyTheme('dracula');
-    applyTheme('nonsense-theme-id');
-    expect(document.documentElement.style.getPropertyValue('--accent')).toBe(getTheme(DEFAULT_THEME_ID)?.vars['--accent']);
-    expect(document.documentElement.dataset.theme).toBe(DEFAULT_THEME_ID);
+describe('theme document application', () => {
+  afterEach(() => { document.documentElement.removeAttribute('style'); document.documentElement.removeAttribute('data-theme'); document.documentElement.removeAttribute('data-theme-mode'); document.head.innerHTML = ''; });
+  it.each(['dark', 'light'] as const)('applies generated %s theme to document and browser chrome', mode => {
+    const palette = generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, mode);
+    document.head.innerHTML = '<meta name="theme-color">';
+    applyCustomTheme(palette);
+    expect(document.documentElement.dataset.theme).toBe('custom');
+    expect(document.documentElement.dataset.themeMode).toBe(mode);
+    expect(document.documentElement.style.colorScheme).toBe(mode);
+    for (const [key, value] of Object.entries(customThemeFromPalette(palette).vars)) expect(document.documentElement.style.getPropertyValue(key)).toBe(value);
+    expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe(palette.bg);
   });
 });

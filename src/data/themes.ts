@@ -1,3 +1,6 @@
+import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, parseThemeGeneratorRecipe, themeGeneratorBootstrapSource, type ThemeGeneratorRecipe } from './themeGenerator';
+export type { ThemeGeneratorSettings, ThemeGeneratorRecipe } from './themeGenerator';
+
 export type ThemeMode = 'dark' | 'light';
 
 export interface Theme {
@@ -7,12 +10,11 @@ export interface Theme {
   vars: Record<string, string>;
 }
 
-export const DEFAULT_THEME_ID = 'field-guide';
+export const DEFAULT_THEME_ID = 'custom';
 
-export const THEME_STORAGE_KEY = 'cmux.theme';
 export const CUSTOM_THEME_ID = 'custom';
 export const CUSTOM_THEME_STORAGE_KEY = 'cmux.theme.custom';
-export const AMBER_BACKGROUND = '#08090c';
+export const DEFAULT_THEME_BACKGROUND = generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'dark').bg;
 
 export const REQUIRED_VAR_KEYS: readonly string[] = [
   '--section-nav-bg',
@@ -32,6 +34,7 @@ export const REQUIRED_VAR_KEYS: readonly string[] = [
   '--control-bg',
   '--input-text',
   '--input-placeholder',
+  '--input-accent',
   '--control-border',
   '--line',
   '--line-strong',
@@ -95,11 +98,11 @@ export const CUSTOM_THEME_FIELDS = [
   { key: 'queued', label: 'Queued' },
 ] as const satisfies readonly { key: keyof Omit<CustomThemePalette, 'mode'>; label: string }[];
 
-function parseCustomThemePalette(value: unknown, allowLegacy = false): CustomThemePalette | undefined {
+function parseCustomThemePalette(value: unknown): CustomThemePalette | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   if (record.mode !== 'dark' && record.mode !== 'light') return undefined;
-  const colorKeys = CUSTOM_THEME_FIELDS.map(field => field.key).filter(key => !allowLegacy || Object.hasOwn(record, 'controlBg') || key !== 'controlBg');
+  const colorKeys = CUSTOM_THEME_FIELDS.map(field => field.key);
   const allowedKeys: readonly string[] = ['mode', ...colorKeys];
   const keys = Object.keys(record);
   if (keys.length !== allowedKeys.length || keys.some(key => !allowedKeys.includes(key))) return undefined;
@@ -107,21 +110,29 @@ function parseCustomThemePalette(value: unknown, allowLegacy = false): CustomThe
     if (typeof record[key] !== 'string' || !/^#[a-f\d]{6}$/i.test(record[key])) return undefined;
   }
   const palette = Object.fromEntries(['mode', ...colorKeys].map(key => [key, record[key]]));
-  if (!Object.hasOwn(palette, 'controlBg')) palette.controlBg = mixHex(palette.panel as string, 0, palette.mode === 'light' ? 0.1 : 0.65);
   return palette as unknown as CustomThemePalette;
 }
 
-function parseStoredCustomTheme(raw: string | null): CustomThemePalette | undefined {
+function parseStoredThemeRecipe(raw: string | null, generate: typeof generateThemePalette, parseRecipe: typeof parseThemeGeneratorRecipe): { palette: CustomThemePalette; recipe: ThemeGeneratorRecipe } | undefined {
   if (!raw) return undefined;
   try {
     const stored: unknown = JSON.parse(raw);
     if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return undefined;
     const record = stored as Record<string, unknown>;
-    if ((record.version !== 1 && record.version !== 2) || Object.keys(record).length !== 2) return undefined;
-    return parseCustomThemePalette(record.palette, record.version === 1);
+    if (record.version !== 3 || Object.keys(record).length !== 3) return undefined;
+    const palette = parseCustomThemePalette(record.palette);
+    const recipe = parseRecipe(record.recipe);
+    if (!palette || !recipe) return undefined;
+    const generated = generate(recipe.settings, palette.mode, recipe.overrides);
+    if (Object.keys(generated).some(key => palette[key as keyof CustomThemePalette] !== generated[key as keyof CustomThemePalette])) return undefined;
+    return { palette, recipe };
   } catch {
     return undefined;
   }
+}
+
+function parseStoredCustomTheme(raw: string | null, generate: typeof generateThemePalette, parseRecipe: typeof parseThemeGeneratorRecipe): CustomThemePalette | undefined {
+  return parseStoredThemeRecipe(raw, generate, parseRecipe)?.palette;
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -211,7 +222,7 @@ function sectionNavVars(accent: string, companion: string, surfaces: readonly st
 }
 
 function deriveVars(anchors: ThemeAnchors & { controlBg?: string }): Record<string, string> {
-  const navigation = anchors.id === 'field-guide' ? '#0a1714' : anchors.gutter;
+  const navigation = anchors.gutter;
   const controlBackground = anchors.controlBg ?? mixHex(anchors.panel, 0, anchors.mode === 'light' ? 0.1 : 0.65);
   const surfaces = [anchors.bg, anchors.gutter, anchors.panel, anchors.panel2, anchors.panelHi];
   const text = (color: string): string => anchors.id === CUSTOM_THEME_ID ? readableText(color, surfaces) : color;
@@ -221,9 +232,9 @@ function deriveVars(anchors: ThemeAnchors & { controlBg?: string }): Record<stri
   return {
     ...sectionNavVars(anchors.accent, anchors.secondary, [navigation, anchors.gutter, anchors.bg, anchors.panel]),
     '--nav-bg': navigation,
-    '--nav-text': anchors.id === 'field-guide' ? '#f2f6f3' : anchors.id === CUSTOM_THEME_ID ? readableText(anchors.text, [navigation, anchors.panelHi]) : anchors.text,
-    '--nav-muted': anchors.id === 'field-guide' ? '#a9c4b4' : anchors.id === CUSTOM_THEME_ID ? readableText(anchors.textDim, [navigation, anchors.panelHi]) : anchors.textDim,
-    '--nav-active': anchors.id === 'field-guide' ? '#26463b' : anchors.panelHi,
+    '--nav-text': readableText(anchors.text, [navigation, anchors.panelHi]),
+    '--nav-muted': readableText(anchors.textDim, [navigation, anchors.panelHi]),
+    '--nav-active': anchors.panelHi,
     '--bg': anchors.bg,
     '--gutter': anchors.gutter,
     '--panel': anchors.panel,
@@ -232,6 +243,7 @@ function deriveVars(anchors: ThemeAnchors & { controlBg?: string }): Record<stri
     '--control-bg': controlBackground,
     '--input-text': readableText(anchors.text, [controlBackground]),
     '--input-placeholder': readableText(anchors.textDim, [controlBackground]),
+    '--input-accent': readableText(anchors.accent, [controlBackground]),
     '--control-border': mixHex(anchors.textDim, 0, anchors.mode === 'light' ? 0.05 : 0.18),
     '--line': rgbaFromHex(anchors.textDim, 0.32),
     '--line-strong': rgbaFromHex(anchors.textDim, anchors.mode === 'light' ? 0.76 : 0.72),
@@ -256,161 +268,39 @@ function deriveVars(anchors: ThemeAnchors & { controlBg?: string }): Record<stri
   };
 }
 
-const THEME_ANCHORS: ThemeAnchors[] = [
-  {
-    id: 'field-guide', label: 'Field Guide', mode: 'dark',
-    bg: '#0e1b19', gutter: '#0a1412', panel: '#172a25', panel2: '#1c322c', panelHi: '#244238',
-    accent: '#82cbbb', secondary: '#96cad3', text: '#e5efe8', textDim: '#a8beb1', textFaint: '#9aafa3',
-    bad: '#ff9b88', good: '#91d2ad', review: '#a0c9ed', queued: '#e4c17e',
-  },
-  {
-    id: 'quarterdeck', label: 'Quarterdeck', mode: 'dark',
-    bg: '#0c141e', gutter: '#080e16', panel: '#192633', panel2: '#223544', panelHi: '#2b3e4e',
-    accent: '#efb86d', secondary: '#89cfca', text: '#f1eee8', textDim: '#c4c6c5', textFaint: '#acb2b3',
-    bad: '#f59986', good: '#92cdb2', review: '#8ecae6', queued: '#e6c785',
-  },
-  {
-    id: 'abyss', label: 'Abyss', mode: 'dark',
-    bg: '#0f1220', gutter: '#090c16', panel: '#1b2035', panel2: '#282e46', panelHi: '#32394f',
-    accent: '#80dbed', secondary: '#f2a6b6', text: '#f1eee8', textDim: '#c4c6c5', textFaint: '#acb2b3',
-    bad: '#ff8c9b', good: '#76ddb0', review: '#80bfff', queued: '#e4c582',
-  },
-  {
-    id: 'forest', label: 'Forest', mode: 'dark',
-    bg: '#171e1c', gutter: '#101613', panel: '#242e29', panel2: '#313c34', panelHi: '#3b463d',
-    accent: '#e5c07b', secondary: '#9bd1be', text: '#f1eee8', textDim: '#c4c6c5', textFaint: '#adb3b4',
-    bad: '#f59b8e', good: '#a6e7b2', review: '#95cedd', queued: '#e2ca87',
-  },
-  {
-    id: 'ember', label: 'Ember', mode: 'dark',
-    bg: '#1c1918', gutter: '#121110', panel: '#2b2725', panel2: '#3b3430', panelHi: '#453d37',
-    accent: '#f4a77f', secondary: '#afd0a0', text: '#f1eee8', textDim: '#c4c6c5', textFaint: '#acb2b3',
-    bad: '#ff96a4', good: '#b6d68b', review: '#90cddb', queued: '#f2ca7d',
-  },
-  {
-    id: 'aubergine', label: 'Aubergine', mode: 'dark',
-    bg: '#191724', gutter: '#12101a', panel: '#262135', panel2: '#342c43', panelHi: '#40354d',
-    accent: '#ebbcba', secondary: '#9ccfd8', text: '#f1eee8', textDim: '#c4c6c5', textFaint: '#acb2b3',
-    bad: '#ff9b93', good: '#a7d9b4', review: '#adc9fc', queued: '#e7cf94',
-  },
-  {
-    id: 'graphite', label: 'Graphite', mode: 'dark',
-    bg: '#111315', gutter: '#090b0d', panel: '#232629', panel2: '#303539', panelHi: '#3b4146',
-    accent: '#ffbc85', secondary: '#9cc9ef', text: '#f1eee8', textDim: '#c4c6c5', textFaint: '#acb2b3',
-    bad: '#ff9696', good: '#a4d5ad', review: '#a9c9f5', queued: '#e5c691',
-  },
-  {
-    id: 'phosphor', label: 'Phosphor', mode: 'dark',
-    bg: '#111716', gutter: '#0a100f', panel: '#202a27', panel2: '#303b35', panelHi: '#3a453e',
-    accent: '#bbdf83', secondary: '#c2b2f0', text: '#f1eee8', textDim: '#c4c6c5', textFaint: '#acb2b3',
-    bad: '#ff9980', good: '#a8f887', review: '#87dfd2', queued: '#dbe885',
-  },
-  {
-    id: 'dracula', label: 'Dracula', mode: 'dark',
-    bg: '#191a23', gutter: '#12131b', panel: '#282a36', panel2: '#343746', panelHi: '#3d404f',
-    accent: '#c29cf9', secondary: '#ffb86c', text: '#f8f8f2', textDim: '#b8b8c0', textFaint: '#a4adca',
-    bad: '#ff8d8d', good: '#50fa7b', review: '#8be9fd', queued: '#ffb86c',
-  },
-  {
-    id: 'nord', label: 'Nord', mode: 'dark',
-    bg: '#202630', gutter: '#191e27', panel: '#2e3440', panel2: '#3b4252', panelHi: '#434c5e',
-    accent: '#93c6d4', secondary: '#ebcb8b', text: '#eceff4', textDim: '#d8dee9', textFaint: '#b8beca',
-    bad: '#e0b2b6', good: '#adc599', review: '#abc0d5', queued: '#cfb7cb',
-  },
-  {
-    id: 'tokyo-night', label: 'Tokyo Night', mode: 'dark',
-    bg: '#13141e', gutter: '#0d0e16', panel: '#1a1b26', panel2: '#24283b', panelHi: '#2f334d',
-    accent: '#7aa2f7', secondary: '#e0af68', text: '#c0caf5', textDim: '#9aa5ce', textFaint: '#989db7',
-    bad: '#f7768e', good: '#9ece6a', review: '#7dcfff', queued: '#bb9af7',
-  },
-  {
-    id: 'one-dark', label: 'One Dark', mode: 'dark',
-    bg: '#1c2027', gutter: '#15181e', panel: '#282c34', panel2: '#343a45', panelHi: '#3e4551',
-    accent: '#77baf1', secondary: '#e5c07b', text: '#e6e8ef', textDim: '#c4c8d0', textFaint: '#b1b4ba',
-    bad: '#eb9fa5', good: '#98c379', review: '#6ec0cb', queued: '#d7a0e7',
-  },
-  {
-    id: 'gruvbox-dark', label: 'Gruvbox Dark', mode: 'dark',
-    bg: '#1d2021', gutter: '#141617', panel: '#282828', panel2: '#3c3836', panelHi: '#45403c',
-    accent: '#fabd2f', secondary: '#8ec07c', text: '#ebdbb2', textDim: '#d5c4a1', textFaint: '#b7ada3',
-    bad: '#fd9083', good: '#b8bb26', review: '#98b4aa', queued: '#db9dae',
-  },
-  {
-    id: 'monokai', label: 'Monokai', mode: 'dark',
-    bg: '#191a17', gutter: '#11120f', panel: '#272822', panel2: '#36372f', panelHi: '#414238',
-    accent: '#ff8ab3', secondary: '#a6e22e', text: '#f8f8f2', textDim: '#cfcfc2', textFaint: '#b2afa5',
-    bad: '#ff8ca8', good: '#a6e22e', review: '#66d9ef', queued: '#c09dff',
-  },
-  {
-    id: 'catppuccin-mocha', label: 'Catppuccin Mocha', mode: 'dark',
-    bg: '#11111b', gutter: '#0b0b12', panel: '#1e1e2e', panel2: '#313244', panelHi: '#3b3d50',
-    accent: '#cba6f7', secondary: '#f5c2e7', text: '#cdd6f4', textDim: '#a6adc8', textFaint: '#a8abb8',
-    bad: '#f38ba8', good: '#a6e3a1', review: '#89dceb', queued: '#f5c2e7',
-  },
-  {
-    id: 'solarized-dark', label: 'Solarized Dark', mode: 'dark',
-    bg: '#00212b', gutter: '#001a22', panel: '#073642', panel2: '#0a404b', panelHi: '#124953',
-    accent: '#69b9e8', secondary: '#e3b85f', text: '#e1e7e3', textDim: '#c0cdcd', textFaint: '#a8b4b7',
-    bad: '#ee9b99', good: '#abb94f', review: '#6cbeb8', queued: '#aaaddd',
-  },
-  {
-    id: 'solarized-light', label: 'Solarized Light', mode: 'light',
-    bg: '#eee8d5', gutter: '#e4ddc8', panel: '#fdf6e3', panel2: '#f5efd9', panelHi: '#e8e0c7',
-    accent: '#166596', secondary: '#8f4f21', text: '#4f6369', textDim: '#516269', textFaint: '#5a6262',
-    bad: '#b42927', good: '#586500', review: '#1c6a64', queued: '#565a9d',
-  },
-  {
-    id: 'github-light', label: 'GitHub Light', mode: 'light',
-    bg: '#e8edf2', gutter: '#dbe2e9', panel: '#ffffff', panel2: '#f3f6f9', panelHi: '#e5eaf0',
-    accent: '#085ec4', secondary: '#7447c6', text: '#1f2328', textDim: '#5c636b', textFaint: '#5c6269',
-    bad: '#be1f2a', good: '#177232', review: '#0550ae', queued: '#7447c6',
-  },
-];
-
-export const THEMES: Theme[] = [
-  ...THEME_ANCHORS.map((anchors): Theme => ({
-    id: anchors.id,
-    label: anchors.label,
-    mode: anchors.mode,
-    vars: deriveVars(anchors),
-  })),
-  { id: 'amber', label: 'Amber', mode: 'dark', vars: {} },
-  customThemeFromPalette(createCustomTheme(DEFAULT_THEME_ID)),
-];
-
-export function getTheme(id: string): Theme | undefined {
-  if (id === CUSTOM_THEME_ID) return customThemeFromPalette(loadCustomTheme());
-  return THEMES.find((theme) => theme.id === id);
-}
-
-export function createCustomTheme(presetId: string): CustomThemePalette {
-  if (presetId === CUSTOM_THEME_ID) return loadCustomTheme();
-  const anchors = THEME_ANCHORS.find(theme => theme.id === presetId) ?? THEME_ANCHORS[0]!;
-  const { id: _id, label: _label, ...palette } = anchors;
-  return { ...palette, controlBg: mixHex(anchors.panel, 0, anchors.mode === 'light' ? 0.1 : 0.65) };
-}
-
 export function customThemeFromPalette(palette: CustomThemePalette): Theme {
-  const validPalette = parseCustomThemePalette(palette) ?? createCustomTheme(DEFAULT_THEME_ID);
+  const validPalette = parseCustomThemePalette(palette) ?? generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'dark');
   return { id: CUSTOM_THEME_ID, label: 'Custom', mode: validPalette.mode, vars: deriveVars({ ...validPalette, id: CUSTOM_THEME_ID, label: 'Custom' }) };
 }
 
 export function loadCustomTheme(): CustomThemePalette {
   try {
     if (typeof localStorage !== 'undefined') {
-      const palette = parseStoredCustomTheme(localStorage.getItem(CUSTOM_THEME_STORAGE_KEY));
+      const palette = parseStoredCustomTheme(localStorage.getItem(CUSTOM_THEME_STORAGE_KEY), generateThemePalette, parseThemeGeneratorRecipe);
       if (palette) return palette;
     }
   } catch {}
-  return createCustomTheme(DEFAULT_THEME_ID);
+  return generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'dark');
 }
 
-export function saveCustomTheme(palette: CustomThemePalette): boolean {
+export function loadCustomThemeRecipe(): ThemeGeneratorRecipe | undefined {
+  try {
+    if (typeof localStorage === 'undefined') return undefined;
+    return parseStoredThemeRecipe(localStorage.getItem(CUSTOM_THEME_STORAGE_KEY), generateThemePalette, parseThemeGeneratorRecipe)?.recipe;
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveCustomTheme(palette: CustomThemePalette, recipe?: ThemeGeneratorRecipe): boolean {
   const validPalette = parseCustomThemePalette(palette);
-  if (!validPalette) return false;
+  const validRecipe = parseThemeGeneratorRecipe(recipe);
+  if (!validPalette || !validRecipe) return false;
+  const generated = generateThemePalette(validRecipe.settings, validPalette.mode, validRecipe.overrides);
+  if (Object.keys(generated).some(key => validPalette[key as keyof CustomThemePalette] !== generated[key as keyof CustomThemePalette])) return false;
   try {
     if (typeof localStorage === 'undefined') return false;
-    localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify({ version: 2, palette: validPalette }));
+    localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify({ version: 3, palette: validPalette, recipe: validRecipe }));
     return true;
   } catch {
     return false;
@@ -422,6 +312,8 @@ export function customThemeBootstrapSource(): string {
   return `const CUSTOM_THEME_FIELDS = ${serialize(CUSTOM_THEME_FIELDS)};
     const CUSTOM_THEME_ID = ${serialize(CUSTOM_THEME_ID)};
     ${parseCustomThemePalette.toString()}
+    ${themeGeneratorBootstrapSource()}
+    ${parseStoredThemeRecipe.toString()}
     ${parseStoredCustomTheme.toString()}
     ${hexToRgb.toString()}
     ${rgbaFromHex.toString()}
@@ -432,8 +324,8 @@ export function customThemeBootstrapSource(): string {
     ${filledInk.toString()}
     ${sectionNavVars.toString()}
     ${deriveVars.toString()}
-    let palette = ${serialize(createCustomTheme(DEFAULT_THEME_ID))};
-    try { palette = parseStoredCustomTheme(localStorage.getItem(${serialize(CUSTOM_THEME_STORAGE_KEY)})) || palette; } catch {}
+    let palette = ${serialize(generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'dark'))};
+    try { palette = parseStoredCustomTheme(localStorage.getItem(${serialize(CUSTOM_THEME_STORAGE_KEY)}), generateThemePalette, parseThemeGeneratorRecipe) || palette; } catch {}
     const customTheme = { id: ${serialize(CUSTOM_THEME_ID)}, label: 'Custom', mode: palette.mode, vars: deriveVars({ ...palette, id: ${serialize(CUSTOM_THEME_ID)}, label: 'Custom' }) };`;
 }
 
@@ -450,30 +342,7 @@ export function applyThemeToDocument(theme: Theme, keys: readonly string[], fall
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.vars['--bg'] ?? fallbackBackground);
 }
 
-export function applyTheme(id: string): void {
+export function applyCustomTheme(palette: CustomThemePalette): void {
   if (typeof document === 'undefined') return;
-  const theme: Theme = getTheme(id) ?? getTheme(DEFAULT_THEME_ID)!;
-  applyThemeToDocument(theme, REQUIRED_VAR_KEYS, AMBER_BACKGROUND);
-}
-
-export function loadThemeId(): string {
-  try {
-    if (typeof localStorage === 'undefined') return DEFAULT_THEME_ID;
-    const stored: string | null = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored && getTheme(stored)) return stored;
-    return DEFAULT_THEME_ID;
-  } catch {
-    return DEFAULT_THEME_ID;
-  }
-}
-
-export function saveThemeId(id: string): boolean {
-  if (!getTheme(id)) return false;
-  try {
-    if (typeof localStorage === 'undefined') return false;
-    localStorage.setItem(THEME_STORAGE_KEY, id);
-    return true;
-  } catch {
-    return false;
-  }
+  applyThemeToDocument(customThemeFromPalette(palette), REQUIRED_VAR_KEYS, DEFAULT_THEME_BACKGROUND);
 }

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { CONFIG_HELP, renderConfigView, renderAppShell } from './render';
 import { EDITABLE_KEYS } from '../server/helmsman/config-store';
 import type { UiConfig } from './data/config';
-import { DEFAULT_THEME_ID, THEMES } from './data/themes';
+import { DEFAULT_THEME_ID } from './data/themes';
 import { appPages, TODOS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_SLOT, TRIAGE_PAGE_ID, BUGS_PAGE_SLOT, BUGS_PAGE_ID } from './plugins/builtins';
 
 
@@ -46,21 +46,21 @@ describe('application views', () => {
     expect(el.querySelector('.app-footer [data-pirate-mode]')).not.toBeNull();
   });
 
-  it('renders theme selection in its own Config customization panel', () => {
-    const el: HTMLDivElement = root();
-    el.innerHTML = renderConfigView({ config: {}, overridden: [] }, { repos: [], selectedRepo: null, themeId: 'dracula' });
-    const select: HTMLSelectElement | null = el.querySelector<HTMLSelectElement>('.theme-select');
-    expect(select).not.toBeNull();
-    expect(el.querySelector('.ui-customization-panel .theme-select')).toBe(select);
+  it('renders the sole generated personal theme with compact controls and advanced overrides', () => {
+    const el = root();
+    el.innerHTML = renderConfigView({ config: {}, overridden: [] }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
+    expect(el.querySelector('.theme-select, [data-custom-theme-preset]')).toBeNull();
+    expect(el.querySelector<HTMLElement>('[data-custom-theme-editor]')?.hidden).toBe(false);
+    expect(el.querySelectorAll('[data-custom-theme-setting]')).toHaveLength(3);
+    for (const control of el.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-custom-theme-setting], [data-custom-theme-mode], [data-custom-theme-harmony], [data-custom-theme-color]')) expect(control.labels?.length).toBe(1);
     expect(el.querySelector('.ui-customization-panel .theme-preview')).not.toBeNull();
-    expect(el.querySelector('.helm-head .theme-select')).toBeNull();
-    expect(el.querySelector('.ui-theme-control label[for="ui-theme"]')?.textContent).toBe('Theme');
-    expect(el.querySelector('.ui-theme-control #ui-theme-help')?.id).toBe(select?.getAttribute('aria-describedby'));
+    expect(el.querySelector<HTMLDetailsElement>('.custom-theme-advanced')?.open).toBe(false);
+    expect(el.querySelector('.custom-theme-advanced summary')?.textContent).toBe('Advanced color overrides');
+    expect(el.querySelectorAll('[data-custom-theme-color]')).toHaveLength(11);
+    for (const key of ['bad', 'good', 'review', 'queued']) expect(el.querySelector(`[data-custom-theme-color="${key}"]`)).toBeNull();
+    expect(el.querySelector<HTMLButtonElement>('[data-custom-theme-reset-overrides]')?.disabled).toBe(true);
+    expect(el.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')?.disabled).toBe(true);
     expect(el.querySelector('.ui-terminology-settings .terminology-reference')?.hasAttribute('open')).toBe(false);
-    expect(el.querySelector('.ui-theme-control')?.nextElementSibling?.hasAttribute('data-custom-theme-editor')).toBe(true);
-    expect(el.querySelector<HTMLElement>('[data-custom-theme-editor]')?.hidden).toBe(true);
-    expect(Array.from(select!.options).map((o) => o.value)).toEqual(THEMES.map((t) => t.id));
-    expect(select!.querySelector<HTMLOptionElement>('option[selected]')?.value).toBe('dracula');
   });
 
   it('omits theme selection from the dashboard', () => {
@@ -171,7 +171,7 @@ describe('accessible configuration states', () => {
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Loading configuration');
     expect(el.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(el.querySelector('.config-input, .config-save')).toBeNull();
-    expect(el.querySelector<HTMLSelectElement>('.theme-select')?.value).toBe(DEFAULT_THEME_ID);
+    expect(el.querySelector('[data-custom-theme-setting]')).not.toBeNull();
     expect(el.querySelector('[data-pirate-mode]')).not.toBeNull();
   });
 
