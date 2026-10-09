@@ -282,6 +282,8 @@ Jira and GitHub links in Config include (16px) status icons in the navigation fo
 
 Secondary links use the navigation type role and control corners. Hover increases the contrast of the band’s text; the current destination uses an inverted fill and ink with stronger weight (650). Keyboard focus uses a (2px) band-text outline inset by (2px), switching to selected ink on the current destination. These are native links in a named navigation region, with the current destination revealed by horizontal scrolling without moving page content.
 
+Panel controls use “Use top selection” to restore the galleon selection made at the top of Helmsman; the tooltip explains this relationship, and the current selection is labeled “Showing”. PR lists keep readable results when later reads fail, distinguish a confirmed empty list from an incomplete read, and give a plain-language refresh or full-list action instead of exposing internal quality values.
+
 ### Cards / Containers
 
 Authored Helm stacks use panel ground, a thin semantic line and panel corners. Header padding is (8px 12px); body padding follows the responsive layout above. Repeated local plugin headings are visually hidden only under a named composed tabpanel. Standalone headings remain visible.

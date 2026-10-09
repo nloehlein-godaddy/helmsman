@@ -84,7 +84,7 @@ class TerminalPanel implements PluginPanelInstance {
   private button(label: string, attribute: string) { const button = node('button', label); button.type = 'button'; button.setAttribute(attribute, ''); return button; }
   private build() {
     this.root.className = 'plugin-terminal'; this.root.append(node('style', styles), node('h2', 'Terminal'), node('p', 'View and control an existing terminal session. Text and keys are sent directly to the selected tab.'));
-    const toolbar = node('div'); toolbar.className = 'terminal-toolbar'; toolbar.append(this.button('Refresh terminals', 'data-refresh'), this.button('Use header scope', 'data-inherit'), this.button('Show all terminals', 'data-all'), this.scopeText, this.button('Save draft', 'data-save-draft')); this.root.append(toolbar);
+    const toolbar = node('div'); toolbar.className = 'terminal-toolbar'; toolbar.append(this.button('Refresh terminals', 'data-refresh'), Object.assign(this.button('Use top selection', 'data-inherit'), { title: 'Match the selection at the top of Helmsman.' }), this.button('Show all terminals', 'data-all'), this.scopeText, this.button('Save draft', 'data-save-draft')); this.root.append(toolbar);
     this.status.setAttribute('role','status'); this.errors.className = 'terminal-error'; this.errors.setAttribute('role','alert'); this.root.append(this.status, this.errors);
     const columns = node('div'); columns.className = 'terminal-columns'; this.tabsSection.className = this.screenSection.className = 'terminal-column'; this.tabsSection.tabIndex = this.screenSection.tabIndex = -1;
     const tabsHead = node('div'); tabsHead.className = 'terminal-column-head'; this.tabsCollapse.type = 'button'; this.tabsCollapse.dataset.collapse = 'tabs'; tabsHead.append(node('h3','Terminal tabs'), this.tabsCollapse); this.list.className = 'terminal-tabs'; this.listBody.append(this.list); this.tabsSection.append(tabsHead, this.listBody);
@@ -212,7 +212,7 @@ class TerminalPanel implements PluginPanelInstance {
   }
   private draw() {
     if (this.disposed) return; const tab = this.selected();
-    this.scopeText.textContent = `Scope: ${this.state.activity.repo ?? 'All terminals'}`;
+    this.scopeText.textContent = `Showing: ${this.state.activity.repo ?? 'All terminals'}`;
     this.status.textContent = this.listError || (!this.snapshot ? 'Loading terminals…' : !this.snapshot.connected ? 'Terminal not connected. Open your configured terminal app, then refresh.' : !this.snapshot.tabs.length ? 'No terminal tabs available in this scope.' : this.snapshot.quality === 'partial' ? 'Terminal results are incomplete.' : '');
     const signature = JSON.stringify([this.snapshot?.tabs,this.saved.selected]); if (signature !== this.listSignature) { this.listSignature = signature; this.list.replaceChildren(); for (const item of this.snapshot?.tabs ?? []) { const button = node('button'); button.type = 'button'; button.className = 'terminal-tab'; button.dataset.surface = item.target.surfaceRef; button.setAttribute('aria-pressed',String(item.target.surfaceRef === this.saved.selected)); button.append(node('span',item.title),node('small',`${item.workspaceTitle} · ${item.type} · ${item.target.repo ?? 'Unattached'}`)); this.list.append(button); } }
     this.listBody.hidden = this.saved.collapsed.tabs; this.detailBody.hidden = this.saved.collapsed.screen || !tab;

@@ -733,6 +733,11 @@
         "name": "The Integration Status Rule",
         "body": "Jira and GitHub links in Config include (16px) status icons in the navigation foreground. Distinct check, warning, slash, question and clock shapes identify verified, unavailable, not configured, unknown and checking states; hover text and accessible descriptions explain each result while preserving the link name. Jira verifies account authentication; GitHub also verifies pull request access for the header galleon when selected. Checks refresh on Config navigation, scope changes, explicit refresh and successful credential updates, with a bounded cache and no background polling.",
         "section": "components"
+      },
+      {
+        "name": "The Plain Selection and PR Results Rule",
+        "body": "Panel controls use \u201cUse top selection\u201d to restore the galleon selection made at the top of Helmsman; the tooltip explains this relationship, and the current selection is labeled \u201cShowing\u201d. PR lists keep readable results when later reads fail, distinguish a confirmed empty list from an incomplete read, and give a plain-language refresh or full-list action instead of exposing internal quality values.",
+        "section": "components"
       }
     ],
     "dos": [

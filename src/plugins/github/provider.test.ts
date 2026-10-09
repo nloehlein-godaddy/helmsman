@@ -106,12 +106,113 @@ describe('GitHub pull request provider', () => {
   it('uses the configured author for lists without authenticating as that author', async () => {
     const call = vi.fn(async (input: { path: string; query: Readonly<Record<string, string>> }) => {
       expect(input.path).toBe('/search/issues');
-      expect(input.query.q).toBe('is:pr author:reviewer');
+      expect(input.query.q).toBe(`is:pr author:reviewer repo:${target.repo}`);
       return { status: 200, body: { total_count: 0, incomplete_results: false, items: [] } };
     });
     const result = await githubPullRequestProvider.list({ query: { version: 1, repo: null, kind: 'authored-recent', limit: 100 }, repos: [target.repo] }, context(call));
     expect(result).toMatchObject({ quality: 'complete', items: [] });
     expect(call).toHaveBeenCalledOnce();
+  });
+
+  it('retains the recent authored window when search has more than three pages of history', async () => {
+    const records = Array.from({ length: 100 }, (_, index) => listed(index + 1, { state: 'closed' }));
+    const ctx = context(async input => {
+      expect(input.path).toBe('/search/issues');
+      expect(input.query.page).toBe('1');
+      return { status: 200, body: { total_count: 395, incomplete_results: false, items: records },
+        link: `<https://api.github.com/search/issues?${new URLSearchParams({ ...input.query, page: '2' })}>; rel="next"` };
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50 }, repos: [target.repo] }, ctx);
+    expect(result).toMatchObject({ quality: 'partial', truncated: true });
+    expect(result.items).toHaveLength(50);
+    expect(ctx.http.request).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to scoped recent PRs when search rejects a readable private repository', async () => {
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return { status: 422, body: { message: 'Validation failed' } };
+      expect(input.path).toBe(`/repos/${target.repo}/pulls`);
+      expect(input.query).toMatchObject({ state: 'all', sort: 'created', direction: 'desc' });
+      return { status: 200, body: [listed(42, { user: { login: 'ReViewer' }, state: 'closed', merged_at: '2025-01-03T00:00:00.000Z' }),
+        listed(43, { user: { login: 'someone-else' } }), listed(44, { user: null, state: 'closed' })] };
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50 }, repos: [target.repo] }, ctx);
+    expect(result).toMatchObject({ quality: 'complete', truncated: false, items: [{ number: 42, status: 'merged' }] });
+    expect(result.items).toHaveLength(1);
+    expect(result.browseUrl).toContain(`https://github.com/${target.repo}/pulls?q=`);
+    expect(ctx.http.request).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves received authored matches when later fallback pages fail', async () => {
+    const records = Array.from({ length: 25 }, (_, index) => listed(index + 1, { state: 'closed', user: { login: index < 3 ? 'reviewer' : 'other' } }));
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return { status: 422, body: {} };
+      if (input.query.page === '1') return { status: 200, body: records,
+        link: `<https://api.github.com${input.path}?${new URLSearchParams({ ...input.query, page: '2' })}>; rel="next"` };
+      return { status: 503, body: {} };
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50 }, repos: [target.repo] }, ctx);
+    expect(result).toMatchObject({ quality: 'partial', truncated: true });
+    expect(result.items).toHaveLength(3);
+    expect(ctx.http.request).toHaveBeenCalledTimes(3);
+  });
+
+  it('bounds fallback payloads to25 rows and keeps matches after its six-page window', async () => {
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return { status: 422, body: {} };
+      expect(input.query.per_page).toBe('25');
+      const page = Number(input.query.page);
+      expect(page).toBeLessThanOrEqual(6);
+      return { status: 200, body: Array.from({ length: 25 }, (_, index) => listed(page * 25 + index, { state: 'closed', user: { login: index === 0 ? 'reviewer' : 'other' } })),
+        link: `<https://api.github.com${input.path}?${new URLSearchParams({ ...input.query, page: String(page + 1) })}>; rel="next"` };
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50 }, repos: [target.repo] }, ctx);
+    expect(result).toMatchObject({ quality: 'partial', truncated: true });
+    expect(result.items).toHaveLength(6);
+    expect(ctx.http.request).toHaveBeenCalledTimes(7);
+  });
+
+  it.each([true, false])('validates canonical repository pagination before continuing when identity matches=%s', matching => {
+    const records = Array.from({ length: 25 }, (_, index) => listed(index + 1, { state: 'closed', user: { login: 'other' }, base: { repo: { id: 123, full_name: target.repo } } }));
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return { status: 422, body: {} };
+      expect(input.path).toBe(`/repos/${target.repo}/pulls`);
+      if (input.query.page === '1') return { status: 200, body: records,
+        link: `<https://api.github.com/repositories/${matching ? 123 : 999}/pulls?${new URLSearchParams({ ...input.query, page: '2' })}>; rel="next"` };
+      return { status: 200, body: [listed(42, { state: 'closed', user: { login: 'reviewer' } })] };
+    });
+    return githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50 }, repos: [target.repo] }, ctx).then(result => {
+      expect(result.items).toHaveLength(matching ? 1 : 0);
+      expect(ctx.http.request).toHaveBeenCalledTimes(matching ? 3 : 2);
+    });
+  });
+
+  it('retains matches from an incomplete search without requesting unsafe pagination', async () => {
+    const ctx = context(async input => {
+      expect(input.path).toBe('/search/issues');
+      return { status: 200, body: { total_count: 395, incomplete_results: true, items: [listed(42, { state: 'closed' })] } };
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50 }, repos: [target.repo] }, ctx);
+    expect(result).toMatchObject({ quality: 'partial', truncated: true, items: [{ number: 42 }] });
+    expect(ctx.http.request).toHaveBeenCalledOnce();
+  });
+
+  it('bounds global fallback scans and keeps accessible galleons when another one fails', async () => {
+    const repos = Array.from({ length: 10 }, (_, index) => `org/repo-${index}`);
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') {
+        expect(input.query.q).not.toContain('repo:org/repo-8');
+        return { status: 422, body: {} };
+      }
+      if (input.path === '/repos/org/repo-1/pulls') return { status: 404, body: {} };
+      const repo = input.path.slice('/repos/'.length, -'/pulls'.length);
+      return { status: 200, body: [listed(42, { repository_url: `https://api.github.com/repos/${repo}`, state: 'closed', user: { login: 'reviewer' } })] };
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: null, kind: 'authored-recent', limit: 50 }, repos }, ctx);
+    expect(result.quality).not.toBe('complete');
+    expect(result.truncated).toBe(true);
+    expect(result.items).toHaveLength(7);
+    expect(ctx.http.request).toHaveBeenCalledTimes(16);
   });
 
   it('projects effective counts only for final visible authored open pull requests', async () => {

@@ -25,7 +25,7 @@ it('keeps approvals, requested changes, and discussion comments distinct from un
     items: [{ repo: 'org/b', number: 42, title: 'Review', url: null, status: 'open', createdAt: detail.observedAt, mergedAt: null, draft: null, ticketId: null, reviewDecision: null, comments: 7, reviews: { approved: 2, changesRequested: 1, commented: null, requested: null } }] };
   const node = mount(renderList('review-requested', page, '', false));
   expect(node.querySelectorAll('.pr-list-stat')).toHaveLength(4);
-  expect(node.textContent).toContain('2 approvals'); expect(node.textContent).toContain('1 changes requested'); expect(node.textContent).toContain('7 discussion comments'); expect(node.textContent).toContain('unknown pending reviews'); expect(node.textContent).toContain('partial · More results available');
+  expect(node.textContent).toContain('2 approvals'); expect(node.textContent).toContain('1 changes requested'); expect(node.textContent).toContain('7 discussion comments'); expect(node.textContent).toContain('unknown pending reviews'); expect(node.textContent).toContain('More may be available in the full list');
 });
 it.each([true, false])('keeps recent run identity and user text literal in pirate mode %s', pirate => {
   const run: RunReadSummaryV1 = { version: 1, id: 'review-agent', repo: 'org/agent-review', displayKey: 'Review PR tokens voyage', status: 'failed', attempt: 1, startedAt: detail.observedAt, endedAt: null, prNumber: 42, costUsd: null, review: null, sourceSettlement: null };
@@ -37,4 +37,13 @@ it.each(['0', '#0', '9007199254740993', '-12', '#12x'])('rejects invalid bare PR
 });
 it.each(['org/other#12', 'https://github.com/org/other/pull/12'])('preserves explicit lookup scope %s', input => {
   expect(parseLookup(input, 'org/current')).toEqual({ repo: 'org/other', number: 12 });
+});
+
+
+it.each(['complete', 'partial', 'degraded'] as const)('distinguishes an empty %s result from a failed or limited read', quality => {
+  const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'authored-recent', quality, truncated: false, browseUrl: null, items: [] };
+  const node = mount(renderList('authored-recent', page, '', true));
+  expect(node.textContent).not.toContain('Results unavailable or incomplete');
+  expect(node.textContent).toContain(quality === 'complete' ? 'No matching pull requests.' : quality === 'partial' ? 'Only some results were returned.' : 'Refresh to try again.');
+  expect(node.textContent?.includes('No matching')).toBe(quality === 'complete');
 });
