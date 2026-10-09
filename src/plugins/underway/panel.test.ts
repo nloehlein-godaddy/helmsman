@@ -26,7 +26,7 @@ function fixture() {
   const reconcile = vi.fn<RunCommandServiceV1['receipt']>(async () => { entries = entries.map(entry => ({ ...entry, receipt })); return { status: 'available', value: receipt }; });
   const acknowledge = vi.fn<RunCommandServiceV1['acknowledge']>(async query => { entries = entries.filter(entry => entry.command.requestId !== query.requestId); });
   const context: PluginPanelContext = { state, activity: state.activity, signal: lifetime.signal, services: { version: 1, tasks: { version: 1, discover, list, underway: read, load: vi.fn() }, runCommands: { version: 1, submit, retry, pending, receipt: reconcile, acknowledge } }, saveState: vi.fn(), navigate: vi.fn(), onDispose: vi.fn() };
-  const buttons = (name: string) => [...container.querySelectorAll('button')].filter(button => button.textContent === name);
+  const buttons = (name: string) => [...container.querySelectorAll('button')].filter(button => (button.getAttribute('aria-label') ?? button.textContent) === name);
   const button = (name: string) => buttons(name)[0];
   return { container, lifetime, activity, state, context, discover, read, list, pending, submit, retry, reconcile, acknowledge, button, buttons, set entries(value: readonly RunCommandPendingV1[]) { entries = value; } };
 }
@@ -36,7 +36,7 @@ describe('standalone Underway panel', () => {
   it('uses the declared provider view and keeps ready and blocked assigned tasks', async () => {
     const f = fixture(); f.read.mockResolvedValue({ status: 'available', value: { selection: source, items: [task, { ...task, ref: { ...task.ref, externalId: '2' }, title: 'Blocked assigned task', state: 'blocked' }], nextCursor: null } });
     await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Launch')?.disabled).toBe(false));
-    expect(f.container.textContent).toContain('Blocked assigned task'); expect(f.buttons('Launch')).toHaveLength(1); expect(f.container.textContent).toContain('Not ready for a new run'); expect(f.list).not.toHaveBeenCalled();
+    expect(f.container.textContent).toContain('Blocked assigned task'); expect(f.buttons('Launch')).toHaveLength(1); expect(f.button('Not ready for a new run.')).toBeDefined(); expect(f.list).not.toHaveBeenCalled();
     expect(f.read).toHaveBeenCalledWith(expect.objectContaining({ repo, sourceId, instanceId: source.instanceId, instanceRevision: 2, cursor: null, limit: 25 }), expect.any(AbortSignal)); f.lifetime.abort();
   });
   it('reports unsupported provider views instead of changing task semantics', async () => {
@@ -57,8 +57,8 @@ describe('standalone Underway panel', () => {
       run: { repo, runId: 'run-one', expectedAttempt: 2 }, pullRequest: { repo, number: 42, sourceRunId: 'run-one' } } }));
     f.read.mockResolvedValue({ status: 'available', value: { selection: source, items: [{ ...task, url: 'https://tasks.example/TASK-2' }], nextCursor: null } });
     f.context = { ...f.context, selectPresentation: vi.fn(), services: { ...f.context.services, taskContext: { version: 1, resolve } } };
-    await underway.mount(f.container, f.context); await vi.waitFor(() => expect([...f.container.querySelectorAll('a')].find(link => link.textContent === 'Open run')).toBeDefined());
-    const openRun = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open run')!; const openPr = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open pull request')!;
+    await underway.mount(f.container, f.context); await vi.waitFor(() => expect([...f.container.querySelectorAll('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run')).toBeDefined());
+    const openRun = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run')!; const openPr = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open pull request')!;
     expect(f.container.querySelector<HTMLAnchorElement>('a')?.href).toBe('https://tasks.example/TASK-2');
     expect(new URL(openRun.href).searchParams.get('run')).toBe('run-one'); expect(new URL(openPr.href).searchParams.get('pr')).toBe('42'); openRun.click(); openPr.click();
     expect(f.context.selectPresentation).toHaveBeenNthCalledWith(1, { version: 1, kind: 'run', repo, runId: 'run-one' }); expect(f.context.selectPresentation).toHaveBeenNthCalledWith(2, { version: 1, kind: 'pull-request', repo, number: 42 });
@@ -70,8 +70,8 @@ describe('standalone Underway panel', () => {
       run: { repo, runId: 'run-one', expectedAttempt: 2 }, pullRequest: null } }));
     const selectPresentation = vi.fn();
     f.context = { ...f.context, state: { ...f.state, repo: 'panel/override', headerRepo: 'org/header' }, selectPresentation, services: { ...f.context.services, taskContext: { version: 1, resolve } } };
-    await underway.mount(f.container, f.context); await vi.waitFor(() => expect([...f.container.querySelectorAll('a')].find(link => link.textContent === 'Open run')).toBeDefined());
-    const openRun = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open run')!;
+    await underway.mount(f.container, f.context); await vi.waitFor(() => expect([...f.container.querySelectorAll('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run')).toBeDefined());
+    const openRun = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run')!;
     expect(new URL(openRun.href).searchParams.get('repo')).toBe('org/header');
     let prevented = true; openRun.addEventListener('click', event => { prevented = event.defaultPrevented; event.preventDefault(); }, { once: true });
     openRun.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }));
@@ -82,8 +82,8 @@ describe('standalone Underway panel', () => {
       task: { selection: source, ref: task.ref, url: null }, claim: { id: 'claim-one', revision: 1, state: 'claimed' as const },
       run: { repo, runId: 'run-one', expectedAttempt: 2 }, pullRequest: null } }));
     f.context = { ...f.context, state: { ...f.state, repo: 'panel/override', headerRepo: null }, services: { ...f.context.services, taskContext: { version: 1, resolve } } };
-    await underway.mount(f.container, f.context); await vi.waitFor(() => expect([...f.container.querySelectorAll('a')].find(link => link.textContent === 'Open run')).toBeDefined());
-    const openRun = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open run')!;
+    await underway.mount(f.container, f.context); await vi.waitFor(() => expect([...f.container.querySelectorAll('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run')).toBeDefined());
+    const openRun = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run')!;
     expect(new URL(openRun.href).searchParams.has('repo')).toBe(false); openRun.click();
     expect(f.context.navigate).toHaveBeenCalledWith(openRun.getAttribute('href')); f.lifetime.abort();
   });
@@ -96,13 +96,13 @@ describe('standalone Underway panel', () => {
     f.context = { ...f.context, services: { ...f.context.services, taskContext: { version: 1, resolve } } };
     await underway.mount(f.container, f.context); await vi.waitFor(() => expect(resolvers).toHaveLength(2));
     resolvers[0]!( { status: 'available', value: snapshot(task, 'run-one') });
-    await vi.waitFor(() => expect([...f.container.querySelectorAll('a')].find(link => link.textContent === 'Open run')?.getAttribute('href')).toContain('run=run-one'));
-    const firstRun = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open run' && link.href.includes('run=run-one'))!; firstRun.focus();
+    await vi.waitFor(() => expect([...f.container.querySelectorAll('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run')?.getAttribute('href')).toContain('run=run-one'));
+    const firstRun = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run' && link.href.includes('run=run-one'))!; firstRun.focus();
     resolvers[1]!( { status: 'available', value: snapshot(second, 'run-two') });
-    await vi.waitFor(() => expect([...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open run' && link.href.includes('run=run-one'))).toBe(document.activeElement)); f.lifetime.abort();
+    await vi.waitFor(() => expect([...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run' && link.href.includes('run=run-one'))).toBe(document.activeElement)); f.lifetime.abort();
   });
   it('hides context actions when the optional service is absent or context becomes unavailable', async () => {
-    const f = fixture(); await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Launch')?.disabled).toBe(false)); expect([...f.container.querySelectorAll('a')].find(link => link.textContent === 'Open run')).toBeUndefined(); f.lifetime.abort();
+    const f = fixture(); await underway.mount(f.container, f.context); await vi.waitFor(() => expect(f.button('Launch')?.disabled).toBe(false)); expect([...f.container.querySelectorAll('a')].find(link => (link.getAttribute('aria-label') ?? link.textContent) === 'Open run')).toBeUndefined(); f.lifetime.abort();
   });
   it('renders task rows and launch controls while optional context reads are slow', async () => {
     const f = fixture(); const resolve = vi.fn(() => new Promise<never>(() => {}));

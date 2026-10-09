@@ -6,6 +6,10 @@ const builtinIds = ['helmsman.costs', 'helmsman.helm', 'helmsman.backlog', 'helm
 function task(repo: string) { return { version: 1, ref: { sourceId, externalId: '10042' }, repo, revision: 'r1', displayKey: 'TASK-42',
   title: `Scoped work for ${repo}`, state: 'ready', priority: 2, url: null,
   requirements: { description: 'Implement the scoped task', acceptanceCriteria: [], links: [] }, providerData: { version: 1 } }; }
+function underwayTasks(repo: string) { return [task(repo),
+  { ...task(repo), ref: { sourceId, externalId: '10043' }, displayKey: 'TASK-43', title: 'Customer values sent to session recording and analytics', state: 'in_progress' },
+  { ...task(repo), ref: { sourceId, externalId: '10044' }, displayKey: 'TASK-44', title: 'Sanitize imported SVG assets on rebuild', state: 'review', priority: 3 },
+  { ...task(repo), ref: { sourceId, externalId: '10045' }, displayKey: 'TASK-45', title: 'Preserve collection content when importing mixed arrays', state: 'blocked', priority: null }]; }
 async function setup(page: Page) {
   await page.addInitScript(() => { if (localStorage.getItem('helmsman.rackLayout') === null) localStorage.setItem('helmsman.rackLayout', JSON.stringify([[{ panels: ['backlog'], active: 'backlog', collapsed: false }]])); });
   const commands: Record<string, unknown>[] = []; const receipts = new Map<string, unknown>();
@@ -22,7 +26,7 @@ async function setup(page: Page) {
       desiredEnabled: true, available: true, allowedRepos: ['org/a', 'org/b'], readViews: ['underway'] }] };
     if (url.pathname === '/api/task-sources/tasks/lookup') { if (state.lookupGate) await state.lookupGate; body = { ref: { sourceId, externalId: '10042' } }; }
     if (url.pathname === '/api/task-sources/tasks/tasks') body = url.searchParams.has('externalId') ? { task: task(url.searchParams.get('repo')!) }
-      : { items: [task(url.searchParams.get('repo')!)], nextCursor: null };
+      : { items: url.searchParams.get('view') === 'underway' ? underwayTasks(url.searchParams.get('repo')!) : [task(url.searchParams.get('repo')!)], nextCursor: null };
     if (url.pathname === '/api/run-commands') {
       const command = route.request().postDataJSON() as Record<string, unknown>; commands.push(command);
       if (state.loseNext) { state.loseNext = false; return route.abort('failed'); }
@@ -31,7 +35,7 @@ async function setup(page: Page) {
     } else if (url.pathname.startsWith('/api/run-commands/')) body = receipts.get(url.pathname.split('/').at(-1)!) ?? null;
     await route.fulfill({ json: body }).catch(() => {});
   });
-  await page.goto('/helm?repo=org/a'); await expect(page.locator('.plugin-helm')).toBeVisible();
+  await page.goto('http://127.0.0.1:4175/helm?repo=org/a'); await expect(page.locator('.plugin-helm')).toBeVisible();
   await page.locator('[data-helm-focus="page:edit"]').click();
   for (const name of ['newrun', 'underway']) {
     await page.getByLabel('Panel to add', { exact: true }).selectOption(`helmsman.${name}/panel`);
@@ -116,4 +120,37 @@ test('scope cancellation fences a late typed lookup and preserves its original g
   await page.locator('.repo-select').selectOption('org/a');
   await expect(f.newrun.getByLabel('Task key', { exact: true })).toHaveValue('OLD-42');
   await expect(f.newrun.getByLabel('Task', { exact: true })).toHaveValue('');
+});
+
+test('Underway uses accessible icons and keeps task hierarchy usable on touch screens', async ({ page, browser }) => {
+  const f = await setup(page);
+  await expect(f.underway.getByRole('button', { name: 'In progress', exact: true })).toBeVisible();
+  await expect(f.underway.getByRole('button', { name: 'In review', exact: true })).toBeVisible();
+  await expect(f.underway.getByRole('button', { name: 'Blocked', exact: true })).toBeVisible();
+  const phosphor = f.underway.locator('.underway-phosphor').first();
+  expect(await phosphor.evaluate(async el => {
+    const fonts = await document.fonts.load('18px "Helmsman Phosphor Regular"', (el as HTMLElement).dataset.glyph);
+    return fonts.length > 0 && fonts.every(font => font.status === 'loaded');
+  })).toBe(true);
+  await expect(f.underway.getByRole('button', { name: 'Priority unknown', exact: true })).toHaveText('?');
+  await expect(f.underway.getByRole('button', { name: 'Not ready for a new run.', exact: true })).toHaveCount(3);
+  const progress = f.underway.getByRole('button', { name: 'In progress', exact: true });
+  const progressTooltip = f.underway.getByRole('tooltip', { name: 'In progress', exact: true });
+  await progress.hover(); await expect(progressTooltip).toBeVisible();
+  await page.mouse.move(0, 0); await progress.focus(); await expect(progressTooltip).toBeVisible();
+  await progress.press('Escape'); await expect(progressTooltip).toBeHidden();
+  const touchContext = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 1200 } });
+  const touchPage = await touchContext.newPage();
+  const mobile = await setup(touchPage);
+  await expect(mobile.underway.getByRole('button', { name: 'Blocked', exact: true })).toBeVisible();
+  await expect(mobile.underway).toHaveScreenshot('underway-source-tasks-mobile.png', { animations: 'disabled' });
+  expect(await mobile.underway.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  const mobileProgress = mobile.underway.getByRole('button', { name: 'In progress', exact: true });
+  const bounds = await mobileProgress.boundingBox();
+  expect(bounds?.height).toBeGreaterThanOrEqual(44); expect(bounds?.width).toBeGreaterThanOrEqual(44);
+  const mobileTooltip = mobile.underway.getByRole('tooltip', { name: 'In progress', exact: true });
+  await mobileProgress.tap(); await expect(mobileTooltip).toBeVisible();
+  await mobileProgress.tap(); await expect(mobileTooltip).toBeHidden();
+  expect(await mobile.underway.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await touchContext.close();
 });

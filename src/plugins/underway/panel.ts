@@ -12,30 +12,76 @@ const taskFocusKey = (source: TaskReadSourceV1, task: TaskReadTaskV1, control: s
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => {
   const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value;
 };
-const styles = `.plugin-underway{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;color:var(--text);font:16px var(--sans,sans-serif);min-width:0}.plugin-underway h2,.plugin-underway h3{font-size:16px;margin:0}.plugin-underway .underway-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}.plugin-underway :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:6px;max-width:100%}.plugin-underway select{background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}.plugin-underway button{cursor:pointer}.plugin-underway button:disabled{opacity:.5}.plugin-underway ul{list-style:none;padding:0;margin:0}.plugin-underway li{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.plugin-underway a{color:var(--accent-text,var(--accent))}.plugin-underway small{display:block;color:var(--text-dim)}.plugin-underway section{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0}.plugin-underway [role=alert]{color:var(--bad)}.plugin-underway :is(button,select,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.plugin-underway{line-height:1.5;overflow-wrap:anywhere}
+const phosphorGlyphs = {
+  ready: '\ue3fe', in_progress: '\ue3d2', review: '\ue282', done: '\ue184', blocked: '\ue3de',
+  priority: '\ue244', lock: '\ue2fa', refresh: '\ue094', run: '\ue3d2',
+} as const;
+const createIcon = (name: keyof typeof phosphorGlyphs): HTMLSpanElement => {
+  const icon = element('span'); icon.className = 'underway-phosphor'; icon.dataset.glyph = phosphorGlyphs[name] ?? phosphorGlyphs.blocked; icon.setAttribute('aria-hidden', 'true'); return icon;
+};
+const taskInfo = (name: keyof typeof phosphorGlyphs, label: string, id: string, text?: string): HTMLSpanElement => {
+  const info = element('span'); info.className = 'task-info';
+  const trigger = element('button'); trigger.type = 'button'; trigger.setAttribute('aria-label', label); trigger.setAttribute('aria-describedby', id);
+  trigger.dataset.underwayFocus = id; trigger.append(createIcon(name)); if (text) trigger.append(element('span', text));
+  const tooltip = element('span', label); tooltip.className = 'task-tooltip'; tooltip.id = id; tooltip.setAttribute('role', 'tooltip');
+  const reveal = () => { delete info.dataset.dismissed; };
+  info.addEventListener('pointerenter', reveal); trigger.addEventListener('focus', reveal);
+  trigger.addEventListener('blur', () => { delete info.dataset.tapped; });
+  trigger.addEventListener('click', () => { const tapped = info.dataset.tapped !== 'true'; info.dataset.tapped = String(tapped); info.dataset.dismissed = String(!tapped); });
+  info.append(trigger, tooltip); return info;
+};
+const phosphorFontUrl = new URL('./phosphor-regular.woff2', import.meta.url).href;
+const styles = `@font-face{font-family:"Helmsman Phosphor Regular";src:url("${phosphorFontUrl}") format("woff2");font-weight:400;font-style:normal;font-display:block}
+.plugin-underway{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;color:var(--text);font:16px/1.5 var(--sans,sans-serif);min-width:0;container-type:inline-size;overflow-wrap:anywhere}
 .plugin-underway :is(h2,h3,p){margin:0}
 .plugin-underway h2{font-size:17px;font-weight:650}
-.plugin-underway h3{font-size:15px;font-weight:600;color:var(--text-dim)}
-.plugin-underway :is(button,select,input:not([type=checkbox]):not([type=radio])){min-height:34px}
-.plugin-underway :is(button,select,input,textarea){font-family:var(--sans,sans-serif);min-width:0}
-.plugin-underway button{transition:background-color 160ms ease,color 160ms ease}
+.plugin-underway h3{font-size:14px;font-weight:500;color:var(--text-dim)}
+.plugin-underway .underway-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+.plugin-underway :is(button,select){font:inherit;color:var(--text);background:var(--face-hi);border:1px solid var(--line-strong);padding:6px 9px;border-radius:6px;min-height:34px;min-width:0;max-width:100%}
+.plugin-underway select{flex:1;background-color:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong))}
+.plugin-underway button{cursor:pointer;transition:background-color 160ms ease,color 160ms ease}
 .plugin-underway button:not(:disabled):hover{background:var(--panel-hover,var(--panel));border-color:var(--accent)}
-.plugin-underway button:disabled{cursor:not-allowed}
-.plugin-underway :is(a,button){text-underline-offset:3px}
-.plugin-underway small{font-size:14px;line-height:1.5}
+.plugin-underway button:disabled{opacity:.5;cursor:not-allowed}
+.plugin-underway ul{list-style:none;padding:0;margin:0}
+.plugin-underway li{display:grid;gap:12px;padding:20px 0;border-bottom:1px solid var(--line);min-width:0}
+.plugin-underway li:first-child{padding-top:8px}
 .plugin-underway li:last-child{border-bottom:0}
-.plugin-underway .work-state{display:inline-flex;align-items:center;justify-self:start;gap:4px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-weight:600;color:var(--text);background:var(--panel)}
-.plugin-underway .work-identity{font-family:var(--mono,monospace);font-size:14px;overflow-wrap:anywhere}
-@media(prefers-reduced-motion:reduce){.plugin-underway button{transition:none}}
-.plugin-underway li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:start}
-.plugin-underway .task-title{grid-column:1/-1;font-size:17px;font-weight:600;line-height:1.45;color:var(--text);text-decoration:none}
+.plugin-underway a{color:var(--accent-text,var(--accent));text-underline-offset:3px}
+.plugin-underway small{display:block;font-size:14px;color:var(--text-dim)}
+.plugin-underway section{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0}
+.plugin-underway [role=alert]{color:var(--bad)}
+.plugin-underway :is(button,select,a):focus-visible{outline:2px solid var(--accent-text,var(--accent));outline-offset:2px}
+.plugin-underway .task-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start}
+.plugin-underway .task-title{font-size:18px;font-weight:650;line-height:1.45;color:var(--text);text-decoration:none;align-self:center}
 .plugin-underway a.task-title:hover{color:var(--accent-text,var(--accent));text-decoration:underline}
-.plugin-underway .task-evidence{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;grid-column:1/-1}
-.plugin-underway li>small{grid-column:1/-1}
-.plugin-underway .task-title + .task-evidence{margin-bottom:4px}
-.plugin-underway li>button{justify-self:start}
-.plugin-underway .underway-toolbar select{flex:1;max-width:100%;min-width:0}
+.plugin-underway .work-state{color:var(--text-dim)}
+.plugin-underway .work-state[data-state=ready],.plugin-underway .work-state[data-state=done]{color:var(--good)}
+.plugin-underway .work-state[data-state=in_progress]{color:var(--accent-text,var(--accent))}
+.plugin-underway .work-state[data-state=review]{color:var(--review,var(--accent))}
+.plugin-underway .work-state[data-state=blocked]{color:var(--bad)}
+.plugin-underway .task-evidence{position:relative;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;font-size:13px;color:var(--text-dim)}
+.plugin-underway .work-identity{font-family:var(--mono,monospace);font-size:13px}
+.plugin-underway .task-priority{color:var(--text-dim)}
+.plugin-underway .task-priority[data-urgency=high]{color:var(--queued,var(--accent))}
+.plugin-underway .task-priority[data-urgency=critical]{color:var(--bad)}
+.plugin-underway .underway-phosphor{display:inline-block;width:18px;height:18px;flex-shrink:0;font-family:"Helmsman Phosphor Regular";font-size:18px;font-weight:400;font-style:normal;font-synthesis:none;line-height:1;letter-spacing:normal;text-transform:none}
+.plugin-underway .underway-phosphor::before{content:attr(data-glyph)}
+.plugin-underway .task-info{position:relative;display:inline-flex;align-items:center}
+.plugin-underway .task-evidence .task-info{position:static}
+.plugin-underway .task-info>button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:24px;min-height:24px;padding:0;border:0;background:transparent;color:inherit;font-size:13px;font-variant-numeric:tabular-nums}
+.plugin-underway .task-info>button:hover{background:transparent;color:var(--text)}
+.plugin-underway .task-tooltip{position:absolute;top:100%;left:0;z-index:5;width:max-content;max-width:min(280px,80vw);padding:8px 12px;border:1px solid var(--line-strong);border-radius:6px;background:var(--panel);color:var(--text);font-size:13px;font-weight:400;line-height:1.5;visibility:hidden}
+.plugin-underway .work-state .task-tooltip{right:0;left:auto}
+.plugin-underway .task-info:not([data-dismissed=true]):is(:focus-within,[data-tapped=true])>.task-tooltip{visibility:visible}
+.plugin-underway .task-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-inline-start:auto}
+.plugin-underway .task-actions :is(a,button){display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px}
+.plugin-underway .task-actions a{padding:4px 6px;text-decoration:none}
+.plugin-underway .task-actions a:hover{color:var(--accent-text-hover,var(--accent));background:var(--panel-hover,var(--panel))}
+.plugin-underway .task-actions button{color:var(--accent-text,var(--accent))}
+.plugin-underway .underway-icon-action{display:inline-flex;align-items:center;justify-content:center;width:34px;padding:8px}
+@media(hover:hover){.plugin-underway .task-info:not([data-dismissed=true]):hover>.task-tooltip{visibility:visible}}
+@media(pointer:coarse){.plugin-underway :is(button,select),.plugin-underway .task-actions a{min-height:44px}.plugin-underway .task-info>button{min-width:44px;min-height:44px}.plugin-underway .underway-icon-action{width:44px}}
+@media(prefers-reduced-motion:reduce){.plugin-underway button{transition:none}}
 [role=tabpanel][aria-labelledby][data-panel-instance] .plugin-underway>.underway-toolbar>h2{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 `;
 function selection(value: unknown): Selection | null {
@@ -74,8 +120,12 @@ class UnderwayPanel implements PluginPanelInstance {
     context.onDispose(() => this.dispose()); context.signal.addEventListener('abort', this.abort, { once: true });
     this.state.activity.signal.addEventListener('abort', this.suspend, { once: true });
     if (context.signal.aborted) { this.dispose(); return; }
+    this.container.addEventListener('keydown', this.dismissTooltips);
     this.draw(); void this.refresh();
   }
+  private dismissTooltips = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') for (const info of this.container.querySelectorAll<HTMLElement>('.task-info')) { delete info.dataset.tapped; info.dataset.dismissed = 'true'; }
+  };
   private abort = () => this.dispose();
   private suspend = () => { this.cancel(); };
   private cancel() { ++this.generation; this.controller?.abort(); this.controller = null; this.contextController?.abort(); this.contextController = null; this.pending = null; this.evidenceReady = false; for (const command of this.commands.values()) command.busy = false; }
@@ -243,7 +293,7 @@ class UnderwayPanel implements PluginPanelInstance {
     for (const source of this.sources) { const option = element('option', `${source.label} · ${source.repo}${source.availability === 'available' ? '' : ` (${source.availability})`}`); option.value = key(source); select.append(option); }
     if (this.chosen && !this.sources.some(source => key(source) === key(this.chosen!))) { const option = element('option', `Unavailable source · ${this.chosen.repo}`); option.value = key(this.chosen); select.append(option); }
     select.value = this.invalidSelection ? 'unsupported' : this.chosen ? key(this.chosen) : ''; select.addEventListener('change', () => { void this.choose(select.value); }); toolbar.append(select);
-    const refresh = element('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.underwayFocus = 'refresh'; refresh.disabled = Boolean(this.pending); refresh.addEventListener('click', () => { void this.refresh(); }); toolbar.append(refresh); page.append(toolbar);
+    const refresh = element('button'); refresh.className = 'underway-icon-action'; refresh.setAttribute('aria-label', 'Refresh'); refresh.title = 'Refresh'; refresh.append(createIcon('refresh')); refresh.type = 'button'; refresh.dataset.underwayFocus = 'refresh'; refresh.disabled = Boolean(this.pending); refresh.addEventListener('click', () => { void this.refresh(); }); toolbar.append(refresh); page.append(toolbar);
     for (const message of [...this.messages, ...(this.saveError ? [this.saveError] : []), ...(this.commandError ? [this.commandError] : [])]) { const note = element('p', message); note.setAttribute('role', 'status'); page.append(note); }
     if (this.state.repo === null) page.append(element('p', this.state.pirateMode ? 'Select one galleon to launch work.' : 'Select one repository to launch work.'));
     for (const command of this.commands.values()) {
@@ -275,33 +325,38 @@ class UnderwayPanel implements PluginPanelInstance {
       if (section.error) { const error = element('p', section.error); error.setAttribute('role', 'status'); view.append(error); }
       const list = element('ul');
       for (const task of section.tasks) {
-        const row = element('li');
-        if (task.url) { const link = element('a', task.title); link.className = 'task-title'; link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.dataset.underwayFocus = taskFocusKey(section.source, task, 'source'); row.append(link); }
-        else { const title = element('span', task.title); title.className = 'task-title'; row.append(title); }
+        const row = element('li'); const main = element('div'); main.className = 'task-main';
+        if (task.url) { const link = element('a', task.title); link.className = 'task-title'; link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.dataset.underwayFocus = taskFocusKey(section.source, task, 'source'); main.append(link); }
+        else { const title = element('span', task.title); title.className = 'task-title'; main.append(title); }
         const evidence = element('div'); evidence.className = 'task-evidence';
         const identity = element('span', task.displayKey); identity.className = 'work-identity';
-        const state = element('span', { ready: 'Ready', in_progress: 'In progress', review: 'In review', done: 'Done', blocked: 'Blocked' }[task.state]); state.className = 'work-state';
-        evidence.append(identity, state, element('small', task.priority === null ? 'Priority unknown' : `Priority ${task.priority}`)); row.append(evidence);
+        const info = (name: keyof typeof phosphorGlyphs, label: string, kind: string, text?: string) => taskInfo(name, label, `underway-info-${encodeURIComponent(JSON.stringify([this.state.instanceId, taskFocusKey(section.source, task, kind)]))}`, text);
+        const stateLabel = { ready: 'Ready', in_progress: 'In progress', review: 'In review', done: 'Done', blocked: 'Blocked' }[task.state] ?? 'Unknown state';
+        const state = info(task.state, stateLabel, 'state'); state.classList.add('work-state'); state.dataset.state = task.state; main.append(state); row.append(main);
+        const priority = info('priority', task.priority == null ? 'Priority unknown' : `Priority ${task.priority}`, 'priority', task.priority == null ? '?' : `P${task.priority}`);
+        priority.classList.add('task-priority'); priority.dataset.urgency = task.priority != null && task.priority <= 1 ? 'critical' : task.priority === 2 ? 'high' : 'normal';
+        evidence.append(identity, priority);
+        if (this.state.repo !== null && task.state !== 'ready') evidence.append(info('lock', 'Not ready for a new run.', 'readiness'));
+        const actions = element('div'); actions.className = 'task-actions';
         const context = section.context.get(taskKey(task));
         if (context && this.state.visible && this.state.activity.active) {
           if (context.run) {
             const locator = { version: 1 as const, kind: 'run' as const, repo: context.run.repo, runId: context.run.runId };
-            row.append(this.presentationLink('Open run', locator, this.presentationHref('run', locator.repo, locator.runId), taskFocusKey(section.source, task, 'run')));
+            const link = this.presentationLink('', locator, this.presentationHref('run', locator.repo, locator.runId), taskFocusKey(section.source, task, 'run')); link.setAttribute('aria-label', 'Open run'); link.title = 'Open run'; link.append(createIcon('run')); actions.append(link);
           }
           if (context.pullRequest) {
             const locator = { version: 1 as const, kind: 'pull-request' as const, repo: context.pullRequest.repo, number: context.pullRequest.number };
-            row.append(this.presentationLink('Open pull request', locator, this.presentationHref('pull-request', locator.repo, String(locator.number)), taskFocusKey(section.source, task, 'pull-request')));
+            const link = this.presentationLink('', locator, this.presentationHref('pull-request', locator.repo, String(locator.number)), taskFocusKey(section.source, task, 'pull-request')); link.setAttribute('aria-label', 'Open pull request'); link.title = 'Open pull request'; link.append(createIcon('review'), element('span', `#${locator.number}`)); actions.append(link);
           }
         }
-        list.append(row);
-        if (this.state.repo !== null && task.state !== 'ready') row.append(element('small', 'Not ready for a new run.'));
         if (this.state.repo !== null && task.state === 'ready') {
-          const launch = element('button', 'Launch'); launch.type = 'button';
+          const launch = element('button'); launch.append(createIcon('ready'), element('span', 'Launch')); launch.type = 'button';
           launch.dataset.underwayFocus = taskFocusKey(section.source, task, 'launch');
           launch.disabled = !this.evidenceReady || !this.state.visible || !this.state.activity.active || this.state.repo !== task.repo
             || Boolean(this.pending) || section.loading || Boolean(section.error) || this.hasCommand(JSON.stringify([task.repo, task.ref.sourceId, task.ref.externalId]));
-          launch.addEventListener('click', () => { void this.launch(section, task); }); row.append(launch);
+          launch.addEventListener('click', () => { void this.launch(section, task); }); actions.append(launch);
         }
+        if (actions.childElementCount) evidence.append(actions); row.append(evidence); list.append(row);
       }
       view.append(list);
       if (!section.tasks.length && !section.error) view.append(element('p', section.loading ? 'Loading tasks…' : 'No unfinished tasks.'));
@@ -325,6 +380,7 @@ class UnderwayPanel implements PluginPanelInstance {
   }
   dispose(): void {
     if (this.disposed) return; this.disposed = true; this.cancel();
+    this.container.removeEventListener('keydown', this.dismissTooltips);
     this.context.signal.removeEventListener('abort', this.abort); this.state.activity.signal.removeEventListener('abort', this.suspend);
   }
 }
