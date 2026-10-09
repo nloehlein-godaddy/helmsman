@@ -129,13 +129,28 @@ it('closes inspection, clears its route and restores inherited scope while keepi
   history.replaceState(null, '', `/prs?${route}`);
   const f = await fixture({ pullRequest: { version: 1, repo: 'org/b', number: 42, mode: null } }); await ready(f);
   fill(f.container, '.pr-review-body', 'Keep the review draft'); click(f.container, '[data-close-inspection]');
-  await vi.waitFor(() => expect(f.context.setScope).toHaveBeenCalledWith({ kind: 'inherit' }));
+  await vi.waitFor(() => { expect(f.context.setScope).toHaveBeenCalledWith({ kind: 'inherit' }); expect(f.container.querySelector('[data-close-inspection]')).toBeNull(); expect(f.container.querySelector<HTMLButtonElement>('[data-load]')?.disabled).toBe(false); });
   expect(f.state().activity.repo).toBe('org/a'); expect(f.container.querySelector('.pr-panel')).toBeNull(); expect(f.container.querySelector('[data-close-inspection]')).toBeNull();
   const navigated = new URL(vi.mocked(f.context.navigate).mock.calls.at(-1)![0], window.location.origin);
   for (const key of ['pr', 'prRepo', 'mode', 'pane']) expect(navigated.searchParams.has(key)).toBe(false);
   expect(JSON.parse(navigated.searchParams.get('panelState')!)).toEqual({ other: { version: 1, value: {} } });
   fill(f.container, '[data-pr-compat-lookup]', 'org/b#42'); click(f.container, '[data-load]'); await ready(f);
   expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Keep the review draft');
+});
+it.each(['setScope', 'navigate', 'saveState'] as const)('keeps Close inspection retryable when %s fails', async operation => {
+  const f = await fixture(); await ready(f);
+  if (operation === 'navigate') vi.mocked(f.context.navigate).mockImplementationOnce(() => { throw new Error('Temporary failure'); });
+  else vi.mocked(f.context[operation]!).mockRejectedValueOnce(new Error('Temporary failure'));
+  click(f.container, '[data-close-inspection]');
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Choose Close inspection to try again.'));
+  expect(f.container.querySelector<HTMLButtonElement>('[data-close-inspection]')?.disabled).toBe(false);
+  expect(document.activeElement).toBe(f.container.querySelector('[data-close-inspection]'));
+  expect(f.container.querySelector('.pr-panel')).toBeNull();
+  click(f.container, '[data-close-inspection]');
+  await vi.waitFor(() => expect(f.container.querySelector('[data-close-inspection]')).toBeNull());
+  expect(f.state().activity.repo).toBe('org/a');
+  expect(f.context.saveState).toHaveBeenCalledWith({ version: 1, value: { target: null } });
+  expect(f.container.querySelector<HTMLInputElement>('[data-pr-compat-lookup]')?.value).toBe('');
 });
 it('closes inspection in an older standalone host without scope mutation support', async () => {
   const f = await fixture({}, context => { delete (context as { setScope?: PluginPanelContext['setScope'] }).setScope; }); await ready(f); click(f.container, '[data-close-inspection]');
