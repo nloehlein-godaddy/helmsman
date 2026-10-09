@@ -3,14 +3,14 @@ import { createThemeColorWheel, wheelColor, wheelMarker, wheelSelection } from '
 import { DEFAULT_THEME_GENERATOR_SETTINGS, oklchHex } from '../data/themeGenerator';
 
 describe('theme color wheel geometry', () => {
-  it.each([[200, 100, 0], [100, 0, 90], [0, 100, 180], [100, 200, 270]])('maps (%s, %s) to hue %s and full brightness', (x, y, hue) => {
-    expect(wheelSelection(x, y, 200, 123)).toEqual({ hue, brightness: 100 });
+  it.each([[200, 100, 0], [100, 0, 90], [0, 100, 180], [100, 200, 270]])('maps (%s, %s) to hue %s and zero brightness', (x, y, hue) => {
+    expect(wheelSelection(x, y, 200, 123)).toEqual({ hue, brightness: 0 });
   });
 
   it('retains the selected hue at the center and clamps outside the circle', () => {
-    expect(wheelSelection(100, 100, 200, 123)).toEqual({ hue: 123, brightness: 0 });
+    expect(wheelSelection(100, 100, 200, 123)).toEqual({ hue: 123, brightness: 100 });
     expect(wheelSelection(150, 100, 200, 123)).toEqual({ hue: 0, brightness: 50 });
-    expect(wheelSelection(400, 100, 200, 123)).toEqual({ hue: 0, brightness: 100 });
+    expect(wheelSelection(400, 100, 200, 123)).toEqual({ hue: 0, brightness: 0 });
   });
 
   it.each([[0, 0, 0, 123], [NaN, 1, 200, 123], [1, Infinity, 200, 123], [1, 1, -2, 123], [1, 1, 200, NaN]])('ignores invalid geometry', (x, y, size, hue) => {
@@ -20,6 +20,11 @@ describe('theme color wheel geometry', () => {
   it.each([0, 45, 90, 180, 270, 359])('maps marker position back to hue %s', hue => {
     const marker = wheelMarker({ hue, brightness: 53 });
     expect(wheelSelection(marker.x * 2, marker.y * 2, 200, 123)).toEqual({ hue, brightness: 53 });
+  });
+
+  it('places white at the center and black at the rim', () => {
+    expect(wheelMarker({ hue: 0, brightness: 100 })).toEqual({ x: 50, y: 50 });
+    expect(wheelMarker({ hue: 0, brightness: 0 })).toEqual({ x: 100, y: 50 });
   });
 
   it('renders the same gamut-mapped OKLCH hue as the generator', () => {
@@ -61,13 +66,13 @@ describe('theme color wheel interaction lifecycle', () => {
       pointer('pointermove', 4, 110, 20);
       expect(update).toHaveBeenCalledTimes(1);
       pointer('pointermove', 3, 110, -200);
-      expect(update).toHaveBeenLastCalledWith({ hue: 90, brightness: 100 });
+      expect(update).toHaveBeenLastCalledWith({ hue: 90, brightness: 0 });
       pointer('pointercancel', 3, 110, 20);
       expect(captured).toBeNull();
       pointer('pointermove', 3, 110, 20);
       expect(update).toHaveBeenCalledTimes(2);
       pointer('pointerdown', 5, 110, 120);
-      expect(update).toHaveBeenLastCalledWith({ hue: 165, brightness: 0 });
+      expect(update).toHaveBeenLastCalledWith({ hue: 165, brightness: 100 });
       controller.abort();
       expect(captured).toBeNull();
       pointer('pointermove', 5, 110, 20);
@@ -101,7 +106,7 @@ describe('theme color wheel interaction lifecycle', () => {
     settings.brightness = 2;
     key('ArrowDown', true);
     expect(settings.brightness).toBe(0);
-    expect(wheel.querySelector<HTMLElement>('[data-custom-theme-wheel-marker]')?.style.left).toBe('50%');
+    expect(wheel.querySelector<HTMLElement>('[data-custom-theme-wheel-marker]')?.style.left).toBe(`${50 + 50 * Math.cos(350 * Math.PI / 180)}%`);
     expect(wheel.getAttribute('aria-label')).toContain('brightness 0 percent');
     controller.abort();
     key('ArrowRight');

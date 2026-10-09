@@ -29,8 +29,8 @@ async function wheelPoint(wheel: Locator, hue: number, brightness: number) {
   const bounds = await wheel.boundingBox();
   if (!bounds) throw new Error('Missing color wheel bounds');
   const radians = hue * Math.PI / 180;
-  return { x: bounds.x + bounds.width / 2 + bounds.width / 2 * brightness / 100 * Math.cos(radians),
-    y: bounds.y + bounds.height / 2 - bounds.height / 2 * brightness / 100 * Math.sin(radians) };
+  return { x: bounds.x + bounds.width / 2 + bounds.width / 2 * (100 - brightness) / 100 * Math.cos(radians),
+    y: bounds.y + bounds.height / 2 - bounds.height / 2 * (100 - brightness) / 100 * Math.sin(radians) };
 }
 
 async function selectWheel(page: Page, wheel: Locator, hue: number, brightness: number) {
@@ -95,8 +95,8 @@ for (const width of [1440, 390]) test(`color wheel drag, keyboard, rendering and
   const brightness = editor.locator('[data-custom-theme-setting="brightness"]');
   await expect.poll(async () => (await wheelPixels(wheel))[0]?.[3]).toBe(255);
   const pixels = await wheelPixels(wheel);
-  expect(Math.max(...pixels[0]!.slice(0, 3))).toBeLessThan(5);
-  expect(Math.min(...pixels[2]!.slice(0, 3))).toBeGreaterThan(235);
+  expect(Math.min(...pixels[0]!.slice(0, 3))).toBeGreaterThan(245);
+  expect(Math.max(...pixels[2]!.slice(0, 3))).toBeLessThan(5);
   await setRange(saturation, 0);
   await expect.poll(async () => {
     const middle = (await wheelPixels(wheel))[1]!.slice(0, 3);
@@ -114,10 +114,10 @@ for (const width of [1440, 390]) test(`color wheel drag, keyboard, rendering and
     await expectWheelSelection(editor, angle, 50);
   }
   expect((await themeVars(page))['--accent']).not.toBe(initial['--accent']);
-  await selectWheel(page, wheel, 0, 0);
-  await expectWheelSelection(editor, 359, 0);
+  await selectWheel(page, wheel, 0, 100);
+  await expectWheelSelection(editor, 359, 100);
   const start = await wheelPoint(wheel, 0, 50);
-  const outside = await wheelPoint(wheel, 0, 120);
+  const outside = await wheelPoint(wheel, 0, -20);
   await wheel.evaluate(node => node.addEventListener('pointerdown', event => {
     node.setAttribute('data-test-pointer', String((event as PointerEvent).pointerId));
   }));
@@ -125,13 +125,13 @@ for (const width of [1440, 390]) test(`color wheel drag, keyboard, rendering and
   await page.mouse.down();
   expect(await wheel.evaluate(node => node.hasPointerCapture(Number(node.getAttribute('data-test-pointer'))))).toBe(true);
   await page.mouse.move(outside.x, outside.y);
-  await expectWheelSelection(editor, 0, 100);
+  await expectWheelSelection(editor, 0, 0);
   await page.mouse.up();
   expect(await wheel.evaluate(node => node.hasPointerCapture(Number(node.getAttribute('data-test-pointer'))))).toBe(false);
   const released = await themeVars(page);
-  const center = await wheelPoint(wheel, 0, 0);
+  const center = await wheelPoint(wheel, 0, 100);
   await page.mouse.move(center.x, center.y);
-  await expectWheelSelection(editor, 0, 100);
+  await expectWheelSelection(editor, 0, 0);
   expect(await themeVars(page)).toEqual(released);
   await setRange(hue, 90);
   await setRange(brightness, 50);

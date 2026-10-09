@@ -9,13 +9,13 @@ export function wheelSelection(x: number, y: number, size: number, previousHue: 
   const distance = Math.hypot(dx, dy);
   return {
     hue: distance < 0.5 ? previousHue : Math.round((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360) % 360,
-    brightness: Math.round(Math.min(1, distance / (size / 2)) * 100),
+    brightness: 100 - Math.round(Math.min(1, distance / (size / 2)) * 100),
   };
 }
 
 export function wheelMarker(settings: WheelSettings): { x: number; y: number } {
   const radians = settings.hue * Math.PI / 180;
-  return { x: 50 + 50 * settings.brightness / 100 * Math.cos(radians), y: 50 - 50 * settings.brightness / 100 * Math.sin(radians) };
+  return { x: 50 + 50 * (100 - settings.brightness) / 100 * Math.cos(radians), y: 50 - 50 * (100 - settings.brightness) / 100 * Math.sin(radians) };
 }
 
 export function wheelColor(hue: number, brightness: number, saturation: number): string {
@@ -59,7 +59,7 @@ export function createThemeColorWheel(root: HTMLElement, signal: AbortSignal, se
         const dy = radius - y - 0.5;
         const distance = Math.hypot(dx, dy);
         if (distance > radius) continue;
-        const brightness = Math.round(distance / radius * 100);
+        const brightness = 100 - Math.round(distance / radius * 100);
         const hue = Math.round(((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360) / 2) * 2;
         const key = brightness * 361 + hue;
         let channels = colors.get(key);
