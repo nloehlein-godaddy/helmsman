@@ -22,7 +22,9 @@ import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, ren
 import { fetchAgents, type RunSummary } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
 import { applyCustomTheme, CUSTOM_THEME_ID, loadCustomTheme, loadCustomThemeRecipe, saveCustomTheme } from './data/themes';
-import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette } from './data/themeGenerator';
+import { createThemeRecipeFromPalette, DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, THEME_HARMONIES, type ThemeGeneratorRecipe } from './data/themeGenerator';
+import { THEME_PALETTE_PRESETS } from './data/themePresets';
+import { renderThemeModeIcon } from './renderThemeModeIcon';
 import { CUSTOM_THEME_OVERRIDE_FIELDS, renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
 import { renderPirateModeIcon } from './renderPirateModeIcon';
 import {
@@ -259,6 +261,12 @@ export class DashboardView {
   }
 
   private syncCustomThemeStatus(): void {
+    const mode = this.root.querySelector<HTMLButtonElement>('[data-custom-theme-mode]');
+    if (mode) {
+      mode.setAttribute('aria-pressed', String(this.customTheme.palette.mode === 'dark'));
+      mode.title = `Switch to ${this.customTheme.palette.mode === 'dark' ? 'light' : 'dark'} appearance`;
+      mode.innerHTML = renderThemeModeIcon(this.customTheme.palette.mode);
+    }
     const status = this.root.querySelector<HTMLElement>('[data-custom-theme-status]');
     if (status) {
       status.textContent = this.customTheme.message ?? '';
@@ -294,20 +302,31 @@ export class DashboardView {
       const value = Number(target.value);
       if (!Number.isFinite(value) || value < 0 || value > (key === 'hue' ? 360 : 100)) return true;
       this.customTheme.recipe.settings = { ...this.customTheme.recipe.settings, [key]: value };
-    } else if (target instanceof HTMLSelectElement && target.matches('[data-custom-theme-mode]')) {
-      if (target.value !== 'dark' && target.value !== 'light') return true;
-      this.customTheme.palette = { ...this.customTheme.palette, mode: target.value };
+    } else if (target instanceof HTMLSelectElement && target.matches('[data-custom-theme-preset]')) {
+      const preset = THEME_PALETTE_PRESETS.find(({ id }) => id === target.value);
+      const recipe: ThemeGeneratorRecipe | undefined = preset ? createThemeRecipeFromPalette(preset.colors) : target.value === '' ? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} } : undefined;
+      if (!recipe) return true;
+      this.customTheme.recipe = recipe;
+      const editor = this.root.querySelector<HTMLElement>('[data-custom-theme-editor]');
+      this.customTheme.palette = generateThemePalette(recipe.settings, this.customTheme.palette.mode, recipe.overrides, recipe.sourcePalette);
+      if (editor) editor.innerHTML = renderCustomThemeEditor(this.customTheme);
+      this.root.querySelector<HTMLSelectElement>('[data-custom-theme-preset]')?.focus({ preventScroll: true });
     } else if (target instanceof HTMLSelectElement && target.matches('[data-custom-theme-harmony]')) {
-      if (target.value !== 'analogous' && target.value !== 'complementary' && target.value !== 'triadic') return true;
-      this.customTheme.recipe.settings = { ...this.customTheme.recipe.settings, harmony: target.value };
+      const harmony = THEME_HARMONIES.find(({ value }) => value === target.value);
+      if (!harmony || harmony.value === 'palette' && !this.customTheme.recipe.sourcePalette) return true;
+      this.customTheme.recipe.settings = { ...this.customTheme.recipe.settings, harmony: harmony.value };
     } else return false;
-    this.customTheme.palette = generateThemePalette(this.customTheme.recipe.settings, this.customTheme.palette.mode, this.customTheme.recipe.overrides);
+    this.previewCustomTheme();
+    return true;
+  }
+
+  private previewCustomTheme(): void {
+    this.customTheme.palette = generateThemePalette(this.customTheme.recipe.settings, this.customTheme.palette.mode, this.customTheme.recipe.overrides, this.customTheme.recipe.sourcePalette);
     this.customTheme.dirty = true;
     this.customTheme.error = false;
     this.customTheme.message = 'Previewing unsaved changes.';
     this.applyCurrentTheme();
     this.syncCustomThemeStatus();
-    return true;
   }
 
   private customThemeAction(action: 'save' | 'discard' | 'reset' | 'reset-overrides'): void {
@@ -324,7 +343,7 @@ export class DashboardView {
       this.customTheme.recipe = loadCustomThemeRecipe() ?? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} };
     } else {
       this.customTheme.recipe = action === 'reset' ? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} } : { ...this.customTheme.recipe, overrides: {} };
-      this.customTheme.palette = generateThemePalette(this.customTheme.recipe.settings, action === 'reset' ? 'dark' : this.customTheme.palette.mode, this.customTheme.recipe.overrides);
+      this.customTheme.palette = generateThemePalette(this.customTheme.recipe.settings, action === 'reset' ? 'dark' : this.customTheme.palette.mode, this.customTheme.recipe.overrides, this.customTheme.recipe.sourcePalette);
     }
     this.customTheme.dirty = action !== 'discard';
     this.customTheme.error = false;
@@ -888,6 +907,14 @@ export class DashboardView {
     const pirateToggle = target.closest<HTMLButtonElement>('[data-pirate-mode]');
     if (pirateToggle) {
       if (!pirateToggle.disabled) this.changePirateMode(!isPirateMode(), pirateToggle.dataset.pirateMode);
+      return;
+    }
+    const appearance = target.closest<HTMLButtonElement>('[data-custom-theme-mode]');
+    if (appearance) {
+      if (!appearance.disabled) {
+        this.customTheme.palette = { ...this.customTheme.palette, mode: this.customTheme.palette.mode === 'dark' ? 'light' : 'dark' };
+        this.previewCustomTheme();
+      }
       return;
     }
     const customAction = target.closest<HTMLButtonElement>('[data-custom-theme-save], [data-custom-theme-discard], [data-custom-theme-reset], [data-custom-theme-reset-overrides]');

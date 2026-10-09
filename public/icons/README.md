@@ -4,3 +4,6 @@ The original path data is unchanged. Source files: `assets/fill/treasure-chest-f
 and `assets/fill/briefcase-fill.svg`.
 
 License: [MIT](../licenses/phosphor-core-2.1.1.txt).
+
+`theme-mode.svg` contains the unmodified Fill moon and sun paths from the same
+package: `assets/fill/moon-fill.svg` and `assets/fill/sun-fill.svg`.

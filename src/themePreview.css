@@ -79,17 +79,13 @@
 .theme-preview-statuses .chip { font: 500 14px/1.4 var(--sans); letter-spacing: 0; text-transform: none; padding: 4px 8px; border-radius: 4px; }
 
 .ui-terminology-settings {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px 24px;
+  display: grid;
+  gap: 16px;
 }
 
 .ui-terminology-copy {
   display: grid;
   gap: 6px;
-  flex: 1 1 300px;
 }
 
 .ui-terminology-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
@@ -101,7 +97,13 @@
 .custom-theme-editor { display: grid; gap: 20px; padding-block: 20px; border-block: 1px solid var(--line-faint); }
 .custom-theme-heading { display: grid; gap: 6px; }
 .custom-theme-heading h3 { margin: 0; font: 600 15px/1.4 var(--sans); color: var(--text); }
-.custom-theme-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.custom-theme-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.custom-theme-harmony-row { display: flex; gap: 8px; align-items: center; }
+.custom-theme-harmony-row select { flex: 1; }
+.custom-theme-mode { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 8px; flex-shrink: 0; }
+.custom-theme-mode svg { width: 24px; height: 24px; }
+.custom-theme-presets label { display: block; margin-bottom: 6px; color: var(--text); font: 500 14px/1.4 var(--sans); }
+.custom-theme-presets select { width: 100%; }
 .custom-theme-controls label, .custom-theme-color label { display: block; margin-bottom: 6px; color: var(--text); font: 500 14px/1.4 var(--sans); }
 .custom-theme-controls select { width: 100%; min-width: 0; min-height: 36px; }
 .custom-theme-colors { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; min-width: 0; padding: 0; margin: 0; border: 0; }
@@ -113,6 +115,7 @@
 .custom-theme-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .custom-theme-actions button { min-height: 36px; }
 .custom-theme-actions [data-custom-theme-save] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.custom-theme-actions [data-custom-theme-save]:hover { background: var(--accent); color: var(--on-accent); border-color: var(--accent-text, var(--accent)); }
 .custom-theme-editor [role='alert'] { color: var(--bad); }
 
 @media (pointer: coarse) {

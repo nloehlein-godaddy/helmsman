@@ -123,7 +123,7 @@ function parseStoredThemeRecipe(raw: string | null, generate: typeof generateThe
     const palette = parseCustomThemePalette(record.palette);
     const recipe = parseRecipe(record.recipe);
     if (!palette || !recipe) return undefined;
-    const generated = generate(recipe.settings, palette.mode, recipe.overrides);
+    const generated = generate(recipe.settings, palette.mode, recipe.overrides, recipe.sourcePalette);
     if (Object.keys(generated).some(key => palette[key as keyof CustomThemePalette] !== generated[key as keyof CustomThemePalette])) return undefined;
     return { palette, recipe };
   } catch {
@@ -296,7 +296,7 @@ export function saveCustomTheme(palette: CustomThemePalette, recipe?: ThemeGener
   const validPalette = parseCustomThemePalette(palette);
   const validRecipe = parseThemeGeneratorRecipe(recipe);
   if (!validPalette || !validRecipe) return false;
-  const generated = generateThemePalette(validRecipe.settings, validPalette.mode, validRecipe.overrides);
+  const generated = generateThemePalette(validRecipe.settings, validPalette.mode, validRecipe.overrides, validRecipe.sourcePalette);
   if (Object.keys(generated).some(key => validPalette[key as keyof CustomThemePalette] !== generated[key as keyof CustomThemePalette])) return false;
   try {
     if (typeof localStorage === 'undefined') return false;

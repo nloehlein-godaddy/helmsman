@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyCustomTheme, CUSTOM_THEME_FIELDS, CUSTOM_THEME_STORAGE_KEY, customThemeFromPalette, DEFAULT_THEME_ID, loadCustomTheme, loadCustomThemeRecipe, REQUIRED_VAR_KEYS, saveCustomTheme, type CustomThemePalette } from './themes';
-import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, type ThemeGeneratorRecipe } from './themeGenerator';
+import { createThemeRecipeFromPalette, DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, THEME_HARMONIES, type ThemeGeneratorRecipe } from './themeGenerator';
 
 function luminance(hex: string): number {
   const channels = (hex.match(/[a-f\d]{2}/gi) ?? []).map(channel => {
@@ -26,11 +26,11 @@ describe('generated theme roles', () => {
     expect(CUSTOM_THEME_FIELDS.map(field => field.key)).toContain('controlBg');
   });
 
-  it.each(['dark', 'light'] as const)('keeps all text and semantic roles readable in generated %s palettes', mode => {
+  it.each(THEME_HARMONIES.filter(({ value }) => value !== 'palette').flatMap(({ value }) => ['dark', 'light'].map(mode => ({ harmony: value, mode: mode as 'dark' | 'light' }))))('keeps all text and semantic roles readable in generated $harmony $mode palettes', ({ harmony, mode }) => {
     for (const hue of [0, 95, 165, 255, 359]) {
       for (const saturation of [0, 100]) {
         for (const brightness of [0, 100]) {
-          const palette = generateThemePalette({ hue, saturation, brightness, harmony: 'triadic' }, mode);
+          const palette = generateThemePalette({ hue, saturation, brightness, harmony }, mode);
           const { vars } = customThemeFromPalette(palette);
           for (const role of ['--text', '--text-dim', '--text-faint', '--accent-text', '--accent-text-hover', '--secondary-text', '--bad', '--good', '--review', '--queued']) {
             for (const surface of ['--bg', '--gutter', '--panel', '--panel-2', '--panel-hi']) {
@@ -41,6 +41,7 @@ describe('generated theme roles', () => {
           expect(contrast(vars['--on-good']!, vars['--good']!)).toBeGreaterThanOrEqual(4.5);
           expect(contrast(vars['--section-nav-text']!, vars['--section-nav-bg']!)).toBeGreaterThanOrEqual(4.5);
           expect(contrast(vars['--section-nav-text']!, vars['--section-nav-hover']!)).toBeGreaterThanOrEqual(4.5);
+          for (const role of ['--input-text', '--input-placeholder', '--input-accent']) expect(contrast(vars[role]!, vars['--control-bg']!)).toBeGreaterThanOrEqual(4.5);
         }
       }
     }
@@ -53,6 +54,28 @@ describe('generated theme roles', () => {
       for (const role of ['--input-text', '--input-placeholder', '--input-accent']) expect(contrast(theme.vars[role]!, controlBg)).toBeGreaterThanOrEqual(4.5);
       expect(theme.vars['--control-bg']).toBe(controlBg);
       expect(palette.controlBg).toBe(controlBg);
+    }
+  });
+
+  it.each(['dark', 'light'] as const)('keeps five-color source roles readable across harmonies and %s extremes', mode => {
+    for (const colors of [['#152b44', '#dfead2', '#e95f52', '#6ea867', '#827298'], ['#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff'], ['#000000', '#ffffff', '#333333', '#777777', '#aaaaaa']]) {
+      const recipe = createThemeRecipeFromPalette(colors)!;
+      for (const { value: harmony } of THEME_HARMONIES) {
+        for (const saturation of [0, 100]) {
+          for (const brightness of [0, 100]) {
+            const palette = generateThemePalette({ ...recipe.settings, harmony, saturation, brightness }, mode, {}, recipe.sourcePalette);
+            for (const color of Object.values(palette).filter(color => color !== mode)) expect(color).toMatch(/^#[a-f\d]{6}$/i);
+            const { vars } = customThemeFromPalette(palette);
+            for (const role of ['--text', '--text-dim', '--text-faint', '--accent-text', '--secondary-text', '--bad', '--good', '--review', '--queued']) {
+              for (const surface of ['--bg', '--gutter', '--panel', '--panel-2', '--panel-hi']) expect(contrast(vars[role]!, vars[surface]!), `${harmony} ${role} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+            }
+            for (const role of ['--input-text', '--input-placeholder', '--input-accent']) expect(contrast(vars[role]!, vars['--control-bg']!)).toBeGreaterThanOrEqual(4.5);
+            expect(contrast(vars['--section-nav-text']!, vars['--section-nav-bg']!)).toBeGreaterThanOrEqual(4.5);
+            expect(contrast(vars['--section-nav-text']!, vars['--section-nav-hover']!)).toBeGreaterThanOrEqual(4.5);
+            expect(contrast(vars['--on-accent']!, vars['--accent']!)).toBeGreaterThanOrEqual(4.5);
+          }
+        }
+      }
     }
   });
 
@@ -92,6 +115,24 @@ describe('atomic generated theme storage', () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it.each(['palette', 'split-complementary'] as const)('persists five source colors alongside %s recipes and validates all three atomically', harmony => {
+    const recipe = createThemeRecipeFromPalette(['#152B44', '#DFEAD2', '#E95F52', '#6EA867', '#827298'])!;
+    recipe.settings.harmony = harmony;
+    recipe.overrides.controlBg = '#ffffff';
+    const palette = generateThemePalette(recipe.settings, 'dark', recipe.overrides, recipe.sourcePalette);
+    expect(saveCustomTheme(palette, recipe)).toBe(true);
+    expect(loadCustomTheme()).toEqual(palette);
+    expect(loadCustomThemeRecipe()).toEqual(recipe);
+    expect(JSON.parse(values.get(CUSTOM_THEME_STORAGE_KEY)!).recipe.sourcePalette).toEqual(['#152b44', '#dfead2', '#e95f52', '#6ea867', '#827298']);
+    const before = values.get(CUSTOM_THEME_STORAGE_KEY);
+    expect(saveCustomTheme({ ...palette, accent: '#ffffff' }, recipe)).toBe(false);
+    expect(values.get(CUSTOM_THEME_STORAGE_KEY)).toBe(before);
+    const inconsistent = { ...recipe, sourcePalette: ['#000000', ...(recipe.sourcePalette?.slice(1) ?? [])] };
+    values.set(CUSTOM_THEME_STORAGE_KEY, JSON.stringify({ version: 3, palette, recipe: inconsistent }));
+    expect(loadCustomThemeRecipe()).toBeUndefined();
+    expect(loadCustomTheme()).toEqual(defaultPalette());
+  });
 
   it('saves exact palette and recipe together as version 3', () => {
     const recipe: ThemeGeneratorRecipe = { settings: { hue: 275, saturation: 80, brightness: 60, harmony: 'complementary' }, overrides: { controlBg: '#ffffff', accent: '#44005c' } };

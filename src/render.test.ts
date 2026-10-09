@@ -52,7 +52,12 @@ describe('application views', () => {
     expect(el.querySelector('.theme-select, [data-custom-theme-preset]')).toBeNull();
     expect(el.querySelector<HTMLElement>('[data-custom-theme-editor]')?.hidden).toBe(false);
     expect(el.querySelectorAll('[data-custom-theme-setting]')).toHaveLength(3);
-    for (const control of el.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-custom-theme-setting], [data-custom-theme-mode], [data-custom-theme-harmony], [data-custom-theme-color]')) expect(control.labels?.length).toBe(1);
+    for (const control of el.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-custom-theme-setting], [data-custom-theme-harmony], [data-custom-theme-color]')) expect(control.labels?.length).toBe(1);
+    const mode = el.querySelector<HTMLButtonElement>('[data-custom-theme-mode]');
+    expect(mode?.getAttribute('aria-label')).toBe('Dark appearance');
+    expect(mode?.getAttribute('aria-pressed')).toBe('true');
+    expect(mode?.querySelector('use')?.getAttribute('href')).toBe('/icons/theme-mode.svg#moon');
+    expect(el.querySelector('[data-custom-theme-harmony]')?.nextElementSibling).toBe(mode);
     expect(el.querySelector('.ui-customization-panel .theme-preview')).not.toBeNull();
     expect(el.querySelector<HTMLDetailsElement>('.custom-theme-advanced')?.open).toBe(false);
     expect(el.querySelector('.custom-theme-advanced summary')?.textContent).toBe('Advanced color overrides');

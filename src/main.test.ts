@@ -3,7 +3,8 @@ import { DashboardView } from './main';
 import { loadDashboard as loadMockSnapshot } from './data/mock';
 import type { DashboardResponse } from './data/live';
 import { DEFAULT_THEME_ID } from './data/themes';
-import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette } from './data/themeGenerator';
+import { createThemeRecipeFromPalette, DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette } from './data/themeGenerator';
+import { THEME_PALETTE_PRESETS, type ThemePalettePreset } from './data/themePresets';
 
 const views: DashboardView[] = [];
 function createView(root: HTMLElement): DashboardView {
@@ -234,14 +235,44 @@ describe('DashboardView settings interactions', () => {
     expect(root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')?.value).toBe('280');
   });
 
+  it('applies a five-color preset, toggles its appearance, and keeps its source colors on save', async () => {
+    const presets = THEME_PALETTE_PRESETS as ThemePalettePreset[];
+    const fixture: ThemePalettePreset = { id: 'fixture', name: 'Fixture palette', colors: ['#0b132b', '#1c2541', '#3a506b', '#5bc0be', '#ffffff'] };
+    presets.push(fixture);
+    try {
+      const { root } = await openThemeEditor();
+      const preset = root.querySelector<HTMLSelectElement>('[data-custom-theme-preset]')!;
+      preset.value = fixture.id;
+      preset.dispatchEvent(new Event('change', { bubbles: true }));
+      const recipe = createThemeRecipeFromPalette(fixture.colors)!;
+      expect(root.querySelector<HTMLSelectElement>('[data-custom-theme-harmony]')?.value).toBe('palette');
+      expect(document.documentElement.style.getPropertyValue('--accent')).toBe(generateThemePalette(recipe.settings, 'dark', {}, recipe.sourcePalette).accent);
+      root.querySelector<HTMLButtonElement>('[data-custom-theme-mode]')!.click();
+      expect(document.documentElement.dataset.themeMode).toBe('light');
+      expect(root.querySelector('[data-custom-theme-mode]')?.querySelector('use')?.getAttribute('href')).toBe('/icons/theme-mode.svg#sun');
+      root.querySelector<HTMLButtonElement>('[data-custom-theme-save]')!.click();
+      expect(JSON.parse(localStorage.getItem('cmux.theme.custom')!).recipe.sourcePalette).toEqual(fixture.colors);
+      const source = root.querySelector<HTMLSelectElement>('[data-custom-theme-preset]')!;
+      source.value = '';
+      source.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(root.querySelector<HTMLSelectElement>('[data-custom-theme-harmony]')?.value).toBe('analogous');
+      root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')!.click();
+      expect(root.querySelector<HTMLSelectElement>('[data-custom-theme-preset]')?.value).toBe(fixture.id);
+      expect(root.querySelector('[data-custom-theme-mode]')?.getAttribute('aria-pressed')).toBe('false');
+    } finally {
+      presets.splice(presets.indexOf(fixture), 1);
+    }
+  });
+
   it('saves the recipe and appearance, restores both on discard, and previews defaults on reset', async () => {
     const { root } = await openThemeEditor();
     const slider = root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')!;
     slider.value = '42';
     slider.dispatchEvent(new Event('input', { bubbles: true }));
-    const appearance = root.querySelector<HTMLSelectElement>('[data-custom-theme-mode]')!;
-    appearance.value = 'light';
-    appearance.dispatchEvent(new Event('change', { bubbles: true }));
+    const appearance = root.querySelector<HTMLButtonElement>('[data-custom-theme-mode]')!;
+    appearance.click();
+    expect(appearance.getAttribute('aria-pressed')).toBe('false');
+    expect(appearance.querySelector('use')?.getAttribute('href')).toBe('/icons/theme-mode.svg#sun');
     root.querySelector<HTMLButtonElement>('[data-custom-theme-save]')!.click();
     const saved = JSON.parse(localStorage.getItem('cmux.theme.custom')!);
     expect(saved.recipe.settings.hue).toBe(42);
@@ -251,7 +282,7 @@ describe('DashboardView settings interactions', () => {
     expect(root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')?.value).toBe(String(DEFAULT_THEME_GENERATOR_SETTINGS.hue));
     root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')!.click();
     expect(root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')?.value).toBe('42');
-    expect(root.querySelector<HTMLSelectElement>('[data-custom-theme-mode]')?.value).toBe('light');
+    expect(root.querySelector('[data-custom-theme-mode]')?.getAttribute('aria-pressed')).toBe('false');
     expect(root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')?.disabled).toBe(true);
   });
 

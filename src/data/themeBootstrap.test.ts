@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { themeBootstrapScript } from '../../build-theme';
 import { CUSTOM_THEME_STORAGE_KEY, customThemeFromPalette, DEFAULT_THEME_ID, loadCustomTheme, loadCustomThemeRecipe } from './themes';
-import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, type ThemeGeneratorRecipe } from './themeGenerator';
+import { createThemeRecipeFromPalette, DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, THEME_HARMONIES, type ThemeGeneratorRecipe } from './themeGenerator';
 
 describe('initial generated theme bootstrap', () => {
   beforeEach(() => {
@@ -37,8 +37,20 @@ describe('initial generated theme bootstrap', () => {
     expectRuntimeMatches();
   });
 
-  it.each(['dark', 'light'] as const)('matches runtime generated %s colors and independently overridden inputs before first paint', mode => {
-    const recipe: ThemeGeneratorRecipe = { settings: { hue: 275, saturation: 95, brightness: 100, harmony: 'triadic' }, overrides: { controlBg: mode === 'dark' ? '#ffffff' : '#000000', accent: '#44005c' } };
+  it.each(THEME_HARMONIES.flatMap(({ value }) => ['dark', 'light'].map(mode => ({ harmony: value, mode: mode as 'dark' | 'light' }))))('boots persisted five-color $harmony $mode recipes before first paint', ({ harmony, mode }) => {
+    const recipe = createThemeRecipeFromPalette(['#152b44', '#dfead2', '#e95f52', '#6ea867', '#827298'])!;
+    recipe.settings.harmony = harmony;
+    recipe.settings.hue = (recipe.settings.hue + 45) % 360;
+    recipe.overrides.controlBg = mode === 'dark' ? '#ffffff' : '#000000';
+    const palette = generateThemePalette(recipe.settings, mode, recipe.overrides, recipe.sourcePalette);
+    bootstrap(JSON.stringify({ version: 3, palette, recipe }));
+    expect(loadCustomTheme()).toEqual(palette);
+    expect(loadCustomThemeRecipe()).toEqual(recipe);
+    expectRuntimeMatches();
+  });
+
+  it.each(THEME_HARMONIES.filter(({ value }) => value !== 'palette').flatMap(({ value }) => ['dark', 'light'].map(mode => ({ harmony: value, mode: mode as 'dark' | 'light' }))))('matches runtime generated $harmony $mode colors and independently overridden inputs before first paint', ({ harmony, mode }) => {
+    const recipe: ThemeGeneratorRecipe = { settings: { hue: 275, saturation: 95, brightness: 100, harmony }, overrides: { controlBg: mode === 'dark' ? '#ffffff' : '#000000', accent: '#44005c' } };
     const palette = generateThemePalette(recipe.settings, mode, recipe.overrides);
     bootstrap(JSON.stringify({ version: 3, palette, recipe }));
     expect(loadCustomTheme()).toEqual(palette);

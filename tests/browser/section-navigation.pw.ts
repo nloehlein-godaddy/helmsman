@@ -64,7 +64,8 @@ test('section navigation stands apart and stays readable in dark and light gener
   await expect(page.locator('#boot')).toHaveCount(0);
   await expect(page.locator('#page-content a.app-link')).toHaveCount(0);
   for (const mode of ['dark', 'light']) {
-    await page.locator('[data-custom-theme-mode]').selectOption(mode);
+    const appearance = page.locator('[data-custom-theme-mode]');
+    if (await appearance.getAttribute('aria-pressed') !== String(mode === 'dark')) await appearance.click();
     const nav = page.locator('.section-nav');
     const inactive = nav.getByRole('link', { name: 'Task sources', exact: true });
     const contrast = async () => page.evaluate(() => {
@@ -105,7 +106,8 @@ test('section navigation stands apart and stays readable in dark and light gener
     await inactive.hover();
     expect((await contrast()).text, `${mode} hover`).toBeGreaterThanOrEqual(4.5);
   }
-  await page.locator('[data-custom-theme-mode]').selectOption('light');
+  const appearance = page.locator('[data-custom-theme-mode]');
+  if (await appearance.getAttribute('aria-pressed') !== 'false') await appearance.click();
   await page.mouse.move(0, 0);
   await expect(page).toHaveScreenshot('config-navigation-light.png');
 });

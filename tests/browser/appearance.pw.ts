@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Locator } from '@playwright/test';
 import { builtinCatalog } from './builtin-catalog';
-import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette } from '../../src/data/themeGenerator';
+import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, THEME_HARMONIES, createThemeRecipeFromPalette } from '../../src/data/themeGenerator';
 
 async function mockConfig(page: Page) {
   await page.route('**/api/**', route => {
@@ -24,6 +24,13 @@ async function setRange(range: Locator, value: number) {
   await expect(range).toHaveValue(String(value));
 }
 
+async function setAppearance(button: Locator, mode: 'dark' | 'light') {
+  const pressed = mode === 'dark' ? 'true' : 'false';
+  if (await button.getAttribute('aria-pressed') !== pressed) await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', pressed);
+  await expect(button.locator('use')).toHaveAttribute('href', `/icons/theme-mode.svg#${mode === 'dark' ? 'moon' : 'sun'}`);
+}
+
 async function storedTheme(page: Page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem('cmux.theme.custom') ?? 'null'));
 }
@@ -45,14 +52,14 @@ for (const width of [1440, 390]) test(`personal theme generation, overrides and 
   const hue = editor.getByRole('slider', { name: 'Hue', exact: true });
   const saturation = editor.getByRole('slider', { name: 'Saturation', exact: true });
   const brightness = editor.getByRole('slider', { name: 'Brightness', exact: true });
-  const mode = editor.getByLabel('Appearance', { exact: true });
+  const mode = editor.locator('[data-custom-theme-mode]');
   const harmony = editor.getByLabel('Color harmony', { exact: true });
   const save = editor.getByRole('button', { name: 'Save theme', exact: true });
   const discard = editor.getByRole('button', { name: 'Discard changes', exact: true });
   const advanced = editor.locator('details');
   const accent = editor.locator('[data-custom-theme-color="accent"]');
   await expect(editor).toBeVisible();
-  await expect(page.locator('.theme-select, [data-custom-theme-preset], [data-custom-theme-use-preset]')).toHaveCount(0);
+  await expect(page.locator('.theme-select, [data-custom-theme-use-preset]')).toHaveCount(0);
   await expect(hue).toHaveAttribute('min', '0');
   await expect(hue).toHaveAttribute('max', '360');
   for (const range of [saturation, brightness]) {
@@ -63,6 +70,10 @@ for (const width of [1440, 390]) test(`personal theme generation, overrides and 
   await expect(saturation).toHaveValue('35');
   await expect(brightness).toHaveValue('45');
   await expect(harmony).toHaveValue('analogous');
+  await expect(mode).toHaveAccessibleName('Dark appearance');
+  await expect(mode).toHaveAttribute('aria-pressed', 'true');
+  await expect(mode.locator('use')).toHaveAttribute('href', '/icons/theme-mode.svg#moon');
+  await expect(harmony.locator('option')).toHaveText(['Analogous', 'Complementary', 'Triadic', 'Tetradic', 'Square', 'Monochromatic', 'Shades', 'Split complementary']);
   await expect(advanced).not.toHaveAttribute('open', '');
   const defaults = await themeVars(page);
   await page.mouse.move(0, 0);
@@ -90,12 +101,12 @@ for (const width of [1440, 390]) test(`personal theme generation, overrides and 
   await expect(harmony).toHaveValue('triadic');
   await editor.getByText('Advanced color overrides', { exact: true }).click();
   await expect(accent).toHaveValue('#44005c');
-  await mode.selectOption('light');
+  await setAppearance(mode, 'light');
   await setRange(hue, 100);
   await expect(page.locator('html')).toHaveAttribute('data-theme-mode', 'light');
   await discard.click();
   await expect(hue).toHaveValue('220');
-  await expect(mode).toHaveValue('dark');
+  await expect(mode).toHaveAttribute('aria-pressed', 'true');
   await expect(accent).toHaveValue('#44005c');
   await editor.getByRole('button', { name: 'Reset overrides', exact: true }).click();
   await expect(accent).not.toHaveValue('#44005c');
@@ -106,7 +117,7 @@ for (const width of [1440, 390]) test(`personal theme generation, overrides and 
   await expect(saturation).toHaveValue('35');
   await expect(brightness).toHaveValue('45');
   await expect(harmony).toHaveValue('analogous');
-  await expect(mode).toHaveValue('dark');
+  await expect(mode).toHaveAttribute('aria-pressed', 'true');
   expect(await themeVars(page)).toEqual(defaults);
   await discard.click();
   await expect(accent).toHaveValue('#44005c');
@@ -131,6 +142,28 @@ for (const width of [1440, 390]) test(`personal theme generation, overrides and 
   await footerToggle.click();
   await expect(configToggle).toHaveAttribute('aria-checked', initial ?? 'true');
   await expect(footerToggle).toBeFocused();
+  const terminology = page.locator('.ui-terminology-settings');
+  const reference = terminology.locator('.terminology-reference');
+  const summary = reference.getByText('Terminology reference', { exact: true });
+  await expect(reference).not.toHaveAttribute('open', '');
+  expect(await terminology.evaluate(section => {
+    const row = section.querySelector('.ui-terminology-copy')?.getBoundingClientRect();
+    const reference = section.querySelector('.terminology-reference')?.getBoundingClientRect();
+    return row && reference ? reference.top >= row.bottom : false;
+  })).toBe(true);
+  await terminology.scrollIntoViewIfNeeded();
+  await summary.focus();
+  await page.mouse.move(0, 0);
+  await expect(terminology).toHaveScreenshot(`terminology-reference-collapsed-${width}.png`);
+  await summary.press('Enter');
+  await expect(reference).toHaveAttribute('open', '');
+  await expect(reference.getByRole('table')).toBeVisible();
+  await terminology.evaluate(section => section.scrollIntoView({ block: 'start' }));
+  const referenceBounds = await terminology.boundingBox();
+  if (!referenceBounds) throw new Error('Missing terminology reference bounds');
+  await expect(page).toHaveScreenshot(`terminology-reference-expanded-${width}.png`, { clip: { ...referenceBounds, height: Math.min(referenceBounds.height, 340) } });
+  await summary.press('Enter');
+  await expect(reference).not.toHaveAttribute('open', '');
   await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toHaveValue('Repository pirate agent content stays mine.');
   await expect(page.locator('.repo-select')).toHaveValue('org/a');
   await editor.getByRole('button', { name: 'Reset overrides', exact: true }).click();
@@ -166,7 +199,7 @@ for (const version of [1, 2]) test(`ignores legacy palette version ${version} an
   const editor = page.locator('[data-custom-theme-editor]');
   await expect(editor).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'custom');
-  await expect(editor.getByLabel('Appearance', { exact: true })).toHaveValue('dark');
+  await expect(editor.locator('[data-custom-theme-mode]')).toHaveAttribute('aria-pressed', 'true');
   await expect(editor.getByRole('slider', { name: 'Hue', exact: true })).toHaveValue('165');
   expect((await themeVars(page))['--accent']).not.toBe('#ff0000');
 });
@@ -261,7 +294,7 @@ for (const width of [1440, 390]) test(`input overrides preserve body, values, ca
     await hue.press('Tab');
     await page.keyboard.press('Shift+Tab');
     await expect(hue).toBeFocused();
-    const result = await inputThemeContrast(page, ['[data-key="CUSTOM_NOTE"] input', '[data-custom-theme-mode]', '[data-custom-theme-harmony]']);
+    const result = await inputThemeContrast(page, ['[data-key="CUSTOM_NOTE"] input', '[data-custom-theme-harmony]']);
     expect(result.textAnchor).toBe(initialText);
     expect(result.slider?.focused).toBe(true);
     expect(result.slider?.outline).toBeGreaterThanOrEqual(3);
@@ -313,8 +346,8 @@ test('dark and light harmonies and range extremes retain semantic status familie
   await page.goto('/config?repo=org%2Fa');
   await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
   const editor = page.locator('[data-custom-theme-editor]');
-  for (const mode of ['dark', 'light']) for (const harmony of ['analogous', 'complementary', 'triadic']) for (const extreme of [0, 100]) {
-    await editor.getByLabel('Appearance', { exact: true }).selectOption(mode);
+  for (const mode of ['dark', 'light'] as const) for (const { value: harmony } of THEME_HARMONIES.filter(({ value }) => value !== 'palette')) for (const extreme of [0, 100]) {
+    await setAppearance(editor.locator('[data-custom-theme-mode]'), mode);
     await editor.getByLabel('Color harmony', { exact: true }).selectOption(harmony);
     await setRange(editor.getByRole('slider', { name: 'Hue', exact: true }), extreme === 0 ? 0 : 360);
     await setRange(editor.getByRole('slider', { name: 'Saturation', exact: true }), extreme);
@@ -336,4 +369,67 @@ test('dark and light harmonies and range extremes retain semantic status familie
     expect(result.controls[0]?.value).toBeGreaterThanOrEqual(4.5);
     expect(result.controls[0]?.caret).toBeGreaterThanOrEqual(4.5);
   }
+});
+
+for (const harmony of ['tetradic', 'square', 'monochromatic', 'shades', 'split-complementary']) test(`new ${harmony} harmony persists and restores before application startup`, async ({ page }) => {
+  await mockConfig(page);
+  await page.goto('/config?repo=org%2Fa');
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  const editor = page.locator('[data-custom-theme-editor]');
+  const choice = editor.getByLabel('Color harmony', { exact: true });
+  await setRange(editor.getByRole('slider', { name: 'Hue', exact: true }), 270);
+  await setRange(editor.getByRole('slider', { name: 'Saturation', exact: true }), 80);
+  await choice.selectOption(harmony);
+  await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
+  expect(await storedTheme(page)).toMatchObject({ version: 3, recipe: { settings: { harmony, hue: 270, saturation: 80 } } });
+  const saved = await themeVars(page);
+  await page.reload();
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  await expect(choice).toHaveValue(harmony);
+  expect(await themeVars(page)).toEqual(saved);
+  await page.route('**/assets/*.js', route => route.abort());
+  await page.reload();
+  await expect(page.locator('#boot')).toBeVisible();
+  expect(await themeVars(page)).toEqual(saved);
+});
+
+for (const mode of ['dark', 'light'] as const) test(`five-color source palette survives generator changes in ${mode} appearance`, async ({ page }) => {
+  const colors = ['#152b44', '#dfead2', '#e95f52', '#6ea867', '#827298'];
+  const recipe = createThemeRecipeFromPalette(colors);
+  if (!recipe) throw new Error('Invalid five-color browser fixture');
+  const initial = generateThemePalette(recipe.settings, 'dark', recipe.overrides, recipe.sourcePalette);
+  await page.addInitScript(value => {
+    if (!localStorage.getItem('cmux.theme.custom')) localStorage.setItem('cmux.theme.custom', value);
+  }, JSON.stringify({ version: 3, palette: initial, recipe }));
+  await mockConfig(page);
+  await page.goto('/config?repo=org%2Fa');
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  const editor = page.locator('[data-custom-theme-editor]');
+  const choice = editor.getByLabel('Color harmony', { exact: true });
+  await expect(choice).toHaveValue('palette');
+  await expect(choice.locator('option[value="palette"]')).toHaveText('Palette colors');
+  await setAppearance(editor.locator('[data-custom-theme-mode]'), mode);
+  await setRange(editor.getByRole('slider', { name: 'Hue', exact: true }), 240);
+  await choice.selectOption('square');
+  await editor.getByText('Advanced color overrides', { exact: true }).click();
+  await editor.locator('[data-custom-theme-color="accent"]').fill('#44005c');
+  await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
+  expect(await storedTheme(page)).toMatchObject({ version: 3, recipe: { sourcePalette: colors, settings: { harmony: 'square', hue: 240 }, overrides: { accent: '#44005c' } }, palette: { mode, accent: '#44005c' } });
+  const saved = await themeVars(page);
+  await editor.getByRole('button', { name: 'Save theme', exact: true }).hover();
+  const contrast = await inputThemeContrast(page, ['[data-key="CUSTOM_NOTE"] input']);
+  expect(contrast.body).toBeGreaterThanOrEqual(4.5);
+  expect(contrast.button).toBeGreaterThanOrEqual(4.5);
+  expect(contrast.command).toBeGreaterThanOrEqual(4.5);
+  expect(contrast.controls[0]?.value).toBeGreaterThanOrEqual(4.5);
+  await page.reload();
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  await expect(choice).toHaveValue('square');
+  await expect(editor.locator('[data-custom-theme-mode]')).toHaveAttribute('aria-pressed', String(mode === 'dark'));
+  expect(await themeVars(page)).toEqual(saved);
+  expect(await storedTheme(page)).toMatchObject({ recipe: { sourcePalette: colors } });
+  await page.route('**/assets/*.js', route => route.abort());
+  await page.reload();
+  await expect(page.locator('#boot')).toBeVisible();
+  expect(await themeVars(page)).toEqual(saved);
 });
