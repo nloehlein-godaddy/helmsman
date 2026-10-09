@@ -21,7 +21,7 @@ afterEach(() => { for (const lifetime of lifetimes.splice(0)) lifetime.abort(); 
 describe('standalone source activity panel', () => {
   it('refreshes source history from the footer with the standalone heading retained', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await instance.refresh?.();
-    expect(f.container.querySelector('header button')).toBeNull(); expect(f.container.querySelector('header h2')).not.toBeNull();
+    expect(f.container.querySelector('footer button')?.getAttribute('aria-label')).toBe('Refresh'); expect(f.container.querySelector('header button')).toBeNull(); expect(f.container.querySelector('header h2')).not.toBeNull();
     const reads = f.query.mock.calls.length; f.container.querySelector<HTMLButtonElement>('footer button')?.click();
     await vi.waitFor(() => expect(f.query.mock.calls.length).toBeGreaterThan(reads));
   });
@@ -29,15 +29,22 @@ describe('standalone source activity panel', () => {
   it('keeps source completion counts separate from actual PR events and does not invent review timestamps', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await instance.refresh?.();
     expect([...f.container.querySelectorAll('dd')].map(value => value.textContent)).toEqual(['0', '0', '0', '0', '0', '0', '3']);
-    const rows = [...f.container.querySelectorAll('li')]; expect(rows).toHaveLength(3); expect(rows[0]?.textContent).toContain('PR #42 merged'); expect(rows[1]?.textContent).toContain('TASK-2 → Done');
-    expect(f.container.textContent).not.toContain('changes requested'); expect(f.container.textContent).toContain('Source event history is partial'); expect(f.container.textContent).toContain('UTC');
+    const rows = [...f.container.querySelectorAll('li')]; expect(rows).toHaveLength(3); expect(rows[0]?.querySelector('.event-title')?.textContent).toBe('PR'); expect(rows[0]?.querySelector('.event-state')?.textContent).toBe('Merged'); expect(rows[0]?.querySelector('.event-evidence')?.textContent).toContain('PR #42'); expect(rows[1]?.querySelector('.event-title')?.textContent).toBe('Source task'); expect(rows[1]?.querySelector('.event-state')?.textContent).toBe('Done'); expect(rows[1]?.querySelector('.event-evidence')?.textContent).toContain('TASK-2');
+    expect(f.container.textContent).not.toContain('changes requested'); expect(f.container.textContent).toContain('Event history partial'); expect(f.container.textContent).toContain('UTC');
     expect(f.container.querySelector('a')?.getAttribute('href')).toBe('https://provider.example/owner/repo/pull/42');
     expect(f.query).toHaveBeenCalledWith(source, expect.any(AbortSignal)); expect(f.prs).toHaveBeenCalledWith({ version: 1, repo, kind: 'authored-recent', limit: 12 }, expect.any(AbortSignal));
   });
   it('reports unavailable providers and unknown completion counts without fake zeroes or clean empty results', async () => {
     const f = fixture(); f.query.mockResolvedValue({ status: 'available', value: { ...snapshot, history: { ...snapshot.history, events: [], throughputQuality: 'partial', days: snapshot.history.days.map(day => ({ ...day, completed: null })) } } });
     f.prs.mockResolvedValue({ status: 'unavailable', reason: 'service-unavailable' }); const instance = await panel.mount(f.container, f.context); await instance.refresh?.();
-    expect([...f.container.querySelectorAll('dd')].every(value => value.textContent === 'Unknown')).toBe(true); expect(f.container.textContent).toContain('Pull request activity unavailable'); expect(f.container.textContent).toContain('incomplete history'); expect(f.container.textContent).not.toContain('No activity in the available history');
+    expect([...f.container.querySelectorAll('dd')].every(value => value.textContent === '?' && value.getAttribute('aria-label') === 'Unknown')).toBe(true); expect(f.container.textContent).toContain('Pull request activity unavailable'); expect(f.container.textContent).toContain('incomplete history'); expect(f.container.textContent).not.toContain('No activity in the available history');
+  });
+  it('keeps empty activity incomplete when completion counts are partial', async () => {
+    const f = fixture(); f.query.mockResolvedValue({ status: 'available', value: { ...snapshot, history: { ...snapshot.history, historyQuality: 'complete', events: [], throughputQuality: 'partial', days: snapshot.history.days.map(day => ({ ...day, completed: null })) } } });
+    f.prs.mockResolvedValue({ status: 'available', value: { version: 1, repo, kind: 'authored-recent', quality: 'complete', truncated: false, browseUrl: null, items: [] } });
+    const instance = await panel.mount(f.container, f.context); await instance.refresh?.();
+    expect([...f.container.querySelectorAll('dd')].map(value => value.textContent)).toEqual(Array(7).fill('?'));
+    expect(f.container.textContent).toContain('No events available from the incomplete history.'); expect(f.container.textContent).not.toContain('No activity in the available history.');
   });
   it('keeps overlapping source metrics separate while deduplicating canonical source events', async () => {
     const f = fixture(); f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo, galleons: [{ repo, sources: { status: 'available', value: [source, { ...source, instanceId: 'second', label: 'Second view' }] } }] } });

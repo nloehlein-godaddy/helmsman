@@ -292,6 +292,8 @@ Recent run icons use locally hosted Phosphor Regular, including worker states, i
 
 Underway follows Recent’s title-first index rhythm with 18px task titles, 20px row spacing and subordinate 13px identifiers. Phosphor state icons use semantic ready/done, active, review and blocked colors. Priority flags show P-prefixed values, with urgent priorities in warning/error colors; unknown priority shows a question mark. A lock replaces repeated launch-readiness prose. State, priority and readiness details remain accessible on hover, focus and tap, with Escape dismissal. Refresh and recorded-run links use labeled icons; pull-request links keep their number and Launch keeps its label. Icons and their license ship inside the standalone panel package. Coarse-pointer targets span at least 44px.
 
+Activity uses compact per-source seven-day count strips, with known nonzero counts in success color and unknown counts shown as labeled question marks. Scope labels appear only when they differ from the header selection. Native warning disclosures retain history quality and missing-evidence explanations without dominating the timeline. Events lead with the original task or pull-request title, followed by labeled Phosphor event states and a subordinate technical identifier, source and readable UTC time; full timestamps remain on time elements. Opened PRs use review color and merged/completed events use success color. Refresh is a labeled icon button. The standalone Activity package includes its Phosphor font and license.
+
 The degraded-state banner uses a (6%) accent tint mixed into panel ground, a strong semantic boundary and bright accent text. Its tint follows the selected theme.
 
 ### Loading and focus continuity

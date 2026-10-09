@@ -9,7 +9,7 @@ test('source-denied Activity and PR packages preserve real source counts and tru
   page.on('pageerror', error => errors.push(error.message)); host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
   try {
     await expect(host.script('prove-activity-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/activity/panel.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
-    for (const name of ['activity', 'repoprs', 'shipped']) await host.installAuthorPackage(`plugin-sources/${name}`, `example.${name}`);
+    for (const name of ['activity', 'repoprs', 'shipped']) await host.installAuthorPackage(`plugin-sources/${name}`, `example.${name}`, { buildScript: name === 'activity' });
     let origin = await host.start();
     const created = await request.post(`${origin}/api/todos?requestId=activity-complete-a`, { data: { repo: 'org/a', title: 'Real source completion', description: 'A real persisted local source record.' } });
     expect(created.ok()).toBe(true); const task = (await created.json()).todo;
@@ -35,8 +35,14 @@ test('source-denied Activity and PR packages preserve real source counts and tru
     await page.locator('[data-helm-focus="page:edit"]').click();
     const activity = page.locator('.plugin-activity'); const repoprs = page.locator('.plugin-repoprs'); const shipped = page.locator('.plugin-shipped');
     await expect(activity.locator('dd')).toHaveCount(7); await expect(activity.locator('dd').last()).toHaveText('1');
-    await expect(activity.getByText(new RegExp(`${task.id} completed`))).toBeVisible(); await expect(activity.getByText(new RegExp(other.id))).toHaveCount(0);
-    await expect(activity.getByText('Source event history is partial.', { exact: true })).toBeVisible();
+    const phosphor = activity.locator('.activity-phosphor').first();
+    expect(await phosphor.evaluate(async el => {
+      const fonts = await document.fonts.load('16px "Helmsman Phosphor Regular"', (el as HTMLElement).dataset.glyph);
+      return fonts.length > 0 && fonts.every(font => font.status === 'loaded');
+    })).toBe(true);
+    const completed = activity.getByRole('list', { name: 'Recent activity' }).locator('li').filter({ has: page.locator('.event-state[data-kind=completed]') });
+    await expect(completed.getByText('Real source completion', { exact: true })).toBeVisible(); await expect(completed.getByText(task.id, { exact: true })).toBeVisible(); await expect(activity.getByText(new RegExp(other.id))).toHaveCount(0);
+    await expect(activity.getByText('Event history partial', { exact: true })).toBeVisible();
     await expect(activity.getByText(/Pull request activity unavailable/)).toBeVisible();
     await expect(repoprs.getByText(/Pull requests are unavailable/)).toBeVisible(); await expect(shipped.getByText(/Pull requests are unavailable/)).toBeVisible();
     await expect(repoprs.getByText(/No open pull requests|No open bounties/)).toHaveCount(0); await expect(shipped.getByText(/No recent pull requests|No recent bounties/)).toHaveCount(0);
