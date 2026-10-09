@@ -120,7 +120,7 @@ function linearRgb(lightness: number, chroma: number, hue: number): number[] {
   ];
 }
 
-function oklchHex(lightness: number, chroma: number, hue: number): string {
+export function oklchHex(lightness: number, chroma: number, hue: number): string {
   let rgb = linearRgb(lightness, chroma, hue);
   const inGamut = (channels: number[]): boolean => channels.every(channel => channel >= 0 && channel <= 1);
   if (!inGamut(rgb)) {

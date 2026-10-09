@@ -24,6 +24,35 @@ async function setRange(range: Locator, value: number) {
   await expect(range).toHaveValue(String(value));
 }
 
+async function wheelPoint(wheel: Locator, hue: number, brightness: number) {
+  await wheel.scrollIntoViewIfNeeded();
+  const bounds = await wheel.boundingBox();
+  if (!bounds) throw new Error('Missing color wheel bounds');
+  const radians = hue * Math.PI / 180;
+  return { x: bounds.x + bounds.width / 2 + bounds.width / 2 * brightness / 100 * Math.cos(radians),
+    y: bounds.y + bounds.height / 2 - bounds.height / 2 * brightness / 100 * Math.sin(radians) };
+}
+
+async function selectWheel(page: Page, wheel: Locator, hue: number, brightness: number) {
+  const point = await wheelPoint(wheel, hue, brightness);
+  await page.mouse.click(point.x, point.y);
+}
+
+async function wheelPixels(wheel: Locator) {
+  return wheel.locator('canvas').evaluate(canvas => {
+    if (!(canvas instanceof HTMLCanvasElement)) throw new Error('Missing wheel canvas');
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Missing wheel rendering context');
+    return [0.5, 0.75, 0.99].map(position => Array.from(context.getImageData(Math.floor(canvas.width * position), Math.floor(canvas.height / 2), 1, 1).data));
+  });
+}
+
+async function expectWheelSelection(editor: Locator, hue: number, brightness: number) {
+  await expect(editor.locator('[data-custom-theme-setting="hue"]')).toHaveValue(String(hue));
+  await expect(editor.locator('[data-custom-theme-setting="brightness"]')).toHaveValue(String(brightness));
+  await expect(editor.locator('[data-custom-theme-wheel]')).toHaveAccessibleName(`Color wheel: hue ${hue} degrees, brightness ${brightness} percent`);
+}
+
 async function setAppearance(button: Locator, mode: 'dark' | 'light') {
   const pressed = mode === 'dark' ? 'true' : 'false';
   if (await button.getAttribute('aria-pressed') !== pressed) await button.click();
@@ -38,6 +67,154 @@ async function storedTheme(page: Page) {
 async function themeVars(page: Page) {
   return page.evaluate(() => Object.fromEntries(['--bg', '--accent', '--secondary', '--text', '--control-bg', '--input-text', '--input-placeholder', '--input-accent', '--bad', '--good', '--review', '--queued'].map(key => [key, document.documentElement.style.getPropertyValue(key)])));
 }
+
+for (const width of [1440, 390]) test(`color wheel drag, keyboard, rendering and saved recipe stay synchronized at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1100 });
+  await page.addInitScript(() => {
+    const durations: number[] = [];
+    let frameStarted = 0;
+    const requestFrame = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = callback => requestFrame(time => {
+      frameStarted = performance.now();
+      callback(time);
+    });
+    const putImage = CanvasRenderingContext2D.prototype.putImageData;
+    CanvasRenderingContext2D.prototype.putImageData = function (...args: Parameters<typeof putImage>) {
+      putImage.apply(this, args);
+      if (this.canvas.matches('[data-custom-theme-wheel] canvas')) durations.push(performance.now() - frameStarted);
+    };
+    Object.assign(window, { themeWheelPaintDurations: durations });
+  });
+  await mockConfig(page);
+  await page.goto('/config?repo=org%2Fa');
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  const editor = page.locator('[data-custom-theme-editor]');
+  const wheel = editor.locator('[data-custom-theme-wheel]');
+  const hue = editor.locator('[data-custom-theme-setting="hue"]');
+  const saturation = editor.locator('[data-custom-theme-setting="saturation"]');
+  const brightness = editor.locator('[data-custom-theme-setting="brightness"]');
+  await expect.poll(async () => (await wheelPixels(wheel))[0]?.[3]).toBe(255);
+  const pixels = await wheelPixels(wheel);
+  expect(Math.max(...pixels[0]!.slice(0, 3))).toBeLessThan(5);
+  expect(Math.min(...pixels[2]!.slice(0, 3))).toBeGreaterThan(235);
+  await setRange(saturation, 0);
+  await expect.poll(async () => {
+    const middle = (await wheelPixels(wheel))[1]!.slice(0, 3);
+    return Math.max(...middle) - Math.min(...middle);
+  }).toBeLessThanOrEqual(1);
+  await setRange(saturation, 80);
+  await expect.poll(async () => {
+    const middle = (await wheelPixels(wheel))[1]!.slice(0, 3);
+    return Math.max(...middle) - Math.min(...middle);
+  }).toBeGreaterThan(15);
+  console.log(`Wheel paint ${width}px first/grayscale/saturated ms: ${JSON.stringify(await page.evaluate(() => (window as unknown as { themeWheelPaintDurations: number[] }).themeWheelPaintDurations.slice(0, 3)))}`);
+  const initial = await themeVars(page);
+  for (const angle of [0, 90, 180, 270, 359]) {
+    await selectWheel(page, wheel, angle, 50);
+    await expectWheelSelection(editor, angle, 50);
+  }
+  expect((await themeVars(page))['--accent']).not.toBe(initial['--accent']);
+  await selectWheel(page, wheel, 0, 0);
+  await expectWheelSelection(editor, 359, 0);
+  const start = await wheelPoint(wheel, 0, 50);
+  const outside = await wheelPoint(wheel, 0, 120);
+  await wheel.evaluate(node => node.addEventListener('pointerdown', event => {
+    node.setAttribute('data-test-pointer', String((event as PointerEvent).pointerId));
+  }));
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  expect(await wheel.evaluate(node => node.hasPointerCapture(Number(node.getAttribute('data-test-pointer'))))).toBe(true);
+  await page.mouse.move(outside.x, outside.y);
+  await expectWheelSelection(editor, 0, 100);
+  await page.mouse.up();
+  expect(await wheel.evaluate(node => node.hasPointerCapture(Number(node.getAttribute('data-test-pointer'))))).toBe(false);
+  const released = await themeVars(page);
+  const center = await wheelPoint(wheel, 0, 0);
+  await page.mouse.move(center.x, center.y);
+  await expectWheelSelection(editor, 0, 100);
+  expect(await themeVars(page)).toEqual(released);
+  await setRange(hue, 90);
+  await setRange(brightness, 50);
+  await expectWheelSelection(editor, 90, 50);
+  expect(await wheel.locator('[data-custom-theme-wheel-marker]').evaluate(marker => ({ left: (marker as HTMLElement).style.left, top: (marker as HTMLElement).style.top }))).toEqual({ left: '50%', top: '25%' });
+  await setRange(hue, 0);
+  await wheel.focus();
+  await wheel.press('ArrowLeft');
+  await expectWheelSelection(editor, 359, 50);
+  await wheel.press('ArrowRight');
+  await wheel.press('Shift+ArrowLeft');
+  await wheel.press('ArrowUp');
+  await expectWheelSelection(editor, 350, 51);
+  await wheel.press('Shift+ArrowDown');
+  await expectWheelSelection(editor, 350, 41);
+  await expect(wheel).toBeFocused();
+  await expect(saturation).toHaveValue('80');
+  expect(await storedTheme(page)).toBeNull();
+  await editor.getByText('Advanced color overrides', { exact: true }).click();
+  await editor.locator('[data-custom-theme-color="accent"]').fill('#44005c');
+  await selectWheel(page, wheel, 135, 65);
+  await expectWheelSelection(editor, 135, 65);
+  await expect(editor.locator('[data-custom-theme-color="accent"]')).toHaveValue('#44005c');
+  await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
+  expect(await storedTheme(page)).toMatchObject({ recipe: { settings: { hue: 135, saturation: 80, brightness: 65 }, overrides: { accent: '#44005c' } } });
+  await page.reload();
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  await expectWheelSelection(editor, 135, 65);
+  await selectWheel(page, wheel, 270, 40);
+  await editor.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expectWheelSelection(editor, 135, 65);
+  await editor.getByRole('button', { name: 'Reset theme', exact: true }).click();
+  await expectWheelSelection(editor, 165, 45);
+  await expect(saturation).toHaveValue('35');
+  await wheel.focus();
+  await wheel.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(wheel).toBeFocused();
+  expect(await wheel.evaluate(node => node.matches(':focus-visible'))).toBe(true);
+  await page.mouse.move(0, 0);
+  await expect.poll(async () => (await wheelPixels(wheel))[0]?.[3]).toBe(255);
+  await expect(page).toHaveScreenshot(`personal-theme-wheel-${width}.png`);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('mobile touch wheel captures drags and pointer cancellation releases updates', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 1100 }, hasTouch: true, reducedMotion: 'reduce' });
+  try {
+    const page = await context.newPage();
+    await mockConfig(page);
+    await page.goto('/config?repo=org%2Fa');
+    await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+    const editor = page.locator('[data-custom-theme-editor]');
+    const wheel = editor.locator('[data-custom-theme-wheel]');
+    await wheel.evaluate(node => node.addEventListener('pointerdown', event => {
+      node.setAttribute('data-test-pointer', String((event as PointerEvent).pointerId));
+      node.setAttribute('data-test-pointer-type', (event as PointerEvent).pointerType);
+    }));
+    const start = await wheelPoint(wheel, 0, 50);
+    const top = await wheelPoint(wheel, 90, 75);
+    const client = await context.newCDPSession(page);
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...start, id: 1 }] });
+    await expectWheelSelection(editor, 0, 50);
+    await expect(wheel).toHaveAttribute('data-test-pointer-type', 'touch');
+    expect(await wheel.evaluate(node => node.hasPointerCapture(Number(node.getAttribute('data-test-pointer'))))).toBe(true);
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...top, id: 1 }] });
+    await expectWheelSelection(editor, 90, 75);
+    await client.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    expect(await wheel.evaluate(node => node.hasPointerCapture(Number(node.getAttribute('data-test-pointer'))))).toBe(false);
+    const canceled = await themeVars(page);
+    await wheel.evaluate((node, point) => node.dispatchEvent(new PointerEvent('pointermove', {
+      bubbles: true, pointerId: Number(node.getAttribute('data-test-pointer')), pointerType: 'touch', clientX: point.x, clientY: point.y,
+    })), start);
+    await expectWheelSelection(editor, 90, 75);
+    expect(await themeVars(page)).toEqual(canceled);
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...start, id: 2 }] });
+    await expectWheelSelection(editor, 0, 50);
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    expect(await wheel.evaluate(node => node.hasPointerCapture(Number(node.getAttribute('data-test-pointer'))))).toBe(false);
+  } finally {
+    await context.close();
+  }
+});
 
 for (const width of [1440, 390]) test(`personal theme generation, overrides and Pirate mode persist at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1100 });
@@ -312,6 +489,7 @@ for (const width of [1440, 390]) test(`input overrides preserve body, values, ca
       await hue.focus();
       await hue.press('Tab');
       await page.keyboard.press('Shift+Tab');
+      if (width === 390) await hue.evaluate(input => input.scrollIntoView({ block: 'center' }));
       await page.mouse.move(0, 0);
       await expect(page).toHaveScreenshot(`personal-theme-focus-${width}.png`);
     }
@@ -413,8 +591,10 @@ for (const mode of ['dark', 'light'] as const) test(`five-color source palette s
   await choice.selectOption('square');
   await editor.getByText('Advanced color overrides', { exact: true }).click();
   await editor.locator('[data-custom-theme-color="accent"]').fill('#44005c');
+  await selectWheel(page, editor.locator('[data-custom-theme-wheel]'), 135, 65);
+  await expectWheelSelection(editor, 135, 65);
   await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
-  expect(await storedTheme(page)).toMatchObject({ version: 3, recipe: { sourcePalette: colors, settings: { harmony: 'square', hue: 240 }, overrides: { accent: '#44005c' } }, palette: { mode, accent: '#44005c' } });
+  expect(await storedTheme(page)).toMatchObject({ version: 3, recipe: { sourcePalette: colors, settings: { harmony: 'square', hue: 135, brightness: 65 }, overrides: { accent: '#44005c' } }, palette: { mode, accent: '#44005c' } });
   const saved = await themeVars(page);
   await editor.getByRole('button', { name: 'Save theme', exact: true }).hover();
   const contrast = await inputThemeContrast(page, ['[data-key="CUSTOM_NOTE"] input']);

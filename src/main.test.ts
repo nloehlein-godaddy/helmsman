@@ -235,6 +235,38 @@ describe('DashboardView settings interactions', () => {
     expect(root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')?.value).toBe('280');
   });
 
+  it('keeps the wheel, sliders, overrides, and save state synchronized without replacing the editor', async () => {
+    const { root, fetchMock } = await openThemeEditor();
+    const wheel = root.querySelector<HTMLElement>('[data-custom-theme-wheel]')!;
+    const hue = root.querySelector<HTMLInputElement>('[data-custom-theme-setting="hue"]')!;
+    const brightness = root.querySelector<HTMLInputElement>('[data-custom-theme-setting="brightness"]')!;
+    const advanced = root.querySelector<HTMLDetailsElement>('.custom-theme-advanced')!;
+    const color = root.querySelector<HTMLInputElement>('[data-custom-theme-color="controlBg"]')!;
+    color.value = '#ffffff';
+    color.dispatchEvent(new Event('input', { bubbles: true }));
+    advanced.open = true;
+    wheel.focus();
+    const callsBefore = fetchMock.mock.calls.length;
+    wheel.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+    wheel.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(hue.value).toBe('175');
+    expect(brightness.value).toBe('46');
+    expect(document.activeElement).toBe(wheel);
+    expect(root.querySelector('[data-custom-theme-wheel]')).toBe(wheel);
+    expect(advanced.open).toBe(true);
+    expect(document.documentElement.style.getPropertyValue('--control-bg')).toBe('#ffffff');
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+    root.querySelector<HTMLButtonElement>('[data-custom-theme-save]')!.click();
+    const saved = JSON.parse(localStorage.getItem('cmux.theme.custom')!);
+    expect(saved.recipe.settings).toEqual({ ...DEFAULT_THEME_GENERATOR_SETTINGS, hue: 175, brightness: 46 });
+    hue.value = '270';
+    hue.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(wheel.getAttribute('aria-label')).toContain('hue 270 degrees');
+    root.querySelector<HTMLButtonElement>('[data-custom-theme-discard]')!.click();
+    expect(root.querySelector('[data-custom-theme-wheel]')?.getAttribute('aria-label')).toContain('hue 175 degrees, brightness 46 percent');
+    expect(root.querySelector<HTMLDetailsElement>('.custom-theme-advanced')?.open).toBe(true);
+  });
+
   it('applies a five-color preset, toggles its appearance, and keeps its source colors on save', async () => {
     const presets = THEME_PALETTE_PRESETS as ThemePalettePreset[];
     const fixture: ThemePalettePreset = { id: 'fixture', name: 'Fixture palette', colors: ['#0b132b', '#1c2541', '#3a506b', '#5bc0be', '#ffffff'] };

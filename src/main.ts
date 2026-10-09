@@ -27,6 +27,7 @@ import { THEME_PALETTE_PRESETS } from './data/themePresets';
 import { renderThemeModeIcon } from './renderThemeModeIcon';
 import { CUSTOM_THEME_OVERRIDE_FIELDS, renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
 import { renderPirateModeIcon } from './renderPirateModeIcon';
+import { createThemeColorWheel } from './logic/themeColorWheel';
 import {
   loadSavedRepoScope,
   saveRepoScope,
@@ -37,6 +38,7 @@ import {
 export class DashboardView {
   private readonly root: HTMLElement;
   private readonly rootEvents = new window.AbortController();
+  private readonly themeColorWheel: ReturnType<typeof createThemeColorWheel>;
   private readonly feedbackContribution: AuxiliaryPageHost;
   private readonly profileContribution: AuxiliaryPageHost;
   private readonly headerContribution: AuxiliaryPageHost;
@@ -88,6 +90,10 @@ export class DashboardView {
 
   constructor(root: HTMLElement) {
     this.root = root;
+    this.themeColorWheel = createThemeColorWheel(root, this.rootEvents.signal, () => this.customTheme.recipe.settings, selection => {
+      this.customTheme.recipe.settings = { ...this.customTheme.recipe.settings, ...selection };
+      this.previewCustomTheme();
+    });
     this.questionsAttention = new PageAttentionHost(attention => { this.questionsNeedAttention = attention; this.paintQuestionsAttention(); });
     this.applyCurrentTheme();
     this.root.addEventListener('click', (event: MouseEvent): void => this.handleClick(event), { signal: this.rootEvents.signal });
@@ -286,9 +292,12 @@ export class DashboardView {
       }
     }
     for (const key of ['hue', 'saturation', 'brightness'] as const) {
+      const control = this.root.querySelector<HTMLInputElement>(`[data-custom-theme-setting="${key}"]`);
+      if (control) control.value = String(this.customTheme.recipe.settings[key]);
       const output = this.root.querySelector<HTMLOutputElement>(`[data-custom-theme-setting-output="${key}"]`);
       if (output) output.textContent = `${this.customTheme.recipe.settings[key]}${key === 'hue' ? '°' : '%'}`;
     }
+    this.themeColorWheel.sync();
   }
 
   private updateCustomTheme(target: EventTarget | null): boolean {
@@ -356,6 +365,7 @@ export class DashboardView {
       const advanced = editor.querySelector<HTMLDetailsElement>('.custom-theme-advanced');
       if (advanced) advanced.open = advancedOpen;
     }
+    this.themeColorWheel.sync();
     this.root.querySelector<HTMLButtonElement>(action === 'reset' ? '[data-custom-theme-reset]' : '[data-custom-theme-save]')?.focus({ preventScroll: true });
   }
 
@@ -683,6 +693,7 @@ export class DashboardView {
     if (content && this.contentView !== this.view) content.scrollTop = 0;
     this.contentView = this.view;
     this.syncShell();
+    this.themeColorWheel.sync();
   }
 
   private syncQuestionsAttention(): void {

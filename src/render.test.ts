@@ -52,6 +52,11 @@ describe('application views', () => {
     expect(el.querySelector('.theme-select, [data-custom-theme-preset]')).toBeNull();
     expect(el.querySelector<HTMLElement>('[data-custom-theme-editor]')?.hidden).toBe(false);
     expect(el.querySelectorAll('[data-custom-theme-setting]')).toHaveLength(3);
+    const wheel = el.querySelector<HTMLElement>('[data-custom-theme-wheel]');
+    expect(wheel?.tabIndex).toBe(0);
+    expect(wheel?.getAttribute('aria-label')).toContain('hue 165 degrees, brightness 45 percent');
+    expect(el.querySelector(`#${wheel?.getAttribute('aria-describedby')}`)?.textContent).toContain('arrow keys');
+    expect(wheel?.querySelector('canvas')?.getAttribute('aria-hidden')).toBe('true');
     for (const control of el.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-custom-theme-setting], [data-custom-theme-harmony], [data-custom-theme-color]')) expect(control.labels?.length).toBe(1);
     const mode = el.querySelector<HTMLButtonElement>('[data-custom-theme-mode]');
     expect(mode?.getAttribute('aria-label')).toBe('Dark appearance');

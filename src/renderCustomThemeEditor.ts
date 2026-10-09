@@ -3,6 +3,7 @@ import { DEFAULT_THEME_GENERATOR_SETTINGS, THEME_HARMONIES, type ThemeGeneratorR
 import { THEME_PALETTE_PRESETS } from './data/themePresets';
 import { renderThemeModeIcon } from './renderThemeModeIcon';
 import { escapeHtml as esc } from './logic/html';
+import { wheelMarker } from './logic/themeColorWheel';
 
 export interface CustomThemeEditorState {
   palette: CustomThemePalette;
@@ -16,11 +17,12 @@ export const CUSTOM_THEME_OVERRIDE_FIELDS = CUSTOM_THEME_FIELDS.filter(field => 
 
 export function renderCustomThemeEditor(state?: CustomThemeEditorState): string {
   const current = state ?? { palette: loadCustomTheme(), recipe: loadCustomThemeRecipe() ?? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} }, dirty: false, message: null, error: false };
+  const marker = wheelMarker(current.recipe.settings);
   const sliders = ([['hue', 'Hue', 360, '°'], ['saturation', 'Saturation', 100, '%'], ['brightness', 'Brightness', 100, '%']] as const).map(([key, label, max, unit]) => `<div class="custom-theme-slider"><div><label for="custom-theme-${key}">${label}</label><output for="custom-theme-${key}" data-custom-theme-setting-output="${key}">${current.recipe.settings[key]}${unit}</output></div><input type="range" id="custom-theme-${key}" min="0" max="${max}" step="1" value="${current.recipe.settings[key]}" data-custom-theme-setting="${key}"></div>`).join('');
   return `<div class="custom-theme-editor">
     <div class="custom-theme-heading"><h3>Your theme</h3><p>Choose a base color. Surfaces, accents, and readable text update together. Save to keep your changes in this browser.</p></div>
     ${THEME_PALETTE_PRESETS.length ? `<div class="custom-theme-presets"><label for="custom-theme-preset">Palette preset</label><select id="custom-theme-preset" data-custom-theme-preset><option value="">Generated palette</option>${THEME_PALETTE_PRESETS.map(preset => `<option value="${esc(preset.id)}"${current.recipe.sourcePalette?.every((color, index) => color.toLowerCase() === preset.colors[index]?.toLowerCase()) ? ' selected' : ''}>${esc(preset.name)}</option>`).join('')}</select></div>` : ''}
-    <div class="custom-theme-generator">${sliders}</div>
+    <div class="custom-theme-generator"><div class="custom-theme-wheel-control"><div class="custom-theme-wheel" data-custom-theme-wheel tabindex="0" role="group" aria-label="Color wheel: hue ${current.recipe.settings.hue} degrees, brightness ${current.recipe.settings.brightness} percent" aria-describedby="custom-theme-wheel-help"><canvas aria-hidden="true"></canvas><span class="custom-theme-wheel-marker" data-custom-theme-wheel-marker aria-hidden="true" style="left:${marker.x}%;top:${marker.y}%"></span></div><p id="custom-theme-wheel-help">Around for hue, outward for brightness. Use arrow keys or the sliders for precise adjustments.</p></div><div class="custom-theme-sliders">${sliders}</div></div>
     <div class="custom-theme-controls">
       <div><label for="custom-theme-harmony">Color harmony</label><div class="custom-theme-harmony-row"><select id="custom-theme-harmony" data-custom-theme-harmony>${THEME_HARMONIES.filter(({ value }) => value !== 'palette' || current.recipe.sourcePalette).map(({ value, label }) => `<option value="${value}"${current.recipe.settings.harmony === value ? ' selected' : ''}>${label}</option>`).join('')}</select><button type="button" class="custom-theme-mode" data-custom-theme-mode aria-label="Dark appearance" aria-pressed="${current.palette.mode === 'dark'}" title="Switch to ${current.palette.mode === 'dark' ? 'light' : 'dark'} appearance">${renderThemeModeIcon(current.palette.mode)}</button></div></div>
     </div>
