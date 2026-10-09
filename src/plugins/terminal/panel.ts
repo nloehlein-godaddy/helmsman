@@ -4,7 +4,9 @@ import { emptyState, errorMessage, sameTarget, surfaceKey, TerminalStorage, vali
 import { styles } from './styles.js';
 
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
-const navKeys = [['up','↑'],['down','↓'],['left','←'],['right','→'],['tab','Tab'],['escape','Esc']] as const;
+const navKeys = [['up','Up'],['down','Down'],['left','Left'],['right','Right'],['tab','Tab'],['escape','Esc']] as const;
+const phosphorGlyphs = { terminal: '\ueae8', connected: '\ue184', disconnected: '\ue4e2', refresh: '\ue094', keyboard: '\ue2d8', send: '\ue3fe' } as const;
+const icon = (name: keyof typeof phosphorGlyphs) => { const value = node('span'); value.className = 'terminal-phosphor'; value.dataset.glyph = phosphorGlyphs[name]; value.setAttribute('aria-hidden','true'); return value; };
 const MAX_QUEUE = 32;
 interface QueuedControl { input: TerminalControlInputV1; epoch: number; draft?: string; }
 function validTab(value: unknown): value is TerminalTabV1 {
@@ -34,6 +36,7 @@ class TerminalPanel implements PluginPanelInstance {
   private operationController: AbortController | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private reading = false;
+  private settingScope = false;
   private working = false;
   private capture = false;
   private queue: QueuedControl[] = [];
@@ -47,7 +50,12 @@ class TerminalPanel implements PluginPanelInstance {
   private readonly root = node('section');
   private readonly status = node('p');
   private readonly errors = node('p');
-  private readonly scopeText = node('span');
+  private readonly connection = node('span');
+  private readonly empty = node('div');
+  private readonly emptyTitle = node('h3');
+  private readonly emptyText = node('p');
+  private readonly columns = node('div');
+  private readonly screenTitle = node('h3', 'Terminal screen');
   private readonly list = node('div');
   private readonly listBody = node('div');
   private readonly detailBody = node('div');
@@ -83,17 +91,22 @@ class TerminalPanel implements PluginPanelInstance {
   }
   private button(label: string, attribute: string) { const button = node('button', label); button.type = 'button'; button.setAttribute(attribute, ''); return button; }
   private build() {
-    this.root.className = 'plugin-terminal'; this.root.append(node('style', styles), node('h2', 'Terminal'), node('p', 'View and control an existing terminal session. Text and keys are sent directly to the selected tab.'));
-    const toolbar = node('div'); toolbar.className = 'terminal-toolbar'; toolbar.append(this.button('Refresh terminals', 'data-refresh'), Object.assign(this.button('Use top selection', 'data-inherit'), { title: 'Match the selection at the top of Helmsman.' }), this.button('Show all terminals', 'data-all'), this.scopeText, this.button('Save draft', 'data-save-draft')); this.root.append(toolbar);
-    this.status.setAttribute('role','status'); this.errors.className = 'terminal-error'; this.errors.setAttribute('role','alert'); this.root.append(this.status, this.errors);
-    const columns = node('div'); columns.className = 'terminal-columns'; this.tabsSection.className = this.screenSection.className = 'terminal-column'; this.tabsSection.tabIndex = this.screenSection.tabIndex = -1;
+    this.root.className = 'plugin-terminal terminal-panel'; this.root.append(node('style', styles));
+    const composed = this.container.closest('[data-composition-page]') !== null;
+    if (!composed) this.root.append(node('h2','Terminal'));
+    const toolbar = node('div'); toolbar.className = 'terminal-toolbar'; this.connection.className = 'terminal-connection'; toolbar.append(this.connection);
+    if (!composed) { const refresh = this.button('Refresh terminals','data-refresh'); refresh.prepend(icon('refresh')); toolbar.append(refresh); }
+    const save = this.button('Save draft','data-save-draft'); save.className = 'terminal-save-draft'; toolbar.append(save); this.root.append(toolbar);
+    this.status.className = 'terminal-status'; this.status.setAttribute('role','status'); this.errors.className = 'terminal-error'; this.errors.setAttribute('role','alert'); this.root.append(this.status, this.errors);
+    this.empty.className = 'terminal-empty'; this.empty.append(icon('terminal'),this.emptyTitle,this.emptyText); this.root.append(this.empty);
+    this.columns.className = 'terminal-columns'; this.tabsSection.className = 'terminal-column terminal-tabs-column'; this.screenSection.className = 'terminal-column terminal-screen-column'; this.tabsSection.tabIndex = this.screenSection.tabIndex = -1;
     const tabsHead = node('div'); tabsHead.className = 'terminal-column-head'; this.tabsCollapse.type = 'button'; this.tabsCollapse.dataset.collapse = 'tabs'; tabsHead.append(node('h3','Terminal tabs'), this.tabsCollapse); this.list.className = 'terminal-tabs'; this.listBody.append(this.list); this.tabsSection.append(tabsHead, this.listBody);
-    const screenHead = node('div'); screenHead.className = 'terminal-column-head'; this.screenCollapse.type = 'button'; this.screenCollapse.dataset.collapse = 'screen'; screenHead.append(node('h3','Terminal screen'), this.screenCollapse); this.detailEmpty.className = 'terminal-note'; this.screenSection.append(screenHead, this.detailEmpty, this.detailBody);
+    const screenHead = node('div'); screenHead.className = 'terminal-column-head'; this.screenCollapse.type = 'button'; this.screenCollapse.dataset.collapse = 'screen'; screenHead.append(this.screenTitle, this.screenCollapse); this.detailEmpty.className = 'terminal-note'; this.screenSection.append(screenHead, this.detailEmpty, this.detailBody);
     const captureRow = node('div'); captureRow.className = 'terminal-capture'; this.captureButton.type = 'button'; this.captureButton.dataset.capture = ''; this.captureHelp.className = 'terminal-capture-help'; this.captureHelp.id = `terminal-capture-${crypto.randomUUID()}`; captureRow.append(this.captureButton,this.captureHelp);
     this.screen.className = 'terminal-screen'; this.screen.tabIndex = 0; this.preview.className = 'terminal-note'; this.keypad.className = 'terminal-keypad';
     for (const [key,label] of navKeys) { const button = node('button',label); button.type = 'button'; button.dataset.key = key; button.setAttribute('aria-label',`Send ${key} key`); this.keypad.append(button); }
-    this.form.className = 'terminal-send'; const label = node('label'); this.input.className = 'terminal-input'; this.input.name = 'text'; this.input.autocomplete = 'off'; this.input.maxLength = 64_000; label.append(this.inputLabel,this.input); this.sendButton.type = 'submit'; this.form.append(label,this.sendButton); this.actions.className = 'terminal-actions';
-    this.detailBody.append(captureRow,this.screen,this.preview,this.keypad,this.form,this.actions); columns.append(this.tabsSection,this.screenSection); this.root.append(columns,this.recovery);
+    this.form.className = 'terminal-send'; const label = node('label'); this.input.className = 'terminal-input'; this.input.name = 'text'; this.input.autocomplete = 'off'; this.input.maxLength = 64_000; label.append(this.inputLabel,this.input); this.sendButton.type = 'submit'; this.sendButton.prepend(icon('send')); this.form.append(label,this.sendButton); this.actions.className = 'terminal-actions';
+    this.detailBody.append(captureRow,this.screen,this.preview,this.keypad,this.form,this.actions); this.columns.append(this.tabsSection,this.screenSection); this.root.append(this.columns,this.recovery);
     this.history.append(node('summary','Saved control history'),this.historyRows); this.root.append(this.history);
   }
   private active(generation = this.generation) { return !this.disposed && !this.context.signal.aborted && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
@@ -115,13 +128,24 @@ class TerminalPanel implements PluginPanelInstance {
   private persist() { if (this.unsupported) return false; try { this.storage.saveDraft(this.saved); this.storageError = ''; return true; } catch (error) { this.storageError = errorMessage(error,'Terminal draft could not be saved. Keep this page open.'); return false; } }
   private edit = () => { const tab = this.selected(); if (!tab || this.unsupported) return; this.saved.drafts[surfaceKey(tab.target)] = this.input.value; this.persist(); this.paintSafety(); };
   private async loadPending(signal?: AbortSignal) { const values = await this.context.services.terminal!.pending(signal); if (!validPending(values)) throw new Error('Terminal journal unavailable. Existing controls are kept.'); return values; }
-  refresh = async () => {
-    if (!this.active() || this.reading) return; this.cancelReads(); const generation = this.generation; const controller = new AbortController(); this.readController = controller; this.reading = true;
+  private async useAllTerminals() {
+    if (this.settingScope || !this.active()) return;
+    this.settingScope = true; this.listError = ''; this.draw();
     try {
-      const results = await Promise.allSettled([this.context.services.terminal!.list({version:1,repo:this.state.activity.repo},controller.signal),this.loadPending(controller.signal)]); if (!this.active(generation)) return;
+      if (!this.context.setScope) throw new Error('All terminals are unavailable. Refresh after restoring the terminal panel scope service.');
+      await this.context.setScope({kind:'all'});
+      if (this.active() && this.state.activity.repo !== null) this.listError = 'All terminals could not be selected. Refresh to retry the connection.';
+    } catch (error) { if (this.active()) this.listError = `All terminals could not be selected: ${errorMessage(error,'scope service unavailable')} Refresh to retry.`; }
+    finally { this.settingScope = false; if (this.active()) { this.draw(); if (this.state.activity.repo === null) void this.refresh(); } }
+  }
+  refresh = async () => {
+    if (!this.active() || this.reading) return;
+    if (this.state.activity.repo !== null) { await this.useAllTerminals(); return; } this.cancelReads(); const generation = this.generation; const controller = new AbortController(); this.readController = controller; this.reading = true;
+    try {
+      const results = await Promise.allSettled([this.context.services.terminal!.list({version:1,repo:null},controller.signal),this.loadPending(controller.signal)]); if (!this.active(generation)) return;
       const list = results[0];
       if (list.status === 'fulfilled' && list.value?.status === 'available' && list.value.value?.version === 1 && list.value.value.repo === this.state.activity.repo && typeof list.value.value.connected === 'boolean' && Array.isArray(list.value.value.tabs) && list.value.value.tabs.every(tab => validTab(tab) && this.inScope(tab.target))) { this.snapshot = list.value.value; this.listError = ''; if (!this.snapshot.connected) this.snapshot = {...this.snapshot,tabs:[]}; }
-      else this.listError = 'Terminal tabs could not be refreshed. Retained tabs are shown; controls are disabled until refresh succeeds.';
+      else this.listError = this.snapshot?.tabs.length ? 'Terminal tabs could not be refreshed. Retained tabs are shown; controls are disabled until refresh succeeds.' : 'Terminal tabs could not be loaded. Refresh to retry.';
       const pending = results[1]; if (pending.status === 'fulfilled') { this.pending = pending.value; this.journalsReady = true; } else { this.journalsReady = false; this.actionError = 'Terminal journal unavailable. Existing controls are kept.'; }
       const selected = this.selected(); if (!sameTarget(this.selectedTarget,selected?.target)) { this.cancelControls(); this.selectedTarget = selected?.target ?? null; this.screenText = ''; this.screenError = ''; this.truncated = false; }
       this.readResults(); this.draw();
@@ -135,7 +159,7 @@ class TerminalPanel implements PluginPanelInstance {
     finally { if (this.active(generation)) { this.reading = false; this.timer = setTimeout(() => { void this.refresh(); },2_000); } }
   };
   private blocked(target: TerminalTargetV1) { return this.pending.some(item => surfaceKey(item.command.target) === surfaceKey(target)); }
-  private canControl() { const tab = this.selected(); return this.active() && !!tab && !this.saved.collapsed.screen && !this.listError && this.snapshot?.connected === true && this.journalsReady && !this.unsupported && !this.storageError && !this.resultsError && !this.reconciling && !this.blocked(tab.target); }
+  private canControl() { const tab = this.selected(); return this.state.activity.repo === null && this.active() && !!tab && !this.saved.collapsed.screen && !this.listError && this.snapshot?.connected === true && this.journalsReady && !this.unsupported && !this.storageError && !this.resultsError && !this.reconciling && !this.blocked(tab.target); }
   private enqueue(operation: TerminalControlOperationV1, draft?: string) {
     const tab = this.selected(); if (!tab || !this.canControl()) return false; if (this.queue.length >= MAX_QUEUE) { this.actionError = 'Keyboard queue is full. Wait for the current controls to finish.'; this.draw(); return false; }
     if (!this.persist()) { this.draw(); return false; } this.queue.push({input:{version:1,target:{...tab.target},operation},epoch:this.controlEpoch,...(draft === undefined ? {} : {draft})}); void this.drain(); return true;
@@ -184,7 +208,6 @@ class TerminalPanel implements PluginPanelInstance {
     if (button.dataset.surface) this.select(button.dataset.surface);
     else if (button.hasAttribute('data-refresh')) void this.refresh();
     else if (button.hasAttribute('data-save-draft')) { this.persist(); this.draw(); }
-    else if (button.hasAttribute('data-inherit') || button.hasAttribute('data-all')) { this.cancel(); void this.context.setScope?.({kind:button.hasAttribute('data-all') ? 'all' : 'inherit'}).catch(error => { this.actionError = errorMessage(error,'Terminal scope unavailable.'); this.draw(); }); }
     else if (button.dataset.collapse === 'tabs' || button.dataset.collapse === 'screen') { const pane = button.dataset.collapse; this.saved.collapsed[pane] = !this.saved.collapsed[pane]; if (pane === 'screen' && this.saved.collapsed.screen) this.cancelControls(); this.persist(); this.draw(); if (!this.saved.collapsed[pane]) void this.refresh(); }
     else if (button.hasAttribute('data-capture')) { this.capture = !this.capture; this.draw(); (this.capture ? this.screen : this.captureButton).focus({preventScroll:true}); }
     else if (button.dataset.key) this.enqueue({kind:'key',key:button.dataset.key});
@@ -208,18 +231,28 @@ class TerminalPanel implements PluginPanelInstance {
     const enabled = this.canControl(); this.sendButton.disabled = !enabled || this.working || this.queue.length > 0; this.captureButton.disabled = !enabled && !this.capture; this.input.disabled = !this.active() || this.unsupported;
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-key],[data-action]')) button.disabled = !enabled;
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-receipt]')) button.disabled = !this.active() || this.working || this.reconciling || !!this.resultsError;
-    this.errors.textContent = [this.storageError,this.resultsError,this.actionError].filter(Boolean).join(' ');
+    this.errors.textContent = [this.storageError,this.resultsError,this.actionError].filter(Boolean).join(' '); this.errors.hidden = !this.errors.textContent;
+    this.root.querySelector<HTMLButtonElement>('[data-save-draft]')?.toggleAttribute('hidden', !this.selected());
   }
   private draw() {
     if (this.disposed) return; const tab = this.selected();
-    this.scopeText.textContent = `Showing: ${this.state.activity.repo ?? 'All terminals'}`;
-    this.status.textContent = this.listError || (!this.snapshot ? 'Loading terminals…' : !this.snapshot.connected ? 'Terminal not connected. Open your configured terminal app, then refresh.' : !this.snapshot.tabs.length ? 'No terminal tabs available in this scope.' : this.snapshot.quality === 'partial' ? 'Terminal results are incomplete.' : '');
-    const signature = JSON.stringify([this.snapshot?.tabs,this.saved.selected]); if (signature !== this.listSignature) { this.listSignature = signature; this.list.replaceChildren(); for (const item of this.snapshot?.tabs ?? []) { const button = node('button'); button.type = 'button'; button.className = 'terminal-tab'; button.dataset.surface = item.target.surfaceRef; button.setAttribute('aria-pressed',String(item.target.surfaceRef === this.saved.selected)); button.append(node('span',item.title),node('small',`${item.workspaceTitle} · ${item.type} · ${item.target.repo ?? 'Unattached'}`)); this.list.append(button); } }
+    const connected = this.snapshot?.connected === true;
+    const connectionReady = connected && !this.listError;
+    this.connection.replaceChildren(icon(connectionReady ? 'connected' : 'disconnected'),node('strong', connectionReady ? 'Terminal connected' : this.settingScope || !this.snapshot && !this.listError ? 'Connecting to terminal…' : 'Terminal connection unavailable'));
+    this.connection.dataset.connected = String(connectionReady);
+    this.status.textContent = this.listError || (!this.snapshot ? this.settingScope ? 'Connecting to all terminal tabs…' : 'Loading terminals…' : this.snapshot.quality === 'partial' ? 'Some terminal tabs are unavailable. Refresh to retry.' : connected && this.snapshot.tabs.length ? `${this.snapshot.tabs.length} terminal ${this.snapshot.tabs.length === 1 ? 'tab' : 'tabs'} · screen refreshes every 2 seconds` : '');
+    this.status.hidden = !this.status.textContent; this.errors.hidden = !this.errors.textContent;
+    const hasTabs = !!this.snapshot?.tabs.length;
+    this.columns.hidden = !hasTabs; this.empty.hidden = hasTabs;
+    this.emptyTitle.textContent = this.listError ? 'Terminal connection unavailable' : !this.snapshot ? 'Connecting to terminal' : connected ? 'No terminal tabs open' : 'Terminal is not connected';
+    this.emptyText.textContent = this.listError ? 'Refresh to reconnect. Retained control receipts and drafts are kept.' : !this.snapshot ? 'Reading the connected terminal app.' : connected ? 'Open a tab in your terminal app, then refresh to view its screen here.' : 'Open your configured terminal app, then refresh to connect.';
+    this.screenTitle.textContent = tab?.title ?? 'Terminal screen';
+    const signature = JSON.stringify([this.snapshot?.tabs,this.saved.selected]); if (signature !== this.listSignature) { this.listSignature = signature; this.list.replaceChildren(); for (const item of this.snapshot?.tabs ?? []) { const button = node('button'); button.type = 'button'; button.className = 'terminal-tab'; button.dataset.surface = item.target.surfaceRef; button.setAttribute('aria-pressed',String(item.target.surfaceRef === this.saved.selected)); const title = node('span',item.title); title.className = 'terminal-tab-title'; title.prepend(icon('terminal')); button.append(title,node('small',`${item.workspaceTitle} · ${item.type}${item.target.repo ? ` · ${item.target.repo}` : ''}`)); this.list.append(button); } }
     this.listBody.hidden = this.saved.collapsed.tabs; this.detailBody.hidden = this.saved.collapsed.screen || !tab;
     for (const [button,pane,label] of [[this.tabsCollapse,'tabs','Terminal tabs'],[this.screenCollapse,'screen','Terminal screen']] as const) { button.textContent = this.saved.collapsed[pane] ? 'Expand' : 'Collapse'; button.setAttribute('aria-label',`${button.textContent} ${label}`); button.setAttribute('aria-expanded',String(!this.saved.collapsed[pane])); }
-    this.detailEmpty.hidden = !!tab || this.saved.collapsed.screen; this.detailEmpty.textContent = this.saved.selected ? 'The selected terminal is unavailable in this scope. Select another tab or explicitly show all terminals.' : 'Select a tab to view its screen.';
+    this.detailEmpty.hidden = !!tab || this.saved.collapsed.screen; this.detailEmpty.textContent = this.saved.selected ? 'The selected terminal is unavailable. Select another open tab to view its screen.' : 'Select a tab to view its screen.';
     const nextText = this.screenError || this.screenText; if (this.screen.textContent !== nextText) { const scroll = this.screen.scrollTop; this.screen.textContent = nextText; this.screen.scrollTop = scroll; }
-    this.screen.setAttribute('aria-label',`Screen output from ${tab?.title ?? 'selected terminal'}`); this.screen.classList.toggle('is-capturing',this.capture); this.captureButton.textContent = this.capture ? 'Stop keyboard control' : 'Control with keyboard'; this.captureButton.setAttribute('aria-pressed',String(this.capture));
+    this.screen.setAttribute('aria-label',`Screen output from ${tab?.title ?? 'selected terminal'}`); this.screen.classList.toggle('is-capturing',this.capture); this.captureButton.replaceChildren(icon('keyboard'),node('span',this.capture ? 'Stop keyboard control' : 'Control with keyboard'));  this.captureButton.setAttribute('aria-pressed',String(this.capture));
     this.captureHelp.textContent = `Keys go directly to ${tab?.title ?? 'the selected tab'} while the screen has focus. Press Shift+Escape to stop keyboard control.`; this.captureHelp.hidden = !this.capture; for (const control of [this.screen,this.captureButton]) { if (this.capture) control.setAttribute('aria-describedby',this.captureHelp.id); else control.removeAttribute('aria-describedby'); }
     this.preview.textContent = this.truncated ? 'Plaintext preview is truncated to the requested screen lines.' : 'Plaintext screen preview · refreshes every 2 seconds.';
     this.inputLabel.textContent = `Send text to ${tab?.title ?? 'selected terminal'}`; const draft = tab ? this.saved.drafts[surfaceKey(tab.target)] ?? '' : ''; if (this.input.value !== draft) this.input.value = draft;

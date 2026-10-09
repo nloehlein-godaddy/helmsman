@@ -6,7 +6,7 @@ import { renderCustomThemeEditor, type CustomThemeEditorState } from './renderCu
 import { renderPirateModeIcon } from './renderPirateModeIcon';
 import { routeHref, type PageView } from './logic/routes';
 import { navigationSection, navigationChild } from './logic/navigation';
-import { appPages, builtinPageSlots } from './plugins/builtins';
+import { appPages, builtinPageSlots, TERMINAL_PAGE_ID, TERMINAL_PAGE_SLOT } from './plugins/builtins';
 import { escapeHtml as esc } from './logic/html';
 import { PRE_PR_CONFIG_KEYS } from './logic/prePrSettings';
 
@@ -141,6 +141,7 @@ export function renderSectionNavigation(opts: HelmHeadOpts): string {
 }
 
 export function renderHelmHead(opts: HelmHeadOpts): string {
+  const terminalPage = opts.active === 'cmux' || opts.pluginSlot === TERMINAL_PAGE_SLOT || opts.pluginPage === TERMINAL_PAGE_ID;
   const sorted: string[] = [...new Set([...opts.repos, ...(opts.selectedRepo ? [opts.selectedRepo] : [])])]
     .sort((a, b) => shortRepo(a).localeCompare(shortRepo(b)));
   const scopeOptions: string = [`<option value="">${term('allRepositories')}</option>`]
@@ -168,7 +169,7 @@ export function renderHelmHead(opts: HelmHeadOpts): string {
         <span class="nameplate-mark" aria-hidden="true">${HELM_EMBLEM}</span>
         <span class="nameplate-name">Helmsman <span class="nameplate-alpha">Alpha</span></span>
       </div>
-      <div class="nameplate-scope">
+      <div class="nameplate-scope"${terminalPage ? ' hidden' : ''}>
         <select class="repo-select" aria-label="${term('scopeByRepository')}">${scopeOptions}</select>
       </div>
       ${readout}

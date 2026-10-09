@@ -245,6 +245,18 @@ describe('persistent app shell', () => {
     expect(root.querySelector('[data-fleet-count="review"]')?.textContent).toBe('—');
   });
 
+  it('hides scope on Terminal and restores the same selection when leaving', async () => {
+    const { root, switchTo } = await setup();
+    const selector = root.querySelector<HTMLSelectElement>('.repo-select')!;
+    await switchTo('cmux');
+    expect(root.querySelector<HTMLElement>('.nameplate-scope')?.hidden).toBe(true);
+    expect(selector.value).toBe('org/a');
+    await switchTo('config');
+    expect(root.querySelector<HTMLElement>('.nameplate-scope')?.hidden).toBe(false);
+    expect(root.querySelector('.repo-select')).toBe(selector);
+    expect(selector.value).toBe('org/a');
+  });
+
   it('removes delegated controls when the app is recreated in the same root', async () => {
     const { root, count } = await setup('/config?repo=org/a');
     view!.destroy();

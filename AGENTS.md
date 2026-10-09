@@ -1,6 +1,6 @@
 # Repository workflow
 
-- The header galleon selector is the default scope for every panel and action. Only an explicit selection inside a panel may override it; that override must not change the header scope.
+- The header galleon selector is the default scope for every panel and action. Only an explicit selection inside a panel may override it; that override must not change the header scope. The Terminal page is an explicitly global exception: it shows all tabs from the connected terminal app without changing the header selection.
 
 - User-facing terminology: call a repository a "galleon" (plural "galleons") in conversation and when Pirate mode is on. Keep UI terminology in `src/logic/terminology.ts`; Pirate mode off uses plain labels. Translate only application copy, never user content, raw logs, code, credentials, or technical identifiers. Preserve technical identifiers, API fields, configuration keys, and Git commands.
 - Helmsman review agents and PR authors must end every PR description, review summary, inline comment, and comment/reply they publish with the compact byline `_Helmsman · <model> - <effort>_` (for example, `_Helmsman · gpt-5.6-sol - med_`). Abbreviate medium as med and minimal as min; omit role labels. Use the actual execution settings; explicitly mark unavailable values as not reported instead of guessing. Keep the byline outside code/suggestion fences and avoid duplicate footers.

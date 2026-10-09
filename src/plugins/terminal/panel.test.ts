@@ -5,7 +5,7 @@ import type { PluginPanelContext, PluginPanelInstance, PluginPanelState, Termina
 const available = <T>(value: T) => ({status:'available' as const,value});
 const target = {repo:'org/b',surfaceRef:'surface:1',revision:'a'.repeat(64)};
 const tab: TerminalTabV1 = {target,title:'codex session',workspaceTitle:'Work',type:'terminal',selected:true,actions:[{id:'enter',label:'Enter'},{id:'approve',label:'Approve'}]};
-const snapshot: TerminalSnapshotV1 = {version:1,repo:'org/b',connected:true,quality:'complete',tabs:[tab],observedAt:'2026-09-21T12:00:00Z'};
+const snapshot: TerminalSnapshotV1 = {version:1,repo:null,connected:true,quality:'complete',tabs:[tab],observedAt:'2026-09-21T12:00:00Z'};
 const requestId = 'b0ef36b8-e7a2-4b24-a343-2dac4b561824';
 const receipt = (input: TerminalControlInputV1, status: TerminalControlReceiptV1['status'] = 'succeeded', id = requestId): TerminalControlReceiptV1 => ({version:1,requestId:id,input,status,reason:status === 'succeeded' ? null : 'Control needs inspection.'});
 const lifetimes: AbortController[] = [];
@@ -15,20 +15,20 @@ async function fixture(overrides: Partial<PluginPanelState> = {}, configure?: (c
   const container = document.createElement('div'); document.body.append(container); const lifetime = new AbortController(); lifetimes.push(lifetime);
   let state: PluginPanelState = {repo:'org/b',headerRepo:'org/a',themeId:'dark',pirateMode:false,visible:true,pane:null,instanceId:'terminal',savedState:null,activity:{epoch:1,signal:new AbortController().signal,active:true,repo:'org/b'},terminal:{version:1,surface:'surface:1',pane:null},...overrides};
   const pending: TerminalPendingV1[] = [];
-  const service = {version:1 as const,list:vi.fn(async () => available(snapshot)),screen:vi.fn(async () => available({version:1 as const,target,text:'ready >',truncated:false,observedAt:snapshot.observedAt})),control:vi.fn(async (input:TerminalControlInputV1) => {const result = receipt(input,'succeeded',crypto.randomUUID()); pending.push({command:{...input,requestId:result.requestId},receipt:result});return available(result);}),pending:vi.fn(async () => [...pending]),receipt:vi.fn(),inspect:vi.fn(),acknowledge:vi.fn(async (query:{repo:string|null;requestId:string}) => {const index=pending.findIndex(item=>item.command.requestId===query.requestId);if(index>=0)pending.splice(index,1);})};
+  const service = {version:1 as const,list:vi.fn(async (_query:{version:1;repo:string|null}) => available(snapshot)),screen:vi.fn(async () => available({version:1 as const,target,text:'ready >',truncated:false,observedAt:snapshot.observedAt})),control:vi.fn(async (input:TerminalControlInputV1) => {const result = receipt(input,'succeeded',crypto.randomUUID()); pending.push({command:{...input,requestId:result.requestId},receipt:result});return available(result);}),pending:vi.fn(async () => [...pending]),receipt:vi.fn(),inspect:vi.fn(),acknowledge:vi.fn(async (query:{repo:string|null;requestId:string}) => {const index=pending.findIndex(item=>item.command.requestId===query.requestId);if(index>=0)pending.splice(index,1);})};
   const context: PluginPanelContext = {contributionId,state,activity:state.activity,signal:lifetime.signal,onDispose:vi.fn(),navigate:vi.fn(),saveState:vi.fn(async()=>{}),services:{version:1,terminal:service}};
   let instance: PluginPanelInstance;
   Object.assign(context,{setScope:vi.fn<NonNullable<PluginPanelContext['setScope']>>(async scope=>{const repo=scope.kind==='all'?null:scope.kind==='galleon'?scope.repo:state.headerRepo??null;state={...state,repo,activity:{epoch:state.activity.epoch+1,signal:new AbortController().signal,active:true,repo}};await instance?.update(state);})});
-  configure?.(context,pending); instance=await panel.mount(container,context); return {container,context,instance,service,pending,lifetime,state:()=>state};
+  configure?.(context,pending); instance=await panel.mount(container,context); await instance.update(state); return {container,context,instance,service,pending,lifetime,state:()=>state};
 }
 async function ready(f:Awaited<ReturnType<typeof fixture>>) { await vi.waitFor(()=>expect(f.container.querySelector<HTMLButtonElement>('.terminal-send button')?.disabled).toBe(false)); }
 function click(container:HTMLElement,selector:string) { container.querySelector<HTMLButtonElement>(selector)!.click(); }
 function fill(container:HTMLElement,value:string) { const input=container.querySelector<HTMLInputElement>('.terminal-input')!;input.focus();input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));return input; }
 function press(element:Element,key:string,options:KeyboardEventInit={}) { const event=new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...options});element.dispatchEvent(event);return event; }
 const storagePrefix = 'helmsman.terminal.v1:helmsman.terminal/panel:terminal:';
-it('loads through public services with effective scope, forty-line preview and no automatic controls or receipt mutations',async()=>{
+it('loads all cmux tabs through public services independently of the header selection, forty-line preview and no automatic controls or receipt mutations',async()=>{
   const f=await fixture();await ready(f);await vi.waitFor(()=>expect(f.container.querySelector('.terminal-screen')?.textContent).toBe('ready >'));
-  expect(f.service.list).toHaveBeenCalledWith({version:1,repo:'org/b'},expect.any(AbortSignal));expect(f.service.screen).toHaveBeenCalledWith({target,lines:40},expect.any(AbortSignal));expect(f.service.control).not.toHaveBeenCalled();expect(f.service.receipt).not.toHaveBeenCalled();expect(f.service.acknowledge).not.toHaveBeenCalled();expect(f.container.querySelector('[data-capture]')?.getAttribute('aria-pressed')).toBe('false');
+  expect(f.service.list).toHaveBeenCalledWith({version:1,repo:null},expect.any(AbortSignal));expect(f.service.screen).toHaveBeenCalledWith({target,lines:40},expect.any(AbortSignal));expect(f.service.control).not.toHaveBeenCalled();expect(f.service.receipt).not.toHaveBeenCalled();expect(f.service.acknowledge).not.toHaveBeenCalled();expect(f.container.querySelector('[data-capture]')?.getAttribute('aria-pressed')).toBe('false');
 });
 it('keeps input/output nodes, typed draft, selection, focus and screen scroll through list refresh and theme changes',async()=>{
   const f=await fixture();await ready(f);const input=fill(f.container,'unsent command');input.setSelectionRange(2,5);const screen=f.container.querySelector<HTMLElement>('.terminal-screen')!;screen.scrollTop=90;
@@ -82,15 +82,37 @@ it('sends a clipboard image only after reading it and rechecks exact selection a
 it('retains raw unknown drafts and malformed result evidence without enabling controls or overwriting data',async()=>{
   const raw='{"version":9,"future":true}';localStorage.setItem(storagePrefix+'draft',raw);const f=await fixture();await f.instance.refresh?.();await vi.waitFor(()=>expect(f.container.textContent).toContain('unsupported format'));click(f.container,'[data-save-draft]');expect(localStorage.getItem(storagePrefix+'draft')).toBe(raw);expect(f.container.querySelector<HTMLButtonElement>('.terminal-send button')?.disabled).toBe(true);f.lifetime.abort();localStorage.removeItem(storagePrefix+'draft');localStorage.setItem(storagePrefix+'result:bad','null');const next=await fixture();await next.instance.refresh?.();await vi.waitFor(()=>expect(next.container.textContent).toContain('Saved terminal results'));fill(next.container,'new text');expect(next.container.querySelector<HTMLButtonElement>('.terminal-send button')?.disabled).toBe(true);expect(localStorage.getItem(storagePrefix+'result:bad')).toBe('null');
 });
+it('reports an initial failed read without claiming retained tabs are shown',async()=>{
+  const f=await fixture({},context=>{vi.mocked(context.services.terminal!.list).mockRejectedValue(new Error('Connection failed'));});
+  await vi.waitFor(()=>expect(f.container.querySelector('.terminal-status')?.textContent).toBe('Terminal tabs could not be loaded. Refresh to retry.'));
+  expect(f.container.textContent).not.toContain('Retained tabs are shown');expect(f.container.querySelectorAll('.terminal-tab')).toHaveLength(0);
+  expect(f.container.querySelector<HTMLElement>('.terminal-columns')?.hidden).toBe(true);expect(f.service.screen).not.toHaveBeenCalled();expect(f.service.control).not.toHaveBeenCalled();
+});
 it('reports failed or malformed lists without losing draft, and clears unavailable screen content',async()=>{
-  const f=await fixture();await ready(f);fill(f.container,'retained');f.service.list.mockResolvedValueOnce(available({...snapshot,tabs:[null]} as unknown as TerminalSnapshotV1));await f.instance.refresh?.();expect(f.container.textContent).toContain('could not be refreshed');expect(f.container.querySelector<HTMLInputElement>('.terminal-input')?.value).toBe('retained');expect(f.container.querySelector<HTMLButtonElement>('.terminal-send button')?.disabled).toBe(true);
+  const f=await fixture();await ready(f);fill(f.container,'retained');f.service.list.mockResolvedValueOnce(available({...snapshot,tabs:[null]} as unknown as TerminalSnapshotV1));await f.instance.refresh?.();expect(f.container.querySelector('.terminal-status')?.textContent).toBe('Terminal tabs could not be refreshed. Retained tabs are shown; controls are disabled until refresh succeeds.');expect(f.container.querySelectorAll('.terminal-tab')).toHaveLength(1);expect(f.container.querySelector('.terminal-connection')?.getAttribute('data-connected')).toBe('false');expect(f.container.querySelector('.terminal-connection')?.textContent).toBe('Terminal connection unavailable');expect(f.container.querySelector<HTMLInputElement>('.terminal-input')?.value).toBe('retained');expect(f.container.querySelector<HTMLButtonElement>('.terminal-send button')?.disabled).toBe(true);
   vi.mocked(f.context.services.terminal!.screen).mockResolvedValue({status:'unavailable',reason:'not-found'});await f.instance.refresh?.();expect(f.container.querySelector('.terminal-screen')?.textContent).toBe('Screen unavailable. Refresh to retry.');
 });
 it('ignores late reads and stops polling after hiding or lifetime disposal',async()=>{
   vi.useFakeTimers();const f=await fixture();await vi.advanceTimersByTimeAsync(0);const before=f.service.list.mock.calls.length;await vi.advanceTimersByTimeAsync(2_000);expect(f.service.list.mock.calls.length).toBeGreaterThan(before);await f.instance.update({...f.state(),visible:false});const hidden=f.service.list.mock.calls.length;await vi.advanceTimersByTimeAsync(8_000);expect(f.service.list).toHaveBeenCalledTimes(hidden);await f.instance.update(f.state());await vi.advanceTimersByTimeAsync(0);f.lifetime.abort();const ended=f.service.list.mock.calls.length;await vi.advanceTimersByTimeAsync(8_000);expect(f.service.list).toHaveBeenCalledTimes(ended);expect(f.container.childElementCount).toBe(0);
 });
-it('exposes explicit All and inherited scope controls without changing header selection',async()=>{
-  const f=await fixture();await ready(f);vi.mocked(f.context.services.terminal!.list).mockImplementation(async query=>available({...snapshot,repo:query.repo,tabs:query.repo===null?[{...tab,target:{...target,repo:null}}]:[]}));click(f.container,'[data-all]');await vi.waitFor(()=>expect(f.context.setScope).toHaveBeenCalledWith({kind:'all'}));expect(f.state().headerRepo).toBe('org/a');expect(f.state().activity.repo).toBeNull();click(f.container,'[data-inherit]');await vi.waitFor(()=>expect(f.context.setScope).toHaveBeenCalledWith({kind:'inherit'}));expect(f.state().activity.repo).toBe('org/a');expect(f.state().headerRepo).toBe('org/a');expect(f.service.control).not.toHaveBeenCalled();
+it('restores old scoped panels to All without changing header selection or exposing scope toggles',async()=>{
+  const f=await fixture();await ready(f);expect(f.context.setScope).toHaveBeenCalledWith({kind:'all'});expect(f.state().headerRepo).toBe('org/a');expect(f.state().activity.repo).toBeNull();
+  expect(f.container.querySelector('[data-all],[data-inherit],select')).toBeNull();expect(f.service.list.mock.calls.every(([query])=>query.repo===null)).toBe(true);expect(f.service.control).not.toHaveBeenCalled();
+});
+it('uses the composed heading and refresh while retaining standalone fallback',async()=>{
+  const f=await fixture({},()=>{document.body.lastElementChild?.setAttribute('data-composition-page','terminal');});await ready(f);
+  expect(f.container.querySelector('h2,[data-refresh]')).toBeNull();expect(f.container.querySelector('.terminal-connection')?.textContent).toBe('Terminal connected');
+  expect(f.container.querySelector('.terminal-tab-title')?.textContent).toBe('codex session');expect(f.container.querySelector('.terminal-screen-column h3')?.textContent).toBe('codex session');expect(f.service.control).not.toHaveBeenCalled();
+});
+it('fails closed when selecting All is rejected and keeps recovery actionable',async()=>{
+  const f=await fixture({},context=>{vi.mocked(context.setScope!).mockRejectedValue(new Error('Scope unavailable.'));});
+  await vi.waitFor(()=>expect(f.container.textContent).toContain('Refresh to retry'));expect(f.service.list).not.toHaveBeenCalled();expect(f.service.screen).not.toHaveBeenCalled();expect(f.service.control).not.toHaveBeenCalled();
+  expect(f.container.querySelector<HTMLButtonElement>('.terminal-send button')?.disabled).toBe(true);
+});
+it('shows distinct connected-empty and disconnected states without empty tab and screen panels',async()=>{
+  const f=await fixture({},context=>{vi.mocked(context.services.terminal!.list).mockResolvedValue(available({...snapshot,tabs:[]}));});await f.instance.refresh?.();
+  await vi.waitFor(()=>expect(f.container.textContent).toContain('No terminal tabs open'));expect(f.container.querySelector<HTMLElement>('.terminal-columns')?.hidden).toBe(true);expect(f.container.textContent).toContain('Open a tab in your terminal app');
+  f.service.list.mockResolvedValue(available({...snapshot,connected:false,tabs:[]}));await f.instance.refresh?.();expect(f.container.textContent).toContain('Terminal is not connected');expect(f.container.textContent).toContain('Open your configured terminal app');expect(f.service.control).not.toHaveBeenCalled();
 });
 it('keeps hidden or missing selected surfaces unavailable without selecting another or sending controls',async()=>{
   const f=await fixture({terminal:{version:1,surface:'surface:99',pane:'screen'}});await f.instance.refresh?.();await vi.waitFor(()=>expect(f.container.textContent).toContain('selected terminal is unavailable'));expect(f.service.screen).not.toHaveBeenCalled();expect(f.service.control).not.toHaveBeenCalled();expect(f.container.querySelector('[aria-pressed="true"][data-surface]')).toBeNull();

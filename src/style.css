@@ -134,6 +134,7 @@ html, body {
 }
 .nameplate { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .nameplate-scope { display: flex; min-width: 0; }
+.nameplate-scope[hidden] { display: none; }
 .nameplate-scope .repo-select { width: 100%; min-width: 0; max-width: 100%; padding: 8px 10px; font-size: 15px; }
 [data-profile-header] > [data-auxiliary-page],
 [data-profile-header] > [data-auxiliary-page] > :is([data-plugin-page], [role="status"], [role="alert"]) { display: inline; margin: 0; }

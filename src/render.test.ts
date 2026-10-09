@@ -3,7 +3,7 @@ import { CONFIG_HELP, renderConfigView, renderAppShell } from './render';
 import { EDITABLE_KEYS } from '../server/helmsman/config-store';
 import type { UiConfig } from './data/config';
 import { DEFAULT_THEME_ID } from './data/themes';
-import { appPages, TODOS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_SLOT, TRIAGE_PAGE_ID, BUGS_PAGE_SLOT, BUGS_PAGE_ID } from './plugins/builtins';
+import { appPages, TODOS_PAGE_SLOT, TODOS_PAGE_ID, TRIAGE_PAGE_SLOT, TRIAGE_PAGE_ID, BUGS_PAGE_SLOT, BUGS_PAGE_ID, TERMINAL_PAGE_ID, TERMINAL_PAGE_SLOT } from './plugins/builtins';
 
 
 function root(): HTMLDivElement {
@@ -207,6 +207,13 @@ describe('accessible configuration states', () => {
 });
 
 describe('plugin page shell', () => {
+  it.each([{ pluginSlot: TERMINAL_PAGE_SLOT }, { pluginPage: TERMINAL_PAGE_ID }])('hides galleon scope on direct Terminal routes %o', route => {
+    const el = root();
+    el.innerHTML = renderAppShell({ active: 'plugin', ...route, repos: ['org/alpha'], selectedRepo: 'org/alpha', themeId: DEFAULT_THEME_ID, readout: null }, '');
+    expect(el.querySelector<HTMLElement>('.nameplate-scope')?.hidden).toBe(true);
+    expect(el.querySelector<HTMLSelectElement>('.repo-select')?.value).toBe('org/alpha');
+  });
+
   it('keeps the scoped header, active Helm tab and Recovery link available without a page implementation', () => {
     const el = root();
     el.innerHTML = renderAppShell({ active: 'plugin', pluginSlot: 'helmsman/helm-page', repos: ['org/zeta', 'org/alpha'], selectedRepo: 'org/alpha', themeId: DEFAULT_THEME_ID, readout: null }, '<p role="status">Page unavailable</p>');

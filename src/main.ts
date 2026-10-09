@@ -743,6 +743,9 @@ export class DashboardView {
     template.innerHTML = renderHelmHead(opts);
     const repo = shell.querySelector<HTMLSelectElement>('.repo-select');
     const nextRepo = template.content.querySelector<HTMLSelectElement>('.repo-select');
+    const scope = shell.querySelector<HTMLElement>('.nameplate-scope');
+    const nextScope = template.content.querySelector<HTMLElement>('.nameplate-scope');
+    if (scope && nextScope) scope.hidden = nextScope.hidden;
     if (repo && nextRepo) {
       if (repo.innerHTML !== nextRepo.innerHTML) repo.innerHTML = nextRepo.innerHTML;
       repo.value = this.selectedRepo ?? '';

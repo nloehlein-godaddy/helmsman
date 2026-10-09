@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fixture, sourceRoot } from './isolated-fixture';
 
-test('source-denied authored terminal preserves scope and durable controls against an isolated cmux fixture', async ({ page, request }, testInfo) => {
+test('source-denied authored terminal shows global tabs and preserves durable controls against an isolated cmux fixture', async ({ page, request }, testInfo) => {
   test.setTimeout(180_000);
   const host = await fixture();
   const statePath = join(host.root, 'terminal-fixture.json');
@@ -69,13 +69,14 @@ for(const work of cleanups)await work();console.log('NATIVE_BROWSER_ACCEPTED');`
     await host.cli('select', 'helmsman/terminal-page', 'example.authored-terminal/page');
 
     let origin = await host.start();
-    let lostCommand: { command: { requestId: string; target: { repo: string; surfaceRef: string }; operation: unknown } } | null = null;
+    let lostCommand: { command: { requestId: string; target: { repo: string | null; surfaceRef: string; revision: string }; operation: unknown }; scopeRepo: null } | null = null;
     let loseResponse = true;
     let dropBeforeDelivery = false;
     let undelivered: unknown = null;
     await page.route('**/api/terminal/control', async route => {
-      const submitted = route.request().postDataJSON() as { command: { requestId: string; target: { repo: string; surfaceRef: string }; operation: unknown } };
+      const submitted = route.request().postDataJSON() as { command: { requestId: string; target: { repo: string | null; surfaceRef: string; revision: string }; operation: unknown }; scopeRepo: null };
       if (dropBeforeDelivery) { undelivered = submitted; dropBeforeDelivery = false; await route.abort('failed'); return; }
+      expect(submitted.scopeRepo).toBeNull();
       const response = await route.fetch();
       expect(response.ok()).toBe(true);
       if (loseResponse) { lostCommand = submitted; loseResponse = false; await route.abort('failed'); }
@@ -85,10 +86,19 @@ for(const work of cleanups)await work();console.log('NATIVE_BROWSER_ACCEPTED');`
     await page.goto(`${origin}/terminal?repo=org/a&pane=screen`);
     const terminal = page.locator('.plugin-terminal');
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
-    await expect(terminal).toContainText('Scope: org/a');
+    await expect(page.locator('.repo-select')).toBeHidden();
+    await expect(terminal.locator('.terminal-tab')).toHaveCount(3);
     await expect(terminal.getByRole('button', { name: /A terminal/ })).toBeVisible();
-    await expect(terminal).not.toContainText('B terminal');
-    await expect(terminal).not.toContainText('Unattached terminal');
+    await expect(terminal.getByRole('button', { name: /B terminal/ })).toBeVisible();
+    await expect(terminal.getByRole('button', { name: /Unattached terminal/ })).toBeVisible();
+    await expect(terminal.getByRole('button', { name: /Show all terminals|Use header scope|Use top selection/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Refresh page', exact: true })).toHaveCount(1);
+    expect((JSON.parse(await readFile(statePath, 'utf8')) as { sends: unknown[] }).sends).toHaveLength(0);
+    await expect.poll(() => page.evaluate(() => [...document.fonts].some(font => font.family.includes('Helmsman Phosphor Regular') && font.status === 'loaded'))).toBe(true);
+    const globalTabs = await request.get(`${origin}/api/terminal/tabs?version=1`, { headers: { 'x-helmsman-contribution': 'example.authored-terminal/panel' } });
+    expect(globalTabs.ok()).toBe(true);
+    const exactTarget = (await globalTabs.json()).tabs.find((tab: { target: { surfaceRef: string } }) => tab.target.surfaceRef === 'surface:1')?.target;
+    expect(exactTarget).toMatchObject({ repo: 'org/a', surfaceRef: 'surface:1' });
     await terminal.getByRole('button', { name: /A terminal/ }).click();
     await expect(terminal.getByLabel('Screen output from A terminal')).toContainText('org/a exact screen');
 
@@ -96,6 +106,7 @@ for(const work of cleanups)await work();console.log('NATIVE_BROWSER_ACCEPTED');`
     await terminal.getByRole('button', { name: 'Send + Enter', exact: true }).click();
     await expect(terminal.getByRole('button', { name: 'Check original receipt', exact: true })).toBeVisible();
     await expect.poll(async () => (JSON.parse(await readFile(statePath, 'utf8')) as { sends: unknown[] }).sends.length).toBe(2);
+    expect(lostCommand).toMatchObject({ command: { target: exactTarget } });
     const afterLost = JSON.parse(await readFile(statePath, 'utf8')) as { sends: { kind: string; surface: string; value: string }[] };
     expect(afterLost.sends).toEqual([
       { kind: 'send', surface: 'surface:1', value: 'lost exact text' },
@@ -129,15 +140,20 @@ for(const work of cleanups)await work();console.log('NATIVE_BROWSER_ACCEPTED');`
     await terminal.getByRole('button', { name: 'Send right key', exact: true }).click();
     await expect.poll(async () => (JSON.parse(await readFile(statePath, 'utf8')) as { sends: unknown[] }).sends.length).toBe(4);
 
-    await terminal.getByRole('button', { name: 'Show all terminals', exact: true }).click();
-    await expect(terminal).toContainText('Scope: All terminals');
+    await expect(terminal.locator('.terminal-tab')).toHaveCount(3);
     await expect(terminal.getByRole('button', { name: /Unattached terminal/ })).toBeVisible();
     await expect(terminal.getByRole('button', { name: /A terminal/ })).toBeVisible();
     await expect(terminal.getByRole('button', { name: /B terminal/ })).toBeVisible();
     await terminal.getByRole('button', { name: /Unattached terminal/ }).click();
     await expect(terminal.getByLabel('Screen output from Unattached terminal')).toContainText('unattached exact screen');
-    await terminal.getByRole('button', { name: 'Use header scope', exact: true }).click();
-    await expect(terminal).toContainText('Scope: org/a');
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await expect(page).toHaveURL(/repo=org%2Fa/);
+    await page.getByRole('tab', { name: 'Config', exact: true }).click();
+    await expect(page.locator('.repo-select')).toBeVisible();
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await page.getByRole('tab', { name: 'Terminal', exact: true }).click();
+    await expect(page.locator('.repo-select')).toBeHidden();
+    await expect(terminal.locator('.terminal-tab')).toHaveCount(3);
     await terminal.getByRole('button', { name: /A terminal/ }).click();
     await expect(terminal.getByLabel('Screen output from A terminal')).toContainText('org/a exact screen');
 
@@ -148,7 +164,7 @@ for(const work of cleanups)await work();console.log('NATIVE_BROWSER_ACCEPTED');`
     await page.locator('#page-content').evaluate(element => { element.scrollTop = 0; });
     expect(await terminal.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(terminal.getByRole('heading', { name: 'Terminal', exact: true }).first()).toBeInViewport();
+    await expect(page.getByRole('heading', { name: 'Terminal', exact: true })).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath('terminal-mobile.png'), fullPage: true });
     await terminal.getByLabel('Send text to A terminal').scrollIntoViewIfNeeded();
     await expect(terminal.getByLabel('Send text to A terminal')).toBeInViewport();
