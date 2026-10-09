@@ -49,7 +49,9 @@ describe('application views', () => {
   it('renders the sole generated personal theme with compact controls and advanced overrides', () => {
     const el = root();
     el.innerHTML = renderConfigView({ config: {}, overridden: [] }, { repos: [], selectedRepo: null, themeId: DEFAULT_THEME_ID });
-    expect(el.querySelector('.theme-select, [data-custom-theme-preset]')).toBeNull();
+    expect(el.querySelector('.theme-select')).toBeNull();
+    expect(el.querySelector<HTMLSelectElement>('[data-custom-theme-preset]')?.options.length).toBe(6);
+    expect(el.querySelector<HTMLSelectElement>('[data-custom-theme-preset]')?.value).toBe('');
     expect(el.querySelector<HTMLElement>('[data-custom-theme-editor]')?.hidden).toBe(false);
     expect(el.querySelectorAll('[data-custom-theme-setting]')).toHaveLength(3);
     const wheel = el.querySelector<HTMLElement>('[data-custom-theme-wheel]');

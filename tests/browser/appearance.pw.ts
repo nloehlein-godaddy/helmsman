@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Locator } from '@playwright/test';
 import { builtinCatalog } from './builtin-catalog';
+import { THEME_PALETTE_PRESETS } from '../../src/data/themePresets';
 import { DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, THEME_HARMONIES, createThemeRecipeFromPalette } from '../../src/data/themeGenerator';
 
 async function mockConfig(page: Page) {
@@ -612,4 +613,63 @@ for (const mode of ['dark', 'light'] as const) test(`five-color source palette s
   await page.reload();
   await expect(page.locator('#boot')).toBeVisible();
   expect(await themeVars(page)).toEqual(saved);
+});
+
+for (const width of [1440, 390]) test(`five-color presets apply, preserve their sources and discard drafts at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1100 });
+  await mockConfig(page);
+  await page.goto('/config?repo=org%2Fa');
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  const editor = page.locator('[data-custom-theme-editor]');
+  const preset = editor.getByLabel('Palette preset', { exact: true });
+  await expect(preset).toHaveValue('');
+  await expect(preset.locator('option')).toHaveText(['Generated palette', ...THEME_PALETTE_PRESETS.map(({ name }) => name)]);
+  for (const entry of THEME_PALETTE_PRESETS) {
+    await preset.selectOption(entry.id);
+    await expect(preset).toBeFocused();
+    await expect(editor.getByLabel('Color harmony', { exact: true })).toHaveValue('palette');
+    for (const mode of ['dark', 'light'] as const) {
+      await setAppearance(editor.locator('[data-custom-theme-mode]'), mode);
+      await editor.getByRole('button', { name: 'Save theme', exact: true }).hover();
+      const contrast = await inputThemeContrast(page, ['[data-key="CUSTOM_NOTE"] input', '[data-custom-theme-preset]', '[data-custom-theme-harmony]']);
+      expect(contrast.body).toBeGreaterThanOrEqual(4.5);
+      expect(contrast.button).toBeGreaterThanOrEqual(4.5);
+      for (const control of contrast.controls) expect(control.value).toBeGreaterThanOrEqual(4.5);
+    }
+    await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
+    expect(await storedTheme(page)).toMatchObject({ recipe: { sourcePalette: entry.colors, settings: { harmony: 'palette' } }, palette: { mode: 'light' } });
+    const saved = await themeVars(page);
+    await page.reload();
+    await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+    await expect(preset).toHaveValue(entry.id);
+    expect(await themeVars(page)).toEqual(saved);
+  }
+  const representative = THEME_PALETTE_PRESETS.find(({ id }) => id === (width === 1440 ? 'ember-tide' : 'daydream'));
+  if (!representative) throw new Error('Missing representative preset');
+  await preset.selectOption(representative.id);
+  await setAppearance(editor.locator('[data-custom-theme-mode]'), width === 1440 ? 'dark' : 'light');
+  await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
+  const saved = await themeVars(page);
+  await preset.selectOption('festival');
+  await editor.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(preset).toHaveValue(representative.id);
+  expect(await themeVars(page)).toEqual(saved);
+  await preset.selectOption('');
+  await expect(editor.getByLabel('Color harmony', { exact: true })).toHaveValue('analogous');
+  await expectWheelSelection(editor, 165, 45);
+  await editor.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(preset).toHaveValue(representative.id);
+  expect(await themeVars(page)).toEqual(saved);
+  await preset.focus();
+  await preset.scrollIntoViewIfNeeded();
+  await page.mouse.move(0, 0);
+  await expect(page).toHaveScreenshot(`personal-theme-preset-${width}.png`);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await preset.selectOption('');
+  await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
+  expect((await storedTheme(page))?.recipe?.sourcePalette).toBeUndefined();
+  await page.reload();
+  await expect(page.locator('[data-key="CUSTOM_NOTE"] input')).toBeVisible();
+  await expect(preset).toHaveValue('');
+  await expect(editor.getByLabel('Color harmony', { exact: true })).toHaveValue('analogous');
 });
