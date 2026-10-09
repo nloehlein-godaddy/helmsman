@@ -28,7 +28,7 @@ export const styles = `
 .plugin-source-settings button { justify-self: start; align-self: start; width: fit-content; flex: 0 0 auto; padding: 6px 12px; text-transform: none; letter-spacing: normal; transition: background-color 160ms ease-out, border-color 160ms ease-out; }
 .plugin-source-settings button:hover:not(:disabled) { background-color: var(--face-hi); border-color: var(--line-strong); }
 .plugin-source-settings button:disabled { cursor: default; opacity: .5; }
-.plugin-source-settings :is(input:not([type=checkbox]):not([type=radio]),select,textarea) { padding: 6px 12px; color: var(--text); background: var(--control-bg, var(--face-hi)); border: 1px solid var(--control-border, var(--line-strong)); max-width: 100%; }
+.plugin-source-settings :is(input:not([type=checkbox]):not([type=radio]),select,textarea) { padding: 6px 12px; color: var(--text); background: var(--control-bg, var(--face-hi)); border: 1px solid var(--control-border, var(--line-strong)); max-width: min(100%, 40rem); }
 .plugin-source-settings :is(button,input,select,textarea,summary,a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .plugin-source-settings :is(p,small) { line-height: 1.5; overflow-wrap: anywhere; }
 .plugin-source-settings small { font-size: 14px; }
