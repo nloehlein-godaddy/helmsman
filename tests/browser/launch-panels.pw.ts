@@ -136,7 +136,9 @@ test('Underway uses accessible icons and keeps task hierarchy usable on touch sc
   await expect(f.underway.getByRole('button', { name: 'Not ready for a new run.', exact: true })).toHaveCount(3);
   const progress = f.underway.getByRole('button', { name: 'In progress', exact: true });
   const progressTooltip = f.underway.getByRole('tooltip', { name: 'In progress', exact: true });
+  await page.locator('[data-helm-focus="page:edit"]').focus();
   await progress.hover(); await expect(progressTooltip).toBeVisible();
+  await page.keyboard.press('Escape'); await expect(progressTooltip).toBeHidden();
   await page.mouse.move(0, 0); await progress.focus(); await expect(progressTooltip).toBeVisible();
   await progress.press('Escape'); await expect(progressTooltip).toBeHidden();
   const touchContext = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 1200 } });

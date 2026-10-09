@@ -120,7 +120,7 @@ class UnderwayPanel implements PluginPanelInstance {
     context.onDispose(() => this.dispose()); context.signal.addEventListener('abort', this.abort, { once: true });
     this.state.activity.signal.addEventListener('abort', this.suspend, { once: true });
     if (context.signal.aborted) { this.dispose(); return; }
-    this.container.addEventListener('keydown', this.dismissTooltips);
+    document.addEventListener('keydown', this.dismissTooltips);
     this.draw(); void this.refresh();
   }
   private dismissTooltips = (event: KeyboardEvent): void => {
@@ -380,7 +380,7 @@ class UnderwayPanel implements PluginPanelInstance {
   }
   dispose(): void {
     if (this.disposed) return; this.disposed = true; this.cancel();
-    this.container.removeEventListener('keydown', this.dismissTooltips);
+    document.removeEventListener('keydown', this.dismissTooltips);
     this.context.signal.removeEventListener('abort', this.abort); this.state.activity.signal.removeEventListener('abort', this.suspend);
   }
 }
