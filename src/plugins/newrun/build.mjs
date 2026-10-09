@@ -10,3 +10,4 @@ const result = spawnSync(process.execPath, [require.resolve('typescript/bin/tsc'
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status ?? 1);
 await copyFile(new URL('./plugin-package.json', import.meta.url), new URL('./dist/plugin-package.json', import.meta.url));
+await copyFile(new URL('./phosphor-LICENSE.txt', import.meta.url), new URL('./dist/phosphor-LICENSE.txt', import.meta.url));

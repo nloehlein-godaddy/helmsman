@@ -139,7 +139,8 @@ describe('application views', () => {
     expect(el.textContent).not.toContain('do-not-render');
     expect(el.querySelector('[data-key^="JIRA_"], [data-key^="GITHUB_"]')).toBeNull();
     for (const [path, label] of [['jira-settings', 'Jira'], ['github-settings', 'GitHub'], ['communication', 'Notifications'], ['local-git', 'Local Git']]) {
-      expect(el.querySelector(`.section-nav a[href="/${path}?repo=org%2Fa"]`)?.textContent).toBe(label);
+      const link = el.querySelector(`.section-nav a[href="/${path}?repo=org%2Fa"]`);
+      expect(link?.getAttribute('aria-label') ?? link?.textContent).toBe(label);
       expect(el.querySelector(`#page-content a[href="/${path}?repo=org%2Fa"]`)).toBeNull();
     }
   });

@@ -49,6 +49,8 @@ import type { WorkflowModeV1 } from '../../src/plugins/workflow';
 import { createProfileService } from './profile-service';
 import { profileContributionEnabled } from './profile-runtime';
 import { createIntegrationSettingsService } from './integration-settings-service';
+import { createGithubConnectionCheck, createIntegrationStatusService } from './integration-status';
+import { parseSourceIdentityEvidenceV1 } from '../../src/plugins/tasks';
 import { jiraSettingsContributionEnabled, githubSettingsContributionEnabled } from './integration-settings-runtime';
 import { createLocalGitService } from './local-git-service';
 import { localGitContributionEnabled } from './local-git-runtime';
@@ -513,6 +515,32 @@ const integrationSettings = createIntegrationSettingsService({ persistence,
   authorize: (caller, namespace) => {
     const enabled = namespace === 'helmsman.jira/settings' ? jiraSettingsContributionEnabled(pluginSnapshot.catalog, caller) : githubSettingsContributionEnabled(pluginSnapshot.catalog, caller);
     if (!enabled) throw new ClarificationServiceError(403, 'forbidden');
+  },
+});
+function scopedJiraInstances(repo: string | null) {
+  return taskSourceRuntime.service.instances(repo).flatMap(value => {
+    const instance = sourceStore.instance(value.id);
+    if (!instance) return [];
+    const connection = instance.binding.connectionId ? sourceConnections.get(instance.binding.connectionId) : null;
+    return connection?.kind === 'jira' || instance.authority?.protocol === 'jira.cloud' ? [{ value, instance }] : [];
+  });
+}
+const integrationStatus = createIntegrationStatusService({ repos: applicationRepos,
+  revision: repo => persistenceHash({ githubToken: configStore.effectiveEnv().GITHUB_TOKEN ?? null, jira: unmaskedConfig().jira,
+    sources: scopedJiraInstances(repo).map(({ value, instance }) => ({ available: value.available, instance })) }),
+  github: createGithubConnectionCheck({ token: () => configStore.effectiveEnv().GITHUB_TOKEN?.trim() || null }),
+  async jira(repo, signal) {
+    const candidates = scopedJiraInstances(repo);
+    if (!candidates.length) return 'not-configured';
+    if (candidates.some(({ value }) => !value.available || !value.desiredEnabled)) return 'unavailable';
+    const unique = new Map(candidates.map(item => [persistenceHash(item.instance.binding), item.instance]));
+    if (unique.size > 8) return 'unknown';
+    await Promise.all([...unique.values()].map(async instance => {
+      const registration = backendPlugins.taskSources.resolve(instance, 'admission');
+      parseSourceIdentityEvidenceV1(await registration.provider.identify(taskSourceRuntime.service.context(instance, repo, signal)));
+      taskSourceRuntime.service.assertScope(instance, repo, 'admission');
+    }));
+    return 'available';
   },
 });
 const executionPolicy = createExecutionPolicyService({ persistence, repos: applicationRepos,
@@ -2027,7 +2055,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, taskContext, taskContextSignal: inspectController?.signal, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      integrationSettings, integrationSettingsCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      integrationStatus, integrationSettings, integrationSettingsCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       executionPolicy, executionPolicyCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       publicLocalGit, localGitCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,

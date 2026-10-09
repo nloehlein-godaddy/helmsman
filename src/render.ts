@@ -1,5 +1,7 @@
 import { term, isPirateMode, TERMINOLOGY, TERMINOLOGY_REFERENCE_KEYS } from './logic/terminology';
 import { renderThemePreview } from './renderThemePreview';
+import { integrationStatusDescription, renderIntegrationStatus } from './renderIntegrationStatus';
+import type { IntegrationNavigationStatus } from './data/integration-status';
 import { renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
 import { renderPirateModeIcon } from './renderPirateModeIcon';
 import { routeHref, type PageView } from './logic/routes';
@@ -46,6 +48,7 @@ const PAGE_TABS: { view: PageView; label: string }[] = [
 ];
 
 export interface HelmHeadOpts {
+  integrationStatus?: IntegrationNavigationStatus;
   active: PageView;
   pane?: string | null;
   jiraEnabled?: boolean;
@@ -129,9 +132,12 @@ export function renderSectionNavigation(opts: HelmHeadOpts): string {
     })];
   if (child && !links.some(link => link.active)) links.push({ id: 'current', active: true, href: currentHref,
     label: (opts.pluginPage ? appPages.getPage(opts.pluginPage)?.title : null) ?? term('unavailablePluginPage') });
-  return `<nav class="section-nav" aria-label="${esc(title)} pages" data-section="${section.view}">${links.map(link =>
-    `<a class="section-link app-link${link.active ? ' is-active' : ''}" data-section-link="${esc(link.id)}" href="${esc(link.href)}"${link.active ? ' aria-current="page"' : ''}>${esc(link.label)}</a>`,
-  ).join('')}</nav>`;
+  return `<nav class="section-nav" aria-label="${esc(title)} pages" data-section="${section.view}">${links.map(link => {
+    const kind = link.id === 'helmsman/jira-settings-page' ? 'jira' : link.id === 'helmsman/github-settings-page' ? 'github' : null;
+    const state = kind && opts.integrationStatus?.repo === opts.selectedRepo ? opts.integrationStatus[kind] : 'unknown';
+    const description = kind ? integrationStatusDescription(kind, opts.selectedRepo, state) : '';
+    return `<a class="section-link app-link${link.active ? ' is-active' : ''}" data-section-link="${esc(link.id)}" href="${esc(link.href)}"${link.active ? ' aria-current="page"' : ''}${kind ? ` aria-label="${esc(link.label)}" aria-describedby="${kind}-integration-status-description" title="${esc(description)}"` : ''}>${esc(link.label)}${kind ? renderIntegrationStatus(kind, state, description) : ''}</a>`;
+  }).join('')}</nav>`;
 }
 
 export function renderHelmHead(opts: HelmHeadOpts): string {

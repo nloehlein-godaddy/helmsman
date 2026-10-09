@@ -386,9 +386,11 @@ describe('New Run keyboard focus through redraws', () => {
     expect(document.activeElement).toBe(field(f.container, 'Galleon'));
     expect(f.submit).not.toHaveBeenCalled();
   });
-  it('preserves launch focus when its wording changes', async () => {
+  it('preserves launch focus when its wording and icon change', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await ready(f);
+    expect(button(f.container, 'Start run').querySelector('[data-launch-icon=play]')?.getAttribute('aria-hidden')).toBe('true');
     button(f.container, 'Start run').focus(); await instance.update({ ...f.state, pirateMode: true });
+    expect(button(f.container, 'Weigh anchor').querySelector('[data-launch-icon=anchor]')?.getAttribute('aria-hidden')).toBe('true');
     expect(document.activeElement).toBe(button(f.container, 'Weigh anchor')); expect(f.submit).not.toHaveBeenCalled();
   });
   it('keeps a recovery action on its original request when requests reorder', async () => {

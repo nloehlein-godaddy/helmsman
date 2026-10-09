@@ -3,6 +3,7 @@ import { createHostJiraSettingsService } from './jira-settings-service';
 import { createHostGithubSettingsService } from './github-settings-service';
 import { JIRA_SETTINGS_SCHEMA_V1, parseJiraSettingsSnapshotV1 } from './jira-settings';
 import { GITHUB_SETTINGS_SCHEMA_V1, parseGithubSettingsSaveInputV1 } from './github-settings';
+import { onIntegrationSettingsChanged } from '../data/integration-status-events';
 
 const globalScope = { version: 1 as const, scope: 'global' as const };
 const jira = { ...globalScope, namespace: 'helmsman.jira/settings' as const, revision: 'a'.repeat(64), tokenSet: true, sourceConfigured: false, bootstrapEnabled: true };
@@ -51,4 +52,20 @@ it('publishes bounded namespaced metadata without credential defaults or read va
 it('cancels a global settings response when its contribution is no longer active', async () => {
   const f = fixture(); f.fetcher.mockImplementationOnce(async () => { f.scope.active = false; f.scope.epoch++; return Response.json(jira); });
   await expect(f.jira.snapshot(globalScope)).rejects.toMatchObject({ name: 'AbortError' });
+});
+it('refreshes connection status only after successful saves, retaining committed results if a listener fails', async () => {
+  const f = fixture(); const listener = vi.fn();
+  onIntegrationSettingsChanged(listener, f.lifetime.signal);
+  onIntegrationSettingsChanged(() => { throw new Error('View disposed'); }, f.lifetime.signal);
+  const input = { ...globalScope, namespace: jira.namespace, expectedRevision: jira.revision, token: 'ephemeral-token' };
+  f.fetcher.mockResolvedValueOnce(Response.json(jira));
+  expect(await f.jira.rotateToken(input)).toMatchObject({ status: 'available' });
+  expect(listener).toHaveBeenCalledTimes(1);
+  f.fetcher.mockRejectedValueOnce(new Error('Connection lost'));
+  expect(await f.jira.rotateToken(input)).toMatchObject({ status: 'unavailable' });
+  expect(listener).toHaveBeenCalledTimes(1);
+  f.fetcher.mockResolvedValueOnce(Response.json(github));
+  await f.github.save({ ...globalScope, namespace: github.namespace, expectedRevision: github.revision, values: github.values });
+  expect(listener).toHaveBeenCalledTimes(2);
+  f.lifetime.abort();
 });

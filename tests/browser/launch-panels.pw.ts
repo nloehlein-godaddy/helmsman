@@ -156,3 +156,26 @@ test('Underway uses accessible icons and keeps task hierarchy usable on touch sc
   expect(await mobile.underway.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await touchContext.close();
 });
+
+for (const width of [1440, 390]) test(`launch icon follows Pirate mode without submitting the draft at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1200 });
+  const f = await setup(page);
+  await f.newrun.getByLabel('Task instructions', { exact: true }).fill('Keep this draft while changing terminology');
+  const launch = f.newrun.locator('[data-focus-key="launch"]');
+  const toggle = page.locator('.app-footer [data-pirate-mode]');
+  await expect(launch).toHaveAccessibleName('Weigh anchor');
+  await expect(launch.locator('[data-launch-icon="anchor"]')).toHaveAttribute('aria-hidden', 'true');
+  await expect(launch.locator('svg')).toHaveAttribute('focusable', 'false');
+  await expect(f.newrun).toHaveScreenshot(`newrun-anchor-${width}.png`, { animations: 'disabled' });
+  await toggle.click();
+  await expect(launch).toHaveAccessibleName('Start run');
+  await expect(launch.locator('[data-launch-icon="play"]')).toHaveAttribute('aria-hidden', 'true');
+  await expect(f.newrun.getByLabel('Task instructions', { exact: true })).toHaveValue('Keep this draft while changing terminology');
+  expect(f.commands).toEqual([]);
+  await toggle.click();
+  await expect(launch).toHaveAccessibleName('Weigh anchor');
+  await expect(launch.locator('[data-launch-icon="anchor"]')).toHaveAttribute('aria-hidden', 'true');
+  await expect(f.newrun.getByLabel('Task instructions', { exact: true })).toHaveValue('Keep this draft while changing terminology');
+  expect(f.commands).toEqual([]);
+  expect(await f.newrun.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+});

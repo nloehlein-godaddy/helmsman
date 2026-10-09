@@ -21,6 +21,9 @@ import { LOCAL_POLL_MS } from './data/live';
 import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, renderConfigView } from './render';
 import { fetchAgents, type RunSummary } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
+import { createIntegrationStatusController, type IntegrationNavigationStatus } from './data/integration-status';
+import { onIntegrationSettingsChanged } from './data/integration-status-events';
+import { navigationSection } from './logic/navigation';
 import { applyCustomTheme, CUSTOM_THEME_ID, loadCustomTheme, loadCustomThemeRecipe, saveCustomTheme } from './data/themes';
 import { createThemeRecipeFromPalette, DEFAULT_THEME_GENERATOR_SETTINGS, generateThemePalette, THEME_HARMONIES, type ThemeGeneratorRecipe } from './data/themeGenerator';
 import { THEME_PALETTE_PRESETS } from './data/themePresets';
@@ -82,6 +85,12 @@ export class DashboardView {
   private customTheme: CustomThemeEditorState = { palette: loadCustomTheme(), recipe: loadCustomThemeRecipe() ?? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} }, dirty: false, message: null, error: false };
   private configSaves: number = 0;
   private jiraEnabled: boolean = true;
+  private integrationStatus: IntegrationNavigationStatus | null = null;
+  private readonly integrationStatusController = createIntegrationStatusController(status => {
+    if (this.destroyed || status.repo !== this.selectedRepo) return;
+    this.integrationStatus = status;
+    this.syncShell();
+  });
   private unsubscribePages: (() => void) | null = null;
   private unsubscribePageModules: (() => void) | null = null;
   private pageHost: PluginPageHost | null = null;
@@ -90,6 +99,7 @@ export class DashboardView {
 
   constructor(root: HTMLElement) {
     this.root = root;
+    onIntegrationSettingsChanged(() => { void this.refreshIntegrationStatus(true); }, this.rootEvents.signal);
     this.themeColorWheel = createThemeColorWheel(root, this.rootEvents.signal, () => this.customTheme.recipe.settings, selection => {
       this.customTheme.recipe.settings = { ...this.customTheme.recipe.settings, ...selection };
       this.previewCustomTheme();
@@ -371,6 +381,7 @@ export class DashboardView {
 
   destroy(): void {
     this.destroyed = true;
+    this.integrationStatusController.dispose();
     this.rootEvents.abort();
     this.unsubscribePages?.();
     this.unsubscribePages = null;
@@ -428,6 +439,7 @@ export class DashboardView {
     if (route.pane) this.collapsed.delete(`${route.view}:${route.pane === 'tabs' ? 'list' : route.pane === 'screen' ? 'detail' : route.pane}`);
     if (!route.run) this.presentationSelection = null;
     this.paint();
+    void this.refreshIntegrationStatus();
     if (scopeChanged) this.paintHeaderContribution();
     if (scopeChanged) await this.refresh(false);
     if (seq !== this.routeSeq) return;
@@ -471,6 +483,7 @@ export class DashboardView {
   }
 
   private async performRefresh(force: boolean): Promise<void> {
+    if (force) void this.refreshIntegrationStatus(true);
     const now = Date.now();
     const localDue = force || now - this.lastLocalRefresh >= LOCAL_POLL_MS;
     if (localDue) this.lastLocalRefresh = now;
@@ -665,12 +678,18 @@ export class DashboardView {
       pane: this.route.pane,
       pluginPage: this.route.pluginPage, pluginSlot: this.route.pluginSlot,
       jiraEnabled: this.jiraEnabled,
+      ...(this.integrationStatus?.repo === this.selectedRepo ? { integrationStatus: this.integrationStatus } : {}),
       readout: {
         running: this.runs.filter(run => run?.status === 'running' && (!this.selectedRepo || run.repo === this.selectedRepo)).length,
         queued: null,
         review: null,
       },
     };
+  }
+
+  private refreshIntegrationStatus(force = false): Promise<void> {
+    if (navigationSection(this.shellOptions())?.view !== 'config') return Promise.resolve();
+    return this.integrationStatusController.refresh(this.selectedRepo, force);
   }
 
   private mountPage(markup: string): void {
@@ -753,8 +772,12 @@ export class DashboardView {
         const link = retained.get(next.dataset.sectionLink);
         if (!link) return next;
         link.className = next.className;
-        if (link.textContent !== next.textContent) link.textContent = next.textContent;
+        if (link.innerHTML !== next.innerHTML) link.replaceChildren(...next.childNodes);
         link.href = next.href;
+        for (const name of ['aria-label', 'aria-describedby', 'title']) {
+          const value = next.getAttribute(name);
+          if (value === null) link.removeAttribute(name); else link.setAttribute(name, value);
+        }
         if (next.hasAttribute('aria-current')) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
         return link;

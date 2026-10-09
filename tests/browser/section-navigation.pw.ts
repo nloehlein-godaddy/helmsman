@@ -9,6 +9,7 @@ for (const width of [1440, 390]) test(`section navigation persists across parent
     const path = new URL(route.request().url()).pathname;
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.github-settings', 'helmsman.local-git']) }
       : path === '/api/context' ? { repos: ['org/a', 'org/b'], jiraBaseUrl: null }
+      : path === '/api/integration-status' ? { version: 1, repo: 'org/a', jira: 'available', github: 'unavailable', checkedAt: '2026-10-09T00:00:00.000Z' }
       : path === '/api/config' ? { config: {}, overridden: [] }
       : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} }
       : path === '/api/repo/local' ? { repo: 'org/a', path: '/repo', branches: [], worktrees: [], error: null } : {};
@@ -56,6 +57,7 @@ test('section navigation stands apart and stays readable in dark and light gener
     const path = new URL(route.request().url()).pathname;
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
       : path === '/api/context' ? { repos: ['org/a'], jiraBaseUrl: null }
+      : path === '/api/integration-status' ? { version: 1, repo: 'org/a', jira: 'available', github: 'unavailable', checkedAt: '2026-10-09T00:00:00.000Z' }
       : path === '/api/config' ? { config: {}, overridden: [] }
       : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
     return route.fulfill({ json });
@@ -110,4 +112,54 @@ test('section navigation stands apart and stays readable in dark and light gener
   if (await appearance.getAttribute('aria-pressed') !== 'false') await appearance.click();
   await page.mouse.move(0, 0);
   await expect(page).toHaveScreenshot('config-navigation-light.png');
+});
+
+for (const width of [1440, 390]) test(`integration indicators retain accessible links and follow header scope at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  let release!: () => void;
+  const initial = new Promise<void>(resolve => { release = resolve; });
+  const statusScopes: (string | null)[] = [];
+  const writes: string[] = [];
+  await page.route('**/api/**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() !== 'GET') writes.push(url.pathname);
+    if (url.pathname === '/api/integration-status') {
+      const repo = url.searchParams.get('repo');
+      statusScopes.push(repo);
+      if (repo === 'org/a') await initial;
+      if (repo === 'org/b') return route.fulfill({ status: 503, json: { error: 'Connection unavailable' } });
+      return route.fulfill({ json: { version: 1, repo, jira: 'not-configured', github: 'available', checkedAt: '2026-10-09T00:00:00.000Z' } }).catch(() => {});
+    }
+    const json = url.pathname === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
+      : url.pathname === '/api/context' ? { repos: ['org/a', 'org/b'], jiraBaseUrl: null }
+      : url.pathname === '/api/config' ? { config: {}, overridden: [] }
+      : url.pathname === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
+    return route.fulfill({ json });
+  });
+  await page.goto('/config?repo=org%2Fa');
+  const nav = page.getByRole('navigation', { name: 'Config pages', exact: true });
+  const jira = nav.getByRole('link', { name: 'Jira', exact: true });
+  const github = nav.getByRole('link', { name: 'GitHub', exact: true });
+  await expect(jira.locator('[data-integration-status="jira"]')).toHaveAttribute('data-status', 'checking');
+  await expect(github.locator('[data-integration-status="github"]')).toHaveAttribute('data-status', 'checking');
+  await expect(jira).toHaveAccessibleDescription('Jira: checking connection');
+  release();
+  await expect(jira.locator('[data-integration-status="jira"]')).toHaveAttribute('data-status', 'not-configured');
+  await expect(github.locator('[data-integration-status="github"]')).toHaveAttribute('data-status', 'available');
+  await expect(jira).toHaveAccessibleDescription('Jira: no connection configured for org/a');
+  await expect(github).toHaveAccessibleDescription('GitHub: authenticated; pull requests accessible for org/a.');
+  await expect(github.locator('svg')).toHaveAttribute('aria-hidden', 'true');
+  await expect(jira).toHaveAttribute('href', '/jira-settings?repo=org%2Fa');
+  await expect(github).toHaveAttribute('href', '/github-settings?repo=org%2Fa');
+  await github.scrollIntoViewIfNeeded();
+  await expect(nav).toHaveScreenshot(`integration-navigation-${width}.png`);
+  await page.locator('.repo-select').selectOption('org/b');
+  await expect(github.locator('[data-integration-status="github"]')).toHaveAttribute('data-status', 'unknown');
+  await expect(jira.locator('[data-integration-status="jira"]')).toHaveAttribute('data-status', 'unknown');
+  await expect(github).toHaveAccessibleDescription('GitHub: connection status unknown. Open settings to check configuration.');
+  await expect(github).toHaveAttribute('href', '/github-settings?repo=org%2Fb');
+  expect(statusScopes).toEqual(['org/a', 'org/b']);
+  expect(writes).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

@@ -1,4 +1,5 @@
 import { createClarificationTransport, type ClarificationHostOptions } from './clarification-transport';
+import { notifyIntegrationSettingsChanged } from '../data/integration-status-events';
 import { parseGithubSettingsSaveInputV1, parseGithubSettingsSnapshotInputV1, parseGithubSettingsSnapshotV1, type GithubSettingsServiceV1 } from './github-settings';
 export function createHostGithubSettingsService(lifetime: AbortSignal, options: ClarificationHostOptions): GithubSettingsServiceV1 {
   const operation = createClarificationTransport(lifetime, options, 16_384);
@@ -9,7 +10,9 @@ export function createHostGithubSettingsService(lifetime: AbortSignal, options: 
     },
     async save(value, signal) {
       const input = parseGithubSettingsSaveInputV1(value); const call = operation(signal);
-      return call.request('/api/github-settings', parseGithubSettingsSnapshotV1, input);
+      const result = await call.request('/api/github-settings', parseGithubSettingsSnapshotV1, input);
+      if (result.status === 'available') notifyIntegrationSettingsChanged();
+      return result;
     },
   });
 }

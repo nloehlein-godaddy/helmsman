@@ -13,6 +13,7 @@ import { handleProfileApi } from './profile-routes';
 import type { ProfileServerService } from './profile-service';
 import { handleIntegrationSettingsApi } from './integration-settings-routes';
 import type { IntegrationSettingsServerService } from './integration-settings-service';
+import { handleIntegrationStatusApi, type IntegrationStatusService } from './integration-status';
 import { handleLocalGitApi } from './local-git-routes';
 import type { LocalGitServerService } from './local-git-service';
 import { handleCampaignPublicApi } from './campaigns-public-routes';
@@ -172,6 +173,7 @@ export interface RouterDeps {
   getConfig: () => { config: Record<string, unknown>; overridden: string[]; jiraTokenSet?: boolean };
   setConfig: (key: string, value: string) => { ok: true } | { ok: false; error: string };
   integrationSettings?: IntegrationSettingsServerService;
+  integrationStatus?: IntegrationStatusService;
   integrationSettingsCaller?: string;
   publicLocalGit?: LocalGitServerService;
   localGitCaller?: string;
@@ -486,6 +488,8 @@ export async function handleApi(
   if (executionPolicyResult) return executionPolicyResult;
   const profileResult = await handleProfileApi({ method, path, query, caller: deps.profileCaller, service: deps.profile, signal: deps.profileSignal });
   if (profileResult) return profileResult;
+  const integrationStatusResult = await handleIntegrationStatusApi({ method, path, query, service: deps.integrationStatus });
+  if (integrationStatusResult) return integrationStatusResult;
   const settingsResult = await handleIntegrationSettingsApi({ method, path, query, body: _body, caller: deps.integrationSettingsCaller, service: deps.integrationSettings });
   if (settingsResult) return settingsResult;
   if (path === '/api/config' && method === 'GET') {
