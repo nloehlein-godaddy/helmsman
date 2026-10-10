@@ -2,6 +2,18 @@ import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, Plugin
 import { styles } from './styles.js';
 
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
+const phosphorGlyphs = { refresh: '\ue094', open: '\ue282', created: '\ue3d6', completed: '\ue184', overdue: '\ue4e2' } as const;
+const icon = (name: keyof typeof phosphorGlyphs): HTMLSpanElement => {
+  const value = node('span', phosphorGlyphs[name]); value.className = 'bugs-icon'; value.setAttribute('aria-hidden', 'true'); return value;
+};
+const humanDate = (value: string, includeTime = false): string => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC', ...(includeTime ? { hour: 'numeric', minute: '2-digit' } : {}) }).format(date) + (includeTime ? ' UTC' : '');
+};
+const dateNode = (value: string, includeTime = false): HTMLTimeElement => {
+  const date = node('time', humanDate(value, includeTime)); date.dateTime = value; date.title = value; return date;
+};
 interface View { source: TaskReadSourceV1; report: TaskBugsReportV1 | null; error: string; }
 interface Selection { repo: string; sourceId: string; instanceId: string; }
 const key = (source: Selection) => JSON.stringify([source.repo, source.sourceId, source.instanceId]);
@@ -47,11 +59,12 @@ class BugsPanel implements PluginPanelInstance {
   private cancel = (): void => { ++this.generation; this.controller?.abort(); this.controller = null; this.pending = null; };
   refresh(): Promise<void> {
     if (!this.active()) return Promise.resolve(); if (this.pending) return this.pending;
-    const generation = ++this.generation; const controller = new AbortController(); this.controller = controller; this.views = []; this.messages = [];
+    const generation = ++this.generation; const controller = new AbortController(); this.controller = controller; this.messages = [];
+    const previous = new Map(this.views.map(view => [key(view.source), view]));
     const pending = Promise.resolve().then(async () => {
       const discovered = await this.context.services.tasks!.discover(controller.signal); if (!this.active(generation)) return;
+      if (discovered.status === 'unavailable') { this.messages.push(`Task sources unavailable (${discovered.reason}).${this.views.some(view => view.report !== null) ? ' Showing the last observed reports.' : ''} Refresh to retry.`); return; }
       this.sources = [];
-      if (discovered.status === 'unavailable') { this.messages.push(`Task sources unavailable (${discovered.reason}).`); return; }
       for (const galleon of discovered.value.galleons) {
         if (galleon.sources.status === 'unavailable') this.messages.push(`${galleon.repo}: task sources unavailable.`);
         else this.sources.push(...galleon.sources.value.filter(source => source.readViews?.includes('bugs')));
@@ -60,7 +73,7 @@ class BugsPanel implements PluginPanelInstance {
       if (this.invalidSelection) this.messages.push('The saved source selection is unsupported. Choose a source to replace it.');
       if (this.selected && !selected.length) this.messages.push('The selected source is unavailable in this scope. Your selection is kept.');
       if (selected.length > 50) this.messages.push('Showing the first 50 source views. Select a source to inspect another view.');
-      this.views = selected.slice(0, 50).map(source => ({ source, report: null, error: source.availability === 'available' ? '' : `Source ${source.availability}.` })); this.draw();
+      this.views = selected.slice(0, 50).map(source => ({ source, report: source.availability === 'available' && previous.get(key(source))?.source.instanceRevision === source.instanceRevision ? previous.get(key(source))?.report ?? null : null, error: source.availability === 'available' ? '' : `Source ${source.availability}.` })); this.draw();
       let index = 0;
       await Promise.all(Array.from({ length: Math.min(4, this.views.length) }, async () => {
         while (this.active(generation) && index < this.views.length) {
@@ -72,7 +85,7 @@ class BugsPanel implements PluginPanelInstance {
           if (this.active(generation)) this.draw();
         }
       }));
-    }).catch(() => { if (this.active(generation)) this.messages = ['Task sources could not be read. Refresh to retry.']; }).finally(() => {
+    }).catch(() => { if (this.active(generation)) this.messages = [`Task sources could not be read.${this.views.some(view => view.report !== null) ? ' Showing the last observed reports.' : ''} Refresh to retry.`]; }).finally(() => {
       if (!this.disposed && generation === this.generation) { this.pending = null; this.controller = null; this.draw(); }
     });
     this.pending = pending; this.draw(); return pending;
@@ -80,7 +93,7 @@ class BugsPanel implements PluginPanelInstance {
   private async choose(value: string): Promise<void> {
     const source = this.sources.find(source => key(source) === value); if (value && !source) return;
     this.selected = source ? { repo: source.repo, sourceId: source.sourceId, instanceId: source.instanceId } : null; this.invalidSelection = false; this.dirty = true;
-    const selection = this.selected; const sequence = ++this.saveSequence; this.cancel(); void this.refresh();
+    const selection = this.selected; const sequence = ++this.saveSequence; this.cancel(); this.views = []; void this.refresh();
     try { await this.context.saveState(this.savedSettings(selection)); if (!this.disposed && sequence === this.saveSequence) { this.dirty = false; this.saveError = ''; } }
     catch { if (!this.disposed && sequence === this.saveSequence) { this.saveError = 'The source selection could not be saved.'; this.draw(); } }
   }
@@ -123,30 +136,51 @@ class BugsPanel implements PluginPanelInstance {
     badge.setAttribute('aria-label', /^severity\b/i.test(parsed.label.trim()) ? parsed.label.trim() : `Severity ${parsed.label}`); badge.title = parsed.label;
     return badge;
   }
+  private sourceLabel(source: TaskReadSourceV1): string {
+    const repeated = this.sources.filter(item => item.label === source.label && item.repo === source.repo).length > 1;
+    return `${source.label}${repeated ? ` · ${source.instanceId}` : ''}${source.repo === this.state.repo ? '' : ` · ${source.repo}`}`;
+  }
   private report(view: View): HTMLElement {
-    const section = node('section'); section.append(node('h3', `${view.source.label} · ${view.source.repo}`));
-    if (view.error) { section.append(node('p', view.error)); return section; }
-    const report = view.report; if (!report) { section.append(node('p', 'Loading bug metrics…')); return section; }
-    section.append(node('p', `Observed ${report.asOf}. Counts reflect current source status; time windows end at this observation.`));
-    const metrics = node('dl');
-    for (const [label, value] of [['Open bugs', report.open], ['Created · 7 days', report.createdLast7d], ['Completed · 7 days', report.completedLast7d], ['Past due date', report.pastSla]] as const) {
-      const metric = node('div'); metric.append(node('dt', label), node('dd', count(value))); metrics.append(metric);
+    const section = node('section'); section.className = 'bugs-report';
+    const heading = node('div'); heading.className = 'bugs-report-heading';
+    const identity = node('div'); identity.className = 'bugs-report-identity'; identity.append(node('h3', view.source.label));
+    if (view.source.repo !== this.state.repo) identity.append(node('small', view.source.repo));
+    if (this.sources.filter(source => source.label === view.source.label && source.repo === view.source.repo).length > 1) identity.append(node('small', view.source.instanceId));
+    heading.append(identity);
+    const report = view.report;
+    if (report) { const observed = node('small', 'Observed '); observed.className = 'bugs-observed'; observed.append(dateNode(report.asOf, true)); observed.title = 'Counts reflect current source status; time windows end at this observation.'; heading.append(observed); }
+    section.append(heading);
+    if (view.error) { const error = node('p', `${view.error}${report ? ' Showing the last observed report.' : ''}`); error.className = 'bugs-notice'; error.setAttribute('role', 'status'); section.append(error); }
+    if (!report) { if (!view.error) section.append(node('p', 'Loading bug metrics…')); return section; }
+    const metrics = node('dl'); metrics.className = 'bugs-metrics';
+    for (const [label, value, glyph] of [['Open bugs', report.open, 'open'], ['Created · 7 days', report.createdLast7d, 'created'], ['Completed · 7 days', report.completedLast7d, 'completed'], ['Past due date', report.pastSla, 'overdue']] as const) {
+      const metric = node('div'); const title = node('dt', label); title.prepend(icon(glyph)); metric.append(title, node('dd', count(value))); metrics.append(metric);
     }
+    section.append(metrics);
+    const evidence = node('dl'); evidence.className = 'bugs-evidence';
     const oldest = node('div'); oldest.append(node('dt', 'Oldest open'));
-    const oldestValue = node('dd'); oldestValue.append(report.oldest ? this.link(`${report.oldest.displayKey} · ${Math.max(0, Math.floor((Date.parse(report.asOf) - Date.parse(report.oldest.createdAt)) / 86_400_000))} days`, report.oldest.url)
+    const oldestValue = node('dd'); const age = report.oldest ? Math.max(0, Math.floor((Date.parse(report.asOf) - Date.parse(report.oldest.createdAt)) / 86_400_000)) : null;
+    oldestValue.append(report.oldest ? this.link(`${report.oldest.displayKey} · ${Number.isFinite(age) ? `${age} days` : 'Age unavailable'}`, report.oldest.url)
       : node('span', report.oldestQuality === 'complete' ? 'None' : 'Unavailable'));
-    if (report.oldestQuality !== 'complete') oldestValue.append(node('small', ` · ${report.oldestQuality} coverage`)); oldest.append(oldestValue); metrics.append(oldest);
-    const sample = report.resolutionP75; const duration = node('div'); duration.append(node('dt', 'Resolution time · P75'), node('dd', sample.days === null ? 'Unavailable' : `${sample.days} days`),
-      node('small', `${sample.sampleSize} sampled · Population ${count(sample.population)} · ${sample.quality}${sample.capped ? ' · capped sample' : ''}`)); metrics.append(duration); section.append(metrics);
-    if (report.rowsQuality !== 'complete') section.append(node('p', `Open bug rows have ${report.rowsQuality} coverage.`));
-    const scroll = node('div'); scroll.className = 'table-scroll'; const table = node('table'); const head = node('thead'); const labels = node('tr');
-    for (const title of ['Key', 'Title', 'Priority', 'Severity', 'Due date']) { const cell = node('th', title); cell.scope = 'col'; labels.append(cell); } head.append(labels); table.append(head);
-    const body = node('tbody');
-    for (const bug of report.rows) { const row = node('tr'); const id = node('td'); id.append(this.link(bug.displayKey, bug.url)); row.append(id);
-      const title = node('td'); title.append(node('div', bug.title), this.description(view, bug)); row.append(title, node('td', bug.priority ?? 'Unknown'));
-      const severityCell = node('td'); severityCell.append(this.severity(bug.severity)); row.append(severityCell, node('td', bug.dueAt ?? 'Not set')); body.append(row); }
-    if (!report.rows.length) { const row = node('tr'); const empty = node('td', report.rowsQuality === 'complete' ? 'No open bugs.' : 'Open bug rows are unavailable or incomplete.'); empty.colSpan = 5; row.append(empty); body.append(row); }
-    table.append(body); scroll.append(table); section.append(scroll); return section;
+    if (report.oldestQuality !== 'complete') oldestValue.append(node('small', ` · ${report.oldestQuality} coverage`)); oldest.append(oldestValue); evidence.append(oldest);
+    const sample = report.resolutionP75; const duration = node('div'); duration.append(node('dt', 'Resolution time · 75th percentile'), node('dd', sample.days === null ? 'Unavailable' : `${sample.days} days`),
+      node('small', `${sample.sampleSize} sampled · Population ${count(sample.population)} · ${sample.quality}${sample.capped ? ' · capped sample' : ''}`),
+      ...(sample.days !== null ? [node('small', '75% of sampled completions resolved within this time.')] : [])); evidence.append(duration); section.append(evidence);
+    if (report.rowsQuality !== 'complete') { const coverage = node('p', `Open bug rows have ${report.rowsQuality} coverage.`); coverage.className = 'bugs-coverage'; section.append(coverage); }
+    const table = node('table'); table.setAttribute('role', 'table'); table.setAttribute('aria-label', `Open bugs · ${this.sourceLabel(view.source)}`);
+    const head = node('thead'); head.setAttribute('role', 'rowgroup'); const labels = node('tr'); labels.setAttribute('role', 'row');
+    for (const title of ['Bug', 'Priority', 'Severity', 'Due']) { const cell = node('th', title); cell.scope = 'col'; cell.setAttribute('role', 'columnheader'); labels.append(cell); } head.append(labels); table.append(head);
+    const body = node('tbody'); body.setAttribute('role', 'rowgroup');
+    for (const bug of report.rows) {
+      const row = node('tr'); row.setAttribute('role', 'row'); const title = node('td'); title.setAttribute('role', 'cell'); title.className = 'bugs-title-cell';
+      const titleLink = this.link(bug.title, bug.url); titleLink.className = 'bugs-title'; title.append(titleLink, node('small', bug.displayKey), this.description(view, bug)); row.append(title);
+      const priority = node('td', bug.priority ?? 'Unknown'); priority.dataset.label = 'Priority'; priority.setAttribute('role', 'cell');
+      const severityCell = node('td'); severityCell.dataset.label = 'Severity'; severityCell.setAttribute('role', 'cell'); severityCell.append(this.severity(bug.severity));
+      const due = node('td'); due.dataset.label = 'Due'; due.setAttribute('role', 'cell'); due.append(bug.dueAt ? dateNode(bug.dueAt) : node('span', 'Not set'));
+      row.append(priority, severityCell, due); body.append(row);
+    }
+    if (!report.rows.length) { const row = node('tr'); row.setAttribute('role', 'row'); const empty = node('td', report.rowsQuality === 'complete' ? 'No open bugs.' : 'Open bug rows are unavailable or incomplete.'); empty.setAttribute('role', 'cell'); empty.colSpan = 4; empty.className = 'bugs-empty'; row.append(empty); body.append(row); }
+    table.append(body); section.append(table); return section;
   }
   private draw(): void {
     if (this.disposed) return;
@@ -154,15 +188,17 @@ class BugsPanel implements PluginPanelInstance {
     const focused = active instanceof HTMLElement && this.container.contains(active) ? active.dataset.bugsFocus : undefined;
     if (focused) this.focusKey = focused;
     else if (active instanceof HTMLElement && active !== document.body && active !== document.documentElement) this.focusKey = undefined;
-    const root = node('div'); root.className = 'plugin-bugs'; root.append(node('style', styles));
-    const toolbar = node('div'); toolbar.className = 'bugs-toolbar'; toolbar.append(node('h2', 'Bugs'));
+    const root = node('div'); root.className = 'plugin-bugs'; root.setAttribute('aria-busy', String(Boolean(this.pending))); root.append(node('style', styles));
+    const composed = this.container.closest('[data-composition-page]') !== null;
+    const toolbar = node('div'); toolbar.className = 'bugs-toolbar'; if (!composed) toolbar.append(node('h2', 'Bugs'));
     const sources = node('select'); sources.setAttribute('aria-label', 'Bug source'); sources.dataset.bugsFocus = 'source'; const all = node('option', 'All bug sources'); all.value = ''; sources.append(all);
-    for (const source of this.sources) { const option = node('option', `${source.label} · ${source.repo}`); option.value = key(source); sources.append(option); }
+    for (const source of this.sources) { const option = node('option', `${this.sourceLabel(source)}${source.availability === 'available' ? '' : ` (${source.availability})`}`); option.value = key(source); sources.append(option); }
     if (this.selected && !this.sources.some(source => key(source) === key(this.selected!))) { const missing = node('option', `Unavailable source · ${this.selected.repo}`); missing.value = key(this.selected); sources.append(missing); }
     if (this.invalidSelection) { const invalid = node('option', 'Saved selection unavailable'); invalid.value = 'unsupported'; sources.append(invalid); }
     sources.value = this.invalidSelection ? 'unsupported' : this.selected ? key(this.selected) : ''; sources.addEventListener('change', () => { void this.choose(sources.value); });
-    const refresh = node('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.bugsFocus = 'refresh'; refresh.disabled = Boolean(this.pending); refresh.addEventListener('click', () => { void this.refresh(); }); toolbar.append(sources, refresh); root.append(toolbar);
-    for (const message of [...this.messages, ...(this.saveError ? [this.saveError] : [])]) { const note = node('p', message); note.setAttribute('role', 'status'); root.append(note); }
+    const refresh = node('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.bugsFocus = 'refresh'; refresh.disabled = Boolean(this.pending); refresh.addEventListener('click', () => { void this.refresh(); }); refresh.prepend(icon('refresh')); if (!composed) { toolbar.append(refresh); root.append(toolbar); }
+    const filters = node('div'); filters.className = 'bugs-filters'; const label = node('label', 'Source'); label.className = 'bugs-source'; label.append(sources); filters.append(label); root.append(filters);
+    for (const message of [...this.messages, ...(this.saveError ? [this.saveError] : [])]) { const note = node('p', message); note.setAttribute('role', 'status'); note.className = 'bugs-notice'; root.append(note); }
     for (const view of this.views) root.append(this.report(view));
     if (!this.views.length && !this.messages.length) root.append(node('p', this.pending ? 'Loading bug sources…' : 'No source provides bug metrics in this scope.'));
     this.container.replaceChildren(root); if (this.focusKey) Array.from(root.querySelectorAll<HTMLElement>('[data-bugs-focus]')).find(element => element.dataset.bugsFocus === this.focusKey)?.focus({ preventScroll: true });

@@ -21,7 +21,7 @@ describe('standalone Bugs presentation', () => {
     const f = fixture(); await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
     const values = [...f.container.querySelectorAll('dd')].map(value => value.textContent); expect(values.slice(0, 4)).toEqual(['≈ 25,000', 'Unavailable', '0', 'Unavailable']);
     expect(f.container.textContent).toContain('100 sampled · Population ≈ 25,000 · partial · capped sample');
-    expect(f.container.textContent).toContain('2026-09-18'); expect(f.container.textContent).toContain('Open bug rows have partial coverage');
+    expect(f.container.textContent).toContain('Sep 18, 2026'); expect(f.container.querySelector('time[datetime="2026-09-18"]')).not.toBeNull(); expect(f.container.textContent).toContain('Open bug rows have partial coverage');
     expect(f.container.querySelector('a')?.getAttribute('href')).toBe('https://bugs.example/1'); f.lifetime.abort();
   });
   it('does not call unavailable empty rows a clean zero and isolates source failure', async () => {
@@ -88,4 +88,91 @@ it('clears old rows during an active repository change and rejects a late previo
   const nextActivity = new AbortController(); f.activity.abort(); await instance.update({ ...f.state, repo: nextRepo, activity: { repo: nextRepo, epoch: 2, active: true, signal: nextActivity.signal } });
   expect(f.container.textContent).not.toContain('Actual bug'); await vi.waitFor(() => expect(f.container.textContent).toContain('Current scoped bug'));
   finish(); await Promise.resolve(); await Promise.resolve(); expect(f.container.textContent).not.toContain('Late former bug'); expect(f.container.textContent).toContain('Current scoped bug'); f.lifetime.abort();
+});
+
+it('delegates heading and Refresh to the composed host while retaining standalone controls', async () => {
+  const standalone = fixture(); await panel.mount(standalone.container, standalone.context);
+  await vi.waitFor(() => expect(standalone.container.textContent).toContain('Actual bug'));
+  expect(standalone.container.querySelector('h2')?.textContent).toBe('Bugs');
+  expect(standalone.container.querySelector('[data-bugs-focus="refresh"]')).not.toBeNull();
+  const composed = fixture(); const wrapper = document.createElement('section'); wrapper.dataset.compositionPage = 'bugs'; document.body.append(wrapper); wrapper.append(composed.container);
+  await panel.mount(composed.container, composed.context); await vi.waitFor(() => expect(composed.container.textContent).toContain('Actual bug'));
+  expect(composed.container.querySelector('h2')).toBeNull(); expect(composed.container.querySelector('[data-bugs-focus="refresh"]')).toBeNull();
+  expect(composed.container.querySelector('.bugs-source')?.textContent).toContain('Source');
+  expect(composed.container.querySelectorAll('thead th')).toHaveLength(4); standalone.lifetime.abort(); composed.lifetime.abort();
+});
+
+it('disambiguates same-label source instances and exposes galleon identity only when needed', async () => {
+  const f = fixture(); const second = { ...source, instanceId: 'source-two' };
+  f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo, galleons: [{ repo, sources: { status: 'available', value: [source, second] } }] } });
+  const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelectorAll('.bugs-report')).toHaveLength(2));
+  const options = [...f.container.querySelectorAll('option')].map(option => option.textContent);
+  expect(options).toEqual(['All bug sources', 'Tasks · source-one', 'Tasks · source-two']);
+  expect(f.container.querySelector('.bugs-report-heading')?.textContent).not.toContain(repo);
+  const activity = new AbortController(); await instance.update({ ...f.state, repo: null, activity: { repo: null, epoch: 2, active: true, signal: activity.signal } });
+  await vi.waitFor(() => expect(f.container.querySelector('.bugs-report-heading')?.textContent).toContain(repo));
+  expect(f.container.querySelector('select')?.textContent).toContain(`Tasks · source-one · ${repo}`); f.lifetime.abort();
+});
+
+it('keeps last-observed reports and description focus through a same-scope refresh failure', async () => {
+  const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
+  f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')!.click();
+  let fail!: () => void; f.bugs.mockImplementation(() => new Promise((_resolve, reject) => { fail = () => reject(new Error('offline')); }));
+  const refreshing = instance.refresh?.(); await vi.waitFor(() => expect(f.bugs).toHaveBeenCalledTimes(2));
+  expect(f.container.textContent).toContain('Actual bug'); expect(document.activeElement?.getAttribute('aria-label')).toBe('Hide description for TASK-1');
+  fail(); await refreshing; expect(f.container.textContent).toContain('Showing the last observed report.');
+  expect(f.container.querySelector('time')?.getAttribute('datetime')).toBe(report.asOf);
+  expect(f.container.textContent).toContain('<img src=x onerror=alert(1)>'); f.lifetime.abort();
+});
+
+it('keeps last-observed reports when discovery fails and clears that warning after recovery', async () => {
+  const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
+  f.discover.mockRejectedValueOnce(new Error('offline')); await instance.refresh?.();
+  expect(f.container.textContent).toContain('Showing the last observed reports.'); expect(f.container.textContent).toContain('Actual bug');
+  await instance.refresh?.(); expect(f.container.textContent).not.toContain('Showing the last observed reports.'); f.lifetime.abort();
+});
+
+it('uses human UTC dates without discarding raw evidence or treating malformed provider dates as ages', async () => {
+  const f = fixture(); f.bugs.mockResolvedValue({ status: 'available', value: { selection: source, report: { ...report, oldest: { ...report.rows[0]!, createdAt: 'unparseable' } } } });
+  await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
+  expect(f.container.querySelector('.bugs-observed')?.textContent).toContain('Sep 20, 2026');
+  expect(f.container.querySelector('.bugs-observed')?.textContent).toContain('UTC');
+  expect(f.container.textContent).toContain('Age unavailable'); expect(f.container.textContent).not.toContain('NaN');
+  expect(f.container.textContent).toContain('75% of sampled completions resolved within this time.'); f.lifetime.abort();
+});
+
+it('does not retain a report from an earlier source revision or imply a known unavailable resolution time', async () => {
+  const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
+  const revised = { ...source, instanceRevision: source.instanceRevision + 1 };
+  f.discover.mockResolvedValue({ status: 'available', value: { version: 1, repo, galleons: [{ repo, sources: { status: 'available', value: [revised] } }] } });
+  f.bugs.mockRejectedValueOnce(new Error('unavailable')); await instance.refresh?.();
+  expect(f.container.textContent).not.toContain('Actual bug'); expect(f.container.textContent).not.toContain('Showing the last observed report.');
+  f.bugs.mockResolvedValue({ status: 'available', value: { selection: revised, report: { ...report, resolutionP75: { ...report.resolutionP75, days: null } } } }); await instance.refresh?.();
+  expect(f.container.textContent).toContain('Resolution time · 75th percentile'); expect(f.container.textContent).not.toContain('resolved within this time'); f.lifetime.abort();
+});
+
+it('names each accessible table and retains explicit header, row and cell semantics for mobile layouts', async () => {
+  const f = fixture(); await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
+  const table = f.container.querySelector('[role="table"]'); expect(table?.getAttribute('aria-label')).toBe('Open bugs · Tasks');
+  expect(table?.querySelectorAll('[role="columnheader"][scope="col"]')).toHaveLength(4);
+  expect(table?.querySelectorAll('[role="rowgroup"]')).toHaveLength(2);
+  expect(table?.querySelector('tbody [role="row"]')?.querySelectorAll('[role="cell"]')).toHaveLength(4); f.lifetime.abort();
+});
+
+it('exposes busy state while readable last-observed reports are refreshing', async () => {
+  const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
+  expect(f.container.querySelector('.plugin-bugs')?.getAttribute('aria-busy')).toBe('false');
+  const original = f.bugs.getMockImplementation()!; let finish!: () => void; const wait = new Promise<void>(resolve => { finish = resolve; });
+  f.bugs.mockImplementation(async (...args) => { await wait; return original(...args); }); const refreshing = instance.refresh?.();
+  expect(f.container.querySelector('.plugin-bugs')?.getAttribute('aria-busy')).toBe('true'); expect(f.container.textContent).toContain('Actual bug');
+  finish(); await refreshing; expect(f.container.querySelector('.plugin-bugs')?.getAttribute('aria-busy')).toBe('false'); f.lifetime.abort();
+});
+
+it('does not claim a retained last-observed report when all source reads failed', async () => {
+  const f = fixture(); f.bugs.mockRejectedValue(new Error('offline')); const instance = await panel.mount(f.container, f.context);
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Bug metrics could not be read'));
+  f.discover.mockRejectedValueOnce(new Error('offline')); await instance.refresh?.();
+  expect(f.container.textContent).toContain('Task sources could not be read. Refresh to retry.'); expect(f.container.textContent).not.toContain('Showing the last observed');
+  f.discover.mockResolvedValueOnce({ status: 'unavailable', reason: 'service-unavailable' }); await instance.refresh?.();
+  expect(f.container.textContent).not.toContain('Showing the last observed'); f.lifetime.abort();
 });

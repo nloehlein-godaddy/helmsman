@@ -322,6 +322,8 @@ Run logs use the mono log role, (12px) padding, control corners, neutral panel g
 
 The 16 generic composition pages and both Helm implementations keep compact Refresh and Edit icon buttons in the page header. Edit changes to Done while active and reveals a region named Page customization. Add panel and per-panel Hide/Show and Remove controls appear only in edit mode; ordinary stacked tabs remain usable in either mode. Removing a panel updates the saved layout and disposes only that panel, without stopping its underlying work. Edit state and the focused action survive page redraws.
 
+**The Bugs Hierarchy Rule.** Bugs has one composed heading and Refresh, with a standalone fallback. A contrasting panel-2 band contains a visibly labeled Source selector; header galleon scope remains the default, and duplicate source labels retain distinguishing instance identifiers. Source reports use panel-hi headers over panel ground. Four aligned counts lead the report, with oldest-open and resolution-time evidence below. Exact zero, approximate counts, unavailable values, partial coverage and capped samples remain distinct. Observation and due dates use readable UTC formatting while retaining raw values. Bug titles lead each row, followed by ticket keys and compact description controls; mobile rows keep labeled priority, severity and due metadata in document flow. Local Phosphor icons identify counts and controls, with fonts and licenses packaged inside Bugs. Description expansion and focus survive refresh; stale same-scope reports remain readable with explicit notices, while scope, source selection or source revision changes clear old results.
+
 ## Do's and Don'ts
 
 ### Do:

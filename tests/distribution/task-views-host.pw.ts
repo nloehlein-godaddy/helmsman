@@ -10,8 +10,8 @@ test('source-denied independent task views preserve scope, partial groups and me
   try {
     await expect(host.script('deny-view-checkout.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/plugins/jira/views.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
     await host.installAuthorPackage('plugin-sources/jira', 'example.independent-jira');
-    await host.installAuthorPackage('plugin-sources/triage', 'example.triage-view');
-    await host.installAuthorPackage('plugin-sources/bugs', 'example.bugs-view');
+    await host.installAuthorPackage('plugin-sources/triage', 'example.triage-view', { buildScript: true });
+    await host.installAuthorPackage('plugin-sources/bugs', 'example.bugs-view', { buildScript: true });
     await host.installAuthorPackage('plugin-sources/underway', 'example.underway-view');
     const author = join(host.app, 'plugin-sources/taskviews-proof'); await mkdir(author);
     await writeFile(join(author, 'package.json'), '{"type":"module"}');
@@ -100,8 +100,8 @@ const page: PluginPageModule = { mount(container, context) {
     const triage = page.locator('.plugin-triage').last(); await expect(triage).toContainText('Scoped org/a');
     await expect(triage).toContainText('This group is unavailable.'); await expect(triage).toContainText('Partial coverage.');
     await expect(triage.getByRole('link', { name: /Open related (run|voyage)/ }).first()).toHaveAttribute('href', /repo=org%2Fa.*run=related-a/);
-    await triage.getByRole('button', { name: 'Next page for Mine · Open', exact: true }).click(); await expect(triage).toContainText('Scoped org/a-second');
-    await triage.getByRole('button', { name: 'Previous page for Mine · Open', exact: true }).click(); await expect(triage).not.toContainText('Scoped org/a-second');
+    await triage.getByRole('button', { name: 'Next page for My open work', exact: true }).click(); await expect(triage).toContainText('Scoped org/a-second');
+    await triage.getByRole('button', { name: 'Previous page for My open work', exact: true }).click(); await expect(triage).not.toContainText('Scoped org/a-second');
     await triage.getByRole('checkbox', { name: 'Priority P1', exact: true }).uncheck(); await expect(triage).not.toContainText('Scoped org/a');
     await page.reload(); await expect(triage.getByRole('checkbox', { name: 'Priority P1', exact: true })).not.toBeChecked();
     await triage.getByRole('checkbox', { name: 'Priority P1', exact: true }).check(); await expect(triage).toContainText('Scoped org/a');
@@ -119,6 +119,13 @@ const page: PluginPageModule = { mount(container, context) {
     await expect(triage.getByRole('link', { name: /Open related (run|voyage)/ })).toHaveCount(0);
     await page.goto(`${origin}/plugins/example.bugs-view/page?repo=org/b`);
     const bugs = page.locator('.plugin-bugs').last(); await expect(bugs).toContainText('Independent bug org/b');
+    await expect(page.getByRole('heading', { name: 'Bugs', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Refresh page', exact: true })).toHaveCount(1);
+    await expect(bugs.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
+    await expect(bugs.locator('th').first()).toHaveText('Bug');
+    await expect(page.locator('.repo-select')).toHaveValue('org/b');
+    await expect(bugs.locator('.bugs-observed time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
+    await expect(bugs.locator('.bugs-observed time')).toContainText('UTC');
     await expect(bugs).toContainText('≈ 25,000'); await expect(bugs).toContainText('Unavailable'); await expect(bugs).toContainText('100 sampled');
     await expect(bugs.getByLabel('Severity S2 - Major', { exact: true })).toHaveText('S2');
     const bugDescription = bugs.getByRole('button', { name: /description/i });
@@ -129,7 +136,8 @@ const page: PluginPageModule = { mount(container, context) {
     await waitForDescriptionSave('example.bugs-view/panel', 'org/b', 'bug-1');
     await page.reload();
     await expect(bugs).toContainText('Bug description for org/b <img src=x onerror=alert(1)>');
-    await expect(bugs).toHaveScreenshot('bugs-authored-metrics.png', { mask: [bugs.getByText(/^Observed /)] });
+    await expect.poll(() => bugs.evaluate(async () => { await document.fonts.load('16px "Helmsman Phosphor Regular"'); return [...document.fonts].some(font => font.family.replaceAll('"', '') === 'Helmsman Phosphor Regular' && font.status === 'loaded') && document.fonts.check('16px "Helmsman Phosphor Regular"'); })).toBe(true);
+    await expect(bugs).toHaveScreenshot('bugs-authored-metrics.png', { mask: [bugs.locator('.bugs-observed')] });
     await page.goto(`${origin}/plugins/example.bugs-view/page?repo=org/a`);
     await expect(bugs).not.toContainText('Bug description for org/b');
     await expect(bugs.getByRole('button', { name: /description/i })).toHaveAttribute('aria-expanded', 'false');
