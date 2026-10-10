@@ -11,7 +11,7 @@ const MAX_QUEUE = 32;
 interface QueuedControl { input: TerminalControlInputV1; epoch: number; draft?: string; }
 function validTab(value: unknown): value is TerminalTabV1 {
   if (!value || typeof value !== 'object') return false; const tab = value as TerminalTabV1;
-  return validTarget(tab.target) && typeof tab.title === 'string' && typeof tab.workspaceTitle === 'string' && typeof tab.type === 'string' && typeof tab.selected === 'boolean' && Array.isArray(tab.actions) && tab.actions.every(action => action && typeof action.id === 'string' && typeof action.label === 'string');
+  return validTarget(tab.target) && typeof tab.title === 'string' && typeof tab.workspaceTitle === 'string' && typeof tab.type === 'string' && typeof tab.selected === 'boolean' && (tab.lastPrompt == null || typeof tab.lastPrompt === 'string') && Array.isArray(tab.actions) && tab.actions.every(action => action && typeof action.id === 'string' && typeof action.label === 'string');
 }
 function validPending(value: unknown): value is readonly TerminalPendingV1[] { return Array.isArray(value) && value.length <= 256 && value.every(item => item && validInput(item.command) && typeof item.command.requestId === 'string' && (item.receipt === null || validReceipt(item.receipt) && item.receipt.requestId === item.command.requestId && JSON.stringify(item.receipt.input) === JSON.stringify({ version: item.command.version, target: item.command.target, operation: item.command.operation }))); }
 
@@ -234,6 +234,31 @@ class TerminalPanel implements PluginPanelInstance {
     this.errors.textContent = [this.storageError,this.resultsError,this.actionError].filter(Boolean).join(' '); this.errors.hidden = !this.errors.textContent;
     this.root.querySelector<HTMLButtonElement>('[data-save-draft]')?.toggleAttribute('hidden', !this.selected());
   }
+  private drawTabs() {
+    const tabs = this.snapshot?.tabs ?? [];
+    const signature = JSON.stringify([tabs,this.saved.selected]);
+    if (signature === this.listSignature) return;
+    this.listSignature = signature;
+    const existing = new Map(Array.from(this.list.querySelectorAll<HTMLButtonElement>('.terminal-tab')).map(button => [button.dataset.surface,button]));
+    tabs.forEach((item,index) => {
+      const button = existing.get(item.target.surfaceRef) ?? node('button');
+      existing.delete(item.target.surfaceRef);
+      button.type = 'button'; button.className = 'terminal-tab'; button.dataset.surface = item.target.surfaceRef;
+      button.setAttribute('aria-pressed',String(item.target.surfaceRef === this.saved.selected));
+      const metadata = `${item.workspaceTitle} · ${item.type}${item.target.repo ? ` · ${item.target.repo}` : ''}`;
+      button.setAttribute('aria-label',`${item.title} ${metadata}`);
+      const title = node('span',item.title); title.className = 'terminal-tab-title'; title.prepend(icon('terminal'));
+      const rawPrompt = typeof item.lastPrompt === 'string' ? item.lastPrompt : '';
+      const promptText = rawPrompt.replace(/\s+/g,' ').trim();
+      button.setAttribute('aria-description',promptText || 'No prompt available');
+      const prompt = node('span',promptText || 'No prompt available'); prompt.className = 'terminal-tab-prompt';
+      prompt.classList.toggle('is-empty',!promptText);
+      if (promptText) prompt.title = rawPrompt;
+      button.replaceChildren(title,prompt,node('small',metadata));
+      if (this.list.children[index] !== button) this.list.insertBefore(button,this.list.children[index] ?? null);
+    });
+    for (const button of existing.values()) button.remove();
+  }
   private draw() {
     if (this.disposed) return; const tab = this.selected();
     const connected = this.snapshot?.connected === true;
@@ -247,7 +272,7 @@ class TerminalPanel implements PluginPanelInstance {
     this.emptyTitle.textContent = this.listError ? 'Terminal connection unavailable' : !this.snapshot ? 'Connecting to terminal' : connected ? 'No terminal tabs open' : 'Terminal is not connected';
     this.emptyText.textContent = this.listError ? 'Refresh to reconnect. Retained control receipts and drafts are kept.' : !this.snapshot ? 'Reading the connected terminal app.' : connected ? 'Open a tab in your terminal app, then refresh to view its screen here.' : 'Open your configured terminal app, then refresh to connect.';
     this.screenTitle.textContent = tab?.title ?? 'Terminal screen';
-    const signature = JSON.stringify([this.snapshot?.tabs,this.saved.selected]); if (signature !== this.listSignature) { this.listSignature = signature; this.list.replaceChildren(); for (const item of this.snapshot?.tabs ?? []) { const button = node('button'); button.type = 'button'; button.className = 'terminal-tab'; button.dataset.surface = item.target.surfaceRef; button.setAttribute('aria-pressed',String(item.target.surfaceRef === this.saved.selected)); const title = node('span',item.title); title.className = 'terminal-tab-title'; title.prepend(icon('terminal')); button.append(title,node('small',`${item.workspaceTitle} · ${item.type}${item.target.repo ? ` · ${item.target.repo}` : ''}`)); this.list.append(button); } }
+    this.drawTabs();
     this.listBody.hidden = this.saved.collapsed.tabs; this.detailBody.hidden = this.saved.collapsed.screen || !tab;
     for (const [button,pane,label] of [[this.tabsCollapse,'tabs','Terminal tabs'],[this.screenCollapse,'screen','Terminal screen']] as const) { button.textContent = this.saved.collapsed[pane] ? 'Expand' : 'Collapse'; button.setAttribute('aria-label',`${button.textContent} ${label}`); button.setAttribute('aria-expanded',String(!this.saved.collapsed[pane])); }
     this.detailEmpty.hidden = !!tab || this.saved.collapsed.screen; this.detailEmpty.textContent = this.saved.selected ? 'The selected terminal is unavailable. Select another open tab to view its screen.' : 'Select a tab to view its screen.';

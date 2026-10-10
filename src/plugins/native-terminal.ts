@@ -6,6 +6,7 @@ export interface NativeTerminalMetadataV1 { readonly version: 1; readonly label:
 export interface NativeTerminalSurfaceV1 {
   readonly windowRef: string; readonly workspaceRef: string; readonly workspaceTitle: string;
   readonly surfaceRef: string; readonly surfaceTitle: string; readonly type: string; readonly cwd: string | null; readonly selected: boolean;
+  readonly lastPrompt?: string | null;
 }
 export interface NativeTerminalTabsV1 { readonly connected: boolean; readonly tabs: readonly NativeTerminalSurfaceV1[]; }
 export type NativeTerminalControlResultV1 = { readonly ok: true } | { readonly ok: false; readonly error: string };
@@ -52,11 +53,12 @@ export function parseNativeTerminalLinesV1(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > NATIVE_TERMINAL_LIMITS_V1.lines) invalid(); return value;
 }
 export function parseNativeTerminalSurfaceV1(input: unknown): NativeTerminalSurfaceV1 {
-  const value = sourceObject(input); sourceFields(value, ['windowRef', 'workspaceRef', 'workspaceTitle', 'surfaceRef', 'surfaceTitle', 'type', 'cwd', 'selected']);
+  const value = sourceObject(input); sourceFields(value, ['windowRef', 'workspaceRef', 'workspaceTitle', 'surfaceRef', 'surfaceTitle', 'type', 'cwd', 'selected'], ['lastPrompt']);
   if (typeof value.selected !== 'boolean') invalid();
   return Object.freeze({ windowRef: parseNativeTerminalReferenceV1(value.windowRef), workspaceRef: parseNativeTerminalReferenceV1(value.workspaceRef),
     workspaceTitle: text(value.workspaceTitle, 4096, true), surfaceRef: parseNativeTerminalReferenceV1(value.surfaceRef), surfaceTitle: text(value.surfaceTitle, 4096, true),
-    type: sourceText(value.type, 128), cwd: value.cwd === null ? null : text(value.cwd, 4096), selected: value.selected });
+    type: sourceText(value.type, 128), cwd: value.cwd === null ? null : text(value.cwd, 4096), selected: value.selected,
+    ...(value.lastPrompt === undefined ? {} : { lastPrompt: value.lastPrompt === null ? null : text(value.lastPrompt, 4096, true) }) });
 }
 export function parseNativeTerminalTabsV1(input: unknown): NativeTerminalTabsV1 {
   const value = sourceObject(sourceJson(input, 4 * 1024 * 1024)); sourceFields(value, ['connected', 'tabs']);

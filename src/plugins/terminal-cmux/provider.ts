@@ -8,6 +8,7 @@ import type {
   NativeTerminalProviderV1,
   NativeTerminalSurfaceV1,
 } from '@helmsman/plugin-sdk';
+import { createLastPromptReader, sessionId, type PromptSurfaceBinding } from './last-prompt.js';
 
 const OUTPUT_BYTES = 4 * 1024 * 1024;
 const SCREEN_BYTES = 1024 * 1024;
@@ -127,6 +128,7 @@ function parseJson(stdout: string): unknown {
 }
 
 interface Workspace {
+  readonly workspaceId: string | null;
   readonly windowRef: string;
   readonly workspaceRef: string;
   readonly workspaceTitle: string;
@@ -146,12 +148,12 @@ function parseWorkspaces(value: unknown): readonly Workspace[] | null {
       : typeof workspace.custom_title === 'string' ? workspace.custom_title : workspaceRef;
     const cwd = workspace.current_directory === null || workspace.current_directory === undefined
       ? null : bounded(workspace.current_directory, 4096);
-    result.push({ windowRef, workspaceRef, workspaceTitle: bounded(title, 4096, true), cwd });
+    result.push({ workspaceId: sessionId(workspace.id), windowRef, workspaceRef, workspaceTitle: bounded(title, 4096, true), cwd });
   }
   return result;
 }
 
-function parseSurfaces(value: unknown, workspace: Workspace): readonly NativeTerminalSurfaceV1[] | null {
+function parseSurfaces(value: unknown, workspace: Workspace, bindings: Map<string, PromptSurfaceBinding>): readonly NativeTerminalSurfaceV1[] | null {
   const row = record(value);
   if (!row || !Array.isArray(row.surfaces) || row.surfaces.length > 4096) return null;
   const result: NativeTerminalSurfaceV1[] = [];
@@ -159,9 +161,15 @@ function parseSurfaces(value: unknown, workspace: Workspace): readonly NativeTer
     const surface = record(item);
     if (!surface || typeof surface.ref !== 'string' || typeof surface.title !== 'string'
       || typeof surface.type !== 'string' || typeof surface.selected !== 'boolean') return null;
+    const surfaceRef = bounded(surface.ref, REFERENCE_BYTES);
+    const surfaceId = sessionId(surface.id);
+    if (workspace.workspaceId && surfaceId && surface.type === 'terminal') bindings.set(surfaceRef, { workspaceId: workspace.workspaceId, surfaceId });
     result.push({
-      ...workspace,
-      surfaceRef: bounded(surface.ref, REFERENCE_BYTES),
+      windowRef: workspace.windowRef,
+      workspaceRef: workspace.workspaceRef,
+      workspaceTitle: workspace.workspaceTitle,
+      cwd: workspace.cwd,
+      surfaceRef,
       surfaceTitle: bounded(surface.title, 4096, true),
       type: bounded(surface.type, 128),
       selected: surface.selected,
@@ -214,22 +222,32 @@ export interface CmuxNativeTerminalOptions {
 export function createCmuxNativeTerminal(options: CmuxNativeTerminalOptions = {}): NativeTerminalProviderV1 {
   const socket = () => resolveCmuxSocket(options.socketPath ?? '', options.home, options.exists);
   const run = options.run ?? commandRunner(options.binary || 'cmux', socket);
+  const readLastPrompts = createLastPromptReader();
   const startup = options.startup ?? randomUUID();
   const sessionIdentity = createNativeSessionIdentity({ kind: 'cmux', socket, startup, stat: options.stat });
   const socketIdentity = (socketPath: string) => createNativeSessionIdentity({ kind: 'cmux', socket: () => socketPath, startup, stat: options.stat })();
-  const fetchSurfaces = async (workspace: Workspace, socketPath: string, signal?: AbortSignal): Promise<readonly NativeTerminalSurfaceV1[] | null> => {
+  const fetchSurfaces = async (workspace: Workspace, bindings: Map<string, PromptSurfaceBinding>, socketPath: string, signal?: AbortSignal): Promise<readonly NativeTerminalSurfaceV1[] | null> => {
     const response = await run(['list-pane-surfaces', '--workspace', workspace.workspaceRef, '--json'], signal, socketPath);
-    return response.code === 0 ? parseSurfaces(parseJson(response.stdout), workspace) : null;
+    return response.code === 0 ? parseSurfaces(parseJson(response.stdout), workspace, bindings) : null;
   };
   const collect = async (workspaces: readonly Workspace[], socketPath: string, signal?: AbortSignal): Promise<readonly NativeTerminalSurfaceV1[] | null> => {
     const tabs: NativeTerminalSurfaceV1[] = [];
+    const bindings = new Map<string, PromptSurfaceBinding>();
     for (const workspace of workspaces) {
-      const surfaces = await fetchSurfaces(workspace, socketPath, signal);
+      const surfaces = await fetchSurfaces(workspace, bindings, socketPath, signal);
       if (surfaces === null) continue;
       tabs.push(...surfaces);
       if (tabs.length > 4096) return null;
     }
-    return tabs;
+    if (!bindings.size) return tabs;
+    try {
+      const response = await run(['--json', 'sessions', 'list', '--all'], signal, socketPath);
+      const prompts = response.code === 0 ? await readLastPrompts(parseJson(response.stdout), bindings, signal) : new Map<string, string>();
+      return tabs.map(tab => ({ ...tab, lastPrompt: prompts.get(tab.surfaceRef) ?? null }));
+    } catch {
+      signal?.throwIfAborted();
+      return tabs.map(tab => ({ ...tab, lastPrompt: null }));
+    }
   };
   return {
     metadata: { version: 1, label: 'cmux', browser: true },

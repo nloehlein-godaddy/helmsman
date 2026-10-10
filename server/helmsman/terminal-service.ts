@@ -123,7 +123,8 @@ export function createTerminalService(options: TerminalServerOptions) {
       return parseTerminalSnapshotV1({ version: 1, repo, connected: observed.connected,
         quality: observed.partial || selected.length > TERMINAL_LIMITS.tabs ? 'partial' : 'complete',
         tabs: selected.slice(0, TERMINAL_LIMITS.tabs).map(({ raw, target }) => ({ target, title: raw.surfaceTitle.slice(0, 1024), workspaceTitle: raw.workspaceTitle.slice(0, 1024),
-          type: raw.type, selected: raw.selected, actions: actionsFor(providerOf(raw)).map(action => ({ id: action.action, label: action.label })) })), observedAt: now() });
+          type: raw.type, selected: raw.selected, lastPrompt: typeof raw.lastPrompt === 'string' ? raw.lastPrompt.replaceAll('\0', '').slice(0, 1024).replace(/[\uD800-\uDBFF]$/, '') : null,
+          actions: actionsFor(providerOf(raw)).map(action => ({ id: action.action, label: action.label })) })), observedAt: now() });
     },
     async screen(caller: string, input: { target: TerminalTargetV1; lines: number }, scopeRepo: string | null) {
       const target = parseTerminalTargetV1(input?.target); const lines = parseTerminalLines(input?.lines); const current = await live(caller, target, scopeRepo);

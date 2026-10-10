@@ -12,6 +12,7 @@ export interface TerminalTabV1 {
   readonly workspaceTitle: string;
   readonly type: string;
   readonly selected: boolean;
+  readonly lastPrompt?: string | null;
   readonly actions: readonly { readonly id: string; readonly label: string }[];
 }
 
@@ -150,9 +151,10 @@ export function parseTerminalSnapshotV1(input: unknown): TerminalSnapshotV1 {
   const repo = parseTerminalRepo(value.repo);
   if (value.quality !== 'complete' && value.quality !== 'partial') invalidClarification();
   const tabs = clarificationArray(value.tabs, item => {
-    const tab = clarificationObject(item); clarificationFields(tab, ['target', 'title', 'workspaceTitle', 'type', 'selected', 'actions']);
+    const tab = clarificationObject(item); clarificationFields(tab, ['target', 'title', 'workspaceTitle', 'type', 'selected', 'actions'], ['lastPrompt']);
     const target = parseTerminalTargetV1(tab.target); if (repo !== null && target.repo !== repo) invalidClarification();
     return Object.freeze({ target, title: text(tab.title, 1024), workspaceTitle: text(tab.workspaceTitle, 1024), type: sourceText(tab.type, 64), selected: clarificationBoolean(tab.selected),
+      ...(tab.lastPrompt === undefined ? {} : { lastPrompt: tab.lastPrompt === null ? null : text(tab.lastPrompt, 1024) }),
       actions: clarificationArray(tab.actions, entry => { const action = clarificationObject(entry); clarificationFields(action, ['id', 'label']); return Object.freeze({ id: sourceText(action.id, 64), label: sourceText(action.label, 128) }); }, 32) });
   }, TERMINAL_LIMITS.tabs);
   if (new Set(tabs.map(tab => tab.target.surfaceRef)).size !== tabs.length || value.connected === false && tabs.length) invalidClarification();

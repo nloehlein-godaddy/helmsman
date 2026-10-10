@@ -1,6 +1,6 @@
 # SDK compatibility and deprecation
 
-The public SDK is stable at **1.5.0**, distributed in `sdk/` with Helmsman. It is not published to npm. Install that directory into an independent author project. The SDK package version is maintained in `sdk/version.json` independently of the application version.
+The public SDK is stable at **1.6.0**, distributed in `sdk/` with Helmsman. It is not published to npm. Install that directory into an independent author project. The SDK package version is maintained in `sdk/version.json` independently of the application version.
 
 | Version | Meaning and current support |
 |---|---|
@@ -8,7 +8,7 @@ The public SDK is stable at **1.5.0**, distributed in `sdk/` with Helmsman. It i
 | `packageVersion` | Archive descriptor format: 1. |
 | `manifestVersion` | Presentation metadata: 1 for pages; 2 adds panels/compositions. Both remain supported. |
 | `sdkVersion` | Exact host protocol major: 1. It is an integer, not an npm semver range. |
-| SDK package version | Public TypeScript declarations and bundleable helpers: 1.5.0. Patch releases fix compatible behavior; minor releases add compatible optional APIs. |
+| SDK package version | Public TypeScript declarations and bundleable helpers: 1.6.0. Patch releases fix compatible behavior; minor releases add compatible optional APIs. |
 | Capability/service/contract version | Independent protocol version, currently 1. Keep shared `helmsman/...` IDs when replacing implementations. |
 | `storageVersion` | Namespaced backend storage schema: 1. It never authorizes changing a retained execution binding. |
 | `node` range | Inclusive `minMajor`, exclusive `maxMajorExclusive`; checked at installation, enablement, startup and retained external recovery before module evaluation. |
@@ -26,6 +26,8 @@ Version 1.3 adds optional notification clearing with a snapshot cutoff, live-ins
 Version 1.4 adds the optional `PluginPageModule.attention(context)` read hook. Existing page modules remain valid without it. The selected questions page can return bounded stable item keys through public services; core owns polling, scope/lifetime fences, tab presentation and sound. Declare the read service used by the hook on the page contribution. See [authored questions](authored-clarifications.md#question-tab-attention).
 
 Version 1.5 adds optional retained `RunReadSummaryV1.title` presentation metadata. Older summaries remain valid; history uses the title when available without fetching additional PR details.
+
+Version 1.6 adds optional `lastPrompt` presentation metadata to native terminal surfaces and terminal tabs. Providers without prompt support remain valid; missing or null prompts are unavailable. Preview updates do not change terminal target revisions, command identities or retained receipts. The frozen compatibility baseline remains unchanged.
 
 The optional failure post-mortem service adds the `helmsman/postmortem@1` presentation permission and the public `postmortem` service. Like live instructions, every call is bound to the run's repository and the current galleon scope. Declare the permission explicitly; older hosts reject packages requiring it. The run viewer requires it from 0.3.0. The application remains version 0.4.0 and the frozen 1.0 compatibility baseline is unchanged.
 

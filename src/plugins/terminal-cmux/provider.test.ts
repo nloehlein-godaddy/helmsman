@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   createCmuxNativeTerminal,
   createNativeSessionIdentity,
@@ -48,6 +51,35 @@ describe('cmux native session identity', () => {
 });
 
 describe('cmux native terminal provider', () => {
+  it('enriches exact live surfaces with local agent prompts without changing terminal connection on metadata failure', async () => {
+    const session = '11111111-1111-1111-1111-111111111111';
+    const surface = '22222222-2222-2222-2222-222222222222';
+    const workspace = '33333333-3333-3333-3333-333333333333';
+    const folder = await mkdtemp(join(tmpdir(), 'helmsman-terminal-provider-'));
+    const transcript = join(folder, `rollout-${session}.jsonl`);
+    await writeFile(transcript, JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'Build a tab preview' } }) + '\n');
+    let sessionsAvailable = true;
+    const run = vi.fn<CmuxCommandRunner>(async args => {
+      if (args[0] === 'list-windows') return { code: 0, stdout: JSON.stringify([{ id: 'window:1' }]), stderr: '' };
+      if (args[0] === 'workspace') return { code: 0, stdout: JSON.stringify({ window_ref: 'window:1', workspaces: [{ id: workspace, ref: 'workspace:2', title: 'Repo' }] }), stderr: '' };
+      if (args[0] === 'list-pane-surfaces') return { code: 0, stdout: JSON.stringify({ surfaces: [{ id: surface, ref: 'surface:3', title: 'Agent', type: 'terminal', selected: true }] }), stderr: '' };
+      return { code: sessionsAvailable ? 0 : 1, stdout: JSON.stringify({ sessions: [{ session_id: session, surface_id: surface, workspace_id: workspace, agent: 'codex', stored_pid_exists: true, transcript_path: transcript, updated_at: '2026-10-09T12:00:00Z' }] }), stderr: '' };
+    });
+    try {
+      const provider = createCmuxNativeTerminal({ socketPath: '/tmp/cmux.sock', run, stat: () => base });
+      const result = await provider.listTabs();
+      expect(result.connected).toBe(true);
+      expect(result.tabs[0]?.lastPrompt).toBe('Build a tab preview');
+      expect(run).toHaveBeenCalledWith(['--json', 'sessions', 'list', '--all'], undefined, '/tmp/cmux.sock');
+      sessionsAvailable = false;
+      const unavailable = await provider.listTabs();
+      expect(unavailable.connected).toBe(true);
+      expect(unavailable.tabs[0]?.lastPrompt).toBeNull();
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
   it('projects terminal surfaces and executes exact screen/text/key commands', async () => {
     const calls: readonly string[][] = [];
     const mutableCalls = calls as string[][];

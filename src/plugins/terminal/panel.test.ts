@@ -35,6 +35,25 @@ it('keeps input/output nodes, typed draft, selection, focus and screen scroll th
   await f.instance.refresh?.();await f.instance.update({...f.state(),themeId:'light'});expect(f.container.querySelector('.terminal-input')).toBe(input);expect(f.container.querySelector('.terminal-screen')).toBe(screen);expect(input.value).toBe('unsent command');expect(input.selectionStart).toBe(2);expect(document.activeElement).toBe(input);expect(screen.scrollTop).toBe(90);
   f.service.list.mockResolvedValue(available({...snapshot,tabs:[{...tab,title:'Renamed'}, {...tab,target:{...target,surfaceRef:'surface:2'},title:'Second'}]}));await f.instance.refresh?.();expect(f.container.querySelector('.terminal-input')).toBe(input);expect(input.value).toBe('unsent command');expect(f.container.querySelectorAll('.terminal-tab')).toHaveLength(2);
 });
+it('shows latest prompts as plain text with compact whitespace and the original tooltip',async()=>{
+  const lastPrompt = '  Fix <img src=x onerror=bad()>\n\t and "check" & compare  ';
+  const f=await fixture({},context=>{vi.mocked(context.services.terminal!.list).mockResolvedValue(available({...snapshot,tabs:[{...tab,lastPrompt}]}));});await ready(f);
+  const prompt=f.container.querySelector<HTMLElement>('.terminal-tab-prompt');
+  expect(prompt?.textContent).toBe('Fix <img src=x onerror=bad()> and "check" & compare');expect(prompt?.title).toBe(lastPrompt);expect(f.container.querySelector('img')).toBeNull();
+  expect(f.container.querySelector('.terminal-tab')?.getAttribute('aria-label')).toBe('codex session Work · terminal · org/b');expect(f.container.querySelector('.terminal-tab')?.getAttribute('aria-description')).toBe('Fix <img src=x onerror=bad()> and "check" & compare');expect(f.service.control).not.toHaveBeenCalled();
+});
+it.each([undefined,null,'',' \n\t '])('shows a neutral fallback for an unavailable prompt (%s)',async lastPrompt=>{
+  const f=await fixture({},context=>{vi.mocked(context.services.terminal!.list).mockResolvedValue(available({...snapshot,tabs:[{...tab,lastPrompt}]}));});await ready(f);
+  const prompt=f.container.querySelector<HTMLElement>('.terminal-tab-prompt');expect(prompt?.textContent).toBe('No prompt available');expect(prompt?.classList.contains('is-empty')).toBe(true);expect(prompt?.hasAttribute('title')).toBe(false);expect(f.container.querySelector('.terminal-tab')?.getAttribute('aria-description')).toBe('No prompt available');
+});
+it('keeps focused tab buttons mounted while prompt updates arrive',async()=>{
+  const f=await fixture({},context=>{vi.mocked(context.services.terminal!.list).mockResolvedValue(available({...snapshot,tabs:[{...tab,lastPrompt:'First prompt'}]}));});await ready(f);
+  const button=f.container.querySelector<HTMLButtonElement>('.terminal-tab')!;button.focus();
+  f.service.list.mockResolvedValue(available({...snapshot,tabs:[{...tab,lastPrompt:'Updated prompt'}]}));await f.instance.refresh?.();
+  expect(f.container.querySelector('.terminal-tab')).toBe(button);expect(document.activeElement).toBe(button);expect(button.querySelector('.terminal-tab-prompt')?.textContent).toBe('Updated prompt');expect(button.getAttribute('aria-pressed')).toBe('true');
+  f.service.list.mockResolvedValue(available({...snapshot,tabs:[{...tab,lastPrompt:null}]}));await f.instance.refresh?.();
+  expect(document.activeElement).toBe(button);expect(button.querySelector('.terminal-tab-prompt')?.textContent).toBe('No prompt available');expect(button.querySelector('.terminal-tab-prompt')?.hasAttribute('title')).toBe(false);
+});
 it('persists per-surface drafts through selection and remount and isolates copied contribution storage',async()=>{
   const f=await fixture({},context=>{vi.mocked(context.services.terminal!.list).mockResolvedValue(available({...snapshot,tabs:[tab,{...tab,target:{...target,surfaceRef:'surface:2'},title:'Second'}]}));});await ready(f);fill(f.container,'first draft');click(f.container,'[data-surface="surface:2"]');await ready(f);fill(f.container,'second draft');click(f.container,'[data-surface="surface:1"]');await ready(f);expect(f.container.querySelector<HTMLInputElement>('.terminal-input')?.value).toBe('first draft');
   const url=new URL(vi.mocked(f.context.navigate).mock.calls[0]![0],'https://host.test');expect(url.searchParams.get('repo')).toBe('org/a');expect(url.searchParams.get('surface')).toBe('surface:2');expect(url.searchParams.get('pane')).toBe('screen');

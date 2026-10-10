@@ -22,6 +22,20 @@ function setup() {
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 describe('scoped terminal service', () => {
+  it('exposes bounded prompt previews without changing control identity', async () => {
+    const f = setup();
+    const before = (await f.service.list(caller, { version: 1, repo: null }, null)).tabs[0];
+    expect(before?.lastPrompt).toBeNull();
+    f.tabs([{ ...f.tab, lastPrompt: '<script>user content</script>\n' + 'x'.repeat(2000) }]);
+    const after = (await f.service.list(caller, { version: 1, repo: null }, null)).tabs[0];
+    expect(after?.lastPrompt).toHaveLength(1024);
+    expect(after?.lastPrompt).toMatch(/^<script>user content<\/script>\n/);
+    expect(after?.target).toEqual(before?.target);
+    f.tabs([{ ...f.tab, lastPrompt: 'x'.repeat(1023) + '😀' }]);
+    expect((await f.service.list(caller, { version: 1, repo: null }, null)).tabs[0]?.lastPrompt).toBe('x'.repeat(1023));
+    f.tabs([{ ...f.tab, lastPrompt: null }]);
+    expect((await f.service.list(caller, { version: 1, repo: null }, null)).tabs[0]?.lastPrompt).toBeNull();
+  });
   it('associates by cwd, rejects ambiguous roots, and exposes unattached terminals only in All', async () => {
     const f = setup(); f.tabs([f.tab, { ...f.tab, surfaceRef: 'surface:2', cwd: null }]);
     const concrete = await f.service.list(caller, { version: 1, repo: 'org/a' }, 'org/a');

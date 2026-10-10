@@ -31,6 +31,8 @@ export const styles = `
 .terminal-panel .terminal-tab[aria-pressed=true]{background:var(--panel-2,var(--face-hi));border-color:var(--line-strong);color:var(--text)}
 .terminal-panel .terminal-tab-title{display:flex;gap:8px;align-items:center;font-weight:600;overflow-wrap:anywhere;min-width:0}
 .terminal-panel .terminal-tab[aria-pressed=true] .terminal-tab-title .terminal-phosphor{color:var(--accent-text,var(--accent))}
+.terminal-panel .terminal-tab-prompt{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;overflow-wrap:anywhere;padding-left:24px;font-size:13px;line-height:1.5;color:var(--text)}
+.terminal-panel .terminal-tab-prompt.is-empty{color:var(--text-dim);font-size:12px}
 .terminal-panel .terminal-tab small{padding-left:24px}
 .terminal-panel .terminal-screen-column>div:last-child{padding:16px;display:grid;gap:12px}
 .terminal-panel :is(.terminal-capture,.terminal-keypad,.terminal-actions){display:flex;align-items:center;flex-wrap:wrap;gap:8px}

@@ -4,22 +4,25 @@ import { DEFAULT_THEME_GENERATOR_SETTINGS, createThemeRecipeFromPalette, generat
 import { expectReadableSurfaces } from './theme-contrast';
 
 const at = '2026-10-09T12:00:00.000Z';
+const longPrompt = '<img src=x onerror=alert(1)>\nReview the terminal workspace and preserve the selected tab, input draft, keyboard focus, screen scroll position, and exact command targets while updating this prompt preview. Explain any important edge cases before changing the implementation.';
 const tabs = Array.from({ length: 6 }, (_, index) => ({
   target: { repo: index === 4 ? 'org/b' : null, surfaceRef: `surface:${index + 1}`, revision: String(index + 1).repeat(64) },
   title: ['Application server', 'Review work', 'Build output', 'Shell', 'Another galleon', 'Agent console'][index],
   workspaceTitle: index < 4 ? 'Development' : 'Operations', type: 'terminal', selected: index === 0, actions: [],
+  ...(index === 3 ? {} : { lastPrompt: [longPrompt, 'Review AAB #11330 and summarize unresolved feedback.', null, undefined, 'Check the build output before starting the next task.', 'Run the focused unit tests and report failures.'][index] }),
 }));
 async function mockTerminal(page: Page, state: 'tabs' | 'empty' | 'disconnected' | 'unavailable' = 'tabs') {
   const lists: URLSearchParams[] = []; const screens: { target: typeof tabs[number]['target']; scopeRepo: null }[] = [];
   const controls: { command: { version: 1; target: typeof tabs[number]['target']; operation: unknown; requestId: string }; scopeRepo: null }[] = [];
-  let screenVersion = 0;
+  let screenVersion = 0; let promptVersion = 0;
+  const updatedPrompt = 'The newest prompt arrived while you were writing this draft.';
   await page.route('**/*', route => {
     const request = route.request(); const url = new URL(request.url()); const path = url.pathname;
     if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
     if (!path.startsWith('/api/')) return route.continue();
     if (path === '/api/terminal/tabs') {
       lists.push(url.searchParams);
-      return state === 'unavailable' ? route.fulfill({ status: 503, json: { error: 'Terminal unavailable' } }) : route.fulfill({ json: { version: 1, repo: null, connected: state !== 'disconnected', quality: 'complete', tabs: state === 'tabs' ? tabs : [], observedAt: at } });
+      return state === 'unavailable' ? route.fulfill({ status: 503, json: { error: 'Terminal unavailable' } }) : route.fulfill({ json: { version: 1, repo: null, connected: state !== 'disconnected', quality: 'complete', tabs: state === 'tabs' ? tabs.map(tab => tab.target.surfaceRef === 'surface:5' && promptVersion ? { ...tab, lastPrompt: updatedPrompt } : tab) : [], observedAt: at } });
     }
     if (path === '/api/terminal/screen') {
       const body = request.postDataJSON(); screens.push(body);
@@ -37,7 +40,7 @@ async function mockTerminal(page: Page, state: 'tabs' | 'empty' | 'disconnected'
       : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
     return route.fulfill({ json });
   });
-  return { lists, screens, controls, updateScreen: () => { screenVersion++; } };
+  return { lists, screens, controls, updatedPrompt, updatePrompt: () => { promptVersion++; }, updateScreen: () => { screenVersion++; } };
 }
 async function seedScopedLayout(page: Page) {
   await page.goto('/config?repo=org%2Fa');
@@ -71,6 +74,14 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await page.goto('/terminal?repo=org%2Fa');
     const panel = page.locator('.terminal-panel');
     await expect(panel.locator('.terminal-tab')).toHaveCount(6);
+    await expect(panel.locator('.terminal-tab-prompt')).toHaveCount(6);
+    const rawPrompt = panel.locator('[data-surface="surface:1"] .terminal-tab-prompt');
+    await expect(rawPrompt).toHaveText(longPrompt.replace(/\s+/g, ' ').trim());
+    await expect(rawPrompt).toHaveAttribute('title', longPrompt);
+    await expect(panel.locator('[data-surface="surface:1"]')).toHaveAttribute('aria-description', longPrompt.replace(/\s+/g, ' ').trim());
+    await expect(panel.locator('[data-surface="surface:3"] .terminal-tab-prompt')).toHaveText('No prompt available');
+    await expect(panel.locator('[data-surface="surface:4"] .terminal-tab-prompt')).toHaveText('No prompt available');
+    await expect(panel.locator('.terminal-tab img, .terminal-tab script')).toHaveCount(0);
     const savedScope = await page.evaluate(async () => {
       const database = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open('helmsman.composition-layouts', 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
       const layout = await new Promise<{ instances: { scope: { kind: string } }[] }>((resolve, reject) => { const request = database.transaction('layouts').objectStore('layouts').get('helmsman/terminal-page'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
@@ -89,7 +100,7 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(panel.locator('[data-surface="surface:5"]')).toHaveAttribute('aria-pressed', 'true');
     await expect(page).toHaveURL(/repo=org%2Fa/);
     await expect(page).toHaveURL(/surface=surface%3A5/);
-    await expectReadableSurfaces(panel, ['.terminal-connection', '.terminal-tab-title', '.terminal-tab small', '.terminal-column-head h3', '.terminal-screen', '.terminal-input', '.terminal-send button', '.terminal-note']);
+    await expectReadableSurfaces(panel, ['.terminal-connection', '.terminal-tab-title', '.terminal-tab-prompt', '.terminal-tab-prompt.is-empty', '.terminal-tab[aria-pressed=true] .terminal-tab-prompt', '.terminal-tab small', '.terminal-column-head h3', '.terminal-screen', '.terminal-input', '.terminal-send button', '.terminal-note']);
     await expectReadableSurfaces(panel, ['.terminal-connection .terminal-phosphor', '.terminal-tab[aria-pressed=true] .terminal-phosphor'], 3);
     if (width === 390) {
       expect((await panel.locator('[data-capture]').boundingBox())?.height).toBeGreaterThanOrEqual(44);
@@ -98,7 +109,8 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await panel.locator('.terminal-input').fill('Keep this draft');
     const screen = panel.locator('.terminal-screen');
     await screen.evaluate(element => { element.scrollTop = 180; });
-    f.updateScreen();
+    f.updateScreen(); f.updatePrompt();
+    await expect(panel.locator('[data-surface="surface:5"] .terminal-tab-prompt')).toHaveText(f.updatedPrompt);
     await expect(screen).toContainText('Preview 1');
     await expect(panel.locator('.terminal-input')).toBeFocused();
     await expect(panel.locator('.terminal-input')).toHaveValue('Keep this draft');
