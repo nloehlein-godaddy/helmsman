@@ -42,9 +42,19 @@ describe('standalone Bugs presentation', () => {
     const badges = f.container.querySelectorAll<HTMLElement>('.severity-badge');
     expect(badges).toHaveLength(2); expect(badges[1]?.getAttribute('aria-label')).toBe('Severity S2 - Major'); expect(f.container.textContent).toContain('Critical S3'); f.lifetime.abort();
   });
+  it('uses matching priority badges without reinterpreting provider labels', async () => {
+    const f = fixture(); const priorities = ['P0', 'Priority P2 - High', 'Critical P3', null];
+    f.bugs.mockResolvedValue({ status: 'available', value: { selection: source, report: { ...report, rows: priorities.map((priority, index) => ({ ...report.rows[0]!, ref: { sourceId, externalId: String(index) }, priority })) } } });
+    await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelector('.priority-badge')).not.toBeNull());
+    const badges = f.container.querySelectorAll<HTMLElement>('.priority-badge');
+    expect(badges).toHaveLength(2); expect(badges[0]?.textContent).toBe('P0'); expect(badges[0]?.getAttribute('aria-label')).toBe('Priority P0');
+    expect(badges[1]?.textContent).toBe('P2'); expect(badges[1]?.getAttribute('title')).toBe('Priority P2 - High');
+    expect(f.container.textContent).toContain('Critical P3'); expect(f.container.textContent).toContain('Unknown'); f.lifetime.abort();
+  });
   it('persists task-scoped description disclosure, renders it as literal text, and keeps its focus on refresh', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')).toBeTruthy());
-    const toggle = f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')!; toggle.click();
+    const toggle = f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')!;
+    expect(toggle.textContent).toBe(''); expect(toggle.title).toBe('Show description for TASK-1'); expect(toggle.querySelector('[aria-hidden="true"]')).not.toBeNull(); toggle.click();
     expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Hide description for TASK-1"]')?.getAttribute('aria-expanded')).toBe('true'); expect(document.activeElement?.getAttribute('aria-label')).toBe('Hide description for TASK-1');
     expect(f.container.textContent).toContain('<img src=x onerror=alert(1)>'); expect(f.container.querySelector('img,script')).toBeNull();
     expect(f.context.saveState).toHaveBeenLastCalledWith(expect.objectContaining({ value: expect.objectContaining({ descriptionExpanded: [expect.stringContaining(sourceId)] }) }));

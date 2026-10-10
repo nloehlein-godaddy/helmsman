@@ -8,6 +8,8 @@ export const styles = `
 .plugin-bugs h2{font-size:20px}
 .plugin-bugs h3{font-size:18px}
 .plugin-bugs .bugs-icon{font-family:"Helmsman Phosphor Regular";font-size:16px;font-weight:400;line-height:1;display:inline-block;flex:none}
+.plugin-bugs .bugs-icon::before{content:attr(data-glyph)}
+.plugin-bugs .bugs-column-label{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .plugin-bugs :is(button,select){box-sizing:border-box;font:14px/1.4 var(--sans,sans-serif);min-height:32px;color:var(--text);background:var(--panel-hi,var(--face-hi));border:1px solid var(--line-strong);padding:6px 10px;border-radius:6px;max-width:100%}
 .plugin-bugs select{color:var(--input-text,var(--text));background:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong));width:100%;min-width:0}
 .plugin-bugs button{cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:background-color 160ms ease-out,border-color 160ms ease-out}
@@ -42,12 +44,14 @@ export const styles = `
 .plugin-bugs .bugs-title{display:block;font-weight:600;font-size:15px;line-height:1.4;color:var(--text);text-decoration:none}
 .plugin-bugs .bugs-title-cell>small{display:block;margin-top:4px}
 .plugin-bugs .bugs-description{display:grid;gap:8px;margin-top:8px}
-.plugin-bugs .bugs-description button{justify-self:start;font-size:12px;min-height:28px;padding:3px 7px;background:transparent;color:var(--text-dim);border-color:var(--line)}
+.plugin-bugs .bugs-description button{justify-self:start;font-size:12px;min-height:28px;min-width:28px;padding:4px;background:transparent;color:var(--text-dim);border-color:var(--line)}
 .plugin-bugs .bugs-description-content{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px 12px;border-left:1px solid var(--line-strong);background:var(--panel-2,var(--face-hi));border-radius:0 6px 6px 0}
-.plugin-bugs .severity-badge{display:inline-block;border:1px solid currentColor;border-radius:999px;padding:1px 6px;font-weight:700;line-height:1.35}
-.plugin-bugs :is(.severity-s0,.severity-s1){color:var(--bad-text,var(--bad))}
-.plugin-bugs :is(.severity-s2,.severity-s3){color:var(--accent-text,var(--accent))}
-.plugin-bugs :is(.severity-s4,.severity-s5){color:var(--text-dim)}
+.plugin-bugs .rank-badge{display:inline-block;border:1px solid currentColor;border-radius:999px;padding:1px 6px;font-weight:700;line-height:1.35}
+.plugin-bugs :is(.rank-0,.rank-1){color:#991b1b;background:#fee2e2}
+.plugin-bugs .rank-2{color:#9a3412;background:#ffedd5}
+.plugin-bugs .rank-3{color:var(--accent-text,var(--accent))}
+.plugin-bugs :is(.rank-4,.rank-5){color:var(--text-dim)}
+@media(min-width:701px) and (max-width:1000px){.plugin-bugs th:first-child{width:45%}}
 @media(max-width:700px){
 .plugin-bugs .bugs-report-heading{flex-direction:column;gap:6px}
 .plugin-bugs .bugs-observed{text-align:left;max-width:none}
@@ -61,6 +65,6 @@ export const styles = `
 .plugin-bugs td[data-label]::before{content:attr(data-label);display:block;color:var(--text-dim);font-size:12px;margin-bottom:4px}
 .plugin-bugs :is(.bugs-title-cell,.bugs-empty){grid-column:1/-1}
 }
-@media(pointer:coarse){.plugin-bugs :is(button,select),.plugin-bugs .bugs-description button{min-height:44px}}
+@media(pointer:coarse){.plugin-bugs :is(button,select),.plugin-bugs .bugs-description button{min-height:44px}.plugin-bugs .bugs-description button{min-width:44px}}
 @media(prefers-reduced-motion:reduce){.plugin-bugs button{transition:none}}
 `;

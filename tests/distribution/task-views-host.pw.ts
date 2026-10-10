@@ -122,7 +122,7 @@ const page: PluginPageModule = { mount(container, context) {
     await expect(page.getByRole('heading', { name: 'Bugs', exact: true })).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'Refresh page', exact: true })).toHaveCount(1);
     await expect(bugs.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
-    await expect(bugs.locator('th').first()).toHaveText('Bug');
+    await expect(bugs.getByRole('columnheader', { name: 'Bug', exact: true })).toHaveCount(1);
     await expect(page.locator('.repo-select')).toHaveValue('org/b');
     await expect(bugs.locator('.bugs-observed time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
     await expect(bugs.locator('.bugs-observed time')).toContainText('UTC');

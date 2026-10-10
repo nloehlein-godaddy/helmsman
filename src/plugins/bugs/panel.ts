@@ -2,9 +2,9 @@ import type { PluginPanelContext, PluginPanelInstance, PluginPanelModule, Plugin
 import { styles } from './styles.js';
 
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
-const phosphorGlyphs = { refresh: '\ue094', open: '\ue282', created: '\ue3d6', completed: '\ue184', overdue: '\ue4e2' } as const;
+const phosphorGlyphs = { refresh: '\ue094', open: '\ue282', created: '\ue3d6', completed: '\ue184', overdue: '\ue4e2', expand: '\ue136', collapse: '\ue13c', bug: '\ue5f4', priority: '\ue244', calendar: '\ue108', clock: '\ue19a', source: '\ue1de' } as const;
 const icon = (name: keyof typeof phosphorGlyphs): HTMLSpanElement => {
-  const value = node('span', phosphorGlyphs[name]); value.className = 'bugs-icon'; value.setAttribute('aria-hidden', 'true'); return value;
+  const value = node('span'); value.dataset.glyph = phosphorGlyphs[name]; value.className = 'bugs-icon'; value.setAttribute('aria-hidden', 'true'); return value;
 };
 const humanDate = (value: string, includeTime = false): string => {
   const date = new Date(value);
@@ -18,9 +18,10 @@ interface View { source: TaskReadSourceV1; report: TaskBugsReportV1 | null; erro
 interface Selection { repo: string; sourceId: string; instanceId: string; }
 const key = (source: Selection) => JSON.stringify([source.repo, source.sourceId, source.instanceId]);
 const count = (value: TaskBugCountV1): string => value.value === null ? 'Unavailable' : `${value.quality === 'approximate' ? '≈ ' : ''}${value.value.toLocaleString('en-US')}`;
-const severity = (value: string | null): { code: string; label: string } | null => {
-  if (value === null) return null;
-  const match = /^\s*(?:Severity\s+)?(S[0-5])(?:\s*[-:–—]\s*\S[\s\S]*)?\s*$/.exec(value);
+const rank = (value: string | null, kind: 'Severity' | 'Priority'): { code: string; label: string } | null => {
+  if (typeof value !== 'string') return null;
+  const pattern = kind === 'Severity' ? /^\s*(?:Severity\s+)?(S[0-5])(?:\s*[-:–—]\s*\S[\s\S]*)?\s*$/ : /^\s*(?:Priority\s+)?(P[0-5])(?:\s*[-:–—]\s*\S[\s\S]*)?\s*$/;
+  const match = pattern.exec(value);
   return match ? { code: match[1]!, label: value } : null;
 };
 function selection(value: unknown): Selection | null {
@@ -119,8 +120,9 @@ class BugsPanel implements PluginPanelInstance {
   }
   private description(view: View, bug: TaskBugsReportV1['rows'][number]): HTMLElement {
     const key = this.descriptionKey(view, bug); const expanded = this.descriptionExpanded.has(key); const contentId = `bugs-description-${encodeURIComponent(JSON.stringify([this.state.instanceId, key]))}`;
-    const container = node('div'); container.className = 'bugs-description'; const toggle = node('button', expanded ? 'Hide description' : 'Show description'); toggle.type = 'button';
-    toggle.setAttribute('aria-label', `${toggle.textContent} for ${bug.displayKey}`); toggle.setAttribute('aria-expanded', String(expanded)); toggle.setAttribute('aria-controls', contentId); toggle.dataset.bugsFocus = `description:${key}`;
+    const container = node('div'); container.className = 'bugs-description'; const toggle = node('button'); toggle.type = 'button';
+    const action = `${expanded ? 'Hide' : 'Show'} description for ${bug.displayKey}`; toggle.title = action; toggle.append(icon(expanded ? 'collapse' : 'expand'));
+    toggle.setAttribute('aria-label', action); toggle.setAttribute('aria-expanded', String(expanded)); toggle.setAttribute('aria-controls', contentId); toggle.dataset.bugsFocus = `description:${key}`;
     toggle.addEventListener('click', () => { toggle.focus({ preventScroll: true }); this.toggleDescription(view, bug); }); container.append(toggle);
     if (expanded) { const content = node('div'); content.id = contentId; content.className = 'bugs-description-content';
       content.append(node('p', bug.description?.trim() ? bug.description : 'No description available.')); container.append(content); }
@@ -129,11 +131,12 @@ class BugsPanel implements PluginPanelInstance {
   private link(label: string, url: string | null): HTMLElement {
     if (!url) return node('span', label); const link = node('a', label); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; return link;
   }
-  private severity(value: string | null): HTMLElement {
-    const parsed = severity(value);
+  private rank(value: string | null, kind: 'Severity' | 'Priority'): HTMLElement {
+    const parsed = rank(value, kind);
     if (!parsed) return node('span', value ?? 'Unknown');
-    const badge = node('span', parsed.code); badge.className = `severity-badge severity-${parsed.code.toLowerCase()}`;
-    badge.setAttribute('aria-label', /^severity\b/i.test(parsed.label.trim()) ? parsed.label.trim() : `Severity ${parsed.label}`); badge.title = parsed.label;
+    const name = kind.toLowerCase();
+    const badge = node('span', parsed.code); badge.className = `rank-badge ${name}-badge ${name}-${parsed.code.toLowerCase()} rank-${parsed.code.slice(1)}`;
+    badge.setAttribute('aria-label', parsed.label.trim().startsWith(kind) ? parsed.label.trim() : `${kind} ${parsed.label}`); badge.title = parsed.label;
     return badge;
   }
   private sourceLabel(source: TaskReadSourceV1): string {
@@ -158,24 +161,24 @@ class BugsPanel implements PluginPanelInstance {
     }
     section.append(metrics);
     const evidence = node('dl'); evidence.className = 'bugs-evidence';
-    const oldest = node('div'); oldest.append(node('dt', 'Oldest open'));
+    const oldest = node('div'); const oldestLabel = node('dt', 'Oldest open'); oldestLabel.prepend(icon('clock')); oldest.append(oldestLabel);
     const oldestValue = node('dd'); const age = report.oldest ? Math.max(0, Math.floor((Date.parse(report.asOf) - Date.parse(report.oldest.createdAt)) / 86_400_000)) : null;
     oldestValue.append(report.oldest ? this.link(`${report.oldest.displayKey} · ${Number.isFinite(age) ? `${age} days` : 'Age unavailable'}`, report.oldest.url)
       : node('span', report.oldestQuality === 'complete' ? 'None' : 'Unavailable'));
     if (report.oldestQuality !== 'complete') oldestValue.append(node('small', ` · ${report.oldestQuality} coverage`)); oldest.append(oldestValue); evidence.append(oldest);
-    const sample = report.resolutionP75; const duration = node('div'); duration.append(node('dt', 'Resolution time · 75th percentile'), node('dd', sample.days === null ? 'Unavailable' : `${sample.days} days`),
+    const sample = report.resolutionP75; const duration = node('div'); const durationLabel = node('dt', 'Resolution time · 75th percentile'); durationLabel.prepend(icon('completed')); duration.append(durationLabel, node('dd', sample.days === null ? 'Unavailable' : `${sample.days} days`),
       node('small', `${sample.sampleSize} sampled · Population ${count(sample.population)} · ${sample.quality}${sample.capped ? ' · capped sample' : ''}`),
       ...(sample.days !== null ? [node('small', '75% of sampled completions resolved within this time.')] : [])); evidence.append(duration); section.append(evidence);
     if (report.rowsQuality !== 'complete') { const coverage = node('p', `Open bug rows have ${report.rowsQuality} coverage.`); coverage.className = 'bugs-coverage'; section.append(coverage); }
     const table = node('table'); table.setAttribute('role', 'table'); table.setAttribute('aria-label', `Open bugs · ${this.sourceLabel(view.source)}`);
     const head = node('thead'); head.setAttribute('role', 'rowgroup'); const labels = node('tr'); labels.setAttribute('role', 'row');
-    for (const title of ['Bug', 'Priority', 'Severity', 'Due']) { const cell = node('th', title); cell.scope = 'col'; cell.setAttribute('role', 'columnheader'); labels.append(cell); } head.append(labels); table.append(head);
+    for (const [title, glyph] of [['Bug', 'bug'], ['Priority', 'priority'], ['Severity', 'overdue'], ['Due', 'calendar']] as const) { const cell = node('th'); const label = node('span', title); label.className = 'bugs-column-label'; label.prepend(icon(glyph)); cell.append(label); cell.scope = 'col'; cell.setAttribute('role', 'columnheader'); labels.append(cell); } head.append(labels); table.append(head);
     const body = node('tbody'); body.setAttribute('role', 'rowgroup');
     for (const bug of report.rows) {
       const row = node('tr'); row.setAttribute('role', 'row'); const title = node('td'); title.setAttribute('role', 'cell'); title.className = 'bugs-title-cell';
       const titleLink = this.link(bug.title, bug.url); titleLink.className = 'bugs-title'; title.append(titleLink, node('small', bug.displayKey), this.description(view, bug)); row.append(title);
-      const priority = node('td', bug.priority ?? 'Unknown'); priority.dataset.label = 'Priority'; priority.setAttribute('role', 'cell');
-      const severityCell = node('td'); severityCell.dataset.label = 'Severity'; severityCell.setAttribute('role', 'cell'); severityCell.append(this.severity(bug.severity));
+      const priority = node('td'); priority.append(this.rank(bug.priority, 'Priority')); priority.dataset.label = 'Priority'; priority.setAttribute('role', 'cell');
+      const severityCell = node('td'); severityCell.dataset.label = 'Severity'; severityCell.setAttribute('role', 'cell'); severityCell.append(this.rank(bug.severity, 'Severity'));
       const due = node('td'); due.dataset.label = 'Due'; due.setAttribute('role', 'cell'); due.append(bug.dueAt ? dateNode(bug.dueAt) : node('span', 'Not set'));
       row.append(priority, severityCell, due); body.append(row);
     }
@@ -197,7 +200,7 @@ class BugsPanel implements PluginPanelInstance {
     if (this.invalidSelection) { const invalid = node('option', 'Saved selection unavailable'); invalid.value = 'unsupported'; sources.append(invalid); }
     sources.value = this.invalidSelection ? 'unsupported' : this.selected ? key(this.selected) : ''; sources.addEventListener('change', () => { void this.choose(sources.value); });
     const refresh = node('button', 'Refresh'); refresh.type = 'button'; refresh.dataset.bugsFocus = 'refresh'; refresh.disabled = Boolean(this.pending); refresh.addEventListener('click', () => { void this.refresh(); }); refresh.prepend(icon('refresh')); if (!composed) { toolbar.append(refresh); root.append(toolbar); }
-    const filters = node('div'); filters.className = 'bugs-filters'; const label = node('label', 'Source'); label.className = 'bugs-source'; label.append(sources); filters.append(label); root.append(filters);
+    const filters = node('div'); filters.className = 'bugs-filters'; const label = node('label'); const sourceLabel = node('span', 'Source'); sourceLabel.className = 'bugs-column-label'; sourceLabel.prepend(icon('source')); label.append(sourceLabel); label.className = 'bugs-source'; label.append(sources); filters.append(label); root.append(filters);
     for (const message of [...this.messages, ...(this.saveError ? [this.saveError] : [])]) { const note = node('p', message); note.setAttribute('role', 'status'); note.className = 'bugs-notice'; root.append(note); }
     for (const view of this.views) root.append(this.report(view));
     if (!this.views.length && !this.messages.length) root.append(node('p', this.pending ? 'Loading bug sources…' : 'No source provides bug metrics in this scope.'));
