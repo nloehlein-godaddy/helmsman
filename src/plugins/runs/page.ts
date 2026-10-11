@@ -3,13 +3,13 @@ import { styles } from './styles.js';
 
 
 const pageControlsStyles = `
-[data-composition-page] > .composition-page-header { display:flex; align-items:center; justify-content:space-between; gap:16px; min-width:0; margin-bottom:16px; }
+[data-composition-page] > .composition-page-header { display:flex; align-items:center; justify-content:space-between; gap:16px; min-width:0; margin-bottom:0; }
 [data-composition-page] > .composition-page-header h1 { margin:0; min-width:0; overflow-wrap:anywhere; }
 [data-composition-page] .composition-page-actions { display:flex; align-items:center; flex-shrink:0; gap:8px; margin:0; }
 [data-composition-page] .composition-icon-button { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; min-width:36px; padding:8px; color:var(--text); background:var(--panel-hi); border:1px solid var(--line-strong); border-radius:6px; }
 [data-composition-page] .composition-icon-button svg { width:18px; height:18px; pointer-events:none; }
 [data-composition-page] .composition-icon-button:hover:not(:disabled) { color:var(--accent-text,var(--accent)); }
-[data-composition-page] .composition-page-editor { padding:16px; margin-bottom:16px; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
+[data-composition-page] .composition-page-editor { padding:16px; margin-bottom:0; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
 [data-composition-page] .composition-page-editor[hidden] { display:none; }
 [data-composition-page] .composition-page-editor > p { margin:0 0 12px; color:var(--text-dim); }
 [data-composition-page] .composition-editor-add, [data-composition-page] .composition-panel-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 0; }
@@ -18,7 +18,7 @@ const pageControlsStyles = `
 [data-composition-page] .composition-panel-row > strong { flex:1 1 180px; overflow-wrap:anywhere; }
 [data-composition-page] .composition-panel-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
 [data-composition-page] .composition-panel-tabs button[aria-pressed=true] { color:var(--on-accent); background:var(--accent); }
-[data-composition-page] :is(.composition-page-header,.composition-page-editor,.composition-panel-tabs) :is(button,select):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+[data-composition-page] :is(.composition-page-header,.composition-page-editor,.composition-panel-tabs) :is(button,select):focus-visible { outline:2px solid var(--accent-text,var(--accent)); outline-offset:2px; }
 @media(any-pointer:coarse) { [data-composition-page] .composition-icon-button { width:44px; height:44px; min-width:44px; } }
 `;
 
@@ -136,6 +136,9 @@ const page: PluginPageModule = { mount(container, context) {
           }
           section.append(tabs);
         } section.className = 'runs-stack';
+        const activePanel = layout.instances.find(instance => instance.instanceId === stack.activeInstanceId);
+        const contract = composition!.discover().find(candidate => candidate.contributionId === activePanel?.contributionId)?.contract?.id;
+        if (contract === 'helmsman/run-history-panel') section.classList.add('runs-history-stack');
         for (const id of stack.instances) {
           const instance = layout.instances.find(value => value.instanceId === id); if (!instance) continue;
           const title = composition!.discover().find(value => value.contributionId === instance.contributionId)?.title ?? instance.contributionId;

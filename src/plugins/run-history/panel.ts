@@ -10,6 +10,15 @@ const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null 
 };
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 
+const glyphs = { refresh: '\ue094', running: '\ue3d2', succeeded: '\ue184', failed: '\ue4e2', stopped: '\ue3de', review: '\ue282', history: '\ue19a' } as const;
+const icon = (name: keyof typeof glyphs) => { const value = node('span', glyphs[name]); value.className = 'run-icon'; value.setAttribute('aria-hidden', 'true'); return value; };
+const statusLabels = { running: 'Worker running', succeeded: 'Worker completed', failed: 'Worker failed', stopped: 'Worker stopped' } as const;
+const recommendationLabels = { APPROVE: 'Approve', REQUEST_CHANGES: 'Changes requested', COMMENT: 'Comment' } as const;
+const date = (value: string) => {
+  const parsed = new Date(value); const time = node('time', Number.isFinite(parsed.getTime()) ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(parsed) + ' UTC' : value);
+  time.dateTime = value; time.title = value; return time;
+};
+
 class HistoryPanel implements PluginPanelInstance {
   private state: PluginPanelState;
   private readonly container: HTMLElement;
@@ -26,6 +35,7 @@ class HistoryPanel implements PluginPanelInstance {
   private error = '';
   private saveError = '';
   private saveQueue: Promise<void> = Promise.resolve();
+  private readonly expanded = new Set<string>();
 
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.container = container; this.context = context; this.state = context.state;
@@ -47,11 +57,11 @@ class HistoryPanel implements PluginPanelInstance {
     previous.activity.signal.removeEventListener('abort', this.cancel); this.state = next; next.activity.signal.addEventListener('abort', this.cancel, { once: true });
     const scopeChanged = previous.activity.repo !== next.activity.repo;
     const changed = scopeChanged || previous.activity.signal !== next.activity.signal || previous.activity.epoch !== next.activity.epoch || previous.visible !== next.visible || previous.activity.active !== next.activity.active;
-    if (changed) { this.cancel(); if (scopeChanged) { this.page = null; this.cursors = [null]; this.index = 0; this.error = ''; } if (this.active()) void this.read(this.index); }
+    if (changed) { this.cancel(); if (scopeChanged) { this.page = null; this.cursors = [null]; this.index = 0; this.error = ''; this.expanded.clear(); } if (this.active()) void this.read(this.index); }
     this.draw();
   }
-  refresh() { this.cursors = [null]; this.index = 0; this.page = null; return this.read(0); }
-  private async read(index: number) {
+  refresh() { return this.read(0, true); }
+  private async read(index: number, reset = false) {
     const service = this.context.services.runInspect;
     if (!service || !this.active()) return;
     this.cancel(); const generation = this.generation; const controller = new AbortController(); this.controller = controller;
@@ -62,7 +72,7 @@ class HistoryPanel implements PluginPanelInstance {
       if (result?.status !== 'available' || !Array.isArray(result.value?.items) || result.value.items.length > 50
         || result.value.repo !== this.state.activity.repo || result.value.items.some(run => !run || typeof run.id !== 'string' || typeof run.repo !== 'string' || typeof run.displayKey !== 'string'
           || this.state.activity.repo !== null && run.repo !== this.state.activity.repo)) throw new Error('Run history is unavailable. Refresh to retry.');
-      this.page = result.value; this.index = index; this.error = '';
+      this.page = result.value; this.index = index; if (reset) this.cursors = [null]; this.error = '';
     } catch (error) { if (this.active(generation)) this.error = error instanceof Error ? error.message : 'Run history is unavailable. Refresh to retry.'; }
     finally { if (this.active(generation)) { this.loading = false; this.draw(); } }
   }
@@ -86,43 +96,60 @@ class HistoryPanel implements PluginPanelInstance {
     if (this.disposed) return;
     const focus = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.focus : undefined;
     const root = node('section'); root.className = 'plugin-run-history'; root.setAttribute('aria-busy', String(this.loading)); root.append(node('style', styles));
-    const tools = node('div'); tools.className = 'run-tools'; tools.append(node('h2', this.state.pirateMode ? 'Voyage history' : 'Run history'));
+    const composition = this.container.closest('[data-composition-page]'); const composed = composition !== null;
+    const tools = node('div'); tools.className = 'run-tools';
+    if (!composition?.classList.contains('plugin-run-history')) { const heading = node('h2', this.state.pirateMode ? 'Voyage history' : 'Run history'); heading.prepend(icon('history')); tools.append(heading); }
     const filter = node('select'); filter.setAttribute('aria-label', 'Run status filter'); filter.dataset.focus = 'filter'; filter.disabled = !this.active() || this.unsupported;
-    for (const [value, label] of [['all', 'All runs'], ['running', 'Running'], ['terminal', 'Completed']]) { const option = node('option', label); option.value = value!; filter.append(option); }
+    for (const [value, label] of [['all', this.state.pirateMode ? 'All voyages' : 'All runs'], ['running', 'Running'], ['terminal', 'Finished']]) { const option = node('option', label); option.value = value!; filter.append(option); }
     filter.value = this.saved.kind;
-    filter.addEventListener('change', () => { this.saved.kind = filter.value as HistoryState['kind']; this.page = null; this.persist(); void this.refresh(); });
-    tools.append(filter, this.button('Refresh', () => { this.persist(); void this.refresh(); }, this.loading)); root.append(tools);
-    for (const message of [this.error, this.saveError, this.unsupported ? 'Saved history state uses an unsupported version. It is preserved.' : '']) if (message) { const alert = node('p', message); alert.setAttribute('role', 'alert'); root.append(alert); }
+    filter.addEventListener('change', () => { this.saved.kind = filter.value as HistoryState['kind']; this.page = null; this.cursors = [null]; this.index = 0; this.expanded.clear(); this.persist(); void this.refresh(); });
+    const refresh = this.button('Refresh', () => { this.persist(); void this.refresh(); }, this.loading); refresh.prepend(icon('refresh')); refresh.dataset.focus = 'refresh';
+    if (!composed) tools.append(refresh); if (tools.childElementCount) root.append(tools);
+    const filters = node('div'); filters.className = 'run-filters'; const label = node('label', 'Status'); label.append(filter); filters.append(label); root.append(filters);
+    for (const message of [this.error, this.saveError, this.unsupported ? 'Saved history state uses an unsupported version. It is preserved.' : '']) if (message) { const alert = node('p', `${message}${message === this.error && this.page ? ' Showing the last observed page.' : ''}`); alert.setAttribute('role', 'alert'); root.append(alert); }
     if (this.page) {
-      root.append(node('p', this.page.totalQuality === 'exact' && this.page.total !== null ? `${this.page.total} matching runs observed ${this.page.observedAt}` : `Total unknown · observed ${this.page.observedAt}`),
-        node('small', `Page ${this.index + 1} · ${this.page.items.length} runs shown. Statuses may change between pages.`));
+      const observation = node('div'); observation.className = 'run-observation';
+      const total = node('p', this.page.totalQuality === 'exact' && this.page.total !== null ? `${this.page.total} matching runs observed ` : 'Total unknown · observed '); total.append(date(this.page.observedAt));
+      observation.append(total, node('small', `Page ${this.index + 1} · ${this.page.items.length} runs shown. Statuses may change between pages.`)); root.append(observation);
       for (const run of this.page.items) {
         const row = node('article'); row.className = 'run-row'; row.dataset.runId = run.id;
         const review = /^review$/i.test(run.displayKey.trim());
         const number = Number.isSafeInteger(run.prNumber) && (run.prNumber ?? 0) > 0 ? run.prNumber : null;
         const label = review ? `${this.state.pirateMode ? 'Inspection' : 'Review'}${number ? ` #${number}` : ''}` : run.displayKey;
-        const open = this.button(label, () => this.select(run.repo, run.id), !this.context.selectPresentation);
-        open.setAttribute('aria-label', `${label} · ${run.repo} · ${run.id} · Attempt ${run.attempt}`);
-        row.append(open);
-        if (review && typeof run.title === 'string' && run.title.trim() && !/^review(?:\s+#\d+)?$/i.test(run.title.trim())) {
-          const title = node('p', run.title); title.className = 'run-subject'; row.append(title);
-        }
+        const subject = typeof run.title === 'string' && run.title.trim() && !/^review(?:\s+#\d+)?$/i.test(run.title.trim()) ? run.title : null;
+        const open = this.button(subject ?? label, () => this.select(run.repo, run.id), !this.context.selectPresentation); open.className = subject ? 'run-open run-subject' : 'run-open';
+        open.dataset.focus = JSON.stringify([run.repo, run.id, 'open']); open.setAttribute('aria-label', `${subject ? `${subject} · ` : ''}${label} · ${run.repo} · ${run.id} · Attempt ${run.attempt}`); row.append(open);
+        const identity = node('div'); identity.className = 'run-identity';
+        if (subject) identity.append(node('small', label));
+        if (run.repo !== this.state.activity.repo) identity.append(node('small', run.repo));
         if (number && /^[a-z\d](?:[a-z\d-]*[a-z\d])?\/[a-z\d_.-]+$/i.test(run.repo)) {
           const headerRepo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
           const params = new URLSearchParams({ ...(headerRepo ? { repo: headerRepo } : {}), prRepo: run.repo, pr: String(number) });
-          const link = node('a', `${this.state.pirateMode ? 'Bounty' : 'PR'} ${run.repo}#${number}`); link.href = `/prs?${params}`;
+          const linkLabel = `${this.state.pirateMode ? 'Bounty' : 'PR'} ${run.repo === this.state.activity.repo ? '' : run.repo}#${number}`;
+          const link = node('a', linkLabel); link.title = `${run.repo}#${number}`; link.setAttribute('aria-label', `${linkLabel} · ${run.repo}`); link.href = `/prs?${params}`; link.dataset.focus = JSON.stringify([run.repo, run.id, 'pr']);
           link.addEventListener('click', event => {
             if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !this.active()) return;
             event.preventDefault(); this.context.navigate(link.getAttribute('href') ?? '/prs');
-          }); row.append(link);
+          }); identity.append(link);
         }
-        row.append(node('small', `${run.repo} · ${run.id} · Attempt ${run.attempt}`),
-          node('p', `Worker: ${run.status} · ${run.costUsd === null ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`}`), node('small', `Started ${run.startedAt}${run.endedAt ? ` · Ended ${run.endedAt}` : ''}`));
+        row.append(identity);
+        const metadata = node('div'); metadata.className = 'run-metadata';
+        const worker = node('span', statusLabels[run.status] ?? `Worker: ${run.status}`); worker.className = 'run-worker'; worker.dataset.status = run.status;
+        if (Object.hasOwn(statusLabels, run.status)) worker.prepend(icon(run.status)); metadata.append(worker);
+        if (run.review) { const recommendation = node('span', `Recommendation: ${recommendationLabels[run.review.outcome] ?? run.review.outcome}`); recommendation.className = 'run-recommendation'; recommendation.prepend(icon(run.review.outcome === 'APPROVE' ? 'succeeded' : run.review.outcome === 'REQUEST_CHANGES' ? 'failed' : 'review')); metadata.append(recommendation); }
         const feedback = feedbackLabel(run);
-        if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = run.feedbackOutcome?.summary ?? ''; row.append(outcome); }
-        if (run.review) row.append(node('p', `Review recommendation: ${run.review.outcome}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
-        if (run.sourceSettlement) row.append(node('p', `Source settlement: ${run.sourceSettlement.state}`));
-        root.append(row);
+        if (feedback) { const outcome = node('span', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = run.feedbackOutcome?.summary ?? ''; metadata.append(outcome); }
+        if (run.sourceSettlement?.state === 'operator-required') { const settlement = node('span', 'Needs action'); settlement.className = 'run-settlement'; settlement.title = 'Source settlement requires operator action.'; settlement.prepend(icon('failed')); metadata.append(settlement); }
+        const spend = node('small', run.costUsd === null || !Number.isFinite(run.costUsd) ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`); metadata.append(spend); row.append(metadata);
+        const started = node('small', 'Started '); started.className = 'run-started'; started.append(date(run.startedAt)); row.append(started);
+        const detailsKey = JSON.stringify([run.repo, run.id]); const details = node('details'); details.className = 'run-details'; details.open = this.expanded.has(detailsKey);
+        details.addEventListener('toggle', () => { if (!details.isConnected) return; if (details.open) { if (this.expanded.size >= 200) this.expanded.delete(this.expanded.values().next().value!); this.expanded.add(detailsKey); } else this.expanded.delete(detailsKey); });
+        const summary = node('summary', 'Details'); summary.dataset.focus = JSON.stringify([run.repo, run.id, 'details']); details.append(summary);
+        const evidence = node('div'); evidence.className = 'run-evidence'; evidence.append(node('small', `${run.repo} · ${run.id} · Attempt ${run.attempt}`), node('p', `Worker: ${run.status}`), node('small', `Started ${run.startedAt}${run.endedAt ? ` · Ended ${run.endedAt}` : ''}`));
+        if (run.review) evidence.append(node('p', `Review recommendation: ${run.review.outcome}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
+        if (run.feedbackOutcome) evidence.append(node('p', `Feedback state: ${run.feedbackOutcome.state}`), node('small', `Feedback head: ${run.feedbackOutcome.headSha}`), node('p', run.feedbackOutcome.summary ?? ''));
+        if (run.sourceSettlement) evidence.append(node('p', `Source settlement: ${run.sourceSettlement.state}`));
+        details.append(evidence); row.append(details); root.append(row);
       }
       if (!this.page.items.length) root.append(node('p', 'No matching runs.'));
       const navigation = node('div'); navigation.className = 'run-tools';
@@ -133,7 +160,7 @@ class HistoryPanel implements PluginPanelInstance {
       }, this.loading || !this.page.nextCursor)); root.append(navigation);
     } else root.append(node('p', this.loading ? 'Loading run history…' : 'Run history is unavailable.'));
     const controls = [...root.querySelectorAll<HTMLElement>('button, a')];
-    for (const control of controls) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-id]')?.dataset.runId, control.textContent]);
+    for (const control of controls) if (!control.dataset.focus) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-id]')?.dataset.runId, control.textContent]);
     this.container.replaceChildren(root);
     if (focus) [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });
   }

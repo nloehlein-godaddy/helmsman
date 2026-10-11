@@ -105,6 +105,9 @@ test('copied Runs page preserves public PR scope, drafts and command identity an
     await page.reload(); await expect(pr).toBeVisible(); await expect(pr.locator('.pr-review-agent')).toBeFocused();
     expect((await layout(page)).instances.map(instance => instance.contributionId)).toEqual(['helmsman.compat-pr/panel', 'helmsman.run-history/panel']);
     const historyPanel = runs.locator('section.plugin-run-history');
+    await expect(runs.getByRole('button', { name: 'Refresh page', exact: true })).toHaveCount(1);
+    await expect(historyPanel.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
+    await expect(historyPanel.getByRole('heading', { name: 'Voyage history', exact: true })).toHaveCount(1);
     const historyRun = historyPanel.getByRole('button', { name: 'TASK-1 · org/a · runs-proof · Attempt 1', exact: true });
     await expect(historyRun).toBeVisible();
     await historyRun.click();
@@ -148,16 +151,16 @@ test('Runs selection preserves custom, missing and empty layouts and never falls
     await expect(page.getByText(/requested panel \(missing-route-target\)/)).toBeVisible();
     await expect(page.locator('[data-panel-instance="retained-missing"]').first()).toContainText(/unavailable/i); expect(await layout(page)).toEqual(missing);
     await page.goto(`${origin}/config?repo=org/a`); const empty = await replaceLayout(page, 'empty');
-    await page.goto(`${origin}/runs?repo=org/b&pane=recent`); await expect(page.getByText('Add a panel to view voyages.', { exact: true })).toBeVisible(); expect(await layout(page)).toEqual(empty);
+    await page.goto(`${origin}/runs?repo=org/b&pane=recent`); await expect(page.getByText('No visible panels. Choose Edit page to add or show a panel.', { exact: true })).toBeVisible(); expect(await layout(page)).toEqual(empty);
     host.env.HELMSMAN_PORT = new URL(origin).port; origin = await host.start(); await page.reload();
-    await expect(page.getByText('Add a panel to view voyages.', { exact: true })).toBeVisible(); await expect(page.locator('.repo-select')).toHaveValue('org/b'); expect(await layout(page)).toEqual(empty);
+    await expect(page.getByText('No visible panels. Choose Edit page to add or show a panel.', { exact: true })).toBeVisible(); await expect(page.locator('.repo-select')).toHaveValue('org/b'); expect(await layout(page)).toEqual(empty);
     await expect(page.locator('#boot')).toBeHidden({ timeout: 15_000 }); await page.screenshot({ path: testInfo.outputPath('authored-runs-empty-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 }); await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); await page.screenshot({ path: testInfo.outputPath('authored-runs-empty-mobile.png') });
     await host.cli('disable', packageId); await page.reload(); await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible();
     await expect(page.locator('.plugin-runs, section.plugin-run-history, [data-pr-compat-lookup]')).toHaveCount(0); expect(await layout(page)).toEqual(empty);
     await host.cli('select', compositionId, 'example.missing/page'); await page.reload(); await expect(page.getByRole('heading', { name: 'Page unavailable', exact: true })).toBeVisible();
     await host.cli('select', compositionId, 'default'); await page.reload(); await expect(page.locator('[data-plugin-page="helmsman.runs/page"]')).toBeVisible();
-    await expect(page.getByText('Add a panel to view voyages.', { exact: true })).toBeVisible(); expect(await layout(page)).toEqual(empty);
+    await expect(page.getByText('No visible panels. Choose Edit page to add or show a panel.', { exact: true })).toBeVisible(); expect(await layout(page)).toEqual(empty);
     expect(errors).toEqual([]); expect(host.output()).not.toContain('Source checkout is unavailable');
   } finally { await host.close(); }
 });

@@ -15,7 +15,7 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     await host.installAuthorPackage('plugin-sources/run-viewer', 'example.run-viewer');
     await cp(join(host.app, 'plugin-sources/run-viewer'), join(host.app, 'plugin-sources/alternate-viewer'), { recursive: true });
     await host.installAuthorPackage('plugin-sources/alternate-viewer', 'example.alternate-viewer');
-    await host.installAuthorPackage('plugin-sources/run-history', 'example.run-history');
+    await host.installAuthorPackage('plugin-sources/run-history', 'example.run-history', { buildScript: true });
     await host.cli('select', 'helmsman/run-viewer-page', 'example.run-viewer/page');
     await host.cli('select', 'helmsman/run-history-page', 'example.run-history/page');
     const dbUrl = pathToFileURL(join(host.app, 'server/helmsman/db.js')).href;
@@ -41,8 +41,15 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     };
     await page.goto(`${origin}/run-history?repo=org/a`);
     const history = page.locator('[data-plugin-page="example.run-history/page"]');
-    await expect(history.getByRole('heading', { name: 'Voyage history', exact: true })).toBeVisible();
+    await expect(history.getByRole('heading', { name: 'Run history', exact: true })).toBeVisible();
     await expect(history.getByText(/55 matching runs observed/)).toBeVisible();
+    await expect(history.getByRole('heading', { name: 'Run history', exact: true })).toHaveCount(1);
+    await expect(history.getByRole('button', { name: 'Refresh page', exact: true })).toHaveCount(1);
+    await expect(history.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
+    await expect.poll(() => history.evaluate(async () => {
+      await document.fonts.load('16px "Helmsman Phosphor Regular"');
+      return [...document.fonts].some(font => font.family.replaceAll('"', '') === 'Helmsman Phosphor Regular' && font.status === 'loaded');
+    })).toBe(true);
     await expect(history.locator('[data-run-id]')).toHaveCount(50);
     await history.getByRole('button', { name: 'Next page', exact: true }).click();
     await expect(history.locator('[data-run-id]')).toHaveCount(5);

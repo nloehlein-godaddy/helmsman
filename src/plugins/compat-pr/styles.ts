@@ -82,11 +82,6 @@ export const styles = `
 .plugin-public-pr [data-tone=queued]>.pr-phosphor { color:var(--queued); }
 .plugin-public-pr [data-tone=neutral]>.pr-phosphor { color:var(--text-dim); }
 .plugin-public-pr .pr-list-stat { display:inline-flex; align-items:center; gap:5px; }
-.plugin-public-pr .pr-list-stat::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--text-dim); }
-.plugin-public-pr .pr-list-stat[data-tone=bad]::before { background:var(--bad); }
-.plugin-public-pr .pr-list-stat[data-tone=good]::before { background:var(--good); }
-.plugin-public-pr .pr-list-stat[data-tone=review]::before { background:var(--review); }
-.plugin-public-pr .pr-list-stat[data-tone=queued]::before { background:var(--queued); }
 .plugin-public-pr .pr-list-notice>.pr-phosphor { margin-right:6px; }
 .plugin-public-pr .pr-panel-status { gap:4px 8px; }
 .plugin-public-pr .pr-checks>.pr-phosphor { margin-right:6px; }

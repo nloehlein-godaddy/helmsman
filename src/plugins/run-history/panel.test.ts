@@ -99,11 +99,11 @@ it.each([false, true])('identifies reviewed targets with retained subject and ga
   const item = { ...run('opaque-id', 'org/b'), displayKey: 'REVIEW', title, prNumber: 42 };
   const f = await mount(vi.fn(async () => available(page({ repo: 'org/b', items: [item] }))), { pirateMode, headerRepo: 'org/a', activity: { epoch: 1, repo: 'org/b', active: true, signal: new AbortController().signal } });
   await vi.waitFor(() => expect(f.container.querySelector('.run-subject')?.textContent).toBe(title));
-  const open = button(f.container, `${pirateMode ? 'Inspection' : 'Review'} #42`);
+  const open = f.container.querySelector<HTMLButtonElement>('.run-open')!;
   expect(open.getAttribute('aria-label')).toContain('org/b · opaque-id · Attempt 1');
   open.click(); expect(f.selectPresentation).toHaveBeenCalledWith({ version: 1, kind: 'run', repo: 'org/b', runId: 'opaque-id' });
   const link = f.container.querySelector('a');
-  expect(link?.textContent).toBe(`${pirateMode ? 'Bounty' : 'PR'} org/b#42`);
+  expect(link?.textContent).toBe(`${pirateMode ? 'Bounty' : 'PR'} #42`); expect(link?.title).toBe('org/b#42'); expect(link?.getAttribute('aria-label')).toContain('org/b');
   expect(link?.getAttribute('href')).toBe('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42');
   link?.click(); expect(f.context.navigate).toHaveBeenCalledWith('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42');
   expect(f.container.querySelector('img')).toBeNull(); expect(f.state.repo).toBe('org/a');
@@ -123,4 +123,51 @@ it.each([null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])('omits links for review
   const f = await mount(vi.fn(async () => available(page({ items: [{ ...run('old-review'), displayKey: 'review', prNumber }] }))));
   await vi.waitFor(() => expect(button(f.container, 'Review')).toBeTruthy());
   expect(f.container.querySelector('a')).toBeNull();
+});
+
+it('leads with the retained subject while keeping immutable identities and full evidence in native Details', async () => {
+  const item = { ...run('canonical-id'), displayKey: 'review', title: 'Fix login behavior', status: 'succeeded' as const, review: { outcome: 'REQUEST_CHANGES' as const, verdict: 'Fix <img src=x onerror=alert(1)>' } };
+  const f = await mount(vi.fn(async () => available(page({ items: [item] }))));
+  await vi.waitFor(() => expect(f.container.querySelector('.run-open')?.textContent).toBe(item.title));
+  const details = f.container.querySelector<HTMLDetailsElement>('details')!; expect(details.open).toBe(false);
+  expect(details.textContent).toContain('canonical-id · Attempt 1'); expect(details.textContent).toContain('Started 2026-09-20T00:00:00Z');
+  expect(details.textContent).toContain('Review recommendation: REQUEST_CHANGES'); expect(details.textContent).toContain(item.review.verdict);
+  expect(f.container.querySelector('.run-open')?.getAttribute('aria-label')).toContain(item.title);
+  expect(f.container.querySelector('.run-worker')?.textContent).toContain('Worker completed'); expect(f.container.querySelector('.run-recommendation')?.textContent).toContain('Recommendation: Changes requested');
+  expect(f.container.querySelector('.run-started')?.textContent).toContain('Sep 20, 2026'); expect(f.container.querySelector('.run-started time')?.getAttribute('datetime')).toBe(when);
+  expect(f.container.querySelector('img')).toBeNull(); f.container.querySelector<HTMLButtonElement>('.run-open')?.click();
+  expect(f.selectPresentation).toHaveBeenCalledWith({ version: 1, kind: 'run', repo: item.repo, runId: item.id });
+});
+
+it('retains open Details and canonical selection focus across same-scope refreshes', async () => {
+  const f = await mount(); await vi.waitFor(() => expect(f.container.querySelector('details')).not.toBeNull());
+  const details = f.container.querySelector<HTMLDetailsElement>('details')!; details.open = true; details.dispatchEvent(new Event('toggle'));
+  f.container.querySelector<HTMLButtonElement>('.run-open')!.focus(); await f.instance.refresh?.();
+  expect(f.container.querySelector<HTMLDetailsElement>('details')?.open).toBe(true);
+  expect(document.activeElement?.classList.contains('run-open')).toBe(true);
+});
+
+it('retains the correct observed page and cursors when a fresh observation fails, then resets on recovery', async () => {
+  const history = vi.fn<RunInspectServiceV1['history']>().mockResolvedValueOnce(available(page())).mockResolvedValueOnce(available(page({ items: [run('second')], nextCursor: null }))).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(available(page()));
+  const f = await mount(history); await vi.waitFor(() => expect(button(f.container, 'Next page')?.disabled).toBe(false)); button(f.container, 'Next page').click(); await vi.waitFor(() => expect(f.container.textContent).toContain('Page 2'));
+  await f.instance.refresh?.(); expect(f.container.textContent).toContain('Showing the last observed page.'); expect(f.container.textContent).toContain('Page 2'); expect(f.container.textContent).toContain('second');
+  await f.instance.refresh?.(); expect(f.container.textContent).toContain('Page 1'); expect(f.container.textContent).not.toContain('Showing the last observed page.');
+  expect(history.mock.calls.map(call => call[0].cursor)).toEqual([null, 'next', null, null]);
+});
+
+it('delegates composed Refresh and heading to its host while keeping a labeled status filter', async () => {
+  const f = await mount(); await vi.waitFor(() => expect(f.container.querySelector('.run-row')).not.toBeNull());
+  expect(f.container.querySelector('h2')?.textContent).toContain('Run history'); expect(f.container.querySelector('[data-focus="refresh"]')).not.toBeNull();
+  const wrapper = document.createElement('div'); wrapper.dataset.compositionPage = ''; document.body.append(wrapper); wrapper.append(f.container);
+  await f.instance.update(f.state); expect(f.container.querySelector('h2')?.textContent).toContain('Run history'); expect(f.container.querySelector('[data-focus="refresh"]')).toBeNull();
+  wrapper.className = 'plugin-run-history'; await f.instance.update(f.state); expect(f.container.querySelector('h2')).toBeNull();
+  expect(f.container.querySelector('.run-filters label')?.textContent).toContain('Status'); expect(f.container.querySelector('option[value="terminal"]')?.textContent).toBe('Finished');
+});
+
+it('keeps operator intervention visible when a worker completes', async () => {
+  const item = { ...run('finished'), status: 'succeeded' as const, sourceSettlement: { state: 'operator-required' as const } };
+  const f = await mount(vi.fn(async () => available(page({ items: [item] }))));
+  await vi.waitFor(() => expect(f.container.querySelector('.run-settlement')?.textContent).toContain('Needs action'));
+  expect(f.container.querySelector('.run-settlement')?.closest('details')).toBeNull();
+  expect(f.container.querySelector('.run-details')?.textContent).toContain('Source settlement: operator-required');
 });

@@ -90,6 +90,10 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(page).toHaveScreenshot(`pr-inbox-${width}-${mode}.png`);
     const first = authored.locator('[data-select-number="42"]');
     await expect(first).toContainText('Restore authored pull requests when search is unavailable');
+    await expect(first.locator('time')).toHaveText('Oct 9, 2026');
+    await expect(first.locator('time')).toHaveAttribute('datetime', at);
+    await expect(first.locator('time')).toHaveAttribute('title', at);
+    await expect(first.getByLabel('Status: open', { exact: true })).toHaveText('open');
     await first.focus();
     await first.press('Enter');
     await expect(panel.locator('.pr-panel')).toBeVisible();
