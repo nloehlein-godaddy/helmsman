@@ -9,3 +9,5 @@ Drafts and immutable receipts use the mounted contribution and instance identity
 Unsupported saved data is retained and blocks mutations. Active inputs remain stable through polling. Read and file results are discarded after activity, selection, or newer-edit changes. Destructive phase confirmations retain the displayed target revision.
 
 Build from this directory with `npm run build`. From the repository root, run `npx vitest run src/plugins/campaigns/page.test.ts src/plugins/campaigns/panel.test.ts` for focused controller and composition lifecycle coverage. Production package acceptance is covered by `tests/distribution/campaigns-host.pw.ts`.
+
+The interface separates campaign setup and saved plans from the selected campaign’s phase work. Creating a campaign saves a plan; previewing validates an import, confirming queues its tasks, and starting or resuming a phase enables dispatch. Composed pages own the single heading and Refresh; standalone panels retain both. Scope inherits the header until explicitly changed, with restoration shown only for an override. Local Phosphor icons and their font license ship with the package.

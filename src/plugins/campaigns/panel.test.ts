@@ -51,7 +51,7 @@ it('escapes campaign and imported task content and disables starting an empty ph
 it.each([null,{}, {version:1,repo:'org/b',campaigns:[null],workflows:[]},{version:1,repo:'org/b',campaigns:[],workflows:[null]}])('rejects malformed list snapshots without enabling mutations: %j',async value=>{const f=await fixture({},context=>{vi.mocked(context.services.campaigns!.list).mockResolvedValue(available(value as unknown as CampaignListSnapshotV1));});await f.instance.refresh?.();await vi.waitFor(()=>expect(f.container.textContent).toContain('could not be refreshed'));expect(f.container.querySelector<HTMLButtonElement>('[data-campaign-create] button')?.disabled).toBe(true);expect(f.service.submit).not.toHaveBeenCalled();});
 it('retains the import draft and pending request when preview records are malformed',async()=>{const f=await fixture({},(context,pending)=>{vi.mocked(context.services.campaigns!.submit).mockImplementation(async input=>{const result={...receipt(input),result:{kind:'preview' as const,preview:{...preview,records:[null]}}} as unknown as CampaignCommandReceiptV1;pending.push({command:{...input,requestId},receipt:null});return available(result);});});await ready(f);fill(f,'content','{"task":"Keep this"}');submit(f,'[data-campaign-import]');await vi.waitFor(()=>expect(f.container.textContent).toContain('Campaign result unavailable'));expect(f.container.querySelector<HTMLTextAreaElement>('[name="content"]')?.value).toContain('Keep this');expect(f.service.acknowledge).not.toHaveBeenCalled();expect(f.container.querySelector('[data-campaign-confirm-import]')).toBeNull();});
 
-it.each(['[data-campaign-refresh]', '[data-save-draft]', '[data-campaign-action="stop"]', '[data-campaign-create] button', '[data-campaign-phase-create] button', '[data-campaign-import] button', '.campaign-settings summary', '.campaign-recovery summary'])('retains keyboard focus through refresh and redraw: %s',async selector=>{
+it.each(['[data-campaign-refresh]', '[data-campaign-action="stop"]', '[data-campaign-create] button', '[data-campaign-phase-create] button', '[data-campaign-import] button', '.campaign-settings summary', '.campaign-recovery summary'])('retains keyboard focus through refresh and redraw: %s',async selector=>{
  const f=await fixture();await ready(f);
  const control=f.container.querySelector<HTMLElement>(selector)!;control.focus();
  await f.instance.refresh?.();expect(document.activeElement).toBe(f.container.querySelector(selector));
@@ -88,4 +88,53 @@ it('does not reclaim focus moved outside Campaigns during a deferred refresh',as
  await vi.waitFor(()=>expect(complete).toBeTypeOf('function'));
  const outside=document.createElement('button');document.body.append(outside);outside.focus();complete(available(detail));await refreshed;
  expect(document.activeElement).toBe(outside);expect(f.service.submit).not.toHaveBeenCalled();
+});
+
+it('uses one composed heading and Refresh, distinct padded sections and only contextual scope recovery',async()=>{
+ const f=await fixture({headerRepo:'org/b'});await ready(f);
+ expect(f.container.querySelector('[data-scope-inherit]')).toBeNull();expect(f.container.querySelector('[data-scope-all]')?.closest('.campaign-saved')).not.toBeNull();
+ expect(f.container.querySelector('[data-campaign-create]')?.closest('.campaign-create')).not.toBeNull();expect(f.container.querySelector('.campaign-list')?.closest('.campaign-saved')).not.toBeNull();
+ expect(f.container.querySelector<HTMLButtonElement>('[data-save-draft]')?.hidden).toBe(true);
+ const wrapper=document.createElement('section');wrapper.dataset.compositionPage='';document.body.append(wrapper);wrapper.append(f.container);await f.instance.update(f.state());
+ expect(f.container.querySelector('.campaign-page>h2')).toBeNull();expect(f.container.querySelector('[data-campaign-refresh]')).toBeNull();
+ expect(f.container.textContent).toContain('Active task limit');expect(f.container.textContent).not.toContain('Use top selection');expect(f.service.submit).not.toHaveBeenCalled();
+});
+
+it('leaves inherited All scope quiet and offers readable restore only for an effective override',async()=>{
+ const f=await fixture({repo:null,headerRepo:null,activity:{epoch:1,repo:null,active:true,signal:new AbortController().signal}});await f.instance.refresh?.();
+ expect(f.container.querySelector('[data-scope-inherit]')).toBeNull();expect(f.container.querySelector('[data-scope-all]')).toBeNull();expect(f.container.querySelector('.campaign-scope')?.textContent).toContain('All campaigns');
+ const scoped=await fixture();await ready(scoped);expect(scoped.container.querySelector('[data-scope-inherit]')?.textContent).toBe('Use selected repository');
+ await scoped.instance.update({...scoped.state(),pirateMode:true});expect(scoped.container.querySelector('[data-scope-inherit]')?.textContent).toBe('Use selected galleon');expect(scoped.service.submit).not.toHaveBeenCalled();
+});
+
+it('exposes a truthful saving retry only after storage fails and restores focus when the error clears',async()=>{
+ const f=await fixture();await ready(f);const write=Storage.prototype.setItem;
+ const spy=vi.spyOn(Storage.prototype,'setItem').mockImplementation(function(this:Storage,key,value){if(key.endsWith(':draft'))throw new Error('Draft storage unavailable');write.call(this,key,value);});
+ fill(f,'name','Keep this draft');expect(f.container.querySelector('[data-draft-status]')?.textContent).toBe('Drafts need saving.');
+ const retry=f.container.querySelector<HTMLButtonElement>('[data-save-draft]')!;expect(retry.hidden).toBe(false);expect(retry.getAttribute('aria-label')).toBe('Retry saving drafts');retry.focus();
+ spy.mockRestore();click(f,'[data-save-draft]');expect(f.container.querySelector<HTMLButtonElement>('[data-save-draft]')?.hidden).toBe(true);
+ expect(f.container.querySelector('[data-draft-status]')?.textContent).toBe('Drafts save locally as you type.');expect(document.activeElement).toBe(f.container.querySelector('[data-campaign-refresh]'));expect(f.service.submit).not.toHaveBeenCalled();
+});
+
+it('gives task outcome and import stages distinct labeled icons while preserving literal provider content',async()=>{
+ const f=await fixture();await ready(f);expect(f.container.querySelector('.campaign-phase-heading h3')?.textContent).toContain('Pilot');
+ expect(f.container.querySelector('.campaign-task-state')?.textContent).toContain('Failed');expect(f.container.querySelector('.campaign-task-state')?.getAttribute('data-state')).toBe('failed');
+ expect(f.container.querySelector('.campaign-import h4')?.textContent).toContain('Import tasks');expect(f.container.querySelector('.campaign-tasks-heading')?.textContent).toContain('Phase tasks');
+ for(const icon of f.container.querySelectorAll('.campaign-icon'))expect(icon.getAttribute('aria-hidden')).toBe('true');expect(f.service.submit).not.toHaveBeenCalled();
+});
+
+it('explains how to recover creation in explicit All scope and why missing workflows disable creation',async()=>{
+ const f=await fixture();await ready(f);click(f,'[data-scope-all]');await vi.waitFor(()=>expect(f.container.querySelector('.campaign-create')?.textContent).toContain('Use selected repository to create a campaign.'));
+ expect(f.container.querySelector('.campaign-create')?.textContent).not.toContain('Select a repository in the header');expect(f.service.submit).not.toHaveBeenCalled();
+ const missing=await fixture({},context=>{vi.mocked(context.services.campaigns!.list).mockResolvedValue(available({...list,workflows:[]}));});await missing.instance.refresh?.();
+ expect(missing.container.querySelector('.campaign-create')?.textContent).toContain('No task workflow is available in this scope.');expect(missing.container.querySelector<HTMLFieldSetElement>('[data-campaign-create] fieldset')?.disabled).toBe(true);expect(missing.service.submit).not.toHaveBeenCalled();
+});
+
+it('retains named table semantics and metadata labels when mobile rows stack',async()=>{
+ const f=await fixture();await ready(f);const table=f.container.querySelector('[role="table"]');
+ expect(table?.getAttribute('aria-label')).toBe('Pilot tasks');expect(table?.querySelectorAll('[role="columnheader"][scope="col"]')).toHaveLength(5);
+ const row=table?.querySelector('tbody [role="row"]');expect(row?.querySelectorAll('[role="cell"]')).toHaveLength(5);
+ expect(row?.querySelector('.campaign-task-title')?.textContent).toBe('Fix itFailed');expect(row?.querySelector('.campaign-task-repo')?.getAttribute('data-label')).toBe('Repository');
+ expect(row?.querySelector('[data-label="Attempt"]')?.textContent).toBe('2');expect(row?.querySelector('.campaign-task-actions [data-campaign-retry]')?.getAttribute('data-campaign-retry')).toBe(task.id);
+ await f.instance.update({...f.state(),pirateMode:true});expect(f.container.querySelector('.campaign-task-repo')?.getAttribute('data-label')).toBe('Galleon');expect(f.service.submit).not.toHaveBeenCalled();
 });

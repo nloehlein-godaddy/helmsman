@@ -36,11 +36,13 @@ test('source-denied authored campaigns preserve scoped drafts and exact durable 
     await page.goto(`${origin}/campaigns?repo=org/a`);
     const panel = page.locator('.campaign-page');
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
-    await expect(page.getByText('Scope: org/a', { exact: true })).toBeVisible();
+    await expect(panel.locator('[data-scope-inherit]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Refresh page', exact: true })).toHaveCount(1);
+    await expect(panel.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
     const create = panel.locator('form[data-campaign-create]');
     await create.getByLabel('Campaign name').fill('Isolated campaign');
     await create.getByText('Execution settings', { exact: true }).click();
-    await create.getByLabel('Maximum active tasks').fill('2');
+    await create.getByLabel('Active task limit').fill('2');
     await create.getByRole('button', { name: 'Create campaign', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Retry original request', exact: true })).toBeVisible();
     expect(lostCreate).not.toBeNull();
@@ -54,12 +56,12 @@ test('source-denied authored campaigns preserve scoped drafts and exact durable 
     const campaignId = scopedList.campaigns[0]!.id;
 
     await page.getByRole('button', { name: 'Show all campaigns', exact: true }).click();
-    await expect(page.getByText('Scope: All campaigns', { exact: true })).toBeVisible();
+    await expect(panel.locator('.campaign-scope').getByText('All campaigns', { exact: true })).toBeVisible();
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await expect(panel.getByRole('button', { name: 'Isolated campaign', exact: true })).toBeVisible();
     await expect(create.getByRole('button', { name: 'Create campaign', exact: true })).toBeDisabled();
-    await page.getByRole('button', { name: 'Use header scope', exact: true }).click();
-    await expect(page.getByText('Scope: org/a', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Use selected galleon', exact: true }).click();
+    await expect(panel.locator('[data-scope-inherit]')).toHaveCount(0);
 
     const phaseForm = panel.locator('form[data-campaign-phase-create]');
     await phaseForm.getByLabel('New phase').fill('Pilot phase');
@@ -85,11 +87,11 @@ test('source-denied authored campaigns preserve scoped drafts and exact durable 
     await preview.scrollIntoViewIfNeeded();
     expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(preview.getByRole('heading', { name: 'Review imported tasks', exact: true })).toBeInViewport();
+    await expect(preview.getByRole('heading', { name: 'Check tasks before importing', exact: true })).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath('campaigns-mobile.png'), fullPage: true });
     await page.setViewportSize({ width: 1280, height: 900 });
 
-    await preview.getByRole('button', { name: 'Add tasks to phase', exact: true }).click();
+    await preview.getByRole('button', { name: 'Import tasks', exact: true }).click();
     await expect(panel.getByRole('cell', { name: 'Default task', exact: true })).toBeVisible();
     await expect(panel.getByRole('cell', { name: 'Override task', exact: true })).toBeVisible();
     await expect(panel.getByRole('cell', { name: 'Queued', exact: true })).toHaveCount(2);
