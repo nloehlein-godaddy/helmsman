@@ -13,3 +13,5 @@ The compatibility recovery link preserves header scope and opens the original co
 _Helmsman · not reported - not reported_
 
 Retry requires the host's optional exact-request `retry` method. It never calls `submit` to recreate a missing reservation; older hosts disable retry and retain receipt checks.
+
+The interface groups global contacts in a separate supporting section with bounded create and edit forms. Composed pages own Refresh and compatibility recovery; standalone panels retain both. Contact scope and original edit revisions stay unchanged. Local Phosphor icons, fonts and their license ship with the independently built package.

@@ -38,7 +38,7 @@ async function installQuestions(host: Awaited<ReturnType<typeof fixture>>) {
     if (instance.contributionId?.startsWith('helmsman.suggested-contacts/')) instance.contributionId = instance.contributionId.replace('helmsman.suggested-contacts/', `${contactPackage}/`);
   }
   await writeFile(path, JSON.stringify(descriptor));
-  await host.installAuthorPackage('plugin-sources/clarifications', questionPackage);
+  await host.installAuthorPackage('plugin-sources/clarifications', questionPackage, { buildScript: true });
 }
 async function guardResultBeforeAcknowledgment(page: Page, database: string, caller: string, requestId: string) {
   await page.evaluate(async ({ database, caller, requestId, compositionId }) => {
@@ -107,6 +107,7 @@ test('authored question panels preserve compatibility recovery, reject stale-tab
     const selected = questions.locator('[data-question-id="authored-proof"]');
     await expect(selected.getByRole('textbox', { name: 'Answer', exact: true })).toBeVisible();
     await expect(questions.locator('[data-question-id="legacy-proof"]')).toContainText('provenance-unknown');
+    await questions.locator('[data-question-id="legacy-proof"] .question-answer-draft > summary').click();
     await expect(questions.locator('[data-question-id="legacy-proof"]').getByRole('button', { name: 'Accept answer', exact: true })).toBeDisabled();
     await expect(page.locator('.plugin-suggested-contacts')).toHaveCount(0);
     expect(await journal(page, answerDatabase, compatibilityCaller)).toEqual(originalAnswers);
@@ -150,7 +151,7 @@ test('authored question panels preserve compatibility recovery, reject stale-tab
     await expect(questions.getByRole('button', { name: 'Check receipt', exact: true })).toBeVisible();
     const authored = (await journal(page, answerDatabase, questionCaller))[0]; expect(authored?.receipt).toBeNull();
     expect(authored?.command).toMatchObject({ questionId: 'authored-proof', answer: finalAnswer });
-    await host.installAuthorPackage('plugin-sources/suggested-contacts', contactPackage);
+    await host.installAuthorPackage('plugin-sources/suggested-contacts', contactPackage, { buildScript: true });
     await host.cli('disable', contactPackage); await page.reload();
     await expect(page.locator('.plugin-suggested-contacts')).toHaveCount(0);
     const next = questions.locator('[data-question-id="authored-next"]');
@@ -158,7 +159,7 @@ test('authored question panels preserve compatibility recovery, reject stale-tab
     await next.getByRole('button', { name: 'Accept answer', exact: true }).click();
     await expect.poll(async () => (await journal(page, answerDatabase, questionCaller)).find(entry => entry.command.questionId === 'authored-next')?.receipt?.status).toBe('succeeded');
     const nextRequest = (await journal(page, answerDatabase, questionCaller)).find(entry => entry.command.questionId === 'authored-next');
-    await questions.getByRole('link', { name: 'Previous drafts and requests', exact: true }).click();
+    await page.locator('[data-composition-page]').getByRole('link', { name: 'Previous drafts and requests', exact: true }).click();
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await compatibility.locator('[data-pending-kind="answer"]').getByRole('button', { name: 'Check receipt', exact: true }).click();
     await expect.poll(async () => (await journal(page, answerDatabase, compatibilityCaller)).length).toBe(0);
@@ -199,13 +200,13 @@ test('authored question panels preserve compatibility recovery, reject stale-tab
     expect(await journal(page, answerDatabase, questionCaller)).toHaveLength(0);
     expect(JSON.stringify(await browserRows(page, 'helmsman.composition-layouts', 'layouts'))).toContain(authored!.command.requestId);
     await resultWriter.close(); await staleRetry.close(); await page.reload();
-    await expect(questions.getByRole('button', { name: 'Refresh questions', exact: true })).toBeEnabled();
+    await expect(page.locator('[data-composition-page]').getByRole('button', { name: 'Refresh page', exact: true })).toBeEnabled();
     await expect(page.locator('#boot')).toBeHidden({ timeout: 15_000 });
-    await questions.getByRole('heading', { name: 'Agent questions', exact: true }).scrollIntoViewIfNeeded();
+    await page.locator('[data-composition-page]').getByRole('heading', { name: 'Agent questions', exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath('authored-questions-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await questions.getByRole('heading', { name: 'Agent questions', exact: true }).scrollIntoViewIfNeeded();
+    await page.locator('[data-composition-page]').getByRole('heading', { name: 'Agent questions', exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath('authored-questions-mobile.png') });
     expect(errors).toEqual([]); expect(host.output()).not.toContain('Source checkout is unavailable');
   } finally { await host.close(); }
@@ -218,7 +219,7 @@ test('authored global contact panel reconciles create after restart and updates 
   const headers = { 'X-Helmsman-Contribution': contactCaller };
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   try {
-    await installQuestions(host); await host.installAuthorPackage('plugin-sources/suggested-contacts', contactPackage);
+    await installQuestions(host); await host.installAuthorPackage('plugin-sources/suggested-contacts', contactPackage, { buildScript: true });
     let origin = await host.start();
     await page.goto(`${origin}/plugins/${questionPackage}/page?repo=org/a`);
     const contacts = page.locator('.plugin-suggested-contacts');
@@ -267,10 +268,10 @@ test('authored global contact panel reconciles create after restart and updates 
     await expect.poll(async () => (await journal(page, contactDatabase, contactCaller)).length).toBe(0);
     const current = await request.get(`${origin}/api/suggested-contact-admin/${String(original?.command.id)}?scope=global`, { headers });
     expect(await current.json()).toMatchObject({ id: original?.command.id, revision: 2, name: 'Updated authored reviewer', address: 'updated-account', enabled: false, createdAt: created[0].createdAt });
-    await contacts.getByRole('heading', { name: 'Suggested contacts — global', exact: true }).scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath('authored-contacts-desktop.png') });
+    await contacts.getByRole('heading', { name: 'Suggested contacts', exact: true }).scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath('authored-contacts-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await contacts.getByRole('heading', { name: 'Suggested contacts — global', exact: true }).scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath('authored-contacts-mobile.png') });
+    await contacts.getByRole('heading', { name: 'Suggested contacts', exact: true }).scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath('authored-contacts-mobile.png') });
     expect(errors).toEqual([]); expect(host.output()).not.toContain('Source checkout is unavailable');
   } finally { await host.close(); }
 });
@@ -338,13 +339,13 @@ test('clarifications alias preserves canonical layouts through installed page re
     expect(await questionLayout(page)).toEqual(missingLayout);
     await page.goto(`${origin}/plugins/helmsman.compat-clarifications/page?repo=org/a`);
     const emptyLayout = await replaceQuestionLayout(page, true);
-    await page.goto(`${origin}/clarifications?repo=org/a`); await expect(page.getByText('Add a panel to view agent questions.', { exact: true })).toBeVisible();
+    await page.goto(`${origin}/clarifications?repo=org/a`); await expect(page.getByText('No visible panels. Choose Edit page to add or show a panel.', { exact: true })).toBeVisible();
     await expect(page.locator('.plugin-clarifications-panel, .plugin-suggested-contacts')).toHaveCount(0);
     host.env.HELMSMAN_PORT = new URL(origin).port; origin = await host.start(); await page.goto(`${origin}/clarifications?repo=org/b`);
     await expect(page.locator(`[data-plugin-page="${questionPackage}/page"]`)).toBeVisible();
-    await expect(page.getByText('Add a panel to view agent questions.', { exact: true })).toBeVisible();
+    await expect(page.getByText('No visible panels. Choose Edit page to add or show a panel.', { exact: true })).toBeVisible();
     expect(await questionLayout(page)).toEqual(emptyLayout);
-    await page.locator('.plugin-clarifications > .question-tools').getByRole('link', { name: 'Previous drafts and requests', exact: true }).click();
+    await page.locator('[data-composition-page]').getByRole('link', { name: 'Previous drafts and requests', exact: true }).click();
     await expect(page.locator('.clarification-page')).toBeVisible(); await expect(page.locator('.repo-select')).toHaveValue('org/b');
     await host.cli('select', 'helmsman/clarifications-page', 'default'); await page.goto(`${origin}/clarifications?repo=org/b`);
     await expect(page.locator('[data-plugin-page="helmsman.clarifications/page"]')).toBeVisible();
@@ -374,7 +375,7 @@ test('clarifications alias preserves oversized and unknown compatibility evidenc
     await page.reload(); await expect(page.locator('.plugin-clarifications-panel')).toBeVisible();
     expect(await compatibilityEvidence(page)).toEqual(oversized);
     expect(JSON.stringify(await browserRows(page, 'helmsman.composition-layouts', 'layouts'))).not.toContain('Retained original draft');
-    await page.locator('.plugin-clarifications > .question-tools').getByRole('link', { name: 'Previous drafts and requests', exact: true }).click();
+    await page.locator('[data-composition-page]').getByRole('link', { name: 'Previous drafts and requests', exact: true }).click();
     await expect(page.locator('.clarification-page').getByText('Saved drafts and results', { exact: true })).toBeVisible();
     expect(await compatibilityEvidence(page)).toEqual(oversized);
     await page.evaluate(() => { localStorage.setItem('helmsman.compat-clarifications.drafts.v2:future-format', '{"version":99,"opaque":"Preserve unknown original evidence"}'); });

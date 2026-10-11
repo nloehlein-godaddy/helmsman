@@ -17,3 +17,7 @@ _Helmsman · not reported - not reported_
 Retry requires the host's optional exact-request `retry` method. It never calls `submit` to recreate a missing reservation; older hosts disable retry and retain receipt checks.
 
 Existing canonical composition layouts remain authoritative across alias visits and page replacement, including empty layouts and missing implementations. Defaults initialize only absent layouts. After independently building and installing `example.questions`, select it with `select helmsman/clarifications-page example.questions/page`; select `default` to restore the builtin page. These selections do not adopt compatibility storage or rewrite existing panel instances.
+
+The composed interface owns the single heading, Refresh and compatibility recovery link; standalone question panels retain their own controls. Prompt-first rows keep publication blockers and answerability visible. Observation timestamps use readable UTC dates with exact values retained. Quiet pagination preserves later-page cursor reset. Local Phosphor icons, fonts and their license ship with the independently built package.
+
+Read-only answer forms use native Answer draft disclosures. Accepted answers, publication blockers and read-only reasons remain visible; editable drafts, exact identities and disclosure focus stay intact.

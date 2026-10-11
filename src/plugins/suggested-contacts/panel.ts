@@ -5,6 +5,10 @@ import { canonical, SavedState } from './saved-state.js';
 import { styles } from './styles.js';
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 const failure = (error: unknown) => error instanceof Error ? error.message : 'Service unavailable.';
+const glyphs = { refresh: '\ue094', contact: '\ue4d6', add: '\ue3d6', edit: '\ue3b4', save: '\ue248', history: '\ue19a' } as const;
+const icon = (name: keyof typeof glyphs) => { const value = node('span'); value.className = 'question-icon'; value.dataset.glyph = glyphs[name]; value.setAttribute('aria-hidden', 'true'); return value; };
+
+
 class Contacts implements PluginPanelInstance {
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
@@ -124,7 +128,7 @@ class Contacts implements PluginPanelInstance {
   }
   private button(text: string, action: () => void, disabled = false) { const button = node('button', text); button.type = 'button'; button.disabled = !this.active() || this.busy || disabled; button.addEventListener('click', action); return button; }
   private form(draft: ContactDraft, id: string | null) {
-    const form = node('form'); form.setAttribute('aria-label', id === null ? 'Create global contact' : 'Edit global contact'); form.dataset.contactDraft = id ?? 'create';
+    const form = node('form'); form.setAttribute('aria-label', id === null ? 'Create global contact' : 'Edit global contact'); form.dataset.contactDraft = id ?? 'create'; form.className = 'contact-form';
     for (const name of ['name', 'address', 'enabled'] as const) {
       const label = node('label', name === 'name' ? 'Name' : name === 'address' ? 'Address' : 'Enabled'); const input = node('input'); input.name = name; input.dataset.focus = `${id ?? 'create'}:${name}`;
       if (name === 'enabled') { label.className = 'contact-enabled'; input.type = 'checkbox'; input.checked = draft.enabled; } else { input.maxLength = name === 'name' ? 160 : 320; input.value = draft[name]; }
@@ -132,40 +136,46 @@ class Contacts implements PluginPanelInstance {
       input.addEventListener('input', () => { this.saved.edit(value => { const target = id === null ? value.create : value.edits.find(item => item.id === id); if (!target) return; if (name === 'enabled') target.enabled = input.checked; else target[name] = input.value; }); void this.saved.save(); }); label.append(input); form.append(label);
     }
     const save = this.button(id === null ? 'Create global contact' : 'Save global contact', () => this.submit(id), !this.saved.writable || !this.ready || this.blocked(id));
-    save.className = 'primary-action'; form.append(save);
+    save.className = 'primary-action'; save.prepend(icon(id === null ? 'add' : 'save')); form.append(save);
     form.addEventListener('submit', event => { event.preventDefault(); this.submit(id); }); return form;
   }
   private draw() {
     if (this.disposed) return;
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null; const focusKey = focused?.dataset.focus;
     const selection = focused instanceof HTMLInputElement && focused.type !== 'checkbox' ? [focused.selectionStart, focused.selectionEnd] : null;
-    const root = node('section'); root.className = 'plugin-suggested-contacts'; root.append(node('style', styles), node('h2', 'Suggested contacts — global'), node('p', 'These contacts apply to every galleon. Saving contact metadata sends no messages.'));
-    root.append(this.button('Refresh contacts', () => { void this.refresh(); }, this.loading));
-    const legacy = node('a', 'Previous contact drafts and requests'); const recovery = new URL('/plugins/helmsman.compat-clarifications/page', window.location.href); const headerRepo = new URL(window.location.href).searchParams.get('repo'); if (headerRepo) recovery.searchParams.set('repo', headerRepo); legacy.href = recovery.href; legacy.addEventListener('click', event => { event.preventDefault(); this.context.navigate(legacy.href); }); root.append(legacy);
+    const composed = this.container.closest('[data-composition-page]') !== null;
+    const root = node('section'); root.className = 'plugin-suggested-contacts'; root.setAttribute('aria-busy', String(this.loading || this.busy)); root.append(node('style', styles));
+    const heading = node('div'); heading.className = 'contact-section-heading'; const title = node('h2', 'Suggested contacts'); title.prepend(icon('contact')); const scope = node('span', 'Global'); scope.className = 'contact-global'; heading.append(title, scope);
+    if (!composed) { const refresh = this.button('Refresh contacts', () => { void this.refresh(); }, this.loading); refresh.prepend(icon('refresh')); heading.append(refresh); } root.append(heading);
+    const explanation = node('p', `These contacts apply to every ${this.state.pirateMode ? 'galleon' : 'repository'}. Saving contact metadata sends no messages.`); explanation.className = 'contact-intro'; root.append(explanation);
+    if (!composed) { const legacy = node('a', 'Previous contact drafts and requests'); legacy.dataset.focus = 'contacts-legacy'; legacy.className = 'contact-legacy-link'; const recovery = new URL('/plugins/helmsman.compat-clarifications/page', window.location.href); const headerRepo = new URL(window.location.href).searchParams.get('repo'); if (headerRepo) recovery.searchParams.set('repo', headerRepo); legacy.href = recovery.href;
+      legacy.addEventListener('click', event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); this.context.navigate(legacy.href); } }); root.append(legacy); }
     for (const text of [this.error, this.recoveryError, this.saved.error]) if (text) { const alert = node('p', text); alert.setAttribute('role', 'alert'); root.append(alert); }
     if (this.saved.conflict) root.append(this.button('Discard local edits and reload saved state', () => this.saved.reload()));
     if (this.saved.error && this.saved.writable) root.append(this.button('Retry saving drafts', () => { void this.saved.save(); }));
     if (this.notice) { const status = node('p', this.notice); status.setAttribute('role', 'status'); root.append(status); }
-    root.append(node('h3', 'Create global contact'), this.form(this.saved.value.create, null));
-    if (!this.items.length) root.append(node('p', this.loading ? 'Loading contacts…' : 'No contacts on this page.'));
-    for (const item of this.items) { const row = node('article'); row.dataset.contactId = item.id; row.append(node('h3', item.name), node('p', `${item.address} · ${item.enabled ? 'Enabled' : 'Disabled'} · Revision ${item.revision}`), this.button('Edit contact', () => this.edit(item), !this.saved.writable || this.saved.value.edits.some(value => value.id === item.id))); root.append(row); }
-    const pages = node('div'); pages.className = 'question-tools'; pages.append(this.button('First page', () => { void this.loadPage(0, [null]); }, this.loading || this.page === 0), this.button('Previous page', () => { void this.loadPage(this.page - 1, this.cursors); }, this.loading || this.page === 0), node('span', `Page ${this.page + 1} · ${this.items.length} global contacts shown.`), this.button('Next page', () => { if (this.next) void this.loadPage(this.page + 1, [...this.cursors.slice(0, this.page + 1), this.next]); }, this.loading || !this.next || this.page >= 127)); root.append(pages);
-    for (const draft of this.saved.value.edits) { const row = node('article'); row.dataset.contactId = draft.id; row.append(node('h3', `Edit ${draft.id}`), node('small', `Original revision ${draft.expectedRevision}. Refresh does not change this edit's expected revision.`), this.form(draft, draft.id), this.button('Discard contact edit', () => this.cleanup('edit', draft.id), !this.saved.writable || !this.ready || this.blocked(draft.id))); root.append(row); }
+    const creation = node('section'); creation.className = 'contact-create'; creation.append(node('h3', 'Create global contact'), this.form(this.saved.value.create, null)); root.append(creation);
+    const list = node('section'); list.className = 'contact-list'; list.append(node('h3', 'Saved contacts'));
+    if (!this.items.length && !this.error) list.append(node('p', this.loading ? 'Loading contacts…' : 'No contacts on this page. Add a name and address above.'));
+    for (const item of this.items) { const row = node('article'); row.className = 'contact-row'; row.dataset.contactId = item.id; row.append(node('h3', item.name), node('p', `${item.address} · ${item.enabled ? 'Enabled' : 'Disabled'} · Revision ${item.revision}`), this.button('Edit contact', () => this.edit(item), !this.saved.writable || this.saved.value.edits.some(value => value.id === item.id))); const edit = row.querySelector('button'); edit?.prepend(icon('edit')); list.append(row); }
+    root.append(list);
+    const pages = node('nav'); pages.className = 'question-tools contact-pagination'; pages.setAttribute('aria-label', 'Global contact pages'); if (this.page > 0 || /cursor/i.test(this.error)) pages.append(this.button('First page', () => { void this.loadPage(0, [null]); }, this.loading)); pages.append(this.button('Previous page', () => { void this.loadPage(this.page - 1, this.cursors); }, this.loading || this.page === 0), node('span', `Page ${this.page + 1} · ${this.items.length} global contacts shown.`), this.button('Next page', () => { if (this.next) void this.loadPage(this.page + 1, [...this.cursors.slice(0, this.page + 1), this.next]); }, this.loading || !this.next || this.page >= 127)); if (this.page > 0 || this.next !== null || /cursor/i.test(this.error)) root.append(pages);
+    for (const draft of this.saved.value.edits) { const row = node('article'); row.className = 'contact-edit'; row.dataset.contactId = draft.id; row.append(node('h3', `Edit ${draft.id}`), node('small', `Original revision ${draft.expectedRevision}. Refresh does not change this edit's expected revision.`), this.form(draft, draft.id), this.button('Discard contact edit', () => this.cleanup('edit', draft.id), !this.saved.writable || !this.ready || this.blocked(draft.id))); root.append(row); }
     if (this.pending.length) {
-      const requests = node('section'); requests.append(node('h3', 'Original global contact requests'));
+      const requests = node('section'); requests.className = 'contact-recovery'; const heading = node('h3', 'Original global contact requests'); heading.prepend(icon('history')); requests.append(heading);
       for (const entry of this.pending) {
         const row = node('article'); row.dataset.requestId = entry.command.requestId; row.append(node('p', `${entry.command.kind} · ${entry.command.id}${entry.command.kind === 'update' ? ` · Original revision ${entry.command.expectedRevision}` : ''}`), node('small', entry.command.requestId), node('p', `${entry.command.name} · ${entry.command.address} · ${entry.command.enabled ? 'Enabled' : 'Disabled'}`), node('p', entry.receipt ? `${entry.receipt.status}${entry.receipt.reason ? `: ${entry.receipt.reason}` : ''}` : 'Outcome unknown'));
         if (entry.receipt) row.append(this.button('Save result and dismiss request', () => this.reconcile(entry, 'save'), !this.saved.writable));
         else row.append(this.button('Check receipt', () => this.reconcile(entry, 'check')), this.button('Retry original', () => this.reconcile(entry, 'retry'), !this.ready || !this.saved.writable || !this.context.services.suggestedContacts?.retry)); requests.append(row);
       } root.append(requests);
     }
-    const saved = node('details'); saved.open = this.savedOpen; saved.append(node('summary', 'Saved global drafts and results')); saved.addEventListener('toggle', () => { if (saved.isConnected) this.savedOpen = saved.open; });
+    const saved = node('details'); saved.open = this.savedOpen; const summary = node('summary', 'Saved global drafts and results'); summary.dataset.focus = 'contacts-saved'; saved.append(summary); saved.className = 'contact-saved'; saved.addEventListener('toggle', () => { if (saved.isConnected) this.savedOpen = saved.open; });
     saved.append(node('p', `${this.saved.value.create.name} · ${this.saved.value.create.address}`), this.button('Discard global create draft', () => this.cleanup('create'), !this.saved.writable || !this.ready || this.blocked(null)));
     for (const result of this.saved.value.results) { const row = node('article'); row.dataset.savedId = result.requestId; row.append(node('p', `${result.requestId} · ${result.kind} · ${result.status}${result.reason ? `: ${result.reason}` : ' · No message was sent.'}`), node('p', `${result.name} · ${result.address}`), this.button('Dismiss saved result', () => this.cleanup('result', result.requestId), !this.saved.writable || !this.ready || this.pending.some(item => item.command.requestId === result.requestId))); saved.append(row); }
     root.append(saved);
     for (const button of root.querySelectorAll<HTMLElement>('button')) button.dataset.focus = JSON.stringify([button.closest<HTMLElement>('[data-contact-id]')?.dataset.contactId, button.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, button.closest<HTMLElement>('[data-saved-id]')?.dataset.savedId, button.textContent]);
     this.container.replaceChildren(root);
-    if (focusKey) { const target = [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(item => item.dataset.focus === focusKey); target?.focus({ preventScroll: true }); if (target instanceof HTMLInputElement && selection) target.setSelectionRange(selection[0] ?? null, selection[1] ?? null); }
+    if (focusKey) { const matching = [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(item => item.dataset.focus === focusKey); const target = matching && !matching.matches(':disabled') && !matching.closest('[hidden]') ? matching : root; if (target === root) root.tabIndex = -1; target.focus({ preventScroll: true }); if (target instanceof HTMLInputElement && selection) target.setSelectionRange(selection[0] ?? null, selection[1] ?? null); }
   }
 }
 const panel: PluginPanelModule = { mount(container, context) { if (context.services.suggestedContacts?.version !== 1) throw new Error('Global contacts require the public suggested-contact service.'); return new Contacts(container, context); } };

@@ -29,7 +29,7 @@ async function fixture(initial: PanelOpaqueStateV1 | null = null) {
 }
 describe('independent global suggested contacts', () => {
   it('labels global metadata, uses bounded global pages and preserves page across header scope change', async () => {
-    const f = await fixture(); expect(f.container.textContent).toContain('apply to every galleon'); expect(f.context.services.clarifications).toBeUndefined();
+    const f = await fixture(); expect(f.container.textContent).toContain('apply to every repository'); expect(f.context.services.clarifications).toBeUndefined();
     button(f.container, 'Next page').click(); await vi.waitFor(() => expect(f.container.textContent).toContain('Page 2')); await f.update({ repo: 'org/b' }); await f.instance.refresh?.();
     expect(f.service.list).toHaveBeenLastCalledWith({ version: 1, scope: 'global', limit: 25, cursor: 'next' }, expect.any(AbortSignal)); expect(f.service.submit).not.toHaveBeenCalled();
   });
@@ -98,4 +98,23 @@ it.each(['missing-retry', 'removed-request'] as const)('never allocates another 
   }
   expect(f.service.submit).toHaveBeenCalledOnce(); expect(f.service.acknowledge).not.toHaveBeenCalled();
   expect(f.container.querySelector<HTMLInputElement>('[name="name"]')?.value).toBe('Retained draft');
+});
+
+it('keeps global contacts supporting the composed page without duplicate Refresh or recovery links',async()=>{
+ const f=await fixture();expect(button(f.container,'Refresh contacts')).toBeTruthy();expect(f.container.querySelector('a')).not.toBeNull();
+ const host=document.createElement('div');host.dataset.compositionPage='';document.body.append(host);host.append(f.container);await f.instance.refresh?.();
+ expect([...f.container.querySelectorAll('button')].some(value=>value.textContent==='Refresh contacts')).toBe(false);expect(f.container.querySelector('a')).toBeNull();expect(f.container.querySelector('.contact-global')?.textContent).toBe('Global');
+ expect(f.container.querySelector('.contact-intro')?.textContent).toContain('sends no messages');expect(f.container.querySelector('.contact-form [name="address"]')?.getAttribute('type')).not.toBe('email');expect(f.service.submit).not.toHaveBeenCalled();
+});
+
+it('hides inert global paging while retaining cursor recovery and distinct failed reads',async()=>{
+ const f=await fixture();vi.mocked(f.service.list).mockResolvedValue({status:'available',value:{version:1,scope:'global',items:[],nextCursor:null,observedAt:now}});await f.instance.refresh?.();
+ expect(f.container.querySelector('.contact-pagination')).toBeNull();expect(f.container.textContent).toContain('No contacts on this page. Add a name and address above.');
+ vi.mocked(f.service.list).mockResolvedValue({status:'unavailable',reason:'connection-failed'});await f.instance.refresh?.();expect(f.container.textContent).not.toContain('No contacts on this page.');expect(f.container.textContent).toContain('Contacts unavailable');
+});
+
+it('retains global saved disclosure focus and standalone recovery focus through refresh',async()=>{
+ const f=await fixture();const saved=f.container.querySelector<HTMLDetailsElement>('.contact-saved')!;saved.open=true;saved.dispatchEvent(new Event('toggle'));saved.querySelector<HTMLElement>('summary')!.focus();await f.instance.refresh?.();
+ expect(f.container.querySelector<HTMLDetailsElement>('.contact-saved')?.open).toBe(true);expect(document.activeElement).toBe(f.container.querySelector('.contact-saved summary'));
+ f.container.querySelector<HTMLAnchorElement>('a')!.focus();await f.instance.refresh?.();expect(document.activeElement).toBe(f.container.querySelector('a'));
 });

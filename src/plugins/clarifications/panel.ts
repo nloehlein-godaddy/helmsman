@@ -7,6 +7,10 @@ import { styles } from './styles.js';
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 const identity = (item: ClarificationReadItemV1) => ({ repo: item.repo, runId: item.runId, questionId: item.id });
 const failure = (error: unknown) => error instanceof Error ? error.message : 'Service unavailable.';
+const glyphs = { refresh: '\ue094', question: '\ue3e8', run: '\ue3d2', history: '\ue19a' } as const;
+const icon = (name: keyof typeof glyphs) => { const value = node('span'); value.className = 'question-icon'; value.dataset.glyph = glyphs[name]; value.setAttribute('aria-hidden', 'true'); return value; };
+const observed = (value: string) => { const parsed = new Date(value); const time = node('time', Number.isFinite(parsed.getTime()) ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(parsed) + ' UTC' : value); time.dateTime = value; time.title = value; return time; };
+
 class Questions implements PluginPanelInstance {
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
@@ -45,9 +49,9 @@ class Questions implements PluginPanelInstance {
     if (this.disposed) return;
     const previous = this.state; previous.activity.signal.removeEventListener('abort', this.cancel); this.state = next;
     next.activity.signal.addEventListener('abort', this.cancel, { once: true }); this.saved.receive(next.savedState);
-    if (previous.activity.epoch !== next.activity.epoch || previous.activity.signal !== next.activity.signal || previous.visible !== next.visible || previous.repo !== next.repo) {
+    if (previous.activity.repo !== next.activity.repo || previous.activity.epoch !== next.activity.epoch || previous.activity.signal !== next.activity.signal || previous.visible !== next.visible || previous.repo !== next.repo) {
       this.cancel(); this.pending = [];
-      if (previous.repo !== next.repo) { this.items = []; this.cursors = [null]; this.page = 0; this.next = null; this.total = null; this.error = ''; this.notice = ''; }
+      if (previous.repo !== next.repo || previous.activity.repo !== next.activity.repo) { this.items = []; this.observedAt = ''; this.cursors = [null]; this.page = 0; this.next = null; this.total = null; this.error = ''; this.notice = ''; }
       if (this.active()) void this.refresh();
     }
     this.draw();
@@ -133,37 +137,53 @@ class Questions implements PluginPanelInstance {
       if (await this.saved.save() && this.active(token)) this.notice = 'Selected saved state removed. Command journals are unchanged.';
     });
   }
-  private button(text: string, action: () => void, disabled = false) { const button = node('button', text); button.type = 'button'; button.disabled = !this.active() || this.busy || disabled; button.addEventListener('click', action); return button; }
-  private detail(title: string, id: string) { const details = node('details'); details.open = this.details.has(id); details.append(node('summary', title)); details.addEventListener('toggle', () => { if (details.isConnected) { if (details.open) this.details.add(id); else this.details.delete(id); } }); return details; }
+  private button(text: string, action: () => void, disabled = false) { const button = node('button', text); button.type = 'button'; button.disabled = !this.active() || this.busy || disabled; button.addEventListener('click', action); if (text === 'Open run') button.prepend(icon('run')); return button; }
+  private detail(title: string, id: string) { const details = node('details'); details.open = this.details.has(id); const summary = node('summary', title); summary.dataset.focus = `question-details:${id}`; details.append(summary); details.addEventListener('toggle', () => { if (details.isConnected) { if (details.open) this.details.add(id); else this.details.delete(id); } }); return details; }
   private draw() {
     if (this.disposed) return;
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
     const focusKey = focused?.dataset.focus; const selection = focused instanceof HTMLTextAreaElement ? [focused.selectionStart, focused.selectionEnd] : null;
-    const root = node('section'); root.className = 'plugin-clarifications plugin-clarifications-panel'; root.append(node('style', styles), node('h2', 'Agent questions'));
-    const controls = node('div'); controls.className = 'question-tools'; controls.append(this.button('Refresh questions', () => { void this.refresh(); }, this.loading), this.button('First page', () => { void this.loadPage(0, [null]); }, this.loading || this.page === 0)); root.append(controls);
-    root.append(node('small', `${this.state.activity.repo ?? 'All galleons'} · ${this.total === null ? 'Total unknown' : `${this.total} matching questions observed`}${this.observedAt ? ` · ${this.observedAt}` : ''}`));
-    const legacy = node('a', 'Previous drafts and requests'); const recovery = new URL('/plugins/helmsman.compat-clarifications/page', window.location.href); const headerRepo = new URL(window.location.href).searchParams.get('repo'); if (headerRepo) recovery.searchParams.set('repo', headerRepo); legacy.href = recovery.href; legacy.addEventListener('click', event => { event.preventDefault(); this.context.navigate(legacy.href); }); root.append(legacy);
+    const composed = this.container.closest('[data-composition-page]') !== null;
+    const root = node('section'); root.className = 'plugin-clarifications plugin-clarifications-panel'; root.setAttribute('aria-busy', String(this.loading || this.busy)); root.append(node('style', styles));
+    if (!composed) { const heading = node('h2', 'Agent questions'); heading.prepend(icon('question')); root.append(heading); }
+    const controls = node('div'); controls.className = 'question-tools';
+    if (!composed) { const refresh = this.button('Refresh questions', () => { void this.refresh(); }, this.loading); refresh.prepend(icon('refresh')); controls.append(refresh); }
+    if (this.page > 0 || /cursor/i.test(this.error)) controls.append(this.button('First page', () => { void this.loadPage(0, [null]); }, this.loading));
+    if (controls.childElementCount) root.append(controls);
+    const observation = node('small', `${this.total === null ? 'Total unknown' : `${this.total} matching questions observed`}`); observation.className = 'question-observation';
+    const headerRepo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
+    if (this.state.activity.repo === null) observation.prepend(node('span', this.state.pirateMode ? 'All galleons · ' : 'All repositories · '));
+    else if (this.state.activity.repo !== headerRepo) observation.prepend(node('span', `${this.state.activity.repo} · `));
+    if (this.observedAt) { observation.append(node('span', ' · '), observed(this.observedAt)); } root.append(observation);
+    if (!composed) {
+      const legacy = node('a', 'Previous drafts and requests'); legacy.className = 'question-legacy-link'; legacy.dataset.focus = 'question-legacy';
+      const recovery = new URL('/plugins/helmsman.compat-clarifications/page', window.location.href); const header = new URL(window.location.href).searchParams.get('repo'); if (header) recovery.searchParams.set('repo', header); legacy.href = recovery.href;
+      legacy.addEventListener('click', event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); this.context.navigate(legacy.href); } }); root.append(legacy);
+    }
     for (const text of [this.error, this.recoveryError, this.saved.error]) if (text) { const alert = node('p', text); alert.setAttribute('role', 'alert'); root.append(alert); }
     if (this.saved.conflict) root.append(this.button('Discard local edits and reload saved state', () => this.saved.reload()));
     if (this.saved.error && this.saved.writable) root.append(this.button('Retry saving drafts', () => { void this.saved.save(); }));
     if (this.notice) { const notice = node('p', this.notice); notice.setAttribute('role', 'status'); root.append(notice); }
-    if (!this.items.length) root.append(node('p', this.loading ? 'Loading questions…' : 'No questions on this page.'));
+    if (!this.items.length && !this.error) { const empty = node('div'); empty.className = 'question-empty'; empty.append(node('p', this.loading ? 'Loading questions…' : this.page === 0 && this.next === null && this.total === 0 ? 'No agent questions in this scope.' : 'No questions on this page.')); if (!this.loading) empty.append(node('small', 'Questions appear here when an agent needs input.')); root.append(empty); }
     for (const item of this.items) {
-      const row = node('article'); row.dataset.questionId = item.id; row.append(node('h3', item.prompt), node('small', `${item.repo} · ${item.runId} · ${item.state} · ${item.blocksPublication ? 'Blocks publication' : 'Does not block publication'}`));
+      const row = node('article'); row.className = 'question-row'; row.dataset.questionId = item.id; row.dataset.questionKey = key(identity(item)); row.dataset.blocking = String(item.blocksPublication); row.append(node('h3', item.prompt), node('small', `${item.repo} · ${item.runId} · ${item.state} · ${item.blocksPublication ? 'Blocks publication' : 'Does not block publication'}`));
       row.append(this.button('Open run', () => { try { this.context.selectPresentation?.({ version: 1, kind: 'run', repo: item.repo, runId: item.runId }); } catch (error) { this.notice = failure(error); this.draw(); } }, !this.context.selectPresentation));
-      if (item.answer !== null) row.append(node('p', `Accepted answer: ${item.answer}`));
+      if (item.answer !== null) { const answer = node('p', `Accepted answer: ${item.answer}`); answer.className = 'question-accepted'; row.append(answer); }
       const draft = this.saved.value.drafts.find(value => key(value) === key(identity(item)));
-      if (!item.answerability?.available) row.append(node('p', `Read-only: ${item.answerability?.reason ?? 'unavailable'}.`));
+      if (!item.answerability?.available) { const reason = node('p', `Read-only: ${item.answerability?.reason ?? 'unavailable'}.`); reason.className = 'question-read-only'; row.append(reason); }
       const form = node('form'); const label = node('label', 'Answer'); const input = node('textarea'); input.maxLength = 4000; input.value = draft?.text ?? ''; input.name = 'answer'; input.dataset.focus = `answer:${key(identity(item))}`;
       input.disabled = !this.active() || !this.saved.writable || !draft && this.saved.value.drafts.length >= 64;
       input.addEventListener('input', () => { this.saved.edit(value => { const current = value.drafts.find(value => key(value) === key(identity(item))); if (current) current.text = input.value; else value.drafts.push({ ...identity(item), text: input.value }); }); void this.saved.save(); });
-      label.append(input); form.append(label); const submit = this.button('Accept answer', () => this.answer(item), !this.ready || !this.saved.writable || !item.answerability?.available || this.blocked(identity(item))); submit.className = 'primary-action'; form.append(submit);
-      form.addEventListener('submit', event => { event.preventDefault(); this.answer(item); }); row.append(form); root.append(row);
+      label.append(input); form.append(label); const submit = this.button('Accept answer', () => this.answer(item), !this.ready || !this.saved.writable || !item.answerability?.available || this.blocked(identity(item))); submit.className = 'primary-action'; submit.prepend(icon('question')); form.append(submit);
+      form.addEventListener('submit', event => { event.preventDefault(); this.answer(item); });
+      if (item.answerability?.available) row.append(form);
+      else { const draftDetails = this.detail('Answer draft', `answer:${key(identity(item))}`); draftDetails.className = 'question-answer-draft'; draftDetails.append(form); row.append(draftDetails); }
+      root.append(row);
     }
-    const pages = node('div'); pages.className = 'question-tools'; pages.append(this.button('Previous page', () => { void this.loadPage(this.page - 1, this.cursors); }, this.loading || this.page === 0), node('span', `Page ${this.page + 1} · ${this.items.length} questions shown.`),
-      this.button('Next page', () => { if (this.next) void this.loadPage(this.page + 1, [...this.cursors.slice(0, this.page + 1), this.next]); }, this.loading || !this.next || this.page >= 127)); root.append(pages);
+    const pages = node('nav'); pages.className = 'question-tools question-pagination'; pages.setAttribute('aria-label', 'Question pages'); pages.append(this.button('Previous page', () => { void this.loadPage(this.page - 1, this.cursors); }, this.loading || this.page === 0), node('span', `Page ${this.page + 1} · ${this.items.length} questions shown.`),
+      this.button('Next page', () => { if (this.next) void this.loadPage(this.page + 1, [...this.cursors.slice(0, this.page + 1), this.next]); }, this.loading || !this.next || this.page >= 127)); if (this.page > 0 || this.next !== null) root.append(pages);
     if (this.pending.length) {
-      const requests = node('section'); requests.append(node('h3', 'Original answer requests'));
+      const requests = node('section'); requests.className = 'question-recovery'; const heading = node('h3', 'Original answer requests'); heading.prepend(icon('history')); requests.append(heading);
       for (const entry of this.pending) {
         const row = node('article'); row.dataset.requestId = entry.command.requestId;
         row.append(node('p', `${entry.command.repo} · ${entry.command.runId} · ${entry.command.questionId} · Original attempt ${entry.command.expectedAttempt}, revision ${entry.command.expectedQuestionRevision}`), node('small', entry.command.requestId), node('pre', entry.command.answer), node('p', entry.receipt ? `${entry.receipt.status}${entry.receipt.reason ? `: ${entry.receipt.reason}` : ''}` : 'Outcome unknown'));
@@ -175,10 +195,10 @@ class Questions implements PluginPanelInstance {
     const saved = this.detail('Saved drafts and results', 'saved');
     for (const draft of this.saved.value.drafts.filter(value => this.scoped(value.repo))) { const row = node('article'); row.dataset.savedId = key(draft); row.append(node('small', `${draft.repo} · ${draft.runId} · ${draft.questionId}`), node('pre', draft.text), this.button('Discard saved draft', () => this.cleanup('draft', key(draft)), !this.saved.writable || !this.ready || this.blocked(draft))); saved.append(row); }
     for (const result of this.saved.value.results.filter(value => this.scoped(value.repo))) { const row = node('article'); row.dataset.savedId = result.requestId; row.append(node('p', `${result.requestId} · ${result.status}${result.reason ? `: ${result.reason}` : '. Answer accepted; worker consumption is not confirmed.'}`), node('pre', result.answer), this.button('Dismiss saved result', () => this.cleanup('result', result.requestId), !this.saved.writable || !this.ready || this.pending.some(value => value.command.requestId === result.requestId))); saved.append(row); }
-    root.append(saved);
-    for (const button of root.querySelectorAll<HTMLElement>('button')) button.dataset.focus = JSON.stringify([button.closest<HTMLElement>('[data-question-id]')?.dataset.questionId, button.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, button.closest<HTMLElement>('[data-saved-id]')?.dataset.savedId, button.textContent]);
+    saved.className = 'question-saved'; root.append(saved);
+    for (const button of root.querySelectorAll<HTMLElement>('button')) button.dataset.focus = JSON.stringify([button.closest<HTMLElement>('[data-question-key]')?.dataset.questionKey, button.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, button.closest<HTMLElement>('[data-saved-id]')?.dataset.savedId, button.textContent]);
     this.container.replaceChildren(root);
-    if (focusKey) { const target = [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(value => value.dataset.focus === focusKey); target?.focus({ preventScroll: true }); if (target instanceof HTMLTextAreaElement && selection) target.setSelectionRange(selection[0] ?? null, selection[1] ?? null); }
+    if (focusKey) { const matching = [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(value => value.dataset.focus === focusKey); const closed = matching?.closest<HTMLDetailsElement>('details:not([open])'); const candidate = closed && matching !== closed.querySelector('summary') ? closed.querySelector<HTMLElement>('summary') : matching; const target = candidate && !candidate.matches(':disabled') && !candidate.closest('[hidden]') ? candidate : root; if (target === root) root.tabIndex = -1; target.focus({ preventScroll: true }); if (target instanceof HTMLTextAreaElement && selection) target.setSelectionRange(selection[0] ?? null, selection[1] ?? null); }
   }
 }
 const panel: PluginPanelModule = { mount(container, context) {

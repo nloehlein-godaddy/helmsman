@@ -19,7 +19,7 @@ const pageControlsStyles = `
 [data-composition-page] .composition-panel-row > strong { flex:1 1 180px; overflow-wrap:anywhere; }
 [data-composition-page] .composition-panel-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
 [data-composition-page] .composition-panel-tabs button[aria-pressed=true] { color:var(--on-accent); background:var(--accent); }
-[data-composition-page] :is(.composition-page-header,.composition-page-editor,.composition-panel-tabs) :is(button,select):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+[data-composition-page] :is(.composition-page-header,.composition-page-editor,.composition-panel-tabs) :is(button,select):focus-visible { outline:2px solid var(--accent-text,var(--accent)); outline-offset:2px; }
 @media(any-pointer:coarse) { [data-composition-page] .composition-icon-button { width:44px; height:44px; min-width:44px; } }
 `;
 
@@ -99,7 +99,7 @@ const page: PluginPageModule = { attention, mount(container, context) {
     const editor = node('div'); editor.className = 'composition-page-editor'; editor.id = editorId; editor.hidden = !editing; editor.setAttribute('role', 'region'); editor.setAttribute('aria-label', 'Page customization');
     editor.append(node('p', 'Add, hide or remove panels here. Changes are saved automatically. Removing a panel does not stop running work.'));
     const addControls = node('div'); addControls.className = 'composition-editor-add'; editor.append(addControls);
-    const recovery = node('a', 'Previous drafts and requests');
+    const recovery = node('a', 'Previous drafts and requests'); recovery.className = 'question-page-recovery'; recovery.dataset.pageAction = 'previous-drafts';
     const recoveryHref = `/plugins/helmsman.compat-clarifications/page${state.repo ? `?${new URLSearchParams({ repo: state.repo })}` : ''}`; recovery.href = recoveryHref;
     recovery.addEventListener('click', event => {
       if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); context.navigate(recoveryHref); }

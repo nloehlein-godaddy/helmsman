@@ -118,3 +118,57 @@ it.each(['missing-retry', 'removed-request'] as const)('never creates another an
   expect(f.commands.submit).toHaveBeenCalledOnce(); expect(f.commands.acknowledge).not.toHaveBeenCalled();
   expect(f.container.querySelector('textarea')?.value).toBe('Retained draft');
 });
+
+it('delegates composed heading, Refresh and legacy link while retaining standalone controls and observation evidence',async()=>{
+ const f=await fixture();expect(f.container.querySelector('h2')?.textContent).toBe('Agent questions');expect(button(f.container,'Refresh questions')).toBeTruthy();expect(f.container.querySelector('a')).not.toBeNull();
+ expect(f.container.querySelector('time')?.getAttribute('datetime')).toBe(now);expect(f.container.querySelector('time')?.textContent).toContain('Sep 20, 2026');expect(f.container.querySelector('time')?.textContent).toContain('UTC');
+ const host=document.createElement('div');host.dataset.compositionPage='';document.body.append(host);host.append(f.container);await f.instance.refresh?.();
+ expect(f.container.querySelector('h2')).toBeNull();expect([...f.container.querySelectorAll('button')].some(value=>value.textContent==='Refresh questions')).toBe(false);expect(f.container.querySelector('a')).toBeNull();expect(f.commands.submit).not.toHaveBeenCalled();
+});
+
+it('hides inert paging only on a proven first page and keeps empty scope distinct from unknown totals',async()=>{
+ const f=await fixture();f.list.mockResolvedValue({status:'available',value:{version:1,repo:'org/a',items:[],nextCursor:null,total:0,observedAt:now}});await f.instance.refresh?.();
+ expect(f.container.querySelector('.question-pagination')).toBeNull();expect([...f.container.querySelectorAll('button')].some(value=>value.textContent==='First page')).toBe(false);expect(f.container.textContent).toContain('No agent questions in this scope.');
+ f.list.mockResolvedValue({status:'available',value:{version:1,repo:'org/a',items:[],nextCursor:null,total:null,observedAt:now}});await f.instance.refresh?.();
+ expect(f.container.textContent).toContain('No questions on this page.');expect(f.container.textContent).not.toContain('No agent questions in this scope.');
+ f.list.mockResolvedValue({status:'unavailable',reason:'connection-failed'});await f.instance.refresh?.();expect(f.container.querySelector('.question-empty')).toBeNull();expect(f.container.textContent).toContain('Questions unavailable');
+});
+
+it('restores saved disclosure and standalone recovery link focus through refresh',async()=>{
+ const f=await fixture();const details=f.container.querySelector<HTMLDetailsElement>('.question-saved')!;details.open=true;details.dispatchEvent(new Event('toggle'));details.querySelector<HTMLElement>('summary')!.focus();
+ await f.instance.refresh?.();expect(f.container.querySelector<HTMLDetailsElement>('.question-saved')?.open).toBe(true);expect(document.activeElement).toBe(f.container.querySelector('.question-saved summary'));
+ f.container.querySelector<HTMLAnchorElement>('a')!.focus();await f.instance.refresh?.();expect(document.activeElement).toBe(f.container.querySelector('a'));
+});
+
+it('keeps same-id question action focus on its fully qualified run identity',async()=>{
+ const f=await fixture();f.data.questions=[question({runId:'first-run'}),question({runId:'second-run'})];await f.instance.refresh?.();
+ const rows=()=>[...f.container.querySelectorAll<HTMLElement>('[data-question-id]')];rows()[1]!.querySelector<HTMLButtonElement>('button')!.focus();await f.instance.refresh?.();
+ expect(document.activeElement).toBe(rows()[1]!.querySelector('button'));expect(rows()[0]!.querySelector('button')?.dataset.focus).not.toBe(rows()[1]!.querySelector('button')?.dataset.focus);expect(f.commands.submit).not.toHaveBeenCalled();
+});
+
+it('collapses read-only answer drafts while preserving qualified disclosure state, draft text and focus',async()=>{
+ const f=await fixture();edit(f.container,'Retained draft');await vi.waitFor(()=>expect(f.compare).toHaveBeenCalled());
+ const readonly={available:false,reason:'provenance-unknown'} as const;
+ f.data.questions=[question({answer:'Accepted',answerability:readonly}),question({runId:'other-run',answerability:readonly})];await f.instance.refresh?.();
+ const disclosures=()=>[...f.container.querySelectorAll<HTMLDetailsElement>('.question-answer-draft')];
+ expect(disclosures()).toHaveLength(2);expect(disclosures().every(value=>!value.open)).toBe(true);
+ expect(f.container.querySelector('.question-accepted')?.closest('details')).toBeNull();expect(f.container.querySelector('.question-read-only')?.closest('details')).toBeNull();
+ expect(disclosures()[0]?.querySelector('textarea')?.value).toBe('Retained draft');expect(button(f.container,'Accept answer').disabled).toBe(true);
+ const first=disclosures()[0]!;first.open=true;first.dispatchEvent(new Event('toggle'));first.querySelector<HTMLElement>('summary')!.focus();await f.instance.refresh?.();
+ expect(disclosures()[0]?.open).toBe(true);expect(disclosures()[1]?.open).toBe(false);expect(document.activeElement).toBe(disclosures()[0]?.querySelector('summary'));
+ expect(disclosures()[0]?.querySelector<HTMLElement>('summary')?.dataset.focus).not.toBe(disclosures()[1]?.querySelector<HTMLElement>('summary')?.dataset.focus);
+ const input=disclosures()[0]!.querySelector('textarea')!;input.focus();input.setSelectionRange(2,5);await f.instance.refresh?.();
+ expect(document.activeElement).toBe(disclosures()[0]?.querySelector('textarea'));expect(disclosures()[0]?.querySelector('textarea')?.selectionStart).toBe(2);expect(disclosures()[0]?.querySelector('textarea')?.selectionEnd).toBe(5);
+ f.data.questions=[question({runId:'available-run'})];await f.instance.refresh?.();expect(disclosures()).toHaveLength(0);
+ const available=f.container.querySelector('textarea')!;available.focus();f.data.questions=[question({runId:'available-run',answerability:readonly})];await f.instance.refresh?.();
+ expect(disclosures()[0]?.open).toBe(false);expect(document.activeElement).toBe(disclosures()[0]?.querySelector('summary'));expect(f.commands.submit).not.toHaveBeenCalled();
+});
+
+it('clears and fences effective scope changes even with unchanged header, epoch and activity signal',async()=>{
+ const f=await fixture();const pending=deferred<Awaited<ReturnType<ClarificationReadServiceV1['list']>>>();f.list.mockReturnValueOnce(pending.promise);const old=f.instance.refresh?.();
+ f.list.mockImplementation(async query=>({status:'available',value:{version:1,repo:query.repo,items:[question({repo:query.repo??'org/b',prompt:'New effective scope'})],nextCursor:null,total:1,observedAt:now}}));
+ await f.instance.update({...f.context.state,activity:{...f.context.state.activity,repo:'org/b'}});
+ await vi.waitFor(()=>expect(f.container.textContent).toContain('New effective scope'));
+ pending.resolve({status:'available',value:{version:1,repo:'org/a',items:[question({prompt:'Late old scope'})],nextCursor:null,total:1,observedAt:now}});await old;
+ expect(f.container.textContent).not.toContain('Late old scope');expect(f.list).toHaveBeenLastCalledWith(expect.objectContaining({repo:'org/b',cursor:null}),expect.any(AbortSignal));
+});

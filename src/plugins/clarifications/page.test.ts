@@ -86,3 +86,9 @@ it('keeps compatibility recovery accessible in empty layouts and follows header 
   await f.instance.update({ ...state, repo: null }); f.container.querySelector('a')!.click();
   expect(f.navigate).toHaveBeenLastCalledWith('/plugins/helmsman.compat-clarifications/page'); expect(f.composition.updateLayout).not.toHaveBeenCalled(); expect(f.mount).not.toHaveBeenCalled();
 });
+
+it('retains the single page-owned compatibility link and its focus through empty-layout redraws',async()=>{
+ const f=await fixture(true);await vi.waitFor(()=>expect(f.container.querySelector('.question-page-recovery')).not.toBeNull());const link=f.container.querySelector<HTMLAnchorElement>('.question-page-recovery')!;link.focus();
+ await f.instance.update({...state,themeId:'light'});expect(document.activeElement).toBe(f.container.querySelector('.question-page-recovery'));expect(f.container.querySelectorAll('a')).toHaveLength(1);
+ expect(f.composition.updateLayout).not.toHaveBeenCalled();expect(f.mount).not.toHaveBeenCalled();
+});
