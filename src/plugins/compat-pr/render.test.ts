@@ -55,8 +55,8 @@ it('makes the title the selection control and keeps scoped galleon metadata quie
   expect(node.querySelector('.pr-list-select .pr-list-title')?.textContent).toBe('Clear title');
   expect(node.querySelectorAll('.pr-list-stat')).toHaveLength(0);
   expect(node.querySelector('.pr-list-meta')?.textContent).not.toContain('org/b');
-  expect(node.querySelector(':scope > section > .pr-list')?.children).toHaveLength(8);
-  const more = node.querySelector<HTMLDetailsElement>('details'); expect(more?.open).toBe(false); expect(more?.querySelectorAll('.pr-list-row')).toHaveLength(2);
+  expect(node.querySelector(':scope > details > .pr-list')?.children).toHaveLength(8);
+  const more = node.querySelector<HTMLDetailsElement>('[data-pr-disclosure="authored-more"]'); expect(more?.open).toBe(false); expect(more?.querySelectorAll('.pr-list-row')).toHaveLength(2);
   const all = mount(renderList('authored-recent', { ...page, repo: null }, '', false)); expect(all.querySelector('.pr-list-meta')?.textContent).toContain('org/b');
 });
 it('keeps recent run history collapsed until requested', () => {
@@ -77,4 +77,12 @@ it.each([['running', 'review', 'running'], ['succeeded', 'good', 'good'], ['fail
   const run: RunReadSummaryV1 = { version: 1, id: 'review-agent', repo: 'org/agent-review', displayKey: 'Review current work', status, attempt: 1, startedAt: detail.observedAt, endedAt: null, prNumber: 42, costUsd: null, review: null, sourceSettlement: null };
   const node = mount(renderRuns([run], false, '', false));
   const statusNode = node.querySelector('.pr-list-status'); expect(statusNode?.textContent).toBe(`Status: ${status}`); expect(statusNode?.getAttribute('data-tone')).toBe(tone); expect(statusNode?.querySelector('.pr-phosphor')?.getAttribute('data-icon')).toBe(icon);
+});
+
+it.each(['review-requested', 'authored-recent'])('exposes %s as a default-open native disclosure with a stable section key and visible zero count', kind => {
+  const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: kind as PullRequestReadPageV1['kind'], quality: 'complete', truncated: false, browseUrl: null, items: [] };
+  const node = mount(renderList(kind, page, '', true)); const section = node.querySelector<HTMLDetailsElement>('details.pr-list-section');
+  expect(section?.open).toBe(true); expect(section?.dataset.prDisclosure).toBe(kind === 'review-requested' ? 'review-requests-list' : 'authored-list');
+  expect(section?.querySelector('summary h3')?.textContent).toContain(kind === 'review-requested' ? 'Review requests' : 'My recent bounties');
+  expect(section?.querySelector('summary .pr-list-count')?.textContent).toBe('0'); expect(section?.querySelector('summary .pr-phosphor')?.getAttribute('aria-hidden')).toBe('true');
 });

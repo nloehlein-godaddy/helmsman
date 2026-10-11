@@ -314,7 +314,7 @@ class PrPanel implements PluginPanelInstance {
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
     const field = focused?.dataset.draft; const action = focused?.dataset.launch ? ['data-launch', focused.dataset.launch] : focused?.dataset.review ? ['data-review', focused.dataset.review] : focused?.dataset.pendingId ? ['data-pending-id', focused.dataset.pendingId] : focused?.matches('[data-close-inspection]') ? ['data-close-inspection', ''] : null; const lookupFocus = focused?.matches('[data-pr-compat-lookup]'); const selection = focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement ? [focused.selectionStart, focused.selectionEnd] as const : null;
     const disclosureKey = (detail: HTMLDetailsElement) => detail.dataset.prDisclosure ?? detail.querySelector('.diff-file-name')?.textContent ?? null;
-    const opened = new Set([...this.container.querySelectorAll<HTMLDetailsElement>('details[open]')].map(disclosureKey).filter(key => key !== null));
+    const disclosures = new Map([...this.container.querySelectorAll<HTMLDetailsElement>('details')].flatMap(detail => { const key = disclosureKey(detail); return key === null ? [] : [[key, detail.open] as const]; }));
     const selectedFocus = focused?.dataset.selectRepo ? [focused.dataset.selectRepo, focused.dataset.selectNumber] : null;
     const runFocus = focused?.dataset.run;
     const disclosureFocus = focused?.matches('summary') && focused.parentElement instanceof HTMLDetailsElement ? disclosureKey(focused.parentElement) : null;
@@ -329,7 +329,7 @@ class PrPanel implements PluginPanelInstance {
     this.whiteboard.update(this.state, this.detail ? { kind: 'pull-request', ...this.detail.target } : null);
     this.container.querySelector('.pr-lookup-result')?.append(this.whiteboard.element);
     if (focused?.isConnected && this.whiteboard.element.contains(focused)) focused.focus({ preventScroll: true });
-    for (const detail of this.container.querySelectorAll<HTMLDetailsElement>('details')) if (opened.has(disclosureKey(detail) ?? '')) detail.open = true;
+    for (const detail of this.container.querySelectorAll<HTMLDetailsElement>('details')) { const key = disclosureKey(detail); if (key !== null && disclosures.has(key)) detail.open = disclosures.get(key) ?? detail.open; }
     if (!this.active() || this.busy) this.container.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = true; }); this.paintSafety();
     const next = field ? this.container.querySelector<HTMLTextAreaElement>(`[data-draft="${field}"]`) : lookupFocus ? this.container.querySelector<HTMLInputElement>('[data-pr-compat-lookup]') : null;
     if (next) { next.focus({ preventScroll: true }); if (selection && (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement)) next.setSelectionRange(...selection); }

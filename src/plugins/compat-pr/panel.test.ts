@@ -245,3 +245,14 @@ it('explains the pinned PR comparison in Whiteboard and preserves the header sco
   action().click(); await vi.waitFor(() => expect(whiteboard.open).toHaveBeenCalledWith(pinned, expect.any(AbortSignal)));
   expect(f.state().headerRepo).toBe('org/a'); expect(f.context.navigate).not.toHaveBeenCalled();
 });
+
+it.each(['authored-list', 'review-requests-list'])('retains both closed and reopened %s choices and summary focus through refresh without issuing commands', async key => {
+  const f = await fixture(); await ready(f);
+  const selector = `[data-pr-disclosure="${key}"]`; const section = f.container.querySelector<HTMLDetailsElement>(selector)!; expect(section.open).toBe(true);
+  section.open = false; section.querySelector<HTMLElement>('summary')!.focus(); await f.instance.refresh?.();
+  expect(f.container.querySelector<HTMLDetailsElement>(selector)?.open).toBe(false); expect(document.activeElement).toBe(f.container.querySelector(`${selector}>summary`));
+  f.container.querySelector<HTMLDetailsElement>(selector)!.open = true; await f.instance.refresh?.();
+  expect(f.container.querySelector<HTMLDetailsElement>(selector)?.open).toBe(true); expect(document.activeElement).toBe(f.container.querySelector(`${selector}>summary`));
+  expect(f.container.querySelector<HTMLDetailsElement>('[data-pr-disclosure="recent-runs"]')?.open).toBe(false);
+  expect(f.context.services.pullRequestCommands?.submit).not.toHaveBeenCalled(); expect(f.context.services.runCommands?.submit).not.toHaveBeenCalled();
+});

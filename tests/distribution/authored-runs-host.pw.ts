@@ -104,6 +104,11 @@ test('copied Runs page preserves public PR scope, drafts and command identity an
     await pr.getByRole('link', { name: 'Open review setup ↗', exact: true }).click(); await expect(pr.locator('.pr-review-agent')).toBeFocused();
     await page.reload(); await expect(pr).toBeVisible(); await expect(pr.locator('.pr-review-agent')).toBeFocused();
     expect((await layout(page)).instances.map(instance => instance.contributionId)).toEqual(['helmsman.compat-pr/panel', 'helmsman.run-history/panel']);
+    const authoredList = runs.locator('details[data-pr-pane="authored"]');
+    await expect(authoredList).toHaveAttribute('open', ''); const authoredSummary = authoredList.locator(':scope > summary');
+    await authoredSummary.focus(); await authoredSummary.press('Enter'); await expect(authoredList).not.toHaveAttribute('open', '');
+    await runs.getByRole('button', { name: 'Refresh page', exact: true }).click(); await expect(authoredList).not.toHaveAttribute('open', '');
+    await expect(pr.locator('.pr-review-body')).toHaveValue('Review draft retained on authored Runs');
     const historyPanel = runs.locator('section.plugin-run-history');
     await expect(runs.getByRole('button', { name: 'Refresh page', exact: true })).toHaveCount(1);
     await expect(historyPanel.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);

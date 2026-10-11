@@ -62,6 +62,7 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(page.getByRole('button', { name: 'Use top selection', exact: true })).toHaveCount(0);
     await expect(panel).not.toContainText('Showing: org/a');
     await expect(authored.locator('.pr-list-row')).toHaveCount(2);
+    await expect(authored).toHaveAttribute('open', ''); await expect(requested).toHaveAttribute('open', '');
     await expect(authored.getByRole('status')).toHaveText('Only some results were returned. More may be available in the full list.');
     await expect(authored).not.toContainText('unknown');
     await expect(requested.getByRole('status')).toHaveText('No matching pull requests.');
@@ -84,10 +85,23 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     expect(surfaces[2]?.background).not.toBe(surfaces[4]?.background);
     await expect(panel.locator('.pr-phosphor').first()).toHaveAttribute('aria-hidden', 'true');
     await expectReadableSurfaces(panel, ['.pr-lookup-go .pr-phosphor', '.pr-list-status .pr-phosphor'], 3);
-    if (width === 390) expect((await panel.locator('.pr-lookup-go').boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    if (width === 390) await expect.poll(async () => (await panel.locator('.pr-lookup-go').boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
     await page.locator('#page-content').evaluate(content => { content.scrollTop = 0; });
     await page.mouse.move(0, 0);
     await expect(page).toHaveScreenshot(`pr-inbox-${width}-${mode}.png`);
+    const authoredSummary = authored.locator(':scope > summary'); const requestedSummary = requested.locator(':scope > summary');
+    for (const sectionSummary of [requestedSummary, authoredSummary]) {
+      if (width === 390) await expect.poll(async () => (await sectionSummary.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await sectionSummary.focus(); await sectionSummary.press('Space');
+    }
+    await expect(authored).not.toHaveAttribute('open', ''); await expect(requested).not.toHaveAttribute('open', '');
+    await expect(authored.locator('.pr-list-row').first()).not.toBeVisible(); await expect(authoredSummary).toBeFocused();
+    await refresh.evaluate(button => (button as HTMLButtonElement).click());
+    await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(authoredSummary).toBeFocused();
+    await expect(authored).not.toHaveAttribute('open', ''); await expect(requested).not.toHaveAttribute('open', '');
+    if (mode === 'dark' && width !== 900) { await page.locator('#page-content').evaluate(content => { content.scrollTop = 0; }); await page.mouse.move(0, 0); await expect(page).toHaveScreenshot(`pr-inbox-collapsed-${width}.png`); }
+    for (const sectionSummary of [requestedSummary, authoredSummary]) { await sectionSummary.focus(); await sectionSummary.press('Enter'); }
+    await expect(authored).toHaveAttribute('open', ''); await expect(requested).toHaveAttribute('open', '');
     const first = authored.locator('[data-select-number="42"]');
     await expect(first).toContainText('Restore authored pull requests when search is unavailable');
     await expect(first.locator('time')).toHaveText('Oct 9, 2026');

@@ -5,7 +5,7 @@ import { expectReadableSurfaces } from './theme-contrast';
 
 const at = '2026-10-09T12:00:00.000Z';
 const raw = 'Keep literal customer evidence.\n<img src=x onerror=alert(1)>';
-const run = (repo: string, id: string, status: 'running' | 'succeeded' | 'failed' | 'stopped', title: string | null = null) => ({ version: 1, id, repo, displayKey: id === 'run-review' ? 'review' : id === 'run-next' ? 'TASK-5' : 'TASK-2', ...(title ? { title } : {}), status, attempt: 1, startedAt: at, endedAt: status === 'running' ? null : at, prNumber: id === 'run-review' ? 42 : null, costUsd: status === 'running' ? null : 1.25,
+const run = (repo: string, id: string, status: 'running' | 'succeeded' | 'failed' | 'stopped', title: string | null = null) => ({ version: 1, id, repo, displayKey: id === 'run-review' || id === 'run-stopped' ? 'review' : id === 'run-next' ? 'TASK-5' : 'TASK-2', ...(title ? { title } : {}), status, attempt: 1, startedAt: at, endedAt: status === 'running' ? null : at, prNumber: id === 'run-review' ? 42 : id === 'run-stopped' ? 43 : null, costUsd: status === 'running' ? null : 1.25,
   review: id === 'run-review' ? { outcome: 'REQUEST_CHANGES', verdict: raw } : null, sourceSettlement: id === 'run-review' ? { state: 'operator-required' } : null,
   ...(id === 'run-review' ? { feedbackOutcome: { state: 'changes_remaining', headSha: 'a'.repeat(40), summary: raw } } : {}) });
 async function mockVoyages(page: Page) {
@@ -59,6 +59,13 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(first.locator('.run-open')).toHaveText('Preserve customer evidence through feedback updates');
     await expect(first.locator('.run-open')).toHaveAccessibleName('Preserve customer evidence through feedback updates · Inspection #42 · org/a · run-review · Attempt 1');
     await expect(history.locator('.run-row')).toHaveCount(4);
+    if (width >= 900) expect((await history.locator('[data-run-id="run-stopped"]').boundingBox())?.height).toBeLessThanOrEqual(110);
+    if (width === 1440) {
+      const title = await first.locator('.run-open').boundingBox(); const link = await first.locator('.run-identity a').boundingBox();
+      expect(title && link && Math.abs(title.y + title.height / 2 - link.y - link.height / 2)).toBeLessThanOrEqual(5);
+      const date = await first.locator('.run-started').boundingBox(); const details = await first.locator('.run-details > summary').boundingBox();
+      expect(date && details && Math.abs(date.y + date.height / 2 - details.y - details.height / 2)).toBeLessThanOrEqual(5);
+    }
     expect((await readLayout(page))?.instances?.map(instance => instance.contributionId)).toEqual(['helmsman.compat-pr/panel', 'helmsman.run-history/panel']);
     await expect(page.getByRole('heading', { name: 'Voyages', exact: true })).toHaveCount(1);
     await expect(history.getByRole('heading', { name: 'Voyage history', exact: true })).toHaveCount(1);
@@ -71,6 +78,11 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expectReadableSurfaces(history, ['.run-icon'], 3);
     await page.locator('#page-content').evaluate(content => { content.scrollTop = 0; }); await page.mouse.move(0, 0);
     await expect(page).toHaveScreenshot(`voyages-${width}-${mode}.png`);
+    const lists = page.locator('.plugin-public-pr details.pr-list-section'); await expect(lists).toHaveCount(2);
+    for (const list of await lists.all()) { await expect(list).toHaveAttribute('open', ''); const listSummary = list.locator(':scope > summary'); await listSummary.focus(); await listSummary.press('Enter'); await expect(list).not.toHaveAttribute('open', ''); }
+    await refresh.click(); await expect(refresh).toBeFocused(); await expect(history).toHaveAttribute('aria-busy', 'false');
+    for (const list of await lists.all()) await expect(list).not.toHaveAttribute('open', '');
+    if (mode === 'dark' && width !== 900) { await page.locator('#page-content').evaluate(content => { content.scrollTop = 0; }); await page.mouse.move(0, 0); await expect(page).toHaveScreenshot(`voyages-collapsed-${width}.png`); }
     await history.evaluate(element => element.scrollIntoView({ block: 'start' })); await page.mouse.move(0, 0); await expect(page).toHaveScreenshot(`voyages-history-${width}-${mode}.png`);
     const details = first.locator('.run-details'); const summary = details.locator('summary'); await expect(details).not.toHaveAttribute('open', '');
     if (width === 390) { expect((await summary.boundingBox())?.height).toBeGreaterThanOrEqual(44); await summary.tap(); } else { await summary.focus(); await summary.press('Space'); }

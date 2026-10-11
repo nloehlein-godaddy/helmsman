@@ -25,7 +25,12 @@ export const styles = `
 .plugin-public-pr .pr-lookup-input { width:100%; }
 .plugin-public-pr .pr-scope-override { font-size:14px; color:var(--text-dim); margin-top:8px; }
 .plugin-public-pr .pr-inbox { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; gap:16px; }
-.plugin-public-pr .pr-inbox .panel { display:flex; flex-direction:column; gap:12px; }
+.plugin-public-pr .pr-inbox .pr-list-section { display:block; }
+.plugin-public-pr .pr-list-section>summary { padding:0; align-content:center; }
+.plugin-public-pr .pr-list-section>summary .pr-list-heading { display:inline-flex; width:calc(100% - 24px); vertical-align:middle; }
+.plugin-public-pr .pr-list-section[open]>summary { margin-bottom:12px; }
+.plugin-public-pr .pr-list-section>.pr-list-notice { margin-top:12px; }
+.plugin-public-pr .pr-list-section>.pr-list-github { display:inline-block; margin-top:12px; }
 .plugin-public-pr .pr-list-count { margin-left:auto; color:var(--text-dim); font-size:14px; font-weight:400; }
 .plugin-public-pr :is(.pr-list,.pr-run-list) { list-style:none; padding:0; }
 .plugin-public-pr :is(.pr-list-row,.pr-run-list>li)+:is(.pr-list-row,li) { border-top:1px solid var(--line-faint); }

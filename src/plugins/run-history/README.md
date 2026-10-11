@@ -19,3 +19,5 @@ Rows lead with a meaningful retained title and use compact selection controls. W
 _Helmsman · not reported - not reported_
 
 Operator-required source settlement remains visible as Needs action alongside worker status; its raw state also remains in Details.
+
+Compact rows group the task title and identity together, followed by outcomes and a shared date/Details line. Expanded evidence spans the row width.

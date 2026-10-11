@@ -111,14 +111,15 @@ class HistoryPanel implements PluginPanelInstance {
       const observation = node('div'); observation.className = 'run-observation';
       const total = node('p', this.page.totalQuality === 'exact' && this.page.total !== null ? `${this.page.total} matching runs observed ` : 'Total unknown · observed '); total.append(date(this.page.observedAt));
       observation.append(total, node('small', `Page ${this.index + 1} · ${this.page.items.length} runs shown. Statuses may change between pages.`)); root.append(observation);
+      const list = node('div'); list.className = 'run-list';
       for (const run of this.page.items) {
-        const row = node('article'); row.className = 'run-row'; row.dataset.runId = run.id;
+        const row = node('article'); row.className = 'run-row'; row.dataset.runId = run.id; const heading = node('div'); heading.className = 'run-heading';
         const review = /^review$/i.test(run.displayKey.trim());
         const number = Number.isSafeInteger(run.prNumber) && (run.prNumber ?? 0) > 0 ? run.prNumber : null;
         const label = review ? `${this.state.pirateMode ? 'Inspection' : 'Review'}${number ? ` #${number}` : ''}` : run.displayKey;
         const subject = typeof run.title === 'string' && run.title.trim() && !/^review(?:\s+#\d+)?$/i.test(run.title.trim()) ? run.title : null;
         const open = this.button(subject ?? label, () => this.select(run.repo, run.id), !this.context.selectPresentation); open.className = subject ? 'run-open run-subject' : 'run-open';
-        open.dataset.focus = JSON.stringify([run.repo, run.id, 'open']); open.setAttribute('aria-label', `${subject ? `${subject} · ` : ''}${label} · ${run.repo} · ${run.id} · Attempt ${run.attempt}`); row.append(open);
+        open.dataset.focus = JSON.stringify([run.repo, run.id, 'open']); open.setAttribute('aria-label', `${subject ? `${subject} · ` : ''}${label} · ${run.repo} · ${run.id} · Attempt ${run.attempt}`); heading.append(open);
         const identity = node('div'); identity.className = 'run-identity';
         if (subject) identity.append(node('small', label));
         if (run.repo !== this.state.activity.repo) identity.append(node('small', run.repo));
@@ -132,7 +133,7 @@ class HistoryPanel implements PluginPanelInstance {
             event.preventDefault(); this.context.navigate(link.getAttribute('href') ?? '/prs');
           }); identity.append(link);
         }
-        row.append(identity);
+        heading.append(identity); row.append(heading);
         const metadata = node('div'); metadata.className = 'run-metadata';
         const worker = node('span', statusLabels[run.status] ?? `Worker: ${run.status}`); worker.className = 'run-worker'; worker.dataset.status = run.status;
         if (Object.hasOwn(statusLabels, run.status)) worker.prepend(icon(run.status)); metadata.append(worker);
@@ -141,7 +142,8 @@ class HistoryPanel implements PluginPanelInstance {
         if (feedback) { const outcome = node('span', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = run.feedbackOutcome?.summary ?? ''; metadata.append(outcome); }
         if (run.sourceSettlement?.state === 'operator-required') { const settlement = node('span', 'Needs action'); settlement.className = 'run-settlement'; settlement.title = 'Source settlement requires operator action.'; settlement.prepend(icon('failed')); metadata.append(settlement); }
         const spend = node('small', run.costUsd === null || !Number.isFinite(run.costUsd) ? 'Spend unknown' : `$${run.costUsd.toFixed(2)} observed spend`); metadata.append(spend); row.append(metadata);
-        const started = node('small', 'Started '); started.className = 'run-started'; started.append(date(run.startedAt)); row.append(started);
+        const footer = node('div'); footer.className = 'run-footer';
+        const started = node('small', 'Started '); started.className = 'run-started'; started.append(date(run.startedAt)); footer.append(started);
         const detailsKey = JSON.stringify([run.repo, run.id]); const details = node('details'); details.className = 'run-details'; details.open = this.expanded.has(detailsKey);
         details.addEventListener('toggle', () => { if (!details.isConnected) return; if (details.open) { if (this.expanded.size >= 200) this.expanded.delete(this.expanded.values().next().value!); this.expanded.add(detailsKey); } else this.expanded.delete(detailsKey); });
         const summary = node('summary', 'Details'); summary.dataset.focus = JSON.stringify([run.repo, run.id, 'details']); details.append(summary);
@@ -149,8 +151,9 @@ class HistoryPanel implements PluginPanelInstance {
         if (run.review) evidence.append(node('p', `Review recommendation: ${run.review.outcome}${run.review.verdict ? ` — ${run.review.verdict}` : ''}`));
         if (run.feedbackOutcome) evidence.append(node('p', `Feedback state: ${run.feedbackOutcome.state}`), node('small', `Feedback head: ${run.feedbackOutcome.headSha}`), node('p', run.feedbackOutcome.summary ?? ''));
         if (run.sourceSettlement) evidence.append(node('p', `Source settlement: ${run.sourceSettlement.state}`));
-        details.append(evidence); row.append(details); root.append(row);
+        details.append(evidence); footer.append(details); row.append(footer); list.append(row);
       }
+      root.append(list);
       if (!this.page.items.length) root.append(node('p', 'No matching runs.'));
       const navigation = node('div'); navigation.className = 'run-tools';
       navigation.append(this.button('Previous page', () => { void this.read(this.index - 1); }, this.loading || this.index === 0), this.button('Next page', () => {
