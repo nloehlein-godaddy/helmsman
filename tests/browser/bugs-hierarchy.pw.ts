@@ -58,8 +58,12 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(first.locator('.bugs-metrics dd').nth(1)).toHaveText('0');
     await expect(first.getByRole('columnheader', { name: 'Bug', exact: true })).toHaveCount(1);
     if (width >= 900) expect(await first.locator('thead').evaluate(head => [...head.querySelectorAll<HTMLElement>('.bugs-column-label')].every(label => { const rectangle = label.getBoundingClientRect(); const cell = label.closest('th')?.getBoundingClientRect(); return rectangle.height <= Number.parseFloat(getComputedStyle(label).lineHeight) + 1 && !!cell && rectangle.right <= cell.right; }))).toBe(true);
-    await expect(first.locator('tbody tr').first().locator('td').first()).toContainText('Keep customer content out of analytics events');
+    await expect(first.locator('tbody tr').first().locator('.bugs-title-cell')).toContainText('Keep customer content out of analytics events');
     await expect(first.locator('.bugs-title-cell > small').first()).toHaveText('BUG-101');
+    const collapsedRow = first.locator('.bugs-row').first();
+    await expect(collapsedRow.locator('.bugs-title-cell button')).toHaveCount(0);
+    await expect(collapsedRow.locator('td').first().getByRole('button', { name: 'Show description for BUG-101', exact: true })).toHaveCount(1);
+    expect(await collapsedRow.evaluate(row => { const button = row.querySelector('.bugs-description-toggle')?.getBoundingClientRect(); const title = row.querySelector('.bugs-title-cell')?.getBoundingClientRect(); return !!button && !!title && button.right <= title.left && Math.abs(button.top + button.height / 2 - title.top - title.height / 2) <= 2; })).toBe(true);
     await expect(first).toContainText('≈ 25,000'); await expect(first).toContainText('Unavailable'); await expect(first).toContainText('100 sampled');
     await expect(first.getByLabel('Severity S1 - Critical', { exact: true })).toHaveText('S1');
     await expect(first.getByLabel('Severity S2 - Major', { exact: true })).toHaveText('S2');
@@ -78,7 +82,7 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(first.locator('time[datetime="2026-10-15"]').first()).toHaveText('Oct 15, 2026');
     await expect(first.locator('time[datetime="2026-10-09T12:00:00.000Z"]')).toContainText('UTC');
     await expectReadableSurfaces(panel, ['.bugs-filters', '.bugs-report-heading h3', '.bugs-metrics dd', '.bugs-title', '.severity-badge.rank-1', '.severity-badge.rank-2', '.priority-badge.rank-1', '.priority-badge.rank-2']);
-    await expectReadableSurfaces(panel, ['.bugs-description button', '.bugs-icon'], 3);
+    await expectReadableSurfaces(panel, ['.bugs-description-toggle', '.bugs-icon'], 3);
     const hues = await first.evaluate(node => ['.severity-badge.rank-1', '.severity-badge.rank-2'].map(selector => { const badge = node.querySelector(selector); if (!badge) throw new Error(`Missing badge ${selector}`); const color = getComputedStyle(badge).color; const rgb = color.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? []; const [red = 0, green = 0, blue = 0] = rgb; const maximum = Math.max(red, green, blue); const minimum = Math.min(red, green, blue); const delta = maximum - minimum; if (delta === 0) return -1; const hue = maximum === red ? (green - blue) / delta : maximum === green ? (blue - red) / delta + 2 : (red - green) / delta + 4; return ((hue * 60) % 360 + 360) % 360; }));
     expect(hues[0]! < 10 || hues[0]! > 345).toBe(true); expect(hues[1]).toBeGreaterThanOrEqual(12); expect(hues[1]).toBeLessThanOrEqual(50);
     await expect(first.locator('.priority-badge.rank-1')).toHaveCSS('color', await first.locator('.severity-badge.rank-1').evaluate(node => getComputedStyle(node).color));
@@ -91,12 +95,19 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(disclosure.locator('.bugs-icon')).toHaveCount(1); await expect(disclosure).not.toContainText('Show description');
     if (width === 390) { expect((await disclosure.boundingBox())?.height).toBeGreaterThanOrEqual(44); await disclosure.tap(); } else { await disclosure.focus(); await disclosure.press('Enter'); }
     await expect(first.locator('.bugs-description-content')).toContainText('<img src=x onerror=alert(1)>'); await expect(panel.locator('img, script')).toHaveCount(0);
+    await expect(first.locator('.bugs-description-row')).toHaveCount(1);
+    await expect(first.locator('.bugs-description-row > td')).toHaveAttribute('colspan', '5');
+    expect(await first.locator('.bugs-description-row').evaluate(row => row.previousElementSibling?.classList.contains('bugs-row') && row.previousElementSibling.querySelector('button')?.getAttribute('aria-expanded') === 'true')).toBe(true);
     await expect(first.getByRole('button', { name: 'Hide description for BUG-101', exact: true })).toBeFocused();
     await expect(first.getByRole('button', { name: 'Hide description for BUG-101', exact: true })).toHaveAttribute('title', 'Hide description for BUG-101');
     await expect(first.getByRole('button', { name: 'Hide description for BUG-101', exact: true })).toHaveAttribute('aria-expanded', 'true');
     await waitForDescriptionSave(page);
     if (mode === 'dark' && width !== 900) { if (width === 390) await first.locator('.bugs-description-content').scrollIntoViewIfNeeded(); else await page.locator('#page-content').evaluate(content => { content.scrollTop = 0; }); await expect(page).toHaveScreenshot(`bugs-description-${width}.png`); }
     await page.reload(); await expect(first.locator('.bugs-description-content')).toContainText('Preserve customer content exactly.');
+    const hide = first.getByRole('button', { name: 'Hide description for BUG-101', exact: true }); await hide.focus(); await hide.press('Enter');
+    await expect(first.locator('.bugs-description-row')).toHaveCount(0);
+    const show = first.getByRole('button', { name: 'Show description for BUG-101', exact: true }); await expect(show).toBeFocused(); await show.press('Enter');
+    await expect(first.locator('.bugs-description-row')).toHaveCount(1); await waitForDescriptionSave(page);
     const refresh = page.getByRole('button', { name: 'Refresh page', exact: true }); await refresh.focus(); await refresh.press('Enter'); await expect(refresh).toBeFocused();
     await expect(first).toContainText('Keep customer content out of analytics events');
     await page.locator('.repo-select').focus(); await expect(page.locator('.repo-select')).toBeFocused();

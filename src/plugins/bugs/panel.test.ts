@@ -54,11 +54,27 @@ describe('standalone Bugs presentation', () => {
   it('persists task-scoped description disclosure, renders it as literal text, and keeps its focus on refresh', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')).toBeTruthy());
     const toggle = f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')!;
+    expect(toggle.closest('td')?.className).toBe('bugs-expander-cell'); expect(toggle.closest('tr')?.querySelector('.bugs-title-cell button')).toBeNull();
     expect(toggle.textContent).toBe(''); expect(toggle.title).toBe('Show description for TASK-1'); expect(toggle.querySelector('[aria-hidden="true"]')).not.toBeNull(); toggle.click();
     expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Hide description for TASK-1"]')?.getAttribute('aria-expanded')).toBe('true'); expect(document.activeElement?.getAttribute('aria-label')).toBe('Hide description for TASK-1');
+    expect(f.container.querySelector('.bugs-description-row td')?.getAttribute('colspan')).toBe('5');
     expect(f.container.textContent).toContain('<img src=x onerror=alert(1)>'); expect(f.container.querySelector('img,script')).toBeNull();
-    expect(f.context.saveState).toHaveBeenLastCalledWith(expect.objectContaining({ value: expect.objectContaining({ descriptionExpanded: [expect.stringContaining(sourceId)] }) }));
+    await vi.waitFor(() => expect(f.context.saveState).toHaveBeenLastCalledWith(expect.objectContaining({ value: expect.objectContaining({ descriptionExpanded: [expect.stringContaining(sourceId)] }) })));
     await instance.refresh?.(); await vi.waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Hide description for TASK-1')); f.lifetime.abort();
+  });
+  it('serializes rapid disclosure saves so the last choice persists', async () => {
+    const f = fixture(); let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const save = vi.fn(async () => {}); save.mockImplementationOnce(() => pending); f.context = { ...f.context, saveState: save };
+    await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelector('.bugs-description-toggle')).not.toBeNull());
+    f.container.querySelector<HTMLButtonElement>('.bugs-description-toggle')!.click();
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce());
+    f.container.querySelector<HTMLButtonElement>('.bugs-description-toggle')!.click();
+    f.container.querySelector<HTMLButtonElement>('.bugs-description-toggle')!.click();
+    expect(save).toHaveBeenCalledOnce(); release();
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(f.context.saveState).toHaveBeenLastCalledWith(expect.objectContaining({ value: expect.objectContaining({ descriptionExpanded: [expect.stringContaining(sourceId)] }) })));
+    expect(f.container.querySelector('.bugs-description-toggle')?.getAttribute('aria-expanded')).toBe('true'); f.lifetime.abort();
   });
   it('does not restore stale panel focus after the operator moves focus outside the panel', async () => {
     const f = fixture(); const instance = await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Show description for TASK-1"]')).toBeTruthy());
@@ -109,7 +125,7 @@ it('delegates heading and Refresh to the composed host while retaining standalon
   await panel.mount(composed.container, composed.context); await vi.waitFor(() => expect(composed.container.textContent).toContain('Actual bug'));
   expect(composed.container.querySelector('h2')).toBeNull(); expect(composed.container.querySelector('[data-bugs-focus="refresh"]')).toBeNull();
   expect(composed.container.querySelector('.bugs-source')?.textContent).toContain('Source');
-  expect(composed.container.querySelectorAll('thead th')).toHaveLength(4); standalone.lifetime.abort(); composed.lifetime.abort();
+  expect(composed.container.querySelectorAll('thead th')).toHaveLength(5); standalone.lifetime.abort(); composed.lifetime.abort();
 });
 
 it('disambiguates same-label source instances and exposes galleon identity only when needed', async () => {
@@ -164,9 +180,9 @@ it('does not retain a report from an earlier source revision or imply a known un
 it('names each accessible table and retains explicit header, row and cell semantics for mobile layouts', async () => {
   const f = fixture(); await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
   const table = f.container.querySelector('[role="table"]'); expect(table?.getAttribute('aria-label')).toBe('Open bugs · Tasks');
-  expect(table?.querySelectorAll('[role="columnheader"][scope="col"]')).toHaveLength(4);
+  expect(table?.querySelectorAll('[role="columnheader"][scope="col"]')).toHaveLength(5);
   expect(table?.querySelectorAll('[role="rowgroup"]')).toHaveLength(2);
-  expect(table?.querySelector('tbody [role="row"]')?.querySelectorAll('[role="cell"]')).toHaveLength(4); f.lifetime.abort();
+  expect(table?.querySelector('tbody [role="row"]')?.querySelectorAll('[role="cell"]')).toHaveLength(5); f.lifetime.abort();
 });
 
 it('exposes busy state while readable last-observed reports are refreshing', async () => {

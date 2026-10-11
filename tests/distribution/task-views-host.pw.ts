@@ -131,13 +131,15 @@ const page: PluginPageModule = { mount(container, context) {
     const bugDescription = bugs.getByRole('button', { name: /description/i });
     await bugDescription.focus(); await page.keyboard.press('Enter');
     await expect(bugDescription).toHaveAttribute('aria-expanded', 'true');
+    await expect(bugs.locator('.bugs-title-cell button')).toHaveCount(0);
+    await expect(bugs.locator('.bugs-description-row > td')).toHaveAttribute('colspan', '5');
     await expect(bugs).toContainText('Bug description for org/b <img src=x onerror=alert(1)>');
     await expect(bugs.locator('img')).toHaveCount(0);
     await waitForDescriptionSave('example.bugs-view/panel', 'org/b', 'bug-1');
     await page.reload();
     await expect(bugs).toContainText('Bug description for org/b <img src=x onerror=alert(1)>');
     await expect.poll(() => bugs.evaluate(async () => { await document.fonts.load('16px "Helmsman Phosphor Regular"'); return [...document.fonts].some(font => font.family.replaceAll('"', '') === 'Helmsman Phosphor Regular' && font.status === 'loaded') && document.fonts.check('16px "Helmsman Phosphor Regular"'); })).toBe(true);
-    await expect(bugs).toHaveScreenshot('bugs-authored-metrics.png', { mask: [bugs.locator('.bugs-observed')] });
+    await expect(bugs).toHaveScreenshot('bugs-authored-metrics.png', { mask: [bugs.locator('.bugs-observed')], style: '.bugs-observed { width: 34ch; }' });
     await page.goto(`${origin}/plugins/example.bugs-view/page?repo=org/a`);
     await expect(bugs).not.toContainText('Bug description for org/b');
     await expect(bugs.getByRole('button', { name: /description/i })).toHaveAttribute('aria-expanded', 'false');

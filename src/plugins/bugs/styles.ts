@@ -39,19 +39,21 @@ export const styles = `
 .plugin-bugs table{border-collapse:collapse;text-align:left;overflow-wrap:anywhere;width:100%;table-layout:fixed}
 .plugin-bugs :is(th,td){border-bottom:1px solid var(--line);padding:12px 16px;vertical-align:top}
 .plugin-bugs th{font-size:12px;font-weight:600;color:var(--text-dim)}
-.plugin-bugs th:first-child{width:53%}
+.plugin-bugs th:nth-child(2){width:48%}
+.plugin-bugs .bugs-expander-cell{box-sizing:border-box;width:52px;padding:12px 8px 12px 16px;vertical-align:middle}
+.plugin-bugs .bugs-description-row td{padding-top:0}
+.plugin-bugs .bugs-row:has(+.bugs-description-row) td{border-bottom:0}
 .plugin-bugs tbody tr:last-child td{border-bottom:0}
 .plugin-bugs .bugs-title{display:block;font-weight:600;font-size:15px;line-height:1.4;color:var(--text);text-decoration:none}
 .plugin-bugs .bugs-title-cell>small{display:block;margin-top:4px}
-.plugin-bugs .bugs-description{display:grid;gap:8px;margin-top:8px}
-.plugin-bugs .bugs-description button{justify-self:start;font-size:12px;min-height:28px;min-width:28px;padding:4px;background:transparent;color:var(--text-dim);border-color:var(--line)}
+.plugin-bugs .bugs-description-toggle{font-size:12px;min-height:28px;min-width:28px;padding:4px;background:transparent;color:var(--text-dim);border-color:var(--line)}
 .plugin-bugs .bugs-description-content{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px 12px;border-left:1px solid var(--line-strong);background:var(--panel-2,var(--face-hi));border-radius:0 6px 6px 0}
 .plugin-bugs .rank-badge{display:inline-block;border:1px solid currentColor;border-radius:999px;padding:1px 6px;font-weight:700;line-height:1.35}
 .plugin-bugs :is(.rank-0,.rank-1){color:#991b1b;background:#fee2e2}
 .plugin-bugs .rank-2{color:#9a3412;background:#ffedd5}
 .plugin-bugs .rank-3{color:var(--accent-text,var(--accent))}
 .plugin-bugs :is(.rank-4,.rank-5){color:var(--text-dim)}
-@media(min-width:701px) and (max-width:1000px){.plugin-bugs th:first-child{width:45%}}
+@media(min-width:701px) and (max-width:1000px){.plugin-bugs th:nth-child(2){width:40%}}
 @media(max-width:700px){
 .plugin-bugs .bugs-report-heading{flex-direction:column;gap:6px}
 .plugin-bugs .bugs-observed{text-align:left;max-width:none}
@@ -59,12 +61,17 @@ export const styles = `
 .plugin-bugs .bugs-evidence{grid-template-columns:1fr;gap:12px}
 .plugin-bugs :is(table,tbody){display:block}
 .plugin-bugs thead{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
-.plugin-bugs tbody tr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-bottom:1px solid var(--line);padding:12px 16px;gap:10px 12px}
+.plugin-bugs tbody tr{display:grid;grid-template-columns:44px repeat(3,minmax(0,1fr));border-bottom:1px solid var(--line);padding:12px 16px;gap:10px 12px}
 .plugin-bugs tbody tr:last-child{border-bottom:0}
 .plugin-bugs td{display:block;padding:0;border:0}
 .plugin-bugs td[data-label]::before{content:attr(data-label);display:block;color:var(--text-dim);font-size:12px;margin-bottom:4px}
-.plugin-bugs :is(.bugs-title-cell,.bugs-empty){grid-column:1/-1}
+.plugin-bugs .bugs-expander-cell{width:auto;padding:0;grid-column:1;grid-row:1;align-self:center}
+.plugin-bugs .bugs-title-cell{grid-column:2/-1}
+.plugin-bugs td[data-label="Priority"]{grid-column:2}
+.plugin-bugs :is(.bugs-empty,.bugs-description-row td){grid-column:1/-1}
+.plugin-bugs .bugs-row:has(+.bugs-description-row){border-bottom:0}
+.plugin-bugs .bugs-description-row td{padding:0}
 }
-@media(pointer:coarse){.plugin-bugs :is(button,select),.plugin-bugs .bugs-description button{min-height:44px}.plugin-bugs .bugs-description button{min-width:44px}}
+@media(pointer:coarse){.plugin-bugs :is(button,select),.plugin-bugs .bugs-description-toggle{min-height:44px}.plugin-bugs .bugs-description-toggle{min-width:44px}.plugin-bugs th.bugs-expander-cell{width:68px}}
 @media(prefers-reduced-motion:reduce){.plugin-bugs button{transition:none}}
 `;

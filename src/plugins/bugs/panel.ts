@@ -46,6 +46,7 @@ class BugsPanel implements PluginPanelInstance {
   private views: View[] = []; private sources: TaskReadSourceV1[] = []; private messages: string[] = [];
   private selected: Selection | null; private invalidSelection = false; private dirty = false; private saveSequence = 0; private saveError = '';
   private descriptionExpanded = new Set<string>();
+  private saveQueue: Promise<void> = Promise.resolve();
   private focusKey: string | undefined;
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.container = container; this.context = context;
@@ -95,7 +96,7 @@ class BugsPanel implements PluginPanelInstance {
     const source = this.sources.find(source => key(source) === value); if (value && !source) return;
     this.selected = source ? { repo: source.repo, sourceId: source.sourceId, instanceId: source.instanceId } : null; this.invalidSelection = false; this.dirty = true;
     const selection = this.selected; const sequence = ++this.saveSequence; this.cancel(); this.views = []; void this.refresh();
-    try { await this.context.saveState(this.savedSettings(selection)); if (!this.disposed && sequence === this.saveSequence) { this.dirty = false; this.saveError = ''; } }
+    try { await this.saveSettings(this.savedSettings(selection)); if (!this.disposed && sequence === this.saveSequence) { this.dirty = false; this.saveError = ''; } }
     catch { if (!this.disposed && sequence === this.saveSequence) { this.saveError = 'The source selection could not be saved.'; this.draw(); } }
   }
   private descriptionKeys(value: unknown): string[] {
@@ -104,6 +105,14 @@ class BugsPanel implements PluginPanelInstance {
     return Array.isArray(expanded) ? expanded.filter((item): item is string => typeof item === 'string' && item.length <= 2048).slice(0, 150) : [];
   }
   private savedSettings(selection = this.selected) { return { version: 1 as const, value: { source: selection, descriptionExpanded: [...this.descriptionExpanded] } }; }
+  private saveSettings(settings: ReturnType<BugsPanel['savedSettings']>): Promise<void> {
+    const pending = this.saveQueue.then(() => {
+      if (this.disposed) throw new DOMException('Panel disposed.', 'AbortError');
+      return this.context.saveState(settings);
+    });
+    this.saveQueue = pending.catch(() => {});
+    return pending;
+  }
   private descriptionKey(view: View, bug: TaskBugsReportV1['rows'][number]): string {
     return JSON.stringify([view.source.repo, view.source.sourceId, view.source.instanceId, bug.ref.sourceId, bug.ref.externalId]);
   }
@@ -112,21 +121,21 @@ class BugsPanel implements PluginPanelInstance {
     if (this.descriptionExpanded.has(id)) this.descriptionExpanded.delete(id);
     else { if (this.descriptionExpanded.size >= 150) this.descriptionExpanded.delete(this.descriptionExpanded.values().next().value!); this.descriptionExpanded.add(id); }
     const sequence = ++this.saveSequence; this.dirty = true; this.draw();
-    void this.context.saveState(this.savedSettings()).then(() => {
+    void this.saveSettings(this.savedSettings()).then(() => {
       if (!this.disposed && sequence === this.saveSequence) { this.dirty = false; this.saveError = ''; }
     }).catch(() => {
       if (!this.disposed && sequence === this.saveSequence) { this.saveError = 'Description expansion could not be saved.'; this.draw(); }
     });
   }
-  private description(view: View, bug: TaskBugsReportV1['rows'][number]): HTMLElement {
+  private description(view: View, bug: TaskBugsReportV1['rows'][number]): { toggle: HTMLButtonElement; content: HTMLElement | null } {
     const key = this.descriptionKey(view, bug); const expanded = this.descriptionExpanded.has(key); const contentId = `bugs-description-${encodeURIComponent(JSON.stringify([this.state.instanceId, key]))}`;
-    const container = node('div'); container.className = 'bugs-description'; const toggle = node('button'); toggle.type = 'button';
+    const toggle = node('button'); toggle.className = 'bugs-description-toggle'; toggle.type = 'button';
     const action = `${expanded ? 'Hide' : 'Show'} description for ${bug.displayKey}`; toggle.title = action; toggle.append(icon(expanded ? 'collapse' : 'expand'));
     toggle.setAttribute('aria-label', action); toggle.setAttribute('aria-expanded', String(expanded)); toggle.setAttribute('aria-controls', contentId); toggle.dataset.bugsFocus = `description:${key}`;
-    toggle.addEventListener('click', () => { toggle.focus({ preventScroll: true }); this.toggleDescription(view, bug); }); container.append(toggle);
+    toggle.addEventListener('click', () => { toggle.focus({ preventScroll: true }); this.toggleDescription(view, bug); });
     if (expanded) { const content = node('div'); content.id = contentId; content.className = 'bugs-description-content';
-      content.append(node('p', bug.description?.trim() ? bug.description : 'No description available.')); container.append(content); }
-    return container;
+      content.append(node('p', bug.description?.trim() ? bug.description : 'No description available.')); return { toggle, content }; }
+    return { toggle, content: null };
   }
   private link(label: string, url: string | null): HTMLElement {
     if (!url) return node('span', label); const link = node('a', label); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; return link;
@@ -172,17 +181,21 @@ class BugsPanel implements PluginPanelInstance {
     if (report.rowsQuality !== 'complete') { const coverage = node('p', `Open bug rows have ${report.rowsQuality} coverage.`); coverage.className = 'bugs-coverage'; section.append(coverage); }
     const table = node('table'); table.setAttribute('role', 'table'); table.setAttribute('aria-label', `Open bugs · ${this.sourceLabel(view.source)}`);
     const head = node('thead'); head.setAttribute('role', 'rowgroup'); const labels = node('tr'); labels.setAttribute('role', 'row');
+    const expanderHeader = node('th'); expanderHeader.className = 'bugs-expander-cell'; expanderHeader.scope = 'col'; expanderHeader.setAttribute('role', 'columnheader'); expanderHeader.setAttribute('aria-label', 'Description'); labels.append(expanderHeader);
     for (const [title, glyph] of [['Bug', 'bug'], ['Priority', 'priority'], ['Severity', 'overdue'], ['Due', 'calendar']] as const) { const cell = node('th'); const label = node('span', title); label.className = 'bugs-column-label'; label.prepend(icon(glyph)); cell.append(label); cell.scope = 'col'; cell.setAttribute('role', 'columnheader'); labels.append(cell); } head.append(labels); table.append(head);
     const body = node('tbody'); body.setAttribute('role', 'rowgroup');
     for (const bug of report.rows) {
-      const row = node('tr'); row.setAttribute('role', 'row'); const title = node('td'); title.setAttribute('role', 'cell'); title.className = 'bugs-title-cell';
-      const titleLink = this.link(bug.title, bug.url); titleLink.className = 'bugs-title'; title.append(titleLink, node('small', bug.displayKey), this.description(view, bug)); row.append(title);
+      const row = node('tr'); row.className = 'bugs-row'; row.setAttribute('role', 'row');
+      const description = this.description(view, bug); const expander = node('td'); expander.className = 'bugs-expander-cell'; expander.setAttribute('role', 'cell'); expander.append(description.toggle); row.append(expander);
+      const title = node('td'); title.setAttribute('role', 'cell'); title.className = 'bugs-title-cell';
+      const titleLink = this.link(bug.title, bug.url); titleLink.className = 'bugs-title'; title.append(titleLink, node('small', bug.displayKey)); row.append(title);
       const priority = node('td'); priority.append(this.rank(bug.priority, 'Priority')); priority.dataset.label = 'Priority'; priority.setAttribute('role', 'cell');
       const severityCell = node('td'); severityCell.dataset.label = 'Severity'; severityCell.setAttribute('role', 'cell'); severityCell.append(this.rank(bug.severity, 'Severity'));
       const due = node('td'); due.dataset.label = 'Due'; due.setAttribute('role', 'cell'); due.append(bug.dueAt ? dateNode(bug.dueAt) : node('span', 'Not set'));
       row.append(priority, severityCell, due); body.append(row);
+      if (description.content) { const detail = node('tr'); detail.className = 'bugs-description-row'; detail.setAttribute('role', 'row'); const cell = node('td'); cell.colSpan = 5; cell.setAttribute('role', 'cell'); cell.append(description.content); detail.append(cell); body.append(detail); }
     }
-    if (!report.rows.length) { const row = node('tr'); row.setAttribute('role', 'row'); const empty = node('td', report.rowsQuality === 'complete' ? 'No open bugs.' : 'Open bug rows are unavailable or incomplete.'); empty.setAttribute('role', 'cell'); empty.colSpan = 4; empty.className = 'bugs-empty'; row.append(empty); body.append(row); }
+    if (!report.rows.length) { const row = node('tr'); row.setAttribute('role', 'row'); const empty = node('td', report.rowsQuality === 'complete' ? 'No open bugs.' : 'Open bug rows are unavailable or incomplete.'); empty.setAttribute('role', 'cell'); empty.colSpan = 5; empty.className = 'bugs-empty'; row.append(empty); body.append(row); }
     table.append(body); section.append(table); return section;
   }
   private draw(): void {
