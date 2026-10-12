@@ -14,6 +14,7 @@ import type { ProfileServerService } from './profile-service';
 import { handleIntegrationSettingsApi } from './integration-settings-routes';
 import type { IntegrationSettingsServerService } from './integration-settings-service';
 import { handleIntegrationStatusApi, type IntegrationStatusService } from './integration-status';
+import { handleVpnStatusApi, type VpnStatusService } from './vpn-status';
 import { handleLocalGitApi } from './local-git-routes';
 import type { LocalGitServerService } from './local-git-service';
 import { handleCampaignPublicApi } from './campaigns-public-routes';
@@ -174,6 +175,7 @@ export interface RouterDeps {
   setConfig: (key: string, value: string) => { ok: true } | { ok: false; error: string };
   integrationSettings?: IntegrationSettingsServerService;
   integrationStatus?: IntegrationStatusService;
+  vpnStatus?: VpnStatusService;
   integrationSettingsCaller?: string;
   publicLocalGit?: LocalGitServerService;
   localGitCaller?: string;
@@ -490,6 +492,8 @@ export async function handleApi(
   if (profileResult) return profileResult;
   const integrationStatusResult = await handleIntegrationStatusApi({ method, path, query, service: deps.integrationStatus });
   if (integrationStatusResult) return integrationStatusResult;
+  const vpnStatusResult = await handleVpnStatusApi({ method, path, query, service: deps.vpnStatus });
+  if (vpnStatusResult) return vpnStatusResult;
   const settingsResult = await handleIntegrationSettingsApi({ method, path, query, body: _body, caller: deps.integrationSettingsCaller, service: deps.integrationSettings });
   if (settingsResult) return settingsResult;
   if (path === '/api/config' && method === 'GET') {

@@ -15,6 +15,7 @@ async function mockInterface(page: Page) {
     const path = url.pathname;
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(ids.map(id => `helmsman.${id}`)) }
       : path === '/api/context' ? { repos: ['org/a'], jiraEnabled: false, jiraBaseUrl: null }
+      : path === '/api/vpn-status' ? { version: 1, state: 'connected', client: 'connected', network: 'reachable', checkedAt: '2026-10-11T12:00:00.000Z' }
       : path === '/api/config' ? { config: {}, overridden: [] }
       : path === '/api/agents' ? { runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } }
       : path === '/api/task-sources' ? { instances: [] }
@@ -36,9 +37,10 @@ for (const touch of [false, true]) test.describe(touch ? 'touch interface' : 'po
     page.on('pageerror', error => errors.push(error.message));
     await page.goto('/config?repo=org/a');
     await expect(page.locator('#boot')).toHaveCount(0);
+    await expect(page.locator('[data-pages-menu]')).toHaveCount(0);
     expect(await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches)).toBe(touch);
     if (touch) {
-      for (const selector of ['.repo-select', '.pages-menu > summary', '.page-tab', '.section-link', '.footer-about > summary', '[data-recovery-link]']) {
+      for (const selector of ['.repo-select', '.page-tab', '.section-link', '.footer-about > summary', '[data-recovery-link]']) {
         const heights = await page.locator(selector).evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
         expect(heights.length).toBeGreaterThan(0);
         expect(heights.every(height => height >= 44)).toBe(true);

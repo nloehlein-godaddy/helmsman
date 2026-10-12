@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountPluginManager } from './plugin-manager';
+import { appPages } from './plugins/builtins';
 
 const hash = 'a'.repeat(64);
 const external = { id: 'example.costs', name: 'Costs', version: '1.0.0', kind: 'external', hash, desiredEnabled: false, health: 'healthy', state: 'disabled', revision: 2, obligationsOnly: false };
@@ -24,6 +25,23 @@ describe('plugin manager', () => {
     manager.updateScope('org/two');
     expect(container.querySelector<HTMLAnchorElement>('a')?.getAttribute('href')).toBe('/source-settings?repo=org%2Ftwo');
     expect(container.querySelector<HTMLInputElement>('input[type=search]')?.value).toBe('source'); manager.dispose();
+  });
+
+  it('opens enabled plugin pages canonically with current scope and removes retired pages', async () => {
+    const remove = appPages.register({ manifestVersion: 1, sdkVersion: 1, id: external.id, version: '1.0.0', pages: [{ id: 'summary', title: '<img src=x>', slots: [], panes: [] }, { id: 'hidden', title: 'Hidden', slots: [], panes: [], navigation: false }] });
+    const container = fixture(); const manager = mountPluginManager(container, { repo: 'org/one' });
+    try {
+      await vi.waitFor(() => expect(container.querySelector('[data-plugin-page]')).not.toBeNull());
+      const link = container.querySelector<HTMLAnchorElement>('[data-plugin-page]')!;
+      expect(link.textContent).toBe('Open page: <img src=x>'); expect(container.querySelector('img')).toBeNull();
+      expect(container.querySelectorAll('[data-plugin-page]')).toHaveLength(1);
+      expect(link.getAttribute('href')).toBe('/plugins/example.costs/summary?repo=org%2Fone');
+      manager.updateScope('org/two'); expect(link.getAttribute('href')).toBe('/plugins/example.costs/summary?repo=org%2Ftwo');
+      manager.updateScope(null); expect(link.getAttribute('href')).toBe('/plugins/example.costs/summary');
+      link.focus(); remove(); expect(container.querySelector('[data-plugin-page]')).toBeNull();
+      expect(document.activeElement).toBe(container.querySelector('input[type=search]'));
+      manager.updateScope(null); expect(container.querySelector('.plugin-manager-source-link')?.getAttribute('href')).toBe('/source-settings');
+    } finally { manager.dispose(); remove(); }
   });
 
   it('requires trust before enable and sends expected state; preserves recovery on failure', async () => {

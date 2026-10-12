@@ -2,6 +2,8 @@ import { term, isPirateMode, TERMINOLOGY, TERMINOLOGY_REFERENCE_KEYS } from './l
 import { renderThemePreview } from './renderThemePreview';
 import { integrationStatusDescription, renderIntegrationStatus } from './renderIntegrationStatus';
 import type { IntegrationNavigationStatus } from './data/integration-status';
+import type { VpnNavigationStatus } from './data/vpn-status';
+import { renderVpnStatus } from './renderVpnStatus';
 import { renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
 import { renderPirateModeIcon } from './renderPirateModeIcon';
 import { routeHref, type PageView } from './logic/routes';
@@ -49,6 +51,7 @@ const PAGE_TABS: { view: PageView; label: string }[] = [
 
 export interface HelmHeadOpts {
   integrationStatus?: IntegrationNavigationStatus;
+  vpnStatus?: VpnNavigationStatus;
   active: PageView;
   pane?: string | null;
   jiraEnabled?: boolean;
@@ -88,23 +91,6 @@ function pageTabs(opts: HelmHeadOpts) {
     });
   }
   return tabs;
-}
-
-export function renderPagesMenu(opts: HelmHeadOpts): string {
-  const represented = new Set(shippedPageTabs(opts).map(tab => tab.contributionId).filter(Boolean));
-  const pages = appPages.listPages().filter(page => page.navigation !== false && !represented.has(page.contributionId))
-    .sort((a, b) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' }) || (a.contributionId < b.contributionId ? -1 : a.contributionId > b.contributionId ? 1 : 0));
-  const titles = new Map<string, number>();
-  for (const page of pages) { const key = page.title.toLocaleLowerCase('en'); titles.set(key, (titles.get(key) ?? 0) + 1); }
-  const links = pages.map(page => {
-    const selectedSlot = [...builtinPageSlots].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-      .find(slot => appPages.selected(slot.id).page?.contributionId === page.contributionId);
-    const href = routeHref({ view: 'plugin', repo: opts.selectedRepo, ...(selectedSlot ? { pluginSlot: selectedSlot.id } : { pluginPage: page.contributionId }) });
-    const active = opts.pluginSlot ? opts.pluginSlot === selectedSlot?.id : opts.pluginPage === page.contributionId;
-    const duplicate = (titles.get(page.title.toLocaleLowerCase('en')) ?? 0) > 1;
-    return `<a class="app-link" data-page-link data-page-contribution="${esc(page.contributionId)}" href="${esc(href)}"${active ? ' aria-current="page"' : ''}><span>${esc(page.title)}</span>${duplicate ? `<small>${esc(page.contributionId)}</small>` : ''}</a>`;
-  }).join('');
-  return `<details class="pages-menu" data-pages-menu><summary data-pages-menu-summary>Pages</summary><nav data-pages-menu-items aria-label="Installed pages">${links || '<p>No additional pages are enabled.</p>'}</nav></details>`;
 }
 
 export function activePageTabId(opts: HelmHeadOpts): string {
@@ -175,7 +161,7 @@ export function renderHelmHead(opts: HelmHeadOpts): string {
       ${readout}
       <div class="helm-controls">
         <span class="helm-greeting"><span data-greeting>${term('greeting')}</span><span data-profile-header></span>!</span>
-        ${renderPagesMenu(opts)}
+        ${renderVpnStatus(opts.vpnStatus)}
       </div>
     </header>
     <nav class="page-tabs" role="tablist" aria-label="Views" aria-orientation="vertical">${tabs}</nav>

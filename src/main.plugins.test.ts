@@ -87,29 +87,16 @@ afterEach(() => {
 });
 
 describe('registered plugin page integration', () => {
-  it('discovers installed pages without changing selection and preserves menu focus through catalog updates', async () => {
-    window.history.replaceState(null, '', '/config?repo=org/a');
+  it('keeps installed canonical pages usable without a Pages dropdown or selection changes', async () => {
+    window.history.replaceState(null, '', '/plugins/example.summary/page?repo=org/a');
     const plugin = sample(); const installed = register(plugin);
     await start();
-    const menu = document.querySelector<HTMLDetailsElement>('[data-pages-menu]')!;
-    menu.open = true;
-    const link = menu.querySelector<HTMLAnchorElement>('[data-page-contribution="example.summary/page"]')!;
-    expect(link.getAttribute('href')).toBe('/plugins/example.summary/page?repo=org%2Fa'); link.focus();
-    const remove = appPages.register({manifestVersion:1,sdkVersion:1,id:'example.another',version:'1.0.0',pages:[{id:'page',title:'Another page',slots:[],panes:[]}]});
-    disposers.push(remove);
-    expect(menu.open).toBe(true);
-    expect(document.activeElement).toBe(link);
-    expect(menu.querySelector('[data-page-contribution="example.summary/page"]')).toBe(link);
-    expect(window.location.pathname).toBe('/config');
-    link.click(); await settle();
-    expect(window.location.pathname).toBe('/plugins/example.summary/page');
-    expect(window.location.search).toBe('?repo=org%2Fa');
+    expect(document.querySelector('[data-pages-menu]')).toBeNull();
+    expect(plugin.mount).toHaveBeenCalledOnce();
     expect(appPages.selected(COSTS_PAGE_SLOT).contributionId).toBe('helmsman.costs/page');
-    link.focus(); installed.removeManifest();
-    expect(menu.open).toBe(true);
-    expect(document.activeElement).toBe(menu.querySelector('[data-pages-menu-summary]'));
-    expect(menu.querySelector('[data-page-contribution="example.summary/page"]')).toBeNull();
+    installed.removeManifest(); await settle();
     expect(window.location.pathname).toBe('/plugins/example.summary/page');
+    expect(document.querySelector('.page-tab.is-active')?.textContent).toContain('unavailable');
   });
 
   it.each([HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, COSTS_PAGE_SLOT]

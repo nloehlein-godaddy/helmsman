@@ -1,4 +1,6 @@
 import './plugin-manager.css';
+import { appPages } from './plugins/builtins';
+import { routeHref } from './logic/routes';
 
 type Expected = { hash: string; revision: number; desiredEnabled: boolean };
 type Plugin = { id: string; name: string; version: string; kind: 'builtin' | 'external'; hash: string; desiredEnabled: boolean; health: string; state: string; revision: number; obligationsOnly: boolean };
@@ -177,6 +179,15 @@ export function mountPluginManager(container: HTMLElement, options: { repo: stri
         if (plugin.obligationsOnly) meta.append(element('span', 'Retained work only'));
         const details = action(expandedId === plugin.id ? 'Hide details' : 'Details', () => { expandedId = expandedId === plugin.id ? null : plugin.id; render(); }); details.setAttribute('aria-expanded', String(expandedId === plugin.id)); details.dataset.focusKey = `details:${plugin.id}`;
         summary.append(identity, meta, details); row.append(summary);
+        const pages = appPages.listPages().filter(page => page.pluginId === plugin.id && page.navigation !== false);
+        if (pages.length) {
+          const links = element('nav'); links.className = 'plugin-manager-page-links'; links.setAttribute('aria-label', `${plugin.name} pages`);
+          for (const page of pages) {
+            const link = element('a', `Open page: ${page.title}`); link.className = 'app-link'; link.dataset.pluginPage = page.contributionId; link.dataset.focusKey = `page:${page.contributionId}`;
+            link.href = routeHref({ view: 'plugin', pluginPage: page.contributionId, repo }); links.append(link);
+          }
+          row.append(links);
+        }
         if (expandedId === plugin.id) {
           const body = element('div'); body.className = 'plugin-manager-detail';
           body.append(element('p', `State: ${plugin.state} · Health: ${plugin.health}`), element('p', `Artifact: ${plugin.hash}`));
@@ -210,6 +221,7 @@ export function mountPluginManager(container: HTMLElement, options: { repo: stri
       if (replacement && !replacement.closest('[hidden]')) { replacement.focus({ preventScroll: true }); if (selection && replacement instanceof HTMLInputElement && selection[0] !== null && selection[1] !== null) replacement.setSelectionRange(selection[0], selection[1]); }
     }
   }
+  const unsubscribePages = appPages.subscribe(render);
   render(); void refresh();
-  return { dispose() { disposed = true; requestId++; for (const controller of requests) controller.abort(); container.replaceChildren(); }, updateScope(nextRepo) { if (repo === nextRepo) return; repo = nextRepo; const link = container.querySelector<HTMLAnchorElement>('.plugin-manager-source-link'); if (link) link.href = `/source-settings${repo ? `?repo=${encodeURIComponent(repo)}` : ''}`; } };
+  return { dispose() { disposed = true; unsubscribePages(); requestId++; for (const controller of requests) controller.abort(); container.replaceChildren(); }, updateScope(nextRepo) { if (repo === nextRepo) return; repo = nextRepo; const link = container.querySelector<HTMLAnchorElement>('.plugin-manager-source-link'); if (link) link.href = `/source-settings${repo ? `?repo=${encodeURIComponent(repo)}` : ''}`; for (const page of container.querySelectorAll<HTMLAnchorElement>('[data-plugin-page]')) page.href = routeHref({ view: 'plugin', pluginPage: page.dataset.pluginPage, repo }); } };
 }

@@ -9,6 +9,7 @@ for (const width of [1440, 390]) test(`section navigation persists across parent
     const path = new URL(route.request().url()).pathname;
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.github-settings', 'helmsman.local-git']) }
       : path === '/api/context' ? { repos: ['org/a', 'org/b'], jiraBaseUrl: null }
+      : path === '/api/vpn-status' ? { version: 1, state: 'connected', client: 'connected', network: 'reachable', checkedAt: '2026-10-11T12:00:00.000Z' }
       : path === '/api/integration-status' ? { version: 1, repo: 'org/a', jira: 'available', github: 'unavailable', checkedAt: '2026-10-09T00:00:00.000Z' }
       : path === '/api/config' ? { config: {}, overridden: [] }
       : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} }
@@ -57,6 +58,7 @@ test('section navigation stands apart and stays readable in dark and light gener
     const path = new URL(route.request().url()).pathname;
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
       : path === '/api/context' ? { repos: ['org/a'], jiraBaseUrl: null }
+      : path === '/api/vpn-status' ? { version: 1, state: 'connected', client: 'connected', network: 'reachable', checkedAt: '2026-10-11T12:00:00.000Z' }
       : path === '/api/integration-status' ? { version: 1, repo: 'org/a', jira: 'available', github: 'unavailable', checkedAt: '2026-10-09T00:00:00.000Z' }
       : path === '/api/config' ? { config: {}, overridden: [] }
       : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
@@ -133,6 +135,7 @@ for (const width of [1440, 390]) test(`integration indicators retain accessible 
     }
     const json = url.pathname === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: [] }
       : url.pathname === '/api/context' ? { repos: ['org/a', 'org/b'], jiraBaseUrl: null }
+      : url.pathname === '/api/vpn-status' ? { version: 1, state: 'connected', client: 'connected', network: 'reachable', checkedAt: '2026-10-11T12:00:00.000Z' }
       : url.pathname === '/api/config' ? { config: {}, overridden: [] }
       : url.pathname === '/api/agents' ? { runs: [], autoClaim: [], caps: {} } : {};
     return route.fulfill({ json });

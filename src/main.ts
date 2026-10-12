@@ -22,6 +22,8 @@ import { activePageTabId, renderAppShell, renderHelmHead, type HelmHeadOpts, ren
 import { fetchAgents, type RunSummary } from './data/agents';
 import { getConfig, setConfig, type UiConfig } from './data/config';
 import { createIntegrationStatusController, type IntegrationNavigationStatus } from './data/integration-status';
+import { createVpnStatusController, type VpnNavigationStatus } from './data/vpn-status';
+import { renderVpnStatus } from './renderVpnStatus';
 import { onIntegrationSettingsChanged } from './data/integration-status-events';
 import { navigationSection } from './logic/navigation';
 import { applyCustomTheme, CUSTOM_THEME_ID, loadCustomTheme, loadCustomThemeRecipe, saveCustomTheme } from './data/themes';
@@ -66,9 +68,11 @@ export class DashboardView {
   private collapsed: Set<string> = loadCollapsed();
   private refreshSeq: number = 0;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private vpnRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshPending: { repo: string | null; promise: Promise<void> } | null = null;
   private lastLocalRefresh: number = -Infinity;
   private readonly onVisibilityChange = (): void => {
+    this.refreshVpnStatus();
     this.paintHeaderContribution();
     if (this.isPluginPage()) this.paintPluginPage();
     else this.rehomeRunViewer();
@@ -86,6 +90,12 @@ export class DashboardView {
   private configSaves: number = 0;
   private jiraEnabled: boolean = true;
   private integrationStatus: IntegrationNavigationStatus | null = null;
+  private vpnStatus: VpnNavigationStatus = { state: 'unknown' };
+  private readonly vpnStatusController = createVpnStatusController(status => {
+    if (this.destroyed) return;
+    this.vpnStatus = status;
+    this.syncShell();
+  });
   private readonly integrationStatusController = createIntegrationStatusController(status => {
     if (this.destroyed || status.repo !== this.selectedRepo) return;
     this.integrationStatus = status;
@@ -382,6 +392,7 @@ export class DashboardView {
   destroy(): void {
     this.destroyed = true;
     this.integrationStatusController.dispose();
+    this.vpnStatusController.dispose();
     this.rootEvents.abort();
     this.unsubscribePages?.();
     this.unsubscribePages = null;
@@ -401,6 +412,8 @@ export class DashboardView {
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     if (this.refreshTimer !== null) clearInterval(this.refreshTimer);
     this.refreshTimer = null;
+    if (this.vpnRefreshTimer !== null) clearTimeout(this.vpnRefreshTimer);
+    this.vpnRefreshTimer = null;
     ++this.routeSeq;
     ++this.refreshSeq;
     window.removeEventListener('popstate', this.onPopState);
@@ -440,6 +453,7 @@ export class DashboardView {
     if (!route.run) this.presentationSelection = null;
     this.paint();
     void this.refreshIntegrationStatus();
+    this.refreshVpnStatus();
     if (scopeChanged) this.paintHeaderContribution();
     if (scopeChanged) await this.refresh(false);
     if (seq !== this.routeSeq) return;
@@ -678,6 +692,7 @@ export class DashboardView {
       pane: this.route.pane,
       pluginPage: this.route.pluginPage, pluginSlot: this.route.pluginSlot,
       jiraEnabled: this.jiraEnabled,
+      vpnStatus: this.vpnStatus,
       ...(this.integrationStatus?.repo === this.selectedRepo ? { integrationStatus: this.integrationStatus } : {}),
       readout: {
         running: this.runs.filter(run => run?.status === 'running' && (!this.selectedRepo || run.repo === this.selectedRepo)).length,
@@ -690,6 +705,17 @@ export class DashboardView {
   private refreshIntegrationStatus(force = false): Promise<void> {
     if (navigationSection(this.shellOptions())?.view !== 'config') return Promise.resolve();
     return this.integrationStatusController.refresh(this.selectedRepo, force);
+  }
+
+  private refreshVpnStatus(): void {
+    if (this.vpnRefreshTimer !== null) clearTimeout(this.vpnRefreshTimer);
+    this.vpnRefreshTimer = null;
+    if (this.destroyed || document.hidden) return;
+    void this.vpnStatusController.refresh().finally(() => {
+      if (this.destroyed || document.hidden) return;
+      if (this.vpnRefreshTimer !== null) clearTimeout(this.vpnRefreshTimer);
+      this.vpnRefreshTimer = setTimeout(() => this.refreshVpnStatus(), this.vpnStatusController.nextCheckInMs());
+    });
   }
 
   private mountPage(markup: string): void {
@@ -736,6 +762,17 @@ export class DashboardView {
     const shell = this.root.querySelector<HTMLElement>('.helm');
     if (!shell) return;
     const opts = this.shellOptions();
+    const vpn = shell.querySelector<HTMLElement>('[data-vpn-status]');
+    const nextVpn = document.createElement('template');
+    nextVpn.innerHTML = renderVpnStatus(this.vpnStatus);
+    const indicator = nextVpn.content.firstElementChild;
+    if (vpn && indicator) {
+      for (const name of ['data-state', 'aria-label', 'title']) {
+        const value = indicator.getAttribute(name);
+        if (value !== null) vpn.setAttribute(name, value);
+      }
+      if (vpn.innerHTML !== indicator.innerHTML) vpn.replaceChildren(...indicator.childNodes);
+    }
     shell.dataset.page = this.view;
     shell.className = `helm${this.view === 'dashboard' ? '' : ` ${this.view}-view`}`;
     this.root.querySelector('#page-content')?.setAttribute('aria-labelledby', activePageTabId(opts));
@@ -796,28 +833,6 @@ export class DashboardView {
       for (const node of Array.from(section.children)) if (!nextNodes.includes(node as HTMLAnchorElement)) node.remove();
     }
     this.syncQuestionsAttention();
-    const menu = shell.querySelector<HTMLDetailsElement>('[data-pages-menu]');
-    const items = menu?.querySelector('[data-pages-menu-items]');
-    const nextItems = template.content.querySelector('[data-pages-menu-items]');
-    if (menu && items && nextItems) {
-      const retained = new Map(Array.from(items.querySelectorAll<HTMLAnchorElement>('[data-page-contribution]'), link => [link.dataset.pageContribution, link]));
-      const nextNodes = Array.from(nextItems.children, next => {
-        if (!(next instanceof HTMLAnchorElement)) return next;
-        const current = retained.get(next.dataset.pageContribution);
-        if (!current) return next;
-        if (current.innerHTML !== next.innerHTML) current.replaceChildren(...next.childNodes);
-        for (const name of ['href', 'aria-current', 'title']) {
-          const value = next.getAttribute(name);
-          if (value === null) current.removeAttribute(name); else current.setAttribute(name, value);
-        }
-        return current;
-      });
-      if (items.contains(document.activeElement) && !nextNodes.some(node => node === document.activeElement || node.contains(document.activeElement))) {
-        menu.querySelector<HTMLElement>('[data-pages-menu-summary]')?.focus({ preventScroll: true });
-      }
-      nextNodes.forEach((node, index) => { if (items.children[index] !== node) items.insertBefore(node, items.children[index] ?? null); });
-      for (const node of Array.from(items.children)) if (!nextNodes.includes(node)) node.remove();
-    }
     for (const next of template.content.querySelectorAll<HTMLElement>('[data-fleet-count]')) {
       const count = shell.querySelector<HTMLElement>(`[data-fleet-count="${next.dataset.fleetCount}"]`);
       if (!count) continue;

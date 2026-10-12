@@ -773,6 +773,11 @@
         "name": "The Agent Questions Hierarchy Rule",
         "body": "Agent questions leads with scoped prompts, explicit publication blockers and answerability reasons, or an honest loading, error or empty state. Observed counts remain distinct from unknown totals; readable UTC observation dates retain exact values. The composed page owns one heading, Refresh and compatibility recovery link, including when its saved layout is empty or implementations are missing. Standalone panels retain their own controls and recovery links. Pagination stays compact while preserving later-page cursor reset and pages with a next cursor. Suggested contacts occupies a separate supporting section with an explicit Global label and no-message explanation. Bounded create and edit forms use persistent labels, contrast-aware inputs, compact actions and mobile reflow. Local Phosphor icons identify sections and actions; fonts and licenses ship with each independent package. Exact answer and contact requests, original revisions, publication blocking, conditional saved state, draft identity, focus and disclosure choices remain intact. Read-only answer forms sit in native Answer draft disclosures while accepted answers and blocking reasons remain visible. Pending recovery evidence stays visible; saved drafts and results remain in native disclosures.",
         "section": "components"
+      },
+      {
+        "name": "The VPN Status and Page Discovery Rule",
+        "body": "A global VPN icon sits beside the notification bell on every page. Phosphor shield-check, shield-slash, shield-warning and circle-notch shapes distinguish connected, disconnected, unknown and checking states, with contrast-aware semantic colors. Hover and keyboard-accessible descriptions explain GlobalProtect and optional internal reachability evidence, the observation time and the one-minute cadence. Failed internal reachability alone never means disconnected. Checks pause while the browser is hidden and resume when visible; header galleon selection does not scope VPN status. The redundant Pages dropdown is removed; Config \u2192 Plugins retains links to registered navigable plugin pages, scoped to the header selection.",
+        "section": "components"
       }
     ],
     "dos": [

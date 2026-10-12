@@ -6,6 +6,7 @@ import { openDb, type RunRow } from './db';
 import { createUsageQueryService } from './usage-service';
 import { CapabilityResolutionError } from './plugins/backend';
 import { aggregateOutcomes } from './outcomes';
+import { createVpnStatusService } from './vpn-status';
 
 const deps: RouterDeps = {
   db: {
@@ -25,6 +26,13 @@ const deps: RouterDeps = {
 };
 
 describe('handleApi', () => {
+  it('serves global VPN status independently of galleon and integration scope', async () => {
+    const client = vi.fn(async () => 'connected' as const);
+    const vpnStatus = createVpnStatusService({ client });
+    expect(await handleApi('GET', '/api/vpn-status', new URLSearchParams(), null, { ...deps, vpnStatus })).toMatchObject({ status: 200, json: { state: 'connected', network: 'not-configured' } });
+    expect(await handleApi('GET', '/api/vpn-status', new URLSearchParams('repo=o/r'), null, { ...deps, vpnStatus })).toMatchObject({ status: 400 });
+    expect(client).toHaveBeenCalledOnce();
+  });
   it('retires legacy clarification writes without touching compatibility state when the plugin service is absent', async () => {
     const timeoutDue = vi.fn(); const cleanupOrphans = vi.fn(); const answer = vi.fn(); const saveContact = vi.fn(); const ingestQuestion = vi.fn();
     const local = { ...deps, clarifications: { timeoutDue, cleanupOrphans, answer, saveContact, ingestQuestion } as unknown as RouterDeps['clarifications'] };

@@ -50,6 +50,7 @@ import { createProfileService } from './profile-service';
 import { profileContributionEnabled } from './profile-runtime';
 import { createIntegrationSettingsService } from './integration-settings-service';
 import { createGithubConnectionCheck, createIntegrationStatusService } from './integration-status';
+import { createGlobalProtectCheck, createVpnStatusService } from './vpn-status';
 import { parseSourceIdentityEvidenceV1 } from '../../src/plugins/tasks';
 import { jiraSettingsContributionEnabled, githubSettingsContributionEnabled } from './integration-settings-runtime';
 import { createLocalGitService } from './local-git-service';
@@ -543,6 +544,7 @@ const integrationStatus = createIntegrationStatusService({ repos: applicationRep
     return 'available';
   },
 });
+const vpnStatus = createVpnStatusService({ client: createGlobalProtectCheck(), checkUrl: process.env.VPN_CHECK_URL });
 const executionPolicy = createExecutionPolicyService({ persistence, repos: applicationRepos,
   safetyReady: () => true,
   limits: repo => ({ globalMaxConcurrentRuns: maxConcurrency, perRunCostCapUsd: configStore.current().maxCostUsd,
@@ -2055,7 +2057,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sourceAdmin, sourceAdminCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       taskEdit, taskViews, sourceCommands, sourceCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       runRead, taskContext, taskContextSignal: inspectController?.signal, runInspect, pullRequestRead, pullRequestInspect, pullRequestInspectSignal: inspectController?.signal, activityRead, runCommands, runCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      integrationStatus, integrationSettings, integrationSettingsCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      vpnStatus, integrationStatus, integrationSettings, integrationSettingsCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       executionPolicy, executionPolicyCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       publicLocalGit, localGitCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,

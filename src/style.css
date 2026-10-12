@@ -152,16 +152,16 @@ html, body {
 .helm-readout .seg { white-space: nowrap; }
 .helm-readout .seg b { font-size: 15px; color: var(--text); margin-right: 3px; }
 .helm-controls { position: relative; justify-self: end; display: flex; align-items: center; gap: 16px; min-width: 0; }
-.pages-menu { font-size: 15px; }
-.pages-menu > summary { cursor: pointer; padding: 8px 10px; color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); background: transparent; white-space: nowrap; }
-.pages-menu > summary:hover, .pages-menu[open] > summary { background: var(--panel-hi); }
-.pages-menu > summary:focus-visible, .pages-menu [data-page-link]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.pages-menu > nav { position: absolute; right: 0; top: calc(100% + 10px); z-index: 20; width: min(24rem, calc(100vw - 2rem)); max-height: min(32rem, 65vh); overflow-y: auto; padding: 6px; border: 1px solid var(--line); border-radius: var(--panel-radius); background: var(--panel); }
-.pages-menu [data-page-link] { display: flex; flex-direction: column; gap: 4px; padding: 12px; color: var(--text); text-decoration: none; overflow-wrap: anywhere; border-radius: var(--radius); }
-.pages-menu [data-page-link]:hover { background: var(--panel-hi); }
-.pages-menu [data-page-link][aria-current="page"] { color: var(--accent-text, var(--accent)); background: var(--panel-2); }
-.pages-menu small { color: var(--text-dim); font-family: var(--mono); font-size: 13px; }
-.pages-menu p { margin: 0; padding: 12px; color: var(--text-dim); }
+@font-face { font-family: 'Helmsman Phosphor Regular'; src: url('./assets/phosphor-regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: block; }
+.vpn-status { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 36px; height: 36px; border-radius: var(--radius); color: var(--text-dim); cursor: help; }
+.vpn-status[data-state="connected"] { color: var(--good-text, var(--good)); }
+.vpn-status[data-state="disconnected"] { color: var(--bad-text, var(--bad)); }
+.vpn-status[data-state="unknown"] { color: var(--warn-text, var(--warn)); }
+.vpn-status:hover { background: var(--panel-hi); }
+.vpn-status:focus-visible { outline: 2px solid var(--accent-text, var(--accent)); outline-offset: 2px; }
+.vpn-status-icon { font: 22px/1 'Helmsman Phosphor Regular'; }
+.vpn-status-icon::before { content: attr(data-glyph); }
+@media (pointer: coarse) { .vpn-status { width: 44px; height: 44px; } }
 .page-tabs { grid-area: nav; display: flex; flex-direction: column; gap: 4px; min-height: 0; padding: 24px 12px; overflow: auto; position: relative; background: var(--nav-bg, var(--rail)); border-right: 1px solid var(--line-faint); }
 .page-tab { flex-shrink: 0; text-decoration: none; font: 500 15px/1.4 var(--sans); color: var(--nav-muted, var(--text-dim)); border: 1px solid transparent; border-radius: var(--radius); padding: 10px 14px; cursor: pointer; }
 .page-tab:hover { color: var(--nav-text, var(--text)); background: var(--nav-active, var(--panel-hi)); }
@@ -548,7 +548,7 @@ select { text-transform: none; }
 
 @media (any-pointer: coarse) {
   :root .helm :is(button, summary, select, input:not([type=checkbox]):not([type=radio])) { min-height: 44px; min-width: 44px; box-sizing: border-box; }
-  .helm :is(.page-tab, .section-link, [data-page-link], [data-recovery-link]) { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; }
+  .helm :is(.page-tab, .section-link, [data-recovery-link]) { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; }
   .helm summary { align-content: center; }
 }
 
