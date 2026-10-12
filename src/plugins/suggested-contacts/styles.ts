@@ -4,7 +4,7 @@ export const styles = `
 .plugin-suggested-contacts{color:var(--text);font:14px/1.5 var(--sans,sans-serif);display:grid;gap:16px;min-width:0;background:var(--panel-2,var(--panel));border:1px solid var(--line);border-radius:12px;padding:18px 20px}
 .plugin-suggested-contacts :is(h2,h3,p){margin:0}
 .plugin-suggested-contacts :is(h2,h3){font-family:var(--sans,sans-serif);line-height:1.3;letter-spacing:-.02em;text-wrap:balance;overflow-wrap:anywhere}
-.plugin-suggested-contacts h2{font-size:18px;display:flex;align-items:center;gap:8px}
+.plugin-suggested-contacts h2{font-size:18px;display:flex;align-items:center;gap:8px;white-space:nowrap;text-wrap:nowrap;flex-shrink:0}
 .plugin-suggested-contacts h3{font-size:15px}
 .plugin-suggested-contacts :is(section,article,form,details[open]){display:grid;gap:10px;min-width:0}
 .plugin-suggested-contacts .contact-section-heading{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}

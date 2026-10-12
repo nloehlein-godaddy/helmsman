@@ -29,7 +29,7 @@ async function fixture(initial: PanelOpaqueStateV1 | null = null) {
 }
 describe('independent global suggested contacts', () => {
   it('labels global metadata, uses bounded global pages and preserves page across header scope change', async () => {
-    const f = await fixture(); expect(f.container.textContent).toContain('apply to every repository'); expect(f.context.services.clarifications).toBeUndefined();
+    const f = await fixture(); expect(f.container.textContent).toContain('shared across every repository'); expect(f.context.services.clarifications).toBeUndefined();
     button(f.container, 'Next page').click(); await vi.waitFor(() => expect(f.container.textContent).toContain('Page 2')); await f.update({ repo: 'org/b' }); await f.instance.refresh?.();
     expect(f.service.list).toHaveBeenLastCalledWith({ version: 1, scope: 'global', limit: 25, cursor: 'next' }, expect.any(AbortSignal)); expect(f.service.submit).not.toHaveBeenCalled();
   });
