@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CompositionLayoutV1 } from '@helmsman/plugin-sdk';
-import { addInstance, changeInstance, moveInstance, removeInstance, stackInstance } from './layout';
+import { addInstance, changeInstance, moveInstance, moveStack, removeInstance, stackInstance } from './layout';
 
 function fixture(): CompositionLayoutV1 {
   return { version: 1, compositionId: 'helmsman/helm-page', revision: 7, instances: [
@@ -9,6 +9,24 @@ function fixture(): CompositionLayoutV1 {
   ], columns: [[{ instances: ['first', 'second'], activeInstanceId: 'first', collapsed: true }], []] };
 }
 describe('authored Helm layout editing', () => {
+  it('moves a whole stack into an existing empty column without changing tabs, hidden state, scopes or opaque data', () => {
+    const original = fixture(); const stack = original.columns[0]![0]!;
+    const moved = moveStack(original, 'second', 1, 0);
+    expect(moved.columns).toEqual([[], [stack]]);expect(moved.columns[1]?.[0]).toBe(stack);
+    expect(moved.instances).toBe(original.instances);expect(moved.revision).toBe(original.revision);
+    expect(original.columns).toEqual([[stack], []]);
+    for (const [column, position] of [[0,0],[0,1],[2,0],[1,-1],[1,1],[NaN,0],[1,.5]]) expect(moveStack(original,'second',column!,position!)).toBe(original);
+    expect(moveStack(original,'missing',1,0)).toBe(original);
+  });
+  it('adjusts same-column insertion indices and leaves hidden stacks in their saved positions', () => {
+    const original = fixture();const stack = original.columns[0]![0]!;
+    const hidden = { instances:['hidden'],activeInstanceId:'hidden',collapsed:false };
+    const other = { instances:['other'],activeInstanceId:'other',collapsed:false };
+    const layout = {...original,columns:[[stack,hidden,other],[]]};
+    expect(moveStack(layout,'first',0,3).columns[0]).toEqual([hidden,other,stack]);
+    expect(moveStack(layout,'other',0,0).columns[0]).toEqual([other,stack,hidden]);
+    expect(moveStack(layout,'first',0,2).columns[0]).toEqual([hidden,stack,other]);
+  });
   it('retains unavailable implementation state when replacing, moving, or changing scope', () => {
     const original = fixture();
     const next = moveInstance(changeInstance(original, 'first', { contributionId: 'example.replacement/panel', scope: { kind: 'all' } }), 'first', 'right');

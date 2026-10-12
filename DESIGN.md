@@ -288,6 +288,8 @@ Campaign panels inherit the header selection; a clear restore action appears onl
 
 Authored Helm stacks use panel ground, a thin semantic line and panel corners. Header padding is (8px 12px); body padding follows the responsive layout above. Repeated local plugin headings are visually hidden only under a named composed tabpanel. Standalone headings remain visible.
 
+**The Helm Drag Rule.** Helm stack headers expose a compact drag grip beside their tabs. Dragging moves the entire tab stack within or between existing columns; hidden tabs, the selected tab, collapse state, panel scopes and saved panel state stay together. An accent insertion marker identifies the proposed position, and edge scrolling keeps long dashboards usable. Grip pointer handling supports mouse and touch without blocking normal panel scrolling. Space or Enter picks up and drops a stack, arrows choose its position, and Escape cancels; concise accessible instructions and status announcements support keyboard use. Narrow layouts retain their saved column structure while exposing drop positions in the interleaved visual order. Moves persist through revision-checked layout updates; cancellation, conflicts and save failures never discard panel state or recreate mounted panel bodies.
+
 ### State labels and work rows
 
 Running/recent work uses a prominent linked title, technical identifier, compact outlined state and aligned evidence. State labels use (2px 8px) padding and control corners. Row separation uses the semantic line; the last row removes it. Titles wrap as needed, evidence wraps independently, and narrow-screen order keeps identity ahead of state and actions. Theme-preview status chips use sentence-case sans with compact corners.

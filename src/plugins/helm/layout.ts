@@ -1,5 +1,20 @@
 import type { CompositionLayoutV1, PanelLayoutInstanceV1, PanelScopeV1 } from '@helmsman/plugin-sdk';
 
+export function moveStack(layout: CompositionLayoutV1, id: string, targetColumn: number, targetPosition: number): CompositionLayoutV1 {
+  const sourceColumn = layout.columns.findIndex(column => column.some(stack => stack.instances.includes(id)));
+  const sourcePosition = layout.columns[sourceColumn]?.findIndex(stack => stack.instances.includes(id)) ?? -1;
+  if (sourcePosition < 0 || !Number.isInteger(targetColumn) || !Number.isInteger(targetPosition)
+    || targetColumn < 0 || targetColumn >= layout.columns.length || targetPosition < 0 || targetPosition > (layout.columns[targetColumn]?.length ?? 0)) return layout;
+  const position = targetPosition - (sourceColumn === targetColumn && sourcePosition < targetPosition ? 1 : 0);
+  if (sourceColumn === targetColumn && sourcePosition === position) return layout;
+  const stack = layout.columns[sourceColumn]?.[sourcePosition];
+  if (!stack) return layout;
+  const columns = layout.columns.map(column => [...column]);
+  columns[sourceColumn]?.splice(sourcePosition, 1);
+  columns[targetColumn]?.splice(position, 0, stack);
+  return { ...layout, columns };
+}
+
 export function changeInstance(layout: CompositionLayoutV1, id: string, changes: Partial<Pick<PanelLayoutInstanceV1, 'contributionId' | 'hidden' | 'scope'>>): CompositionLayoutV1 {
   const instances = layout.instances.map(instance => instance.instanceId === id ? { ...instance, ...changes } : instance);
   const columns = changes.hidden === true ? layout.columns.map(column => column.map(stack => {

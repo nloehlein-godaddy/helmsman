@@ -96,6 +96,73 @@ describe.each([['shipped Helm', helm], ['independent Helm', workspace]] as const
 });
 
 describe('shipped Helm composition controls', () => {
+  it('scrolls the connected mobile empty-column cue and announces completed movement without cancellation',async()=>{
+    const width=window.innerWidth;Object.defineProperty(window,'innerWidth',{configurable:true,writable:true,value:390});const f=await fixture();
+    try {
+      await vi.waitFor(()=>expect(f.mounts).toHaveBeenCalledOnce());await f.composition.updateLayout({...f.layout,columns:[f.layout.columns[0]!,[]]},f.layout.revision);await f.instance.refresh?.();
+      const target=f.container.querySelector<HTMLElement>('.helm-empty-target')!;const scroll=vi.fn();Object.defineProperty(target,'scrollIntoView',{value:scroll});expect(target.isConnected).toBe(true);
+      const grip=f.container.querySelector<HTMLButtonElement>('.helm-grip')!;const key=(value:string)=>grip.dispatchEvent(new KeyboardEvent('keydown',{key:value,bubbles:true}));
+      key(' ');key('ArrowRight');expect(scroll).toHaveBeenCalledWith({block:'nearest',inline:'nearest'});expect(target.classList.contains('helm-drop-column')).toBe(true);
+      key('Escape');expect(f.container.querySelector('[aria-live]')?.textContent).toBe('Move canceled.');key(' ');key('ArrowRight');key('Enter');
+      expect(f.container.querySelector('[aria-live]')?.textContent).not.toBe('Move canceled.');await vi.waitFor(()=>expect(f.container.querySelector('[aria-live]')?.textContent).toBe('Panel moved.'));
+      expect(f.layout.columns[1]?.[0]?.instances).toEqual(['first']);
+      await f.instance.refresh?.();expect(f.container.querySelector('[aria-live]')?.textContent).toBe('Panel moved.');
+      for(const listener of f.listeners)listener();await Promise.resolve();expect(f.container.querySelector('[aria-live]')?.textContent).toBe('Panel moved.');
+    } finally {f.lifetime.abort();window.innerWidth=width;}
+  });
+  it('applies the pointer threshold and saves only a valid cross-column drop while cancellation remains inert',async()=>{
+    const width=window.innerWidth;Object.defineProperty(window,'innerWidth',{configurable:true,writable:true,value:1200});
+    const f=await fixture();
+    try {
+      await vi.waitFor(()=>expect(f.mounts).toHaveBeenCalledOnce());await f.composition.updateLayout({...f.layout,columns:[f.layout.columns[0]!,[]]},f.layout.revision);await f.instance.refresh?.();
+      const count=f.updates.mock.calls.length;
+      const bounds=(left:number,right:number)=>({left,right,top:0,bottom:600,width:right-left,height:600,x:left,y:0,toJSON:()=>({})});
+      vi.spyOn(f.container.querySelector('.helm-columns')!,'getBoundingClientRect').mockReturnValue(bounds(0,600));
+      [...f.container.querySelectorAll('.helm-columns>.helm-column')].forEach((column,index)=>vi.spyOn(column,'getBoundingClientRect').mockReturnValue(bounds(index*300,(index+1)*300)));
+      vi.spyOn(f.container.querySelector('.helm-stack')!,'getBoundingClientRect').mockReturnValue(bounds(0,300));
+      const pointer=(target:EventTarget,type:string,x:number,y:number)=>{const event=new MouseEvent(type,{bubbles:true,cancelable:true,clientX:x,clientY:y,button:0});Object.defineProperties(event,{pointerId:{value:1},isPrimary:{value:true}});target.dispatchEvent(event);};
+      const grip=f.container.querySelector<HTMLButtonElement>('.helm-grip')!;
+      pointer(grip,'pointerdown',20,20);pointer(window,'pointermove',23,22);expect(grip.getAttribute('aria-pressed')).toBe('false');pointer(window,'pointerup',23,22);expect(f.updates).toHaveBeenCalledTimes(count);
+      pointer(grip,'pointerdown',20,20);pointer(window,'pointermove',450,100);expect(grip.getAttribute('aria-pressed')).toBe('true');expect(f.container.querySelector('.helm-drop-column')).not.toBeNull();pointer(window,'pointercancel',450,100);expect(f.container.querySelector('.helm-dragging')).toBeNull();expect(f.updates).toHaveBeenCalledTimes(count);
+      pointer(grip,'pointerdown',20,20);pointer(window,'pointermove',450,100);pointer(window,'pointerup',450,100);
+      await vi.waitFor(()=>expect(f.layout.columns[1]?.[0]?.instances).toEqual(['first']));expect(f.updates).toHaveBeenCalledTimes(count+1);expect(f.mounts).toHaveBeenCalledOnce();
+    } finally {f.lifetime.abort();window.innerWidth=width;}
+  });
+  it('moves whole tab stacks with the visible keyboard grip and preserves mounted draft nodes and hidden tabs', async () => {
+    const f = await fixture(); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledOnce());
+    const first = f.layout.instances[0]!;
+    const hidden = {...first,instanceId:'hidden',hidden:true,scope:{kind:'all'} as const};
+    await f.composition.updateLayout({...f.layout,instances:[first,hidden],columns:[[{instances:['first','hidden'],activeInstanceId:'first',collapsed:false}],[]]},f.layout.revision);
+    await vi.waitFor(()=>expect(f.mounts).toHaveBeenCalledTimes(2));
+    const body=f.container.querySelector('#helm-body-first');const saved=structuredClone(f.layout.instances);const count=f.updates.mock.calls.length;
+    const grip=()=>f.container.querySelector<HTMLButtonElement>('[data-helm-focus="first:move"]')!;
+    expect(grip().disabled).toBe(false);expect(grip().getAttribute('aria-describedby')).toBeTruthy();expect(f.container.querySelector('.composition-page-editor')?.hasAttribute('hidden')).toBe(true);
+    const key=(value:string)=>grip().dispatchEvent(new KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true}));
+    key(' ');expect(grip().getAttribute('aria-pressed')).toBe('true');key('ArrowRight');key('Enter');
+    await vi.waitFor(()=>expect(f.layout.columns[1]?.[0]?.instances).toEqual(['first','hidden']));
+    expect(f.layout.columns[0]).toEqual([]);expect(f.layout.instances).toEqual(saved);expect(f.container.querySelector('#helm-body-first')).toBe(body);expect(f.mounts).toHaveBeenCalledTimes(2);expect(f.updates).toHaveBeenCalledTimes(count+1);
+    expect(document.activeElement).toBe(grip());key(' ');grip().dispatchEvent(new KeyboardEvent('keydown',{key:' ',repeat:true,bubbles:true}));expect(grip().getAttribute('aria-pressed')).toBe('true');key('Enter');await Promise.resolve();expect(f.updates).toHaveBeenCalledTimes(count+1);
+    grip().click();expect(grip().getAttribute('aria-pressed')).toBe('true');grip().click();expect(grip().getAttribute('aria-pressed')).toBe('false');expect(f.updates).toHaveBeenCalledTimes(count+1);
+    f.lifetime.abort();
+  });
+  it('cancels picked-up stacks on Escape, resize, page update, external writes and disposal without saving',async()=>{
+    const f=await fixture();await vi.waitFor(()=>expect(f.mounts).toHaveBeenCalledOnce());
+    const pick=()=>{const grip=f.container.querySelector<HTMLButtonElement>('.helm-grip')!;grip.dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true}));expect(grip.getAttribute('aria-pressed')).toBe('true');return grip;};
+    pick();window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));expect(f.container.querySelector('.helm-grip')?.getAttribute('aria-pressed')).toBe('false');
+    pick();window.dispatchEvent(new Event('resize'));expect(f.container.querySelector('.helm-dragging')).toBeNull();
+    pick();await f.instance.update({...state,themeId:'light'});expect(f.container.querySelector('.helm-dragging')).toBeNull();
+    pick();for(const listener of f.listeners)listener();await vi.waitFor(()=>expect(f.container.querySelector('.helm-dragging')).toBeNull());
+    pick();f.lifetime.abort();expect(f.container.querySelector('.helm-dragging')).toBeNull();expect(f.updates).not.toHaveBeenCalled();
+  });
+  it('recovers a rejected keyboard drop through existing CAS reload without losing the mounted panel',async()=>{
+    const f=await fixture();await vi.waitFor(()=>expect(f.mounts).toHaveBeenCalledOnce());
+    await f.composition.updateLayout({...f.layout,columns:[f.layout.columns[0]!,[]]},f.layout.revision);await f.instance.refresh?.();
+    const original=structuredClone(f.layout);const body=f.container.querySelector('#helm-body-first');f.updates.mockRejectedValueOnce(new Error('Conflict'));
+    const grip=f.container.querySelector<HTMLButtonElement>('.helm-grip')!;
+    for(const key of [' ','ArrowRight','Enter'])grip.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));
+    await vi.waitFor(()=>expect(f.container.querySelector('[role=alert]')?.textContent).toContain('could not be saved'));
+    expect(f.layout).toEqual(original);expect(f.container.querySelector('#helm-body-first')).toBe(body);expect(f.container.querySelector('.helm-dragging')).toBeNull();expect(f.mounts).toHaveBeenCalledOnce();f.lifetime.abort();
+  });
   it('interleaves mobile stacks in reading order without remounting panels or saving a layout', async () => {
     const width = window.innerWidth;
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200, writable: true });
