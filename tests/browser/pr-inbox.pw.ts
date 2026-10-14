@@ -82,8 +82,7 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await summary.focus(); await summary.press('Space');
     await expect(history).not.toHaveAttribute('open', '');
     const surfaces = await expectReadableSurfaces(panel, ['.pr-lookup-heading h3', '.pr-lookup-go', '[data-pr-pane="authored"] h3', '.pr-list-title', '.pr-recent-runs summary']);
-    expect(surfaces[0]?.background).not.toBe(surfaces[2]?.background);
-    expect(surfaces[2]?.background).not.toBe(surfaces[4]?.background);
+    expect(surfaces[2]?.background).not.toBe(surfaces[3]?.background);
     await expect(panel.locator('.pr-phosphor').first()).toHaveAttribute('aria-hidden', 'true');
     await expectReadableSurfaces(panel, ['.pr-lookup-go .pr-phosphor', '.pr-list-status .pr-phosphor'], 3);
     if (width === 390) await expect.poll(async () => (await panel.locator('.pr-lookup-go').boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
