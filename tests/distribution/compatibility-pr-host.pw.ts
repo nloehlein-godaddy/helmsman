@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { fixture, sourceRoot } from './isolated-fixture';
 
 test('independent PR page and GitHub provider preserve scope and recover a lost review response without duplicate publication', async ({ page, request }, testInfo) => {
-  test.setTimeout(150_000);
+  test.setTimeout(150_000); page.setDefaultTimeout(10_000);
   const host = await fixture();
   const stateFile = join(host.cwd, 'github-reviews.json');
   const head = 'a'.repeat(40); const base = 'b'.repeat(40);
@@ -28,6 +28,9 @@ globalThis.fetch = async (input, init) => {
   if (url.pathname === '/user') return Response.json({login:'reviewer'});
   if (url.pathname === '/repos/org/b/pulls/42') return Response.json({number:42,title:'Independent PR package',html_url:'https://github.com/org/b/pull/42',state:'open',merged:false,draft:false,
     user:{login:'reviewer'},head:{sha:'${head}',ref:'topic'},base:{sha:'${base}',repo:{full_name:'org/b'}},updated_at:'2026-09-20T12:00:00.000Z',comments:7,requested_reviewers:[],requested_teams:[]});
+  if (url.pathname === '/repos/org/b/commits/${head}') return Response.json({sha:'${head}',commit:{committer:{date:'2026-09-20T10:00:00.000Z'}}});
+  if (url.pathname === '/repos/org/b/issues/42/comments') return Response.json([{id:70,user:{login:'reviewer-c'},body:'Feedback after current commit',created_at:'2026-09-20T12:00:00.000Z'}]);
+  if (url.pathname === '/repos/org/b/pulls/42/comments') return Response.json([]);
   if (url.pathname.endsWith('/check-runs')) return Response.json({total_count:0,check_runs:[]});
   if (url.pathname.endsWith('/status')) return Response.json({sha:'${head}',total_count:0,statuses:[]});
   if (url.pathname === '/repos/org/b/pulls/42/reviews') {
@@ -45,14 +48,14 @@ globalThis.fetch = async (input, init) => {
 };`);
     host.env.NODE_OPTIONS += ` --import=${pathToFileURL(preload).href}`;
     host.env.GITHUB_TOKEN = 'fixture-token'; host.env.GITHUB_PR_AUTHOR = 'reviewer'; host.env.REPO_PROJECT_MAP = 'org/a=TASK,org/b=OTHER';
-    await host.installAuthorPackage('plugin-sources/compat-pr', 'example.authored-pr');
+    await host.installAuthorPackage('plugin-sources/compat-pr', 'example.authored-pr', { buildScript: true });
     await host.installAuthorPackage('plugin-sources/github', undefined, { buildScript: true });
     await host.cli('select', 'helmsman/pr-compatibility-page', 'example.authored-pr/page');
     await host.cli('select-pull-request', 'example.github/github');
     const origin = await host.start();
-    let retained: { command: {requestId:string}; scopeRepo:string } | null = null;
+    const retained: { value: { command: {requestId:string}; scopeRepo:string } | null } = { value: null };
     await page.route('**/api/pull-request-command', async route => {
-      retained = route.request().postDataJSON();
+      retained.value = route.request().postDataJSON();
       const response = await route.fetch(); expect(response.status()).toBe(200);
       await route.abort('failed');
     });
@@ -61,7 +64,9 @@ globalThis.fetch = async (input, init) => {
     await expect(pr.locator('.pr-panel-title')).toHaveText('Independent PR package');
     const authored = pr.locator('.pr-authored');
     await expect(authored).toContainText('2 approvals');
-    await expect(authored).toContainText('1 changes requested');
+    await expect(authored.locator('.pr-feedback-badge')).toHaveText(['Changes requested', 'New comments']);
+    await expect(authored.locator('.pr-list-select')).toHaveAccessibleName(/Changes requested · New comments$/);
+    await expect(authored.locator('.pr-list-stats')).not.toContainText('changes requested');
     await expect(authored).toContainText('7 discussion comments');
     await expect(page.locator('#boot')).toHaveCount(0);
     await authored.screenshot({ path: testInfo.outputPath('authored-counts-desktop.png') });
@@ -81,13 +86,16 @@ globalThis.fetch = async (input, init) => {
     await pr.getByRole('button', { name: 'Check original receipt', exact: true }).click();
     await expect(pr).toContainText('Review succeeded by reviewer');
     expect(JSON.parse(await readFile(stateFile, 'utf8')).posts).toBe(1);
-    expect(retained?.scopeRepo).toBe('org/b');
-    await pr.getByRole('button', { name: 'Hide Pull requests', exact: true }).click();
-    await expect(pr.locator('.pr-review-body')).toBeHidden();
-    await pr.getByRole('button', { name: 'Show Pull requests', exact: true }).click();
+    expect(retained.value?.scopeRepo).toBe('org/b');
+    await pr.locator('[data-close-inspection]').click();
+    await expect(pr.locator('.pr-review-body')).toHaveCount(0);
+    await expect(pr.locator('[data-load]')).toBeEnabled();
+    await pr.locator('[data-pr-compat-lookup]').fill('org/b#42');
+    await pr.locator('[data-pr-compat-lookup]').press('Enter');
+    await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await expect(pr.locator('.pr-review-body')).toHaveValue('Original review body retained across uncertainty');
     await expect(pr.locator('.pr-review-body')).toBeVisible();
-    await expect(pr.getByRole('button', { name: 'Hide Pull requests', exact: true })).toBeEnabled();
+    await expect(pr.locator('[data-close-inspection]')).toBeEnabled();
     await pr.locator('.pr-review-body').click();
     await page.screenshot({ path: testInfo.outputPath('authored-pr-desktop.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -96,7 +104,7 @@ globalThis.fetch = async (input, init) => {
     await page.screenshot({ path: testInfo.outputPath('authored-pr-mobile.png'), fullPage: true });
     await host.cli('disable', 'example.github');
     await page.reload(); await expect(pr).toContainText('Pull request unavailable');
-    const receiptUrl = `/api/pull-request-command/receipts/${retained!.command.requestId}?repo=org/b&scopeRepo=org/b`;
+    const receiptUrl = `/api/pull-request-command/receipts/${retained.value!.command.requestId}?repo=org/b&scopeRepo=org/b`;
     const afterDisable = await request.get(origin + receiptUrl, { headers: {'x-helmsman-contribution':'example.authored-pr/panel'} });
     expect(await afterDisable.json()).toMatchObject({status:'succeeded',result:{repo:'org/b',number:42,actor:'reviewer'}});
     const restarted = await host.start();

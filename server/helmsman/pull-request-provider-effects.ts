@@ -104,6 +104,7 @@ export function createPullRequestProviderEffects(options: {
   http(binding: ProviderBinding, signal: AbortSignal, mutation: boolean): PullRequestHttpV1;
   authorize?(binding: ProviderBinding, operation: DurableOperation, context: OperationContext): Promise<{ allowed: true } | { allowed: false; reason: string }>;
   assertAdmission?(): void;
+  onReviewAcknowledged?(): void;
 }): PullRequestProviderEffects {
   function admission(binding: ProviderBinding) {
     if (!binding || binding.role !== 'effect' || binding.capability !== 'helmsman/pull-request' || binding.contractVersion !== 1
@@ -148,8 +149,10 @@ export function createPullRequestProviderEffects(options: {
         }
         const response = await upstream.request(requested); context.signal.throwIfAborted(); return response;
       } });
-      return result(await registration.provider[method]({ id: live.id, contentHash: live.contentHash,
+      const outcome = result(await registration.provider[method]({ id: live.id, contentHash: live.contentHash,
         repo: reviewTarget.repo, number: reviewTarget.prNumber, headSha: reviewTarget.headSha, actor: reviewTarget.actor, event: reviewPayload.event, body: reviewPayload.body }, { signal: context.signal, http }), reviewTarget);
+      if (outcome.status === 'acknowledged') options.onReviewAcknowledged?.();
+      return outcome;
     };
     return Object.freeze<OperationAdapter>({ binding, kind: 'pull-request.review', delivery: 'reconcile',
       ...(options.authorize ? { authorize: (live, context) => options.authorize!(binding, live, context) } : {}),

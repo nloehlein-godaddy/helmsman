@@ -86,3 +86,34 @@ it.each(['review-requested', 'authored-recent'])('exposes %s as a default-open n
   expect(section?.querySelector('summary h3')?.textContent).toContain(kind === 'review-requested' ? 'Review requests' : 'My recent bounties');
   expect(section?.querySelector('summary .pr-list-count')?.textContent).toBe('0'); expect(section?.querySelector('summary .pr-phosphor')?.getAttribute('aria-hidden')).toBe('true');
 });
+
+const feedbackPage: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'authored-recent', quality: 'complete', truncated: false, browseUrl: null,
+  items: [{ repo: 'org/b', number: 42, title: 'Customer evidence retained', url: null, status: 'open', createdAt: detail.observedAt, mergedAt: null, draft: false, ticketId: null, reviewDecision: null, comments: 7, reviews: { approved: 0, changesRequested: 1, commented: 2, requested: 0 } }] };
+it('highlights both feedback states with labels, icons, semantic roles and an accessible selection name', () => {
+  const item = { ...feedbackPage.items[0]!, feedback: { changesRequested: true, newComments: true, latestCommitAt: detail.observedAt } };
+  const node = mount(renderList('authored-recent', { ...feedbackPage, items: [item] }, '', true));
+  expect(node.querySelector('.pr-list-row')?.getAttribute('data-feedback')).toBe('changes');
+  const badges = [...node.querySelectorAll('.pr-feedback-badge')]; expect(badges.map(badge => badge.textContent)).toEqual(['Changes requested', 'New comments']);
+  expect(badges.map(badge => badge.getAttribute('data-tone'))).toEqual(['bad', 'review']);
+  expect(badges[1]?.getAttribute('title')).toContain('after the latest commit');
+  expect(node.querySelector('.pr-list-select')?.getAttribute('aria-label')).toContain('Changes requested · New comments');
+  expect(badges.every(badge => badge.querySelector('.pr-phosphor')?.getAttribute('aria-hidden') === 'true')).toBe(true);
+});
+it.each([false, null])('keeps explicit %s feedback authoritative over historical counts and unknown timestamps', value => {
+  const item = { ...feedbackPage.items[0]!, reviewDecision: 'CHANGES_REQUESTED' as const, feedback: { changesRequested: value, newComments: value, latestCommitAt: null } };
+  const node = mount(renderList('authored-recent', { ...feedbackPage, items: [item] }, '', false));
+  expect(node.querySelector('.pr-feedback-badge')).toBeNull(); expect(node.querySelector('[data-feedback]')).toBeNull(); expect(node.textContent).not.toContain('No feedback'); expect(node.textContent).toContain('7 discussion comments'); expect(node.querySelector('.pr-list-stats')?.textContent).not.toContain('changes requested');
+});
+it.each(['closed', 'merged'] as const)('does not highlight resolved %s pull requests even with stale feedback', status => {
+  const item = { ...feedbackPage.items[0]!, status, feedback: { changesRequested: true, newComments: true, latestCommitAt: detail.observedAt } };
+  const node = mount(renderList('authored-recent', { ...feedbackPage, items: [item] }, '', false)); expect(node.querySelector('.pr-feedback-badge')).toBeNull(); expect(node.querySelector('[data-feedback]')).toBeNull();
+});
+it('uses legacy current review evidence only for requested changes and never infers new comments from totals', () => {
+  const node = mount(renderList('authored-recent', feedbackPage, '', false)); expect(node.querySelectorAll('.pr-feedback-badge')).toHaveLength(1); expect(node.querySelector('.pr-feedback-badge')?.textContent).toBe('Changes requested');
+  const item = { ...feedbackPage.items[0]!, reviews: null, reviewDecision: 'CHANGES_REQUESTED' as const };
+  const decision = mount(renderList('authored-recent', { ...feedbackPage, items: [item] }, '', false)); expect(decision.querySelector('.pr-feedback-badge')?.textContent).toBe('Changes requested');
+});
+it('uses the review row treatment for new comments alone', () => {
+  const item = { ...feedbackPage.items[0]!, feedback: { changesRequested: false, newComments: true, latestCommitAt: detail.observedAt } };
+  const node = mount(renderList('authored-recent', { ...feedbackPage, items: [item] }, '', false)); expect(node.querySelector('[data-feedback]')?.getAttribute('data-feedback')).toBe('comments'); expect(node.querySelector('.pr-feedback-badge')?.textContent).toBe('New comments');
+});

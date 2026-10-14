@@ -16,6 +16,57 @@ function fixture() {
 }
 
 describe('pull request read provider boundary', () => {
+  it('invalidates completed and pending feedback after an acknowledged review', async () => {
+    const read = vi.fn(async () => batch);
+    const service = createPullRequestReadService({ repos: () => [repo], read, cacheIdentity: () => 'first' });
+    await service.list(query); service.invalidate();
+    let finish!: (value: PullRequestProviderBatch) => void;
+    read.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const pending = service.list(query);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    service.invalidate(); finish(batch);
+    await expect(pending).rejects.toMatchObject({ status: 409 });
+    await service.list(query); expect(read).toHaveBeenCalledTimes(3);
+  });
+  it('reuses sanitized completed windows across caller limits and expires cached feedback', async () => {
+    let now = 0;
+    const read = vi.fn(async () => ({ ...batch, items: [item, { ...item, number: 43, secret: 'credential' }] }));
+    const service = createPullRequestReadService({ repos: () => [repo], read, cacheIdentity: () => 'credential-and-provider-1', now: () => now });
+    expect((await service.list({ ...query, limit: 1 })).items).toEqual([item]);
+    expect((await service.list({ ...query, limit: 100 })).items).toEqual([item, { ...item, number: 43 }]);
+    expect(read).toHaveBeenCalledTimes(1);
+    now = 300_000;
+    await service.list(query);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+  it('separates credentials and providers and fences a connection changed during a shared read', async () => {
+    let identity = 'first';
+    const read = vi.fn(async () => batch);
+    const service = createPullRequestReadService({ repos: () => [repo], read, cacheIdentity: () => identity });
+    await service.list(query);
+    identity = 'second';
+    await service.list(query);
+    expect(read).toHaveBeenCalledTimes(2);
+    let finish!: (value: PullRequestProviderBatch) => void;
+    identity = 'third';
+    read.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const pending = service.list(query);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(3));
+    identity = 'fourth'; finish(batch);
+    await expect(pending).rejects.toMatchObject({ status: 409 });
+    await service.list(query);
+    expect(read).toHaveBeenCalledTimes(4);
+  });
+  it('retries degraded results quickly and never caches failed reads', async () => {
+    let now = 0;
+    const read = vi.fn<() => Promise<PullRequestProviderBatch>>().mockResolvedValue({ ...batch, quality: 'degraded' });
+    const service = createPullRequestReadService({ repos: () => [repo], read, cacheIdentity: () => 'first', now: () => now });
+    await service.list(query); await service.list(query); expect(read).toHaveBeenCalledTimes(1);
+    now = 15_000;
+    read.mockRejectedValueOnce(new Error('Unavailable'));
+    await expect(service.list(query)).rejects.toMatchObject({ status: 503 });
+    await service.list(query); expect(read).toHaveBeenCalledTimes(3);
+  });
   it('allowlists provider records, scopes before limits, and preserves unknown counts without exposing extra fields', async () => {
     const f = fixture(); f.read.mockResolvedValue({ ...batch, items: [{ ...item, repo: 'org/other' }, { ...item, secret: 'credential' } as PullRequestReadItemV1] });
     const result = await f.service.list({ ...query, limit: 1 });

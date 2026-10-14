@@ -22,6 +22,7 @@ function fixture() {
   let selected: ProviderBinding | null = binding;
   let authorize: (() => Promise<{ allowed: true } | { allowed: false; reason: string }>) | null = null;
   const upstream = vi.fn(async () => ({ status: 200, body: {} }));
+  const onReviewAcknowledged = vi.fn();
   const invokeReview = vi.fn<PullRequestProviderV1['invokeReview']>(async () => ({ status: 'acknowledged' as const, receipt: { repo: command.repo, prNumber: command.number, headSha: sha, actor: 'other-actor', reviewId: 42 } }));
   const provider: PullRequestProviderV1 = {
     list: async () => ({ items: [], quality: 'complete', truncated: false, browseUrl: null }), detail: async () => { throw new Error('Unused'); }, diff: async () => { throw new Error('Unused'); },
@@ -32,8 +33,8 @@ function fixture() {
   const registry = createPullRequestProviderRegistry({ eligible: (_binding, purpose) => !draining || purpose === 'obligation' });
   registry.publish([registry.stage({ providerId: binding.contributionId, pluginId: binding.pluginId, artifactHash: binding.artifactHash, contractVersion: 1, connectionId: null, credentialHandle: null }, provider)]);
   const effects = createPullRequestProviderEffects({ registry, selected: () => selected, artifacts: () => [artifact], verifyArtifacts: async () => {},
-    http: () => ({ request: upstream }), authorize: async () => authorize?.() ?? { allowed: true as const } });
-  return { provider, invokeReview, registry, effects, upstream, setAuthorize: (value: typeof authorize) => { authorize = value; }, setDraining: (value: boolean) => { draining = value; }, setSelected: (value: ProviderBinding | null) => { selected = value; } };
+    http: () => ({ request: upstream }), onReviewAcknowledged, authorize: async () => authorize?.() ?? { allowed: true as const } });
+  return { provider, invokeReview, registry, effects, upstream, onReviewAcknowledged, setAuthorize: (value: typeof authorize) => { authorize = value; }, setDraining: (value: boolean) => { draining = value; }, setSelected: (value: ProviderBinding | null) => { selected = value; } };
 }
 
 function operation(operations: ReturnType<typeof openOperationStore>) {
@@ -43,6 +44,18 @@ function operation(operations: ReturnType<typeof openOperationStore>) {
 }
 
 describe('pull request provider effects', () => {
+  it.each(['invoke', 'reconcile'] as const)('invalidates observations after a validated %s acknowledgment', async method => {
+    const f = fixture();
+    const acknowledged = async () => ({ status: 'acknowledged' as const, receipt: { repo: command.repo, prNumber: command.number, headSha: sha, actor: 'reviewer', reviewId: 42 } });
+    f.invokeReview.mockImplementation(acknowledged); f.provider.reconcileReview = acknowledged;
+    const directory = mkdtempSync(join(tmpdir(), 'provider-effects-')); directories.push(directory);
+    const persistence = openPersistence(join(directory, 'state.sqlite')); databases.push(persistence);
+    const operations = openOperationStore(persistence, openExecutionStore(persistence)); const retained = operation(operations);
+    const signal = new AbortController().signal;
+    const adapter = await f.effects.resolve(retained, signal);
+    expect(await adapter?.[method](retained, { signal, idempotencyKey: retained.id, generation: 0 })).toMatchObject({ status: 'acknowledged' });
+    expect(f.onReviewAcknowledged).toHaveBeenCalledOnce();
+  });
   it('keeps an exact provider obligation while denying a disabled provider new admissions', async () => {
     const f = fixture(); const { requestId: _requestId, ...input } = command; const prepared = await f.effects.prepareReview(input);
     expect(prepared.target).toEqual({ repo: command.repo, prNumber: command.number, headSha: sha, actor: 'reviewer' });

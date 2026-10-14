@@ -12,6 +12,15 @@ function fixture(overrides: Partial<Parameters<typeof createPullRequestProviderH
 }
 
 describe('pull request provider HTTP', () => {
+  it('allows scoped repository identity, creator-filtered issues and immutable commit details without opening writes or mutable refs',async()=>{
+    const f=fixture({mutation:true});
+    for(const path of ['/repos/owner/repo','/repos/owner/repo/issues',`/repos/owner/repo/commits/${'a'.repeat(40)}`,`/repos/owner/repo/commits/${'b'.repeat(64)}`]) {
+      await expect(f.http.request({method:'GET',path,query:{},body:null})).resolves.toMatchObject({status:200});
+      await expect(f.http.request({method:'POST',path,query:{},body:{}})).rejects.toThrow('not permitted');
+    }
+    for(const path of ['/repos/owner/repo/commits/master',`/repos/owner/repo/commits/${'a'.repeat(41)}`,'/repositories/123/issues','/repos/owner/repo/issues/12']) await expect(f.http.request({method:'GET',path,query:{},body:null})).rejects.toThrow('not permitted');
+    expect(f.fetcher).toHaveBeenCalledTimes(4);
+  });
   it('permits paginated comment reads without permitting comment writes or unrelated issue APIs', async () => {
     const f = fixture({ mutation: true });
     for (const path of ['/repos/owner/repo/issues/12/comments', '/repos/owner/repo/pulls/12/comments']) {

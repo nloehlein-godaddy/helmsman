@@ -887,6 +887,7 @@ const pullRequestProviderEffects = createPullRequestProviderEffects({
   selected: selectedPullRequestProvider,
   artifacts: providerArtifacts,
   verifyArtifacts: verifyEffectArtifacts,
+  onReviewAcknowledged: () => pullRequestRead.invalidate(),
   http: (binding, signal, mutation) => pullRequestContext(binding, signal, mutation).http,
   authorize: async (binding, operation, context) => {
     const live = operations.get(operation.id);
@@ -930,7 +931,12 @@ const pullRequestInspect = createPullRequestInspectService({ repos: applicationR
     read.assertCurrent(); return result;
   },
 } });
-const pullRequestRead = createPullRequestReadService({ repos: applicationRepos, async read(query, repos, signal) {
+const pullRequestRead = createPullRequestReadService({ repos: applicationRepos,
+  cacheIdentity: () => {
+    const binding = selectedPullRequestProvider();
+    return binding ? persistenceHash({ binding, settings: pullRequestRegistration(binding, 'admission').settings ?? {}, token: configStore.current().github?.token ?? null }) : null;
+  },
+  async read(query, repos, signal) {
   const binding = selectedPullRequestProvider();
   if (!binding) throw new Error('Selected pull request provider is unavailable.');
   const read = pullRequestReadContext(binding, signal);

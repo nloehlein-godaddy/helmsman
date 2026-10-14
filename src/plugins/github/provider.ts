@@ -19,6 +19,8 @@ const unknownChecks = (quality: PullRequestInspectQualityV1): PullRequestInspect
 const unknownReviews = (quality: PullRequestInspectQualityV1): PullRequestInspectDetailV1['reviews'] => ({ quality, approved: null, changesRequested: null, commented: null, requested: null, viewerReview: null, viewerReviewedAt: null, viewerReviewedCommitId: null });
 const listReviewConcurrency = 4;
 const authoredRepositoryLimit = 8;
+const listFeedbackLimit = 50;
+const listEnrichmentTimeoutMs = 15_000;
 
 function inspectionFailure(reason: 'head-changed'): Error & { reason: 'head-changed' } {
   return Object.assign(new Error(reason), { reason });
@@ -106,14 +108,15 @@ async function collection(context: PullRequestProviderContextV1, path: string, q
 }
 
 async function recentCollection(context: PullRequestProviderContextV1, path: string, query: Readonly<Record<string, string>>, limit: number,
-  options: { key?: string; pageSize?: number; pages?: number; accept?(value: unknown): boolean } = {}): Promise<{ quality: 'complete' | 'partial' | 'degraded'; items: unknown[] }> {
+  options: { key?: string; pageSize?: number; pages?: number; accept?(value: unknown): boolean } = {}): Promise<{ quality: 'complete' | 'partial' | 'degraded'; items: unknown[]; failed?: boolean }> {
   const items: unknown[] = [];
   const pageSize = options.pageSize ?? PULL_REQUEST_INSPECT_LIMITS.page;
   const pages = options.pages ?? PULL_REQUEST_INSPECT_LIMITS.pages;
   let total: number | null = null;
+  let after: string | null = null; let canonicalPath: string | undefined; const cursors = new Set<string>();
   for (let page = 1; page <= pages; page++) {
     try {
-      const pagination = { ...query, per_page: String(pageSize), page: String(page) };
+      const pagination = { ...query, per_page: String(pageSize), page: String(page), ...(after ? { after } : {}) };
       const response = await request(context, 'GET', path, pagination);
       if (response.status !== 200) throw new Error('Recent GitHub collection is unavailable');
       const data = options.key ? object(response.body) : null;
@@ -126,12 +129,19 @@ async function recentCollection(context: PullRequestProviderContextV1, path: str
         if (data?.incomplete_results !== undefined && data.incomplete_results !== false) throw new Error('Invalid GitHub collection completeness');
         total = count;
       }
-      const requestedRepo = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(path)?.[1];
+      const requestedRepo = /^\/repos\/([^/]+\/[^/]+)\/(pulls|issues)$/.exec(path)?.[1];
       const baseRepo = (value: unknown) => object(object(object(value)?.base)?.repo);
       const repositoryId = baseRepo(values[0])?.id;
-      const canonicalPath = requestedRepo && positive(repositoryId) && values.every(value => baseRepo(value)?.id === repositoryId && baseRepo(value)?.full_name === requestedRepo)
-        ? `/repositories/${repositoryId}/pulls` : undefined;
-      const next = nextPage(response.link, path, { ...query, per_page: String(pageSize) }, page, canonicalPath);
+      if (requestedRepo && path.endsWith('/pulls') && positive(repositoryId) && values.every(value => baseRepo(value)?.id === repositoryId && baseRepo(value)?.full_name === requestedRepo)) canonicalPath = `/repositories/${repositoryId}/pulls`;
+      if (requestedRepo && path.endsWith('/issues') && !canonicalPath && response.link?.includes('/repositories/')) {
+        const repository = await request(context, 'GET', `/repos/${requestedRepo}`); const identity = object(repository.body);
+        if (repository.status !== 200 || !positive(identity?.id) || identity?.full_name !== requestedRepo) throw new Error('Unconfirmed GitHub repository identity');
+        canonicalPath = `/repositories/${identity.id}/issues`;
+      }
+      const next = recentNextPage(response.link, path, { ...query, per_page: String(pageSize) }, page, canonicalPath);
+      if (next?.after && cursors.has(next.after)) throw new Error('Repeated GitHub pagination cursor');
+      if (next?.after) cursors.add(next.after);
+      after = next?.after ?? null;
       const more = next || (total !== null ? total > page * pageSize : values.length === pageSize);
       if (items.length >= limit) return { quality: more || items.length > limit ? 'partial' : 'complete', items };
       if (!next && (values.length < pageSize || total !== null)) {
@@ -139,10 +149,25 @@ async function recentCollection(context: PullRequestProviderContextV1, path: str
       }
     } catch {
       context.signal.throwIfAborted();
-      return { quality: items.length ? 'partial' : 'degraded', items };
+      return { quality: items.length ? 'partial' : 'degraded', items, failed: true };
     }
   }
   return { quality: 'partial', items };
+}
+
+function recentNextPage(link: string | undefined, path: string, query: Readonly<Record<string,string>>, page: number, canonicalPath?: string): { after: string | null } | null {
+  if (!link) return null;
+  const entries = link.split(',').filter(entry => /\brel\s*=\s*"?next\b/.test(entry));
+  if (!entries.length) return null;
+  if (entries.length !== 1) throw new Error('Invalid GitHub pagination link');
+  const match = entries[0]?.match(/^\s*<([^>]+)>;\s*rel="next"\s*$/);
+  if (!match) throw new Error('Invalid GitHub pagination link');
+  const value = new URL(match[1]!);const after = value.searchParams.get('after');
+  if (value.origin !== api || value.pathname !== path && value.pathname !== canonicalPath || value.username || value.password || value.hash || value.searchParams.get('page') !== String(page + 1)
+    || [...value.searchParams.keys()].some(key => value.searchParams.getAll(key).length !== 1 || key !== 'page' && key !== 'after' && !(key in query))
+    || Object.entries(query).some(([key,expected]) => value.searchParams.get(key) !== expected)
+    || after !== null && (!path.endsWith('/issues') || !after || after.length > 2048 || !/^[A-Za-z\d+/_=:-]+$/.test(after))) throw new Error('Invalid GitHub pagination link');
+  return { after };
 }
 
 async function metadata(query: { repo: string; number: number }, context: PullRequestProviderContextV1) {
@@ -275,6 +300,18 @@ function requestedReviewCount(raw: Record<string, unknown> | null): number | nul
   return reviewers.size + requestedTeams.size;
 }
 
+function requestedBy(value: unknown, author: string): boolean | null {
+  const requested = object(value)?.requested_reviewers;
+  if (!Array.isArray(requested)) return null;
+  let matched = false;
+  for (const reviewer of requested) {
+    const login = object(reviewer)?.login;
+    if (!text(login, 128)) return null;
+    matched ||= login.toLowerCase() === author.toLowerCase();
+  }
+  return matched;
+}
+
 async function reviews(target: PullRequestInspectTargetV1, raw: Record<string, unknown>, context: PullRequestProviderContextV1): Promise<PullRequestInspectDetailV1['reviews']> {
   try {
     const result = await collection(context, `/repos/${target.repo}/pulls/${target.number}/reviews`, {});
@@ -300,29 +337,76 @@ function readItem(value: unknown, fallbackRepo: string, reviewDecision: 'REVIEW_
 }
 
 type ListCandidate = { item: ReturnType<typeof readItem>; requested: number | null };
+type ListReviewEvidence = { counts: ReturnType<typeof readItem>['reviews']; items: readonly unknown[] | null };
 
-async function listReviews(item: ReturnType<typeof readItem>, requested: number | null, context: PullRequestProviderContextV1): Promise<ReturnType<typeof readItem>['reviews']> {
+async function listReviews(item: ReturnType<typeof readItem>, requested: number | null, context: PullRequestProviderContextV1): Promise<ListReviewEvidence> {
   try {
     const result = await collection(context, `/repos/${item.repo}/pulls/${item.number}/reviews`, {});
-    if (result.quality !== 'complete') return null;
+    if (result.quality !== 'complete') return { counts: null, items: null };
     const values = effectiveReviews(submittedReviews(result.items));
-    return { approved: values.filter(value => value.state === 'APPROVED').length, changesRequested: values.filter(value => value.state === 'CHANGES_REQUESTED').length,
-      commented: values.filter(value => value.state === 'COMMENTED').length, requested };
+    return { counts: { approved: values.filter(value => value.state === 'APPROVED').length, changesRequested: values.filter(value => value.state === 'CHANGES_REQUESTED').length,
+      commented: values.filter(value => value.state === 'COMMENTED').length, requested }, items: result.items };
   } catch {
     context.signal.throwIfAborted();
-    return null;
+    return { counts: null, items: null };
   }
+}
+
+function newCommentEvidence(items: readonly unknown[], author: string, latestCommitAt: string, kind: 'comment' | 'review'): boolean | null {
+  let invalid = false;
+  for (const value of items) {
+    const item = object(value); const login = object(item?.user)?.login;
+    if (kind === 'review' && item?.state === 'PENDING') continue;
+    const at = kind === 'review' ? item?.submitted_at : item?.created_at;
+    if (!positive(item?.id) || !text(login, 128) || !text(at, 64) || !Number.isFinite(Date.parse(at)) || kind === 'review' && typeof item?.body !== 'string') { invalid = true; continue; }
+    if (login.toLowerCase() !== author.toLowerCase() && Date.parse(at) > Date.parse(latestCommitAt) && (kind !== 'review' || (item?.body as string).trim())) return true;
+  }
+  return invalid ? null : false;
+}
+
+async function listFeedback(item: ReturnType<typeof readItem>, evidence: Promise<ListReviewEvidence>, context: PullRequestProviderContextV1): Promise<NonNullable<ReturnType<typeof readItem>['feedback']>> {
+  const unknown = { changesRequested: null, newComments: null, latestCommitAt: null };
+  try {
+    const first = await metadata(item, context);
+    if (first.status !== 'open' || !first.authorLogin) return unknown;
+    const commit = await request(context, 'GET', `/repos/${item.repo}/commits/${first.target.headSha}`, { per_page: '1' });
+    const raw = object(commit.body); const latestCommitAt = object(object(raw?.commit)?.committer)?.date;
+    if (commit.status !== 200 || raw?.sha !== first.target.headSha || !text(latestCommitAt, 64) || !Number.isFinite(Date.parse(latestCommitAt))) return unknown;
+    const comments = await Promise.all([
+      recentCollection(context, `/repos/${item.repo}/issues/${item.number}/comments`, { since: latestCommitAt }, 25, { pageSize: 25, pages: 1 }),
+      recentCollection(context, `/repos/${item.repo}/pulls/${item.number}/comments`, { since: latestCommitAt, sort: 'created', direction: 'desc' }, 25, { pageSize: 25, pages: 1 }),
+    ]);
+    const reviewEvidence = await evidence;
+    const last = await metadata(item, context);
+    if (!same(first.target, last.target) || first.updatedAt !== last.updatedAt || last.status !== 'open' || first.authorLogin !== last.authorLogin) return unknown;
+    const flags = comments.map(result => { const flag = newCommentEvidence(result.items, first.authorLogin!, latestCommitAt, 'comment'); return flag === true ? true : result.quality === 'complete' ? flag : null; });
+    flags.push(reviewEvidence.items ? newCommentEvidence(reviewEvidence.items, first.authorLogin, latestCommitAt, 'review') : null);
+    return { changesRequested: reviewEvidence.counts?.changesRequested === null || reviewEvidence.counts?.changesRequested === undefined ? null : reviewEvidence.counts.changesRequested > 0,
+      newComments: flags.includes(true) ? true : flags.every(flag => flag === false) ? false : null, latestCommitAt };
+  } catch { context.signal.throwIfAborted(); return unknown; }
 }
 
 async function withListReviews(candidates: readonly ListCandidate[], context: PullRequestProviderContextV1): Promise<ReturnType<typeof readItem>[]> {
   const enriched = candidates.map(candidate => candidate.item); const open = candidates.flatMap((candidate, index) => candidate.item.status === 'open' ? [index] : []); let next = 0;
-  await Promise.all(Array.from({ length: Math.min(listReviewConcurrency, open.length) }, async () => {
+  const deadline = new AbortController(); const timer = setTimeout(() => deadline.abort(), listEnrichmentTimeoutMs);
+  const signal = AbortSignal.any([context.signal, deadline.signal]);
+  const boundedContext = { ...context, http: { request: async (input: Parameters<typeof context.http.request>[0]) => {
+    signal.throwIfAborted();
+    return new Promise<Awaited<ReturnType<typeof context.http.request>>>((resolve,reject) => {
+      const abort = () => reject(signal.reason);signal.addEventListener('abort',abort,{once:true});
+      void context.http.request(input).then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));
+    });
+  } } };
+  try { await Promise.all(Array.from({ length: Math.min(listReviewConcurrency, open.length) }, async () => {
     while (true) {
       context.signal.throwIfAborted();
-      const index = open[next++]; if (index === undefined) return;
-      const candidate = candidates[index]!; enriched[index] = { ...candidate.item, reviews: await listReviews(candidate.item, candidate.requested, context) };
+      const order = next++;const index = open[order]; if (index === undefined) return;
+      const candidate = candidates[index]!;
+      const evidence = listReviews(candidate.item, candidate.requested, boundedContext);
+      const [reviews, feedback] = await Promise.all([evidence, order < listFeedbackLimit ? listFeedback(candidate.item, evidence, boundedContext) : Promise.resolve(null)]);
+      enriched[index] = { ...candidate.item, reviews: reviews.counts, feedback: feedback ?? { changesRequested: reviews.counts?.changesRequested == null ? null : reviews.counts.changesRequested > 0, newComments: null, latestCommitAt: null } };
     }
-  }));
+  })); } finally { clearTimeout(timer); }
   return enriched;
 }
 
@@ -375,8 +459,9 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
   async list(input, context) {
     const query = parsePullRequestReadQueryV1(input.query); const repos = [...new Set(input.repos)]; const author = configuredAuthor(context);
     const repoPaths = (query.repo === null ? repos : [query.repo]).map(repo => ({ repo, path: `/repos/${repo}/pulls` }));
-    const direct = async (repo: string) => collection(context, `/repos/${repo}/pulls`, { state: 'open', sort: 'created', direction: 'desc' });
-    let sources: Array<{ repo: string; result: { quality: 'complete' | 'partial' | 'degraded'; items: unknown[] }; reviewRequested: boolean }> = [];
+    const direct = async (repo: string) => recentCollection(context, `/repos/${repo}/pulls`, { state: 'open', sort: 'created', direction: 'desc' }, query.limit,
+      query.kind === 'review-requested' ? { accept: value => requestedBy(value, author) !== false } : {});
+    let sources: Array<{ repo: string; result: { quality: 'complete' | 'partial' | 'degraded'; items: unknown[]; failed?: boolean }; reviewRequested: boolean }> = [];
     let omittedAuthoredScopes = false;
     try {
       if (query.kind === 'repo-open') sources = await Promise.all(repoPaths.map(async ({ repo }) => ({ repo, result: await direct(repo), reviewRequested: false })));
@@ -393,16 +478,16 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
               sources.push({ repo: '', result, reviewRequested: false });
               continue;
             }
-            const recent = await recentCollection(context, scope.path, { state: 'all', sort: 'created', direction: 'desc' }, query.limit,
-              { pageSize: 25, pages: 6, accept: value => {
-                const login = object(object(value)?.user)?.login;
-                return typeof login === 'string' && login.toLowerCase() === author.toLowerCase();
+            const recent = await recentCollection(context, `/repos/${scope.repo}/issues`, { creator: author, state: 'all', sort: 'created', direction: 'desc' }, query.limit,
+              { accept: value => {
+                const raw = object(value); const login = object(raw?.user)?.login;
+                return object(raw?.pull_request) !== null && typeof login === 'string' && login.toLowerCase() === author.toLowerCase();
               } });
             sources.push({ repo: scope.repo, result: recent, reviewRequested: false });
           }
         }));
       } else {
-        const search = collection(context, '/search/issues', { q: `is:pr is:open review-requested:${author}${query.repo ? ` repo:${query.repo}` : ''}`, sort: 'created', order: 'desc' }, { key: 'items' });
+        const search = recentCollection(context,'/search/issues', { q: `is:pr is:open review-requested:${author}${query.repo ? ` repo:${query.repo}` : ''}`, sort: 'created', order: 'desc' },query.limit,{key:'items'});
         const local = Promise.all(repoPaths.map(async ({ repo }) => ({ repo, result: await direct(repo), reviewRequested: true })));
         const [searchResult, localResults] = await Promise.all([search, local]);
         sources = [{ repo: '', result: searchResult, reviewRequested: true }, ...localResults];
@@ -411,16 +496,13 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
     const items: ListCandidate[] = []; let partial = omittedAuthoredScopes; let degraded = false;
     for (const source of sources) {
       partial ||= source.result.quality !== 'complete';
-      degraded ||= source.result.quality === 'degraded';
+      degraded ||= source.result.quality === 'degraded' || query.kind !== 'authored-recent' && source.result.failed === true;
       for (const candidate of source.result.items) {
         try {
           if (source.reviewRequested && source.repo) {
-            const requested = object(candidate)?.requested_reviewers;
-            if (!Array.isArray(requested)) { degraded = true; continue; }
-            if (!requested.some(value => {
-              const login = object(value)?.login;
-              return typeof login === 'string' && login.toLowerCase() === author.toLowerCase();
-            })) continue;
+            const requested = requestedBy(candidate, author);
+            if (requested === null) { degraded = true; continue; }
+            if (!requested) continue;
           }
           const parsed = readItem(candidate, source.repo, source.reviewRequested ? 'REVIEW_REQUIRED' : null);
           if (repos.includes(parsed.repo) && (query.repo === null || parsed.repo === query.repo) && (query.kind === 'authored-recent' || parsed.status === 'open')) items.push({ item: parsed, requested: requestedReviewCount(object(candidate)) });
@@ -430,7 +512,7 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
     const unique = [...new Map(items.map(value => [`${value.item.repo.toLowerCase()}#${value.item.number}`, value])).values()].sort((left, right) => Date.parse(right.item.createdAt) - Date.parse(left.item.createdAt));
     const truncated = partial || unique.length > query.limit || unique.length > 300;
     const visible = unique.slice(0, Math.min(300, query.limit));
-    const listed = query.kind === 'authored-recent' ? await withListReviews(visible, context) : visible.map(candidate => candidate.item);
+    const listed = await withListReviews(visible, context);
     const browseUrl = query.repo && query.kind === 'authored-recent' ? `https://github.com/${query.repo}/pulls?q=${encodeURIComponent(`is:pr author:${author} sort:created-desc`)}`
       : query.kind === 'repo-open' && query.repo ? `https://github.com/${query.repo}/pulls` : null;
     return Object.freeze({ items: Object.freeze(listed), quality: degraded ? 'degraded' as const : truncated ? 'partial' as const : 'complete' as const, truncated, browseUrl });

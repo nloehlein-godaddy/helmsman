@@ -10,6 +10,7 @@ export interface PullRequestReadItemV1 {
   readonly reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
   readonly comments: number | null;
   readonly reviews: { readonly approved: number | null; readonly changesRequested: number | null; readonly commented: number | null; readonly requested: number | null } | null;
+  readonly feedback?: { readonly changesRequested: boolean | null; readonly newComments: boolean | null; readonly latestCommitAt: string | null };
 }
 export interface PullRequestReadPageV1 {
   readonly version: 1; readonly repo: string | null; readonly kind: PullRequestReadKindV1;
@@ -56,10 +57,13 @@ export function parsePullRequestReadItemV1(input: unknown): PullRequestReadItemV
   const mergedAt = value.mergedAt === null ? null : date(value.mergedAt);
   if (value.status === 'merged' && mergedAt === null || value.status !== 'merged' && mergedAt !== null) invalid();
   const reviews = value.reviews === null ? null : record(value.reviews);
+  const feedback = value.feedback === undefined ? null : record(value.feedback);
+  if (feedback && [feedback.changesRequested, feedback.newComments].some(flag => flag !== null && typeof flag !== 'boolean')) invalid();
   return Object.freeze({ repo: parseTaskRepo(value.repo), number: count(value.number, 1), title: text(value.title, 2048), url: url(value.url),
     status: value.status as PullRequestReadItemV1['status'], createdAt: date(value.createdAt), mergedAt, draft: value.draft as boolean | null,
     ticketId: value.ticketId === null ? null : text(value.ticketId, 128), reviewDecision: value.reviewDecision as PullRequestReadItemV1['reviewDecision'],
-    comments: nullableCount(value.comments), reviews: reviews ? Object.freeze({ approved: nullableCount(reviews.approved), changesRequested: nullableCount(reviews.changesRequested), commented: nullableCount(reviews.commented), requested: nullableCount(reviews.requested) }) : null });
+    comments: nullableCount(value.comments), reviews: reviews ? Object.freeze({ approved: nullableCount(reviews.approved), changesRequested: nullableCount(reviews.changesRequested), commented: nullableCount(reviews.commented), requested: nullableCount(reviews.requested) }) : null,
+    ...(feedback ? { feedback: Object.freeze({ changesRequested: feedback.changesRequested as boolean | null, newComments: feedback.newComments as boolean | null, latestCommitAt: feedback.latestCommitAt === null ? null : date(feedback.latestCommitAt) }) } : {}) });
 }
 export function parsePullRequestReadPageV1(input: unknown, query: PullRequestReadQueryV1, repos: readonly string[]): PullRequestReadPageV1 {
   const value = record(input);

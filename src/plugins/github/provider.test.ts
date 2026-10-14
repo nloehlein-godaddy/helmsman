@@ -12,7 +12,7 @@ const file = (name = 'a.ts') => ({ filename: name, status: 'modified', additions
 const comparison = (overrides: Record<string, unknown> = {}) => ({ url: `https://api.github.com/repos/${target.repo}/compare/${target.baseSha}...${target.headSha}`,
   base_commit: { sha: target.baseSha }, merge_base_commit: { sha: target.baseSha }, total_commits: 1, files: [file()], ...overrides });
 const listed = (number: number, overrides: Record<string, unknown> = {}) => ({ repository_url: `https://api.github.com/repos/${target.repo}`, number, title: `Pull request ${number}`,
-  state: 'open', created_at: '2025-01-02T03:04:05.000Z', draft: false, comments: 3, requested_reviewers: [], requested_teams: [], ...overrides });
+  state: 'open', pull_request: {}, created_at: '2025-01-02T03:04:05.000Z', draft: false, comments: 3, requested_reviewers: [], requested_teams: [], ...overrides });
 
 function context(request: (input: { method: 'GET' | 'POST'; path: string; query: Readonly<Record<string, string>>; body: unknown | null }) => Promise<{ status: number; body: unknown; link?: string }>) {
   return { signal: new AbortController().signal, configuredAuthor: 'reviewer', http: { request: vi.fn(request) } };
@@ -89,7 +89,129 @@ describe('exact review receipt reconciliation', () => {
   });
 });
 
+describe('current list feedback',()=>{
+  const commitAt='2025-01-02T00:00:00.000Z';const newer='2025-01-03T00:00:00.000Z';
+  const comment=(id:number,login='other',created_at=newer)=>({id,user:{login},created_at,updated_at:newer,body:'Feedback'});
+  function feedbackFixture(options:{reviews?:unknown[];issues?:unknown[];inline?:unknown[];failed?:string;changed?:boolean;partial?:boolean}={}){
+    let reads=0;
+    return context(async input=>{
+      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:[listed(42)]};
+      if(input.path.endsWith('/42/reviews'))return {status:200,body:options.reviews??[]};
+      if(input.path===`/repos/${target.repo}/pulls/42`){reads++;return {status:200,body:metadata(options.changed&&reads===2?{head:{sha:'f'.repeat(40),ref:'work'}}:{})};}
+      if(input.path.includes('/commits/'))return {status:200,body:{sha:target.headSha,commit:{committer:{date:commitAt},author:{date:'2024-01-01T00:00:00.000Z'}}}};
+      if(input.path.endsWith('/comments')){
+        expect(input.query.since).toBe(commitAt);expect(input.query.per_page).toBe('25');
+        if(input.path.includes(options.failed??'never-match'))return {status:503,body:null};
+        const body=input.path.includes('/issues/')?options.issues??[]:options.inline??[];
+        return {status:200,body,...(options.partial?{link:`<https://api.github.com${input.path}?${new URLSearchParams({...input.query,page:'2'})}>; rel="next"`}:{})};
+      }
+      throw new Error(`Unexpected ${input.path}`);
+    });
+  }
+  const list=async(ctx:ReturnType<typeof context>)=>githubPullRequestProvider.list({query:{version:1,repo:target.repo,kind:'repo-open',limit:100},repos:[target.repo]},ctx);
+  it.each(['issues','inline','review'] as const)('finds external %s feedback created after the immutable head committer time',async kind=>{
+    const ctx=feedbackFixture(kind==='issues'?{issues:[comment(1)]}:kind==='inline'?{inline:[comment(1)]}:{reviews:[{...review(1,'COMMENTED',newer),body:'New feedback'}]});
+    expect((await list(ctx)).items[0]?.feedback).toEqual({changesRequested:false,newComments:true,latestCommitAt:commitAt});
+  });
+  it('excludes author replies, edited older comments, equal-time comments and empty reviews',async()=>{
+    const ctx=feedbackFixture({issues:[comment(1,'author'),comment(2,'other','2025-01-01T00:00:00.000Z'),comment(3,'other',commitAt)],reviews:[{...review(1,'COMMENTED',newer),body:'  '}]});
+    expect((await list(ctx)).items[0]?.feedback).toMatchObject({changesRequested:false,newComments:false});
+  });
+  it('uses latest decisive review state, keeping COMMENTED from clearing requested changes and allowing approval or dismissal',async()=>{
+    const entries=[{...review(1,'CHANGES_REQUESTED',commitAt,'alice'),body:''},{...review(2,'COMMENTED',newer,'alice'),body:''},
+      {...review(3,'CHANGES_REQUESTED',commitAt,'bob'),body:''},{...review(4,'APPROVED',newer,'bob'),body:''},
+      {...review(5,'CHANGES_REQUESTED',commitAt,'carol'),body:''},{...review(6,'DISMISSED',newer,'carol'),body:''}];
+    const result=await list(feedbackFixture({reviews:entries}));expect(result.items[0]).toMatchObject({reviews:{changesRequested:1},feedback:{changesRequested:true,newComments:false}});
+  });
+  it.each([true,false])('retains only known positive comments from partial histories, found=%s',async found=>{
+    const result=await list(feedbackFixture({issues:found?[comment(1)]:[],partial:true}));expect(result.items[0]?.feedback?.newComments).toBe(found?true:null);
+  });
+  it('preserves a known inline positive when issue comments fail, but does not report a false negative',async()=>{
+    expect((await list(feedbackFixture({failed:'/issues/',inline:[comment(1)]}))).items[0]?.feedback?.newComments).toBe(true);
+    expect((await list(feedbackFixture({failed:'/issues/'}))).items[0]?.feedback?.newComments).toBeNull();
+  });
+  it('clears feedback certainty when the observed PR head changes while collecting evidence',async()=>{
+    expect((await list(feedbackFixture({issues:[comment(1)],changed:true}))).items[0]?.feedback).toEqual({changesRequested:null,newComments:null,latestCommitAt:null});
+  });
+  it('bounds freshness work to the first50 open rows and preserves counts with unknown comments outside that budget',async()=>{
+    const ctx=context(async input=>{
+      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:Array.from({length:60},(_,index)=>listed(index+1))};
+      if(input.path.endsWith('/reviews'))return {status:200,body:[]};
+      return {status:503,body:null};
+    });
+    const result=await list(ctx);expect(result.items).toHaveLength(60);expect(ctx.http.request.mock.calls.filter(([input])=>/\/pulls\/\d+$/.test(input.path))).toHaveLength(50);
+    expect(result.items[59]?.feedback).toEqual({changesRequested:false,newComments:null,latestCommitAt:null});
+  });
+  it('returns positive list rows with unknown feedback after the attention deadline even when requests ignore cancellation',async()=>{
+    vi.useFakeTimers();
+    try {
+      const ctx=context(async input=>input.path===`/repos/${target.repo}/pulls`?{status:200,body:[listed(42)]}:new Promise(()=>{}));
+      const result=list(ctx);await vi.advanceTimersByTimeAsync(15001);expect((await result).items).toMatchObject([{number:42,reviews:null,feedback:{changesRequested:null,newComments:null}}]);
+    }finally{vi.useRealTimers();}
+  });
+});
+
 describe('GitHub pull request provider', () => {
+  it.each(['repo-open','review-requested'] as const)('preserves positive %s rows when an independent source fails',async kind=>{
+    const ctx=context(async input=>{
+      if(input.path==='/search/issues')return {status:200,body:{total_count:1,incomplete_results:false,items:[listed(42)]}};
+      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:[listed(43,{requested_reviewers:[{login:'reviewer'}]})]};
+      if(input.path==='/repos/org/unreadable/pulls')return {status:403,body:null};
+      return {status:503,body:null};
+    });
+    const result=await githubPullRequestProvider.list({query:{version:1,repo:null,kind,limit:100},repos:[target.repo,'org/unreadable']},ctx);
+    expect(result.quality).toBe('degraded');expect(result.items.map(item=>item.number)).toEqual(kind==='repo-open'?[43]:[42,43]);
+  });
+  it('preserves local requested rows when search fails and keeps rows received before a later page failure',async()=>{
+    const ctx=context(async input=>{
+      if(input.path==='/search/issues')return {status:422,body:null};
+      if(input.path===`/repos/${target.repo}/pulls`)return input.query.page==='1'?{status:200,body:[listed(42,{requested_reviewers:[{login:'reviewer'}]})],link:`<https://api.github.com${input.path}?${new URLSearchParams({...input.query,page:'2'})}>; rel="next"`}:{status:503,body:null};
+      return {status:503,body:null};
+    });
+    const result=await githubPullRequestProvider.list({query:{version:1,repo:target.repo,kind:'review-requested',limit:100},repos:[target.repo]},ctx);
+    expect(result).toMatchObject({quality:'degraded',items:[{number:42}],truncated:true});
+  });
+  it('counts requested matches rather than raw rows when scanning bounded local review-requested pages',async()=>{
+    const ctx=context(async input=>{
+      if(input.path==='/search/issues')return {status:422,body:null};
+      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:input.query.page==='1'?Array.from({length:100},(_,index)=>listed(index+1,{requested_reviewers:[{login:'someone-else'}]})):[listed(101,{requested_reviewers:[{login:'ReViewer'}]})]};
+      return {status:503,body:null};
+    });
+    const result=await githubPullRequestProvider.list({query:{version:1,repo:target.repo,kind:'review-requested',limit:1},repos:[target.repo]},ctx);
+    expect(result).toMatchObject({quality:'degraded',items:[{number:101}]});
+    expect(ctx.http.request.mock.calls.filter(([input])=>input.path===`/repos/${target.repo}/pulls`).map(([input])=>input.query.page)).toEqual(['1','2']);
+  });
+  it('surfaces malformed requested-reviewer arrays as degraded without removing other local matches',async()=>{
+    const ctx=context(async input=>{
+      if(input.path==='/search/issues')return {status:200,body:{total_count:0,items:[],incomplete_results:false}};
+      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:[listed(41,{requested_reviewers:null}),listed(42,{requested_reviewers:[null]}),listed(43,{requested_reviewers:[{login:'reviewer'}]})]};
+      return {status:503,body:null};
+    });
+    expect(await githubPullRequestProvider.list({query:{version:1,repo:target.repo,kind:'review-requested',limit:100},repos:[target.repo]},ctx)).toMatchObject({quality:'degraded',items:[{number:43}]});
+  });
+  it('accepts verified numeric pull pagination without widening strict inspection paths',async()=>{
+    const ctx=context(async input=>{
+      if(input.path===`/repos/${target.repo}/pulls`)return input.query.page==='1'?{status:200,body:[listed(42,{base:{repo:{id:123,full_name:target.repo}}})],link:`<https://api.github.com/repositories/123/pulls?${new URLSearchParams({...input.query,page:'2'})}>; rel="next"`}:{status:200,body:[listed(43)]};
+      return {status:503,body:null};
+    });
+    expect((await githubPullRequestProvider.list({query:{version:1,repo:target.repo,kind:'repo-open',limit:100},repos:[target.repo]},ctx)).items.map(item=>item.number)).toEqual([42,43]);
+    expect(ctx.http.request.mock.calls.filter(([input])=>input.path===`/repos/${target.repo}/pulls`).map(([input])=>input.query.page)).toEqual(['1','2']);
+  });
+  it.each(['valid','repeated','foreign','duplicate'] as const)('validates creator-filtered numeric issue cursor pagination: %s',async variant=>{
+    const ctx=context(async input=>{
+      if(input.path==='/search/issues')return {status:422,body:null};
+      if(input.path===`/repos/${target.repo}`)return {status:200,body:{id:123,full_name:target.repo}};
+      const parameters=new URLSearchParams({...input.query,page:String(Number(input.query.page)+1),after:'cursor_token='});
+      if(variant==='duplicate')parameters.append('creator','different');
+      if(input.path===`/repos/${target.repo}/issues`)return {status:200,body:[listed(Number(input.query.page)+40,{state:'closed',user:{login:'reviewer'}})],...(input.query.page==='1'||variant==='repeated'?{link:`<https://api.github.com/repositories/${variant==='foreign'?999:123}/issues?${parameters}>; rel="next"`}:{})};
+      return {status:503,body:null};
+    });
+    const result=await githubPullRequestProvider.list({query:{version:1,repo:target.repo,kind:'authored-recent',limit:100},repos:[target.repo]},ctx);
+    const requests=ctx.http.request.mock.calls.filter(([input])=>input.path===`/repos/${target.repo}/issues`);
+    expect(requests).toHaveLength(variant==='valid'||variant==='repeated'?2:1);expect(result.items.length).toBe(variant==='valid'||variant==='repeated'?2:1);
+    if(requests.length===2)expect(requests[1]?.[0].query.after).toBe('cursor_token=');
+    expect(result.quality).toBe(variant==='valid'?'complete':'partial');
+  });
   it('projects bounded profile names using the public authenticated HTTP service', async () => {
     const ctx = context(async () => ({ status: 200, body: { name: ' Person ', login: ' person ', token: 'private' } }));
     expect(await githubPullRequestProvider.profile!(ctx)).toEqual({ displayName: 'Person', login: 'person' });
@@ -131,10 +253,10 @@ describe('GitHub pull request provider', () => {
   it('falls back to scoped recent PRs when search rejects a readable private repository', async () => {
     const ctx = context(async input => {
       if (input.path === '/search/issues') return { status: 422, body: { message: 'Validation failed' } };
-      expect(input.path).toBe(`/repos/${target.repo}/pulls`);
-      expect(input.query).toMatchObject({ state: 'all', sort: 'created', direction: 'desc' });
+      expect(input.path).toBe(`/repos/${target.repo}/issues`);
+      expect(input.query).toMatchObject({ creator: 'reviewer', state: 'all', sort: 'created', direction: 'desc' });
       return { status: 200, body: [listed(42, { user: { login: 'ReViewer' }, state: 'closed', merged_at: '2025-01-03T00:00:00.000Z' }),
-        listed(43, { user: { login: 'someone-else' } }), listed(44, { user: null, state: 'closed' })] };
+        listed(43, { user: { login: 'someone-else' } }), listed(44, { user: null, state: 'closed' }), listed(45,{user:{login:'reviewer'},pull_request:null})] };
     });
     const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50 }, repos: [target.repo] }, ctx);
     expect(result).toMatchObject({ quality: 'complete', truncated: false, items: [{ number: 42, status: 'merged' }] });
@@ -157,33 +279,34 @@ describe('GitHub pull request provider', () => {
     expect(ctx.http.request).toHaveBeenCalledTimes(3);
   });
 
-  it('bounds fallback payloads to25 rows and keeps matches after its six-page window', async () => {
+  it('bounds creator-filtered fallback payloads to100 rows and keeps matches after its three-page window', async () => {
     const ctx = context(async input => {
       if (input.path === '/search/issues') return { status: 422, body: {} };
-      expect(input.query.per_page).toBe('25');
+      expect(input.query.per_page).toBe('100');
       const page = Number(input.query.page);
-      expect(page).toBeLessThanOrEqual(6);
-      return { status: 200, body: Array.from({ length: 25 }, (_, index) => listed(page * 25 + index, { state: 'closed', user: { login: index === 0 ? 'reviewer' : 'other' } })),
+      expect(page).toBeLessThanOrEqual(3);
+      return { status: 200, body: Array.from({ length: 100 }, (_, index) => listed(page * 100 + index, { state: 'closed', user: { login: index === 0 ? 'reviewer' : 'other' } })),
         link: `<https://api.github.com${input.path}?${new URLSearchParams({ ...input.query, page: String(page + 1) })}>; rel="next"` };
     });
     const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50 }, repos: [target.repo] }, ctx);
     expect(result).toMatchObject({ quality: 'partial', truncated: true });
-    expect(result.items).toHaveLength(6);
-    expect(ctx.http.request).toHaveBeenCalledTimes(7);
+    expect(result.items).toHaveLength(3);
+    expect(ctx.http.request).toHaveBeenCalledTimes(4);
   });
 
   it.each([true, false])('validates canonical repository pagination before continuing when identity matches=%s', matching => {
     const records = Array.from({ length: 25 }, (_, index) => listed(index + 1, { state: 'closed', user: { login: 'other' }, base: { repo: { id: 123, full_name: target.repo } } }));
     const ctx = context(async input => {
       if (input.path === '/search/issues') return { status: 422, body: {} };
-      expect(input.path).toBe(`/repos/${target.repo}/pulls`);
+      if (input.path === `/repos/${target.repo}`) return {status:200,body:{id:123,full_name:target.repo}};
+      expect(input.path).toBe(`/repos/${target.repo}/issues`);
       if (input.query.page === '1') return { status: 200, body: records,
-        link: `<https://api.github.com/repositories/${matching ? 123 : 999}/pulls?${new URLSearchParams({ ...input.query, page: '2' })}>; rel="next"` };
+        link: `<https://api.github.com/repositories/${matching ? 123 : 999}/issues?${new URLSearchParams({ ...input.query, page: '2' })}>; rel="next"` };
       return { status: 200, body: [listed(42, { state: 'closed', user: { login: 'reviewer' } })] };
     });
     return githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50 }, repos: [target.repo] }, ctx).then(result => {
       expect(result.items).toHaveLength(matching ? 1 : 0);
-      expect(ctx.http.request).toHaveBeenCalledTimes(matching ? 3 : 2);
+      expect(ctx.http.request).toHaveBeenCalledTimes(matching ? 4 : 3);
     });
   });
 
@@ -204,8 +327,8 @@ describe('GitHub pull request provider', () => {
         expect(input.query.q).not.toContain('repo:org/repo-8');
         return { status: 422, body: {} };
       }
-      if (input.path === '/repos/org/repo-1/pulls') return { status: 404, body: {} };
-      const repo = input.path.slice('/repos/'.length, -'/pulls'.length);
+      if (input.path === '/repos/org/repo-1/issues') return { status: 404, body: {} };
+      const repo = input.path.slice('/repos/'.length, -'/issues'.length);
       return { status: 200, body: [listed(42, { repository_url: `https://api.github.com/repos/${repo}`, state: 'closed', user: { login: 'reviewer' } })] };
     });
     const result = await githubPullRequestProvider.list({ query: { version: 1, repo: null, kind: 'authored-recent', limit: 50 }, repos }, ctx);
