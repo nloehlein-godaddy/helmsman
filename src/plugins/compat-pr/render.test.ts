@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import type { PullRequestInspectDetailV1, PullRequestReadPageV1, RunReadSummaryV1 } from '@helmsman/plugin-sdk';
+import type { PullRequestInspectDetailV1, PullRequestInspectDiffV1, PullRequestReadPageV1, RunReadSummaryV1 } from '@helmsman/plugin-sdk';
 import { parseLookup, renderDetail, renderList, renderRuns } from './render';
 const detail: PullRequestInspectDetailV1 = { version: 1, target: { repo: 'org/b', number: 42, headSha: 'a'.repeat(40), baseSha: 'b'.repeat(40) }, observedAt: '2026-09-20T12:00:00Z', title: 'Review current work', url: 'https://github.com/org/b/pull/42', status: 'open', draft: false, authorLogin: 'writer', isOwnPr: true, headRefName: 'topic', updatedAt: '2026-09-20T12:00:00Z', comments: 3, checks: { quality: 'complete', passed: 2, failed: 0, pending: 0 }, reviews: { quality: 'complete', approved: 1, changesRequested: 0, commented: 2, requested: 0, viewerReview: 'APPROVED', viewerReviewedAt: '2026-09-19T12:00:00Z', viewerReviewedCommitId: 'c'.repeat(40) } };
 const draft = { body: '', feedback: '', model: '', effort: '' };
@@ -31,6 +31,21 @@ it.each(['', 'Saved review draft'])('keeps PR context collapsed and opens manual
   const other = mount(renderDetail({ ...detail, target: { ...detail.target, repo: 'org/other' } }, draft, null, false));
   expect(other.querySelector('.pr-manual-review')?.getAttribute('data-pr-disclosure')).toBe('org/other#42:manual-review');
   expect(node.textContent).not.toContain('signed-in'); expect(node.textContent).not.toContain('Configured author');
+});
+it('contains selected PR sections in a shared panel with manual review below the immutable diff', () => {
+  const diff: PullRequestInspectDiffV1 = { version: 1, target: detail.target, observedAt: detail.observedAt, coverage: 'immutable-comparison-preview', quality: 'partial', truncated: true, files: [{ filename: 'src/view.ts', previousFilename: null, status: 'modified', additions: 2, deletions: 1, patch: null, patchStatus: 'unavailable' }] };
+  const node = mount(renderDetail(detail, draft, null, false, false, diff));
+  const panel = node.querySelector('.pr-panel');
+  expect([...panel!.children].map(child => child.className)).toEqual(['pr-panel-head', 'pr-summary pr-subpanel', 'pr-crew-controls pr-agent-section pr-subpanel', 'pr-diff-panel pr-subpanel', 'pr-review pr-manual-review pr-subpanel']);
+  expect(panel?.querySelector('.pr-summary > .pr-provenance')).not.toBeNull();
+  expect(panel?.querySelector('.pr-diff-panel h4')?.textContent).toBe('Diff'); expect(panel?.querySelector('.pr-diff-panel h3')).toBeNull();
+  expect(panel?.querySelector('.pr-diff-panel')?.textContent).toContain('partial file enumeration');
+  expect(panel?.querySelector('.pr-diff-panel')?.textContent).toContain('Inline patch unavailable.');
+  expect(panel?.querySelector('.pr-diff-panel')?.nextElementSibling).toBe(panel?.querySelector('.pr-manual-review'));
+});
+it('does not invent diff completeness when the diff has not loaded', () => {
+  const node = mount(renderDetail(detail, draft, null, false)); expect(node.querySelector('.pr-diff-panel')).toBeNull();
+  expect(node.querySelector('.pr-manual-review')).not.toBeNull();
 });
 it('groups exact evidence counts and preserves semantic tones without treating zero as unavailable', () => {
   const node = mount(renderDetail(detail, draft, null, false));

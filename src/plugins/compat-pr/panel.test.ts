@@ -293,3 +293,30 @@ it('preserves context and manual review disclosure choices and summary focus thr
   await f.instance.refresh?.(); expect(f.container.querySelector<HTMLDetailsElement>('.pr-manual-review')?.open).toBe(false);
   f.lifetime.abort(); const next = await fixture(); await ready(next); expect(next.container.querySelector<HTMLDetailsElement>('.pr-manual-review')?.open).toBe(true);
 });
+
+it('keeps status, agent work, diff and manual review in the selected PR panel, with manual review after diff', async () => {
+  const f = await fixture(); await ready(f);
+  const selected = f.container.querySelector('.pr-panel')!;
+  const agent = selected.querySelector('.pr-agent-section')!; const diff = selected.querySelector('.pr-diff-panel')!; const manual = selected.querySelector('.pr-manual-review')!;
+  expect(selected.querySelector('.pr-evidence')).not.toBeNull(); expect(diff).not.toBeNull(); expect(manual).not.toBeNull();
+  expect(agent.compareDocumentPosition(diff) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); expect(diff.compareDocumentPosition(manual) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(f.container.querySelectorAll('.pr-diff-panel')).toHaveLength(1);
+  const file = diff.querySelector<HTMLDetailsElement>('.diff-file')!; file.open = true; file.querySelector('summary')!.focus(); await f.instance.refresh?.();
+  expect(selected.isConnected).toBe(false); expect(f.container.querySelector<HTMLDetailsElement>('.pr-panel .diff-file')?.open).toBe(true); expect(document.activeElement).toBe(f.container.querySelector('.pr-panel .diff-file>summary'));
+});
+
+it('never pairs a previous comparison with a new head during an independent connection redraw', async () => {
+  const f = await fixture(); await ready(f); expect(f.container.querySelector('.diff-patch')?.textContent).toContain('+new');
+  const next = { ...detail, target: { ...detail.target, headSha: 'c'.repeat(40) } };
+  let resolveDiff!: (value: ReturnType<typeof available<PullRequestInspectDiffV1>>) => void;
+  let resolveConnection!: (value: ReturnType<typeof connection>) => void;
+  const pendingDiff = new Promise<ReturnType<typeof available<PullRequestInspectDiffV1>>>(resolve => { resolveDiff = resolve; });
+  const pendingConnection = new Promise<ReturnType<typeof connection>>(resolve => { resolveConnection = resolve; });
+  vi.mocked(f.context.services.pullRequestInspect!.detail).mockResolvedValue(available(next)); vi.mocked(f.context.services.pullRequestInspect!.diff).mockReturnValue(pendingDiff);
+  Object.assign(f.context.services, { communication: { version: 1, connectionStatus: vi.fn(() => pendingConnection) } });
+  const refreshing = f.instance.refresh?.(); await vi.waitFor(() => expect(f.context.services.pullRequestInspect!.diff).toHaveBeenCalledWith({ version: 1, target: next.target }, expect.any(AbortSignal)));
+  resolveConnection(connection('connected')); await vi.waitFor(() => expect(f.container.querySelector('.pr-panel')?.getAttribute('data-pr-head-sha')).toBe(next.target.headSha));
+  expect(f.container.querySelector('.pr-diff-panel')).toBeNull(); expect(f.container.querySelector('.diff-patch')).toBeNull();
+  resolveDiff(available({ version: 1, target: next.target, observedAt: detail.observedAt, coverage: 'immutable-comparison-preview', quality: 'complete', truncated: false, files: [{ filename: 'src/file.ts', previousFilename: null, status: 'modified', additions: 1, deletions: 0, patch: '+current head', patchStatus: 'preview' }] })); await refreshing;
+  expect(f.container.querySelector('.pr-panel .diff-patch')?.textContent).toBe('+current head');
+});

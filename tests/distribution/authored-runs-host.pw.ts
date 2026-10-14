@@ -85,6 +85,8 @@ test('copied Runs page preserves public PR scope, drafts and command identity an
     await navigate(page, targetPath);
     const runs = page.locator(`[data-plugin-page="${pageId}"]`); const pr = runs.locator('.pr-panel[data-pr-repo="org/b"][data-pr-number="42"]');
     await expect(runs).toBeVisible(); await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await expect(pr.locator(':scope > .pr-subpanel')).toHaveCount(4);
+    expect(await pr.evaluate(root => ['.pr-summary', '.pr-agent-section', '.pr-diff-panel', '.pr-manual-review'].every(selector => root.querySelector(selector)?.closest('.pr-panel') === root))).toBe(true);
     await expect(pr.locator('.pr-rerun-feedback')).toHaveValue('Feedback retained on authored Runs'); await expect(pr.locator('.pr-rerun-feedback')).toBeFocused();
     await expect(pr.locator('.pr-review-body')).toHaveValue('Review draft retained on authored Runs');
     expect(reviews).toHaveLength(1); expect(otherMutations).toEqual([]);

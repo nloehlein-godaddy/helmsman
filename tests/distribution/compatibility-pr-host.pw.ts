@@ -62,6 +62,9 @@ globalThis.fetch = async (input, init) => {
     await page.goto(`${origin}/pr?repo=org/a&prRepo=org/b&pr=42&mode=rerun`);
     const pr = page.locator('.plugin-pr-compatibility');
     await expect(pr.locator('.pr-panel-title')).toHaveText('Independent PR package');
+    await expect(pr.locator('.pr-panel > .pr-subpanel')).toHaveCount(4);
+    expect(await pr.locator('.pr-panel').evaluate(root => ['.pr-summary', '.pr-agent-section', '.pr-diff-panel', '.pr-manual-review'].every(selector => root.querySelector(selector)?.closest('.pr-panel') === root))).toBe(true);
+    expect(await pr.locator('.pr-panel').evaluate(root => [...root.querySelectorAll(':scope > .pr-subpanel')].map(node => node.classList.contains('pr-agent-section') ? 'agent' : node.classList.contains('pr-diff-panel') ? 'diff' : node.classList.contains('pr-manual-review') ? 'manual' : 'summary'))).toEqual(['summary', 'agent', 'diff', 'manual']);
     const authored = pr.locator('.pr-authored');
     await expect(authored).toContainText('2 approvals');
     await expect(authored.locator('.pr-feedback-badge')).toHaveText(['Changes requested', 'New comments']);

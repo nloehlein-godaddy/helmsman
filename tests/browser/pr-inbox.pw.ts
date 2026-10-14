@@ -10,7 +10,7 @@ const row = (repo: string, number: number, title: string, status: 'open' | 'merg
   reviews: { approved: status === 'merged' ? 1 : 0, changesRequested: 0, commented: 1, requested: 1 } });
 
 async function mockInbox(page: Page) {
-  const state = { quality: 'partial' as 'complete' | 'partial' | 'degraded', empty: false, connected: false, connectionError: false, own: true, detailStatus: 'open' as 'open' | 'closed' };
+  const state = { quality: 'partial' as 'complete' | 'partial' | 'degraded', empty: false, withPatch: false, connected: false, connectionError: false, own: true, detailStatus: 'open' as 'open' | 'closed' };
   const scopes: (string | null)[] = [];
   const writes: string[] = []; const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => {
@@ -32,7 +32,7 @@ async function mockInbox(page: Page) {
       : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} }
       : path === '/api/pull-request-inspect/detail' ? { version: 1, target, observedAt: at, title: 'Scoped pull request details', url: `https://github.com/${target.repo}/pull/${target.number}`, status: state.detailStatus, draft: false, authorLogin: 'writer', isOwnPr: state.own, headRefName: 'topic', updatedAt: at, comments: 0,
         checks: { quality: 'complete', passed: 2, failed: 0, pending: 0 }, reviews: { quality: 'complete', approved: 0, changesRequested: 0, commented: 0, requested: 0, viewerReview: null, viewerReviewedAt: null, viewerReviewedCommitId: null } }
-      : path === '/api/pull-request-inspect/diff' ? { version: 1, target, observedAt: at, coverage: 'immutable-comparison-preview', quality: 'complete', truncated: false, files: [] }
+      : path === '/api/pull-request-inspect/diff' ? { version: 1, target, observedAt: at, coverage: 'immutable-comparison-preview', quality: 'complete', truncated: false, files: state.withPatch ? [{ filename: 'src/retry.ts', previousFilename: null, status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-return false;\n+return retry("<img src=x>");', patchStatus: 'preview' }] : [] }
       : path === '/api/run-read' ? { version: 1, repo: url.searchParams.get('repo'), items: [{ version: 1, id: 'recent-pr-run', repo: url.searchParams.get('repo'), displayKey: 'PR-42', status: 'succeeded', attempt: 1, startedAt: at, endedAt: at, prNumber: 42, costUsd: null, review: null, sourceSettlement: null }], nextCursor: null }
       : path === '/api/whiteboard' ? { version: 1, target: JSON.parse(url.searchParams.get('target') ?? '{}'), status: 'absent', sessionId: null, baseSha: null, headSha: null, message: null }
       : {};
@@ -171,9 +171,13 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 390, mode
   test('prioritizes agent work, keeps manual review opt-in and gates Slack on the current connection', async ({ page }) => {
     page.setDefaultTimeout(10_000);
     if (mode === 'light') await page.addInitScript(value => localStorage.setItem('cmux.theme.custom', value), JSON.stringify({ version: 3, palette: generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'light'), recipe: { settings: DEFAULT_THEME_GENERATOR_SETTINGS, overrides: {} } }));
-    const f = await mockInbox(page); f.state.connected = true;
+    const f = await mockInbox(page); f.state.connected = true; f.state.withPatch = true;
     await page.goto('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42');
     const panel = page.locator('.plugin-public-pr'); const detail = panel.locator('.pr-panel'); const manual = panel.locator('.pr-manual-review'); const context = panel.locator('.pr-provenance'); const refresh = page.getByRole('button', { name: 'Refresh page', exact: true }); const body = detail.locator('.pr-review-body'); const lookup = panel.locator('[data-pr-compat-lookup]');
+    await expect(detail.locator(':scope > .pr-subpanel')).toHaveCount(4);
+    expect(await detail.evaluate(root => ['.pr-summary', '.pr-agent-section', '.pr-diff-panel', '.pr-manual-review'].every(selector => root.querySelector(selector)?.closest('.pr-panel') === root))).toBe(true);
+    const orderedRegions = await Promise.all(['.pr-agent-section', '.pr-diff-panel', '.pr-manual-review'].map(selector => detail.locator(selector).boundingBox()));
+    expect((orderedRegions[0]?.y ?? Infinity) + (orderedRegions[0]?.height ?? 0)).toBeLessThanOrEqual(orderedRegions[1]?.y ?? -Infinity); expect((orderedRegions[1]?.y ?? Infinity) + (orderedRegions[1]?.height ?? 0)).toBeLessThanOrEqual(orderedRegions[2]?.y ?? -Infinity);
     await expect(detail).toHaveAttribute('data-pr-repo', 'org/b'); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(manual).not.toHaveAttribute('open', ''); await expect(context).not.toHaveAttribute('open', ''); await expect(body).not.toBeVisible();
     await expect(detail.getByRole('button', { name: 'Start deckhand review', exact: true })).toBeVisible(); await expect(detail.getByRole('button', { name: 'Update branch with feedback', exact: true })).toBeVisible();
     await expect(detail.getByRole('link', { name: /Open (review|branch update) setup/ })).toHaveCount(0);
@@ -185,7 +189,8 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 390, mode
     if (width === 390) await page.setViewportSize({ width, height: 1800 }); await page.mouse.move(0, 0); await expect(detail).toHaveScreenshot(`selected-pr-${width}-${mode}.png`); if (width === 390) await page.setViewportSize({ width, height: 1100 });
     const manualSummary = manual.locator(':scope > summary'); await manualSummary.focus(); await manualSummary.press('Space'); await expect(manual).toHaveAttribute('open', ''); await expect(body).toBeVisible(); await body.fill('Keep this manual review draft while I work with agents.');
     await context.locator(':scope > summary').focus(); await context.locator(':scope > summary').press('Enter'); await expect(context).toHaveAttribute('open', ''); await expect(context).toContainText('Branch: topic');
-    await manualSummary.focus(); await manualSummary.press('Space'); await refresh.evaluate(element => (element as HTMLButtonElement).click()); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(manual).not.toHaveAttribute('open', ''); await expect(context).toHaveAttribute('open', ''); await expect(manualSummary).toBeFocused(); await expect(body).toHaveValue('Keep this manual review draft while I work with agents.');
+    const diffFile = detail.locator('.diff-file'); await diffFile.locator(':scope > summary').focus(); await diffFile.locator(':scope > summary').press('Space'); await expect(diffFile.locator('.diff-patch')).toContainText('return retry("<img src=x>");'); await expect(diffFile.locator('img')).toHaveCount(0);
+    await manualSummary.focus(); await manualSummary.press('Space'); await refresh.evaluate(element => (element as HTMLButtonElement).click()); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(manual).not.toHaveAttribute('open', ''); await expect(context).toHaveAttribute('open', ''); await expect(diffFile).toHaveAttribute('open', ''); await expect(manualSummary).toBeFocused(); await expect(body).toHaveValue('Keep this manual review draft while I work with agents.');
     await lookup.fill('org/b#43'); await lookup.press('Enter'); await expect(detail).toHaveAttribute('data-pr-number', '43'); await expect(manual).not.toHaveAttribute('open', ''); await expect(context).not.toHaveAttribute('open', ''); await expect(body).toHaveValue('');
     await lookup.fill('org/b#42'); await lookup.press('Enter'); await expect(detail).toHaveAttribute('data-pr-number', '42'); await expect(manual).toHaveAttribute('open', ''); await expect(body).toHaveValue('Keep this manual review draft while I work with agents.');
     await page.reload(); await expect(manual).toHaveAttribute('open', ''); await expect(body).toHaveValue('Keep this manual review draft while I work with agents.');
