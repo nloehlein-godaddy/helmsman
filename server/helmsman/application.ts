@@ -29,7 +29,7 @@ import { handleTaskActionApi } from './task-action-routes';
 import { COMMUNICATION_TIMEOUT_MS } from './communication-timeout';
 import { createCommunicationConnectionHandler } from './communication-connection-http';
 import { createRunLifetime } from './run-lifetime';
-import { readPullRequestDetail, retainPullRequestSource, prepareCommunicationReview, readOutcomePullRequest, verifyPullRequestExecution, parsePullRequestSource } from './pull-request-source';
+import { prepareBranchUpdate, retainPullRequestSource, prepareCommunicationReview, readOutcomePullRequest, verifyPullRequestExecution, parsePullRequestSource } from './pull-request-source';
 import { allowMutationRequest } from './request-origin';
 import type { CampaignTriggerProviderV1, CommunicationReviewTriggerProviderV1, PullRequestReviewTriggerProviderV1, WebhookTriggerProviderV1 } from '../../src/plugins/trigger';
 import type { SelectedTriggerCapture } from './trigger-runtime';
@@ -1567,6 +1567,12 @@ async function launch(body: LaunchIntent & { runId?: string; headSha?: string; r
     sourceSelection = { ...sourceSelection, ref, displayKey: null };
   }
   if (sourceSelection) body = taskSourceRuntime.canonical(body, sourceSelection);
+  let preparedBranchUpdate: Awaited<ReturnType<typeof prepareBranchUpdate>> | undefined;
+  if (!priorTask && body.mode === 'rerun') {
+    if (!pullRequestSource || !body.prNumber) throw new RetryError('Selected pull request source is unavailable');
+    preparedBranchUpdate = await prepareBranchUpdate({ repo: body.repo, number: body.prNumber, headSha: body.headSha }, pullRequestSource);
+    preparedPullRequestSource = preparedBranchUpdate.source;
+  }
   let launchJson = launchIntentJson(body);
   let detachedRetry = false;
   if (priorRun && priorTask?.prBranch && isFeedbackUpdateAdapter(priorRun.adapter) && priorRun.worktreePath && existsSync(priorRun.worktreePath)) {
@@ -1589,7 +1595,8 @@ async function launch(body: LaunchIntent & { runId?: string; headSha?: string; r
     trustedLocalHost: hostBinding.pluginId === 'helmsman.host-local' && hostBinding.artifactHash === currentRuntime.artifact.artifactHash
       && selectedExecutionHost.record.metadata.workspace === 'worktree' && selectedExecutionHost.record.metadata.stageExecution === 'local',
     source: sourceSelection?.ref ?? null, unknownTask: Boolean(sourceSelection && !sourceSelection.ref),
-    pullRequestNumber: body.prNumber, retry: Boolean(priorRun) && !detachedRetry, ...(detachedRetry ? { branch: priorTask?.prBranch } : {}) });
+    pullRequestNumber: body.prNumber, retry: Boolean(priorRun) && !detachedRetry,
+    branch: detachedRetry ? priorTask?.prBranch : preparedBranchUpdate?.detail.headRefName });
   const admissionArtifacts = mergeExecutionArtifacts([currentRuntime.artifact], agentArtifacts, hostArtifacts, workflowArtifacts, trigger?.artifacts ?? [], pullRequestSource?.artifacts ?? priorTask?.pullRequestSource?.artifacts ?? priorTask?.triggerReviewSource?.artifacts ?? [], sourceSelection ? sourceArtifactClosure(sourceSelection.instance) : []);
   persistence.transaction(() => {
     assertAgentSelectionCurrent(agentOptions, selectedAgents);
@@ -1639,10 +1646,8 @@ async function launch(body: LaunchIntent & { runId?: string; headSha?: string; r
         if (priorTask.repo.toLowerCase() !== body.repo.toLowerCase()) throw new RetryError('Saved task belongs to another galleon.');
         taskObj = { ...priorTask, prePrResume: undefined };
       } else if (body.mode === 'rerun') {
-        if (!pullRequestSource || !body.prNumber) throw new Error('Selected pull request source is unavailable');
-        const pr = await readPullRequestDetail({ repo: body.repo, number: body.prNumber, headSha: body.headSha }, pullRequestSource);
-        if (pr.status !== 'open') throw new Error('Pull request is no longer open for rerun');
-        preparedPullRequestSource = retainPullRequestSource(pullRequestSource, pr.target);
+        if (!preparedBranchUpdate) throw new Error('Prepared pull request update is unavailable');
+        const pr = preparedBranchUpdate.detail;
         taskObj = {
           ticketId: 'rerun', title: `rerun #${pr.target.number}`, repo: body.repo,
           jiraBaseUrl: cfg.jira?.baseUrl ?? '', task: body.feedback ?? '',

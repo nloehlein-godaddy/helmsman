@@ -3,6 +3,7 @@ import type { PluginJson } from '../../src/plugins/backend';
 import type { ArtifactBinding, ProviderBinding, ExecutionSnapshotInput } from './execution-store';
 import type { TriggerPullRequestReadCapture } from './trigger-read-source';
 import { persistedJson, persistenceHash } from './persistence';
+import { RetryError } from './retry';
 
 export interface PullRequestSourceRecord {
   readonly binding: ProviderBinding;
@@ -32,6 +33,13 @@ export async function prepareCommunicationReview(input: { repo: string; number: 
   const detail = await readPullRequestDetail(input, capture);
   if (detail.isOwnPr !== true || detail.status !== 'open') throw new Error('Pull request is not eligible for a review request');
   return retainPullRequestSource(capture, detail.target);
+}
+
+export async function prepareBranchUpdate(input: { repo: string; number: number; headSha?: string }, capture: TriggerPullRequestReadCapture) {
+  const detail = await readPullRequestDetail({ repo: input.repo, number: input.number }, capture);
+  if (input.headSha && detail.target.headSha !== input.headSha) throw new RetryError('PR changed before preparation');
+  if (detail.status !== 'open') throw new RetryError('Pull request is no longer open for rerun');
+  return { detail, source: retainPullRequestSource(capture, detail.target) };
 }
 
 export async function readOutcomePullRequest(input: { repo: string; number: number }, capture: TriggerPullRequestReadCapture) {

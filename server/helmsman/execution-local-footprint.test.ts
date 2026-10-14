@@ -24,3 +24,8 @@ it.each([{ trustedLocalHost: false }, { unknownTask: true }, { retry: true }, { 
   expect(value.completeness).toBe('exclusive');
   expect(value.resources.map(resource => resource.kind)).toEqual(expect.arrayContaining(['galleon-exclusive', 'checkout-exclusive']));
 });
+it.each([{ trustedLocalHost: false }, { unknownTask: true }, { retry: true }])('keeps conservative branch update ownership when authority is incomplete %j', override => {
+  const value = localExecutionFootprint({ ...input, mode: 'branch', branch: 'fix/current-pr', pullRequestNumber: 7, ...override });
+  expect(value.completeness).toBe('exclusive');
+  expect(value.resources.map(resource => resource.kind)).toEqual(expect.arrayContaining(['galleon-exclusive', 'checkout-exclusive']));
+});

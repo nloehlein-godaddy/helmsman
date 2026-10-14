@@ -230,3 +230,14 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 390, mode
     await expect(page.locator('.repo-select')).toHaveValue('org/a'); expect(f.writes).toEqual([]); expect(f.errors).toEqual([]); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 });
+
+test('shows the saved launch rejection reason as literal text after reload',async({page})=>{
+  const f=await mockInbox(page);
+  await page.addInitScript(()=>localStorage.setItem('helmsman.pull-request.v1:helmsman.compat-pr/panel:result:run:legacy-rejection',JSON.stringify({version:1,value:{input:{repo:'org/b',action:'launch',launch:{mode:'rerun',prNumber:42}},receipt:{status:'rejected',runId:'blocked-run',message:'Retained <worktree> & branch ownership blocks this launch.'}}})));
+  await page.goto('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42');
+  const result=page.locator('.pr-saved-result');
+  await expect(result).toHaveText('Saved run result: rejected · blocked-run — Retained <worktree> & branch ownership blocks this launch.');
+  await expect(result.locator('worktree')).toHaveCount(0);
+  await page.reload(); await expect(result).toContainText('Retained <worktree> & branch ownership blocks this launch.');
+  expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
+});

@@ -11,6 +11,7 @@ import { parseRunCommandV1 } from '../../src/plugins/run-command';
 import { parsePluginPackage } from '../../src/plugins/package';
 import type { PluginCatalog } from '../../src/plugins/runtime';
 import type { Todo } from '../../src/data/todos';
+import { RetryError } from './retry';
 
 const opened: ReturnType<typeof openPersistence>[] = [];
 afterEach(() => { for (const value of opened.splice(0)) value.close(); });
@@ -44,6 +45,18 @@ function setup() {
     service: createApplicationRunCommands(options), disable: () => { catalog = { ...catalog, safeMode: true }; }, removeRepo: () => { repos = []; } };
 }
 describe('application run command authority', () => {
+  it.each([
+    [new RetryError('Pull request is no longer open for rerun'), 'rejected'],
+    [new RetryError('PR changed before preparation'), 'rejected'],
+    [new Error('Provider connection lost'), 'recovery-required'],
+  ] as const)('classifies branch update preflight failure %s as %s', async (error, status) => {
+    const f = setup(); f.launch.mockImplementation(() => { throw error; });
+    const input = parseRunCommandV1({ ...command, launch: { mode: 'rerun', prNumber: 11104, feedback: 'Resolve feedback' } });
+    const receipt = await f.service.submit(caller, input);
+    expect(receipt.status).toBe(status);
+    if (status === 'rejected') expect(receipt.message).toBe(error.message);
+    expect(f.persistence.sql.prepare('SELECT COUNT(*) AS count FROM execution_admissions').get()).toEqual({ count: 0 });
+  });
   it('reports GoCaaS preflight failures as rejected commands without recovery obligations', async () => {
     const f = setup();
     f.launch.mockImplementation(() => { throw new GoCaaSConfigurationError('Configure GoCaaS before launching agents.'); });

@@ -31,10 +31,12 @@ export class PrStorage {
     for (let index = 0; index < localStorage.length; index++) {
       const key = localStorage.key(index); if (!key?.startsWith(`${this.prefix}result:`)) continue;
       const raw = localStorage.getItem(key); if (!raw || raw.length > 200_000) continue;
-      const saved = JSON.parse(raw) as { version?: number; value?: { input?: { repo?: string; number?: number; launch?: { prNumber?: number } }; status?: string; result?: { actor?: string }; receipt?: { status?: string; runId?: string | null } } };
+      const saved = JSON.parse(raw) as { version?: number; value?: { input?: { repo?: string; number?: number; launch?: { prNumber?: number } }; status?: string; reason?: unknown; result?: { actor?: string }; receipt?: { status?: string; runId?: string | null; message?: unknown } } };
       const value = saved?.version === 1 ? saved.value : null;
       if (value?.input?.repo !== repo || (value.input.number ?? value.input.launch?.prNumber) !== number) continue;
-      result.push(value.receipt ? `Saved run result: ${value.receipt.status ?? 'unknown'}${value.receipt.runId ? ` · ${value.receipt.runId}` : ''}` : `Saved review result: ${value.status ?? 'unknown'}${value.result?.actor ? ` by ${value.result.actor}` : ''}`);
+      const reason = value.receipt ? value.receipt.message : value.reason;
+      const explanation = typeof reason === 'string' && reason.trim() ? ` — ${reason.trim().slice(0, 2048)}` : '';
+      result.push((value.receipt ? `Saved run result: ${value.receipt.status ?? 'unknown'}${value.receipt.runId ? ` · ${value.receipt.runId}` : ''}` : `Saved review result: ${value.status ?? 'unknown'}${value.result?.actor ? ` by ${value.result.actor}` : ''}`) + explanation);
       if (result.length >= 50) break;
     }
     return result;

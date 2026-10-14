@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { inspectDetail, inspectQuery, inspectTarget } from '../../src/plugins/pull-request-inspect.test-fixture';
-import { parsePullRequestSource, prepareCommunicationReview, pullRequestExecutionSnapshot, readOutcomePullRequest, readPullRequestDetail, retainPullRequestSource, verifyPullRequestExecution } from './pull-request-source';
+import { parsePullRequestSource, prepareBranchUpdate, prepareCommunicationReview, pullRequestExecutionSnapshot, readOutcomePullRequest, readPullRequestDetail, retainPullRequestSource, verifyPullRequestExecution } from './pull-request-source';
+import { localExecutionFootprint } from './execution-local-footprint';
+import { executionFootprintsConflict } from './execution-footprint';
+import { RetryError } from './retry';
 import type { TriggerPullRequestReadCapture } from './trigger-read-source';
 import { validateExecutionSnapshot, type ExecutionSnapshotInput, type ProviderBinding } from './execution-store';
 import { persistenceHash } from './persistence';
@@ -23,6 +26,38 @@ function fixture() {
 }
 
 describe('selected public PR source for new actions', () => {
+  it('pins a fresh update branch before admission without blocking unrelated retained workspaces', async () => {
+    const f = fixture(); f.provider.detail.mockResolvedValue({ ...inspectDetail, headRefName: 'fix/current-pr' });
+    const prepared = await prepareBranchUpdate({ ...inspectQuery, headSha: inspectTarget.headSha }, f.capture);
+    const input = { runId: 'update', repo: inspectQuery.repo, mode: 'branch' as const, trustedLocalHost: true,
+      source: null, unknownTask: false, retry: false, pullRequestNumber: inspectQuery.number,
+      checkout: { path: '/tmp/repo', commonDirectory: '/tmp/repo/.git', workspacePath: '/tmp/repo/.worktrees/update' } };
+    const candidate = localExecutionFootprint({ ...input, branch: prepared.detail.headRefName });
+    const retained = localExecutionFootprint({ ...input, runId: 'historical', mode: 'coding', pullRequestNumber: undefined,
+      checkout: { ...input.checkout, workspacePath: '/tmp/repo/.worktrees/historical' } });
+    expect(candidate.completeness).toBe('verified');
+    expect(executionFootprintsConflict(candidate, retained)).toBe(false);
+    expect(executionFootprintsConflict(candidate, localExecutionFootprint({ ...input, runId: 'other',
+      branch: prepared.detail.headRefName, checkout: { ...input.checkout, workspacePath: '/tmp/repo/.worktrees/other' } }))).toBe(true);
+    expect(executionFootprintsConflict(candidate, localExecutionFootprint({ ...input, runId: 'other-pr',
+      branch: 'fix/different-branch', checkout: { ...input.checkout, workspacePath: '/tmp/repo/.worktrees/other-pr' } }))).toBe(true);
+    expect(prepared.source.target).toEqual(prepared.detail.target);
+    expect(prepared.source.binding).toEqual(binding);
+    expect(f.provider.detail).toHaveBeenCalledTimes(1);
+  });
+  it.each(['closed', 'merged'] as const)('rejects %s branch updates before they can be admitted', async status => {
+    const f = fixture(); f.provider.detail.mockResolvedValue({ ...inspectDetail, status });
+    await expect(prepareBranchUpdate(inspectQuery, f.capture)).rejects.toThrow(RetryError);
+  });
+  it('rejects branch updates when the requested revision changed', async () => {
+    const f = fixture();
+    await expect(prepareBranchUpdate({ ...inspectQuery, headSha: 'f'.repeat(40) }, f.capture)).rejects.toThrow(RetryError);
+  });
+  it('preserves unclassified provider failures for conservative command recovery', async () => {
+    const f = fixture(); const failure = new Error('Provider connection lost');
+    f.provider.detail.mockRejectedValue(failure);
+    await expect(prepareBranchUpdate(inspectQuery, f.capture)).rejects.toBe(failure);
+  });
   it('takes rerun branch/head from the replacement and never reaches the private HTTP adapter', async () => {
     const f = fixture(); f.provider.detail.mockResolvedValue({ ...inspectDetail, headRefName: 'replacement-branch' });
     const result = await readPullRequestDetail({ ...inspectQuery, headSha: inspectTarget.headSha }, f.capture);
