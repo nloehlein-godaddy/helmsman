@@ -1,7 +1,7 @@
 import type { WorkflowActionV1, WorkflowProviderV1, WorkflowStepInputV1, WorkflowFeedbackStepInputV1, WorkflowFeedbackActionV1 } from '@helmsman/plugin-sdk';
 import { renderBranchPrompt, renderCodingPrompt } from './prompt.js';
 
-import type { CodingPromptSettings } from './prompt-instructions';
+import type { CodingPromptSettings } from './prompt-instructions.js';
 
 export interface CodingWorkflowSettings extends CodingPromptSettings {
   readonly maxRounds: number;

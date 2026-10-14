@@ -1,4 +1,4 @@
-import { IMPLEMENTATION_GUIDANCE, REVIEW_CALIBRATION } from './guidance';
+import { IMPLEMENTATION_GUIDANCE, REVIEW_CALIBRATION } from './guidance.js';
 
 const implementation = IMPLEMENTATION_GUIDANCE.join('\n');
 const review = REVIEW_CALIBRATION.join('\n');

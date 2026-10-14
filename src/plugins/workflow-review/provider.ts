@@ -1,7 +1,7 @@
 import type { WorkflowProviderV1 } from '@helmsman/plugin-sdk';
 import { renderReviewPrompt } from './prompt.js';
 
-import type { ReviewPromptSettings } from './prompt-instructions';
+import type { ReviewPromptSettings } from './prompt-instructions.js';
 
 export function reviewWorkflowProvider(settings: ReviewPromptSettings = {}): WorkflowProviderV1 {
   return {

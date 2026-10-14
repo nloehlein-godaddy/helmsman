@@ -1,8 +1,8 @@
 import type { WorkflowPromptInputV1 } from '@helmsman/plugin-sdk';
 
-import { REVIEW_CALIBRATION, reviewGuidance, reviewVerificationGuidance } from './guidance';
+import { REVIEW_CALIBRATION, reviewGuidance, reviewVerificationGuidance } from './guidance.js';
 
-import type { ReviewPromptSettings } from './prompt-instructions';
+import type { ReviewPromptSettings } from './prompt-instructions.js';
 
 const UNATTENDED = 'Working dir = the repo checkout. Fully unattended: do not pause for confirmation; use the clarification protocol when a required human decision blocks safe progress.';
 

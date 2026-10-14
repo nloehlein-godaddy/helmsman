@@ -1,7 +1,7 @@
 import type { WorkflowBackendModuleV1 } from '@helmsman/plugin-sdk';
 import { codingWorkflowProvider, branchWorkflowProvider } from './provider.js';
 
-import { codingPromptRoles } from './prompt-instructions';
+import { codingPromptRoles } from './prompt-instructions.js';
 
 const module: WorkflowBackendModuleV1 = {
   activate(context) {
