@@ -53,7 +53,7 @@ describe('plugin page navigation', () => {
 });
 
 describe('section navigation', () => {
-  const configPaths = ['/config', '/source-settings', '/execution-settings', '/feedback-settings', '/jira-settings', '/github-settings', '/communication', '/local-git'];
+  const configPaths = ['/config', '/source-settings', '/execution-settings', '/agent-prompts', '/feedback-settings', '/jira-settings', '/github-settings', '/communication', '/local-git'];
   const configMenuPaths = ['/config', '/config', ...configPaths.slice(1)];
   const runPaths = ['/runs', '/run-history', '/run-viewer'];
   function head(path: string) {

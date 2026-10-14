@@ -1,7 +1,9 @@
 import type { WorkflowActionV1, WorkflowProviderV1, WorkflowStepInputV1, WorkflowFeedbackStepInputV1, WorkflowFeedbackActionV1 } from '@helmsman/plugin-sdk';
 import { renderBranchPrompt, renderCodingPrompt } from './prompt.js';
 
-export interface CodingWorkflowSettings {
+import type { CodingPromptSettings } from './prompt-instructions';
+
+export interface CodingWorkflowSettings extends CodingPromptSettings {
   readonly maxRounds: number;
   readonly stageTimeoutMinutes: number;
 }
@@ -24,7 +26,7 @@ export function codingNext(input: WorkflowStepInputV1): WorkflowActionV1 {
 export function codingWorkflowProvider(settings: CodingWorkflowSettings): WorkflowProviderV1 {
   return {
     metadata: { version: 1, label: 'Coding', modes: ['coding'], execution: 'staged', requiredSkills: [], maxRounds: settings.maxRounds, stageTimeoutMinutes: settings.stageTimeoutMinutes },
-    renderPrompt: renderCodingPrompt,
+    renderPrompt: input => renderCodingPrompt(input, settings),
     next: codingNext,
   };
 }
@@ -44,7 +46,7 @@ export function feedbackNext(input: WorkflowFeedbackStepInputV1, maxRounds: numb
 export function branchWorkflowProvider(settings: CodingWorkflowSettings): WorkflowProviderV1 {
   return {
     metadata: { version: 1, label: 'Branch update', modes: ['branch'], execution: 'direct', feedbackCompletion: true, requiredSkills: [], maxRounds: settings.maxRounds, stageTimeoutMinutes: settings.stageTimeoutMinutes },
-    renderPrompt: renderBranchPrompt,
+    renderPrompt: input => renderBranchPrompt(input, settings),
     next: () => ({ kind: 'stop', reason: 'Branch feedback requires the feedback completion policy' }),
     nextFeedback: input => feedbackNext(input, settings.maxRounds),
   };

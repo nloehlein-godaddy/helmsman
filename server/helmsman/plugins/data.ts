@@ -1,3 +1,7 @@
+import { parseAgentPromptSettingsSaveV1, parseAgentPromptSettingsSnapshotV1, type AgentPromptSettingsSnapshotV1 } from '../../../src/plugins/agent-prompts';
+import { codingPromptRoles } from '../../../src/plugins/workflow-coding/prompt-instructions';
+import { reviewPromptRoles } from '../../../src/plugins/workflow-review/prompt-instructions';
+import { invalidSourceContract } from '../../../src/plugins/source-contract-validation';
 import { parseFeedbackSettingsSaveV1, parseFeedbackSettingsSnapshotV1, type FeedbackSettingsSnapshotV1 } from '../../../src/plugins/feedback-settings';
 import { persistenceHash, PersistenceConflictError } from '../persistence';
 import type { TriggerSelectionRoleV1 } from '../../../src/plugins/trigger';
@@ -639,4 +643,50 @@ export function writeFeedbackSettings(root: string, packages: readonly PluginPac
     }
     return feedbackSettings(sql, packages);
   }); } finally { sql.close(); }
+}
+
+const agentPromptDefinitions = [
+  ...codingPromptRoles.map(role => ({ ...role, pluginId: 'helmsman.workflow-coding', providerLabel: 'Coding workflow' })),
+  ...reviewPromptRoles.map(role => ({ ...role, pluginId: 'helmsman.workflow-review', providerLabel: 'PR review workflow' })),
+];
+function agentPromptSettings(sql: Database.Database, packages: readonly PluginPackage[]): AgentPromptSettingsSnapshotV1 {
+  const roles = agentPromptDefinitions.flatMap(role => {
+    const pkg = packages.find(value => value.manifest.id === role.pluginId);
+    const field = pkg?.backend?.settings?.[role.settingKey];
+    if (!pkg || field?.type !== 'string') return [];
+    const values = settings(sql, pkg);
+    const stored = sql.prepare('SELECT key FROM plugin_settings WHERE plugin=? AND key=?').get(role.pluginId, role.settingKey);
+    return [{ id: role.id, label: role.label, description: role.description, providerLabel: role.providerLabel,
+      defaultText: field.default, text: values[role.settingKey], overridden: Boolean(stored) }];
+  });
+  const snapshot = { version: 1, roles };
+  return parseAgentPromptSettingsSnapshotV1({ ...snapshot, revision: persistenceHash({ snapshot, packages }) });
+}
+export function readAgentPromptSettings(root: string, packages: readonly PluginPackage[]): AgentPromptSettingsSnapshotV1 {
+  const sql = database(root);
+  try { return sql.transaction(() => agentPromptSettings(sql, packages))(); } finally { sql.close(); }
+}
+export function writeAgentPromptSettings(root: string, packages: readonly PluginPackage[], raw: unknown): AgentPromptSettingsSnapshotV1 {
+  const input = parseAgentPromptSettingsSaveV1(raw);
+  const sql = database(root);
+  try { return immediateTransaction(sql, () => {
+    const current = agentPromptSettings(sql, packages);
+    if (input.expectedRevision !== current.revision) throw new PersistenceConflictError('Agent prompts changed. Reload before saving.');
+    const role = agentPromptDefinitions.find(value => value.id === input.roleId);
+    if (!role || !current.roles.some(value => value.id === role.id)) invalidSourceContract();
+    const pkg = packages.find(value => value.manifest.id === role.pluginId);
+    const field = pkg?.backend?.settings?.[role.settingKey];
+    if (!field) invalidSourceContract();
+    if (input.text === null) sql.prepare('DELETE FROM plugin_settings WHERE plugin=? AND key=?').run(role.pluginId, role.settingKey);
+    else {
+      validatePluginSetting(field, input.text);
+      sql.prepare('INSERT INTO plugin_settings VALUES(?,?,?) ON CONFLICT(plugin,key) DO UPDATE SET value=excluded.value').run(role.pluginId, role.settingKey, JSON.stringify(input.text));
+    }
+    return agentPromptSettings(sql, packages);
+  }); } finally { sql.close(); }
+}
+export function agentPromptPluginId(roleId: string): string {
+  const role = agentPromptDefinitions.find(value => value.id === roleId);
+  if (!role) invalidSourceContract();
+  return role.pluginId;
 }

@@ -447,6 +447,8 @@ The first Triage composition imports prior browser filters, page size and collap
 The Config tab edits core runtime values and links to independently replaceable Jira and GitHub settings. The Jira connection page provides revision-checked, write-only token updates; existing source settings own live Jira configuration. See [integration settings authoring](docs/integration-settings-authoring.md). See [Configuration](#configuration) for every field, its default, storage,
 and restart behavior. UI customization remains on Config; local Git controls open the replaceable Local Git page.
 
+**Config → Agent prompts** edits the built-in workflow roles: implementation, repair, independent review, PR review, feedback authoring and feedback audit. Changes are global and apply to new runs; existing runs retain their original instructions. Each role supports a custom instruction block (up to 4 KiB) and restoring its built-in default. Helmsman still supplies task context, report formats and publication limits. See the [Agent prompts package](src/plugins/agent-prompts/README.md).
+
 ### Local todos
 
 Todos and Jira coexist. In **Config → Source settings**, enable each source independently,

@@ -158,3 +158,5 @@ export * from './feedback-tracker';
 export * from './feedback-settings';
 
 export * from './whiteboard';
+
+export * from './agent-prompts';

@@ -1,0 +1,6 @@
+{
+  "name": "helmsman-agent-prompts-source",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
+}

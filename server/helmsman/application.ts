@@ -1,3 +1,5 @@
+import { parseAgentPromptSettingsSaveV1 } from '../../src/plugins/agent-prompts';
+import { agentPromptPluginId, readAgentPromptSettings, writeAgentPromptSettings } from './plugins/data';
 import { openWhiteboardUsageStore } from './whiteboard/usage-store';
 import { createWhiteboardClient } from './whiteboard/client';
 import { createWhiteboardGenerator } from './whiteboard/generator';
@@ -999,6 +1001,25 @@ function authorizeFeedback(caller: string, capability: string) {
       ?? (manifest?.manifestVersion === 2 ? manifest.panels.find(panel => panel.id === localId) : undefined);
     if (catalog.safeMode || !contribution?.requires?.some(requirement => requirement.id === capability && requirement.version === 1)) throw new ClarificationServiceError(403, 'forbidden');
 }
+const agentPromptPackages = () => builtinWorkflows.filter(value => backendPlugins.activePluginIds().includes(value.package.manifest.id)).map(value => value.package);
+let agentPromptSaves = Promise.resolve();
+const agentPrompts = {
+  snapshot(caller: string) { authorizeFeedback(caller, 'helmsman/agent-prompts'); return readAgentPromptSettings(pluginDirectory(), agentPromptPackages()); },
+  async save(caller: string, raw: unknown) {
+    authorizeFeedback(caller, 'helmsman/agent-prompts');
+    const input = parseAgentPromptSettingsSaveV1(raw);
+    const save = agentPromptSaves.then(async () => {
+      authorizeFeedback(caller, 'helmsman/agent-prompts');
+      const result = writeAgentPromptSettings(pluginDirectory(), agentPromptPackages(), input);
+      await backendPlugins.refreshWorkflowSettings(agentPromptPluginId(input.roleId));
+      await pluginCoordinator.reconcile();
+      await refreshPluginSnapshot();
+      return result;
+    });
+    agentPromptSaves = save.then(() => {}, () => {});
+    return save;
+  },
+};
 const feedbackSettingsPackages = () => [...builtinFeedbackTrackers.map(value => value.package), ...pluginSnapshot.catalog.plugins.map(value => value.package).filter(pkg => pkg.backend?.feedbackTrackers)];
 const feedbackSettings = {
   snapshot(caller: string) { authorizeFeedback(caller, 'helmsman/feedback-settings'); return readFeedbackSettings(pluginDirectory(), feedbackSettingsPackages()); },
@@ -2067,7 +2088,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       executionPolicy, executionPolicyCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       publicLocalGit, localGitCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       terminal, terminalCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
-      feedbackSettings, feedbackCommands, communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
+      agentPrompts, feedbackSettings, feedbackCommands, communication, communicationCommands, communicationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       pullRequestCommands, pullRequestCommandCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       clarificationGate, feedbackClarifications, feedbackSnapshot, publicClarifications, runInstructions, clarificationCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,
       whiteboard, whiteboardAuthorize, whiteboardRepos: applicationRepos, whiteboardCaller: typeof req.headers['x-helmsman-contribution'] === 'string' ? req.headers['x-helmsman-contribution'] : undefined,

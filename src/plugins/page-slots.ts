@@ -71,6 +71,7 @@ export const builtinPageSlots: readonly BuiltinPageSlot[] = Object.freeze([
   Object.freeze({ id: 'helmsman/product-feedback-page', alias: '/product-feedback', defaultContributionId: 'helmsman.product-feedback/page' }),
   Object.freeze({ id: 'helmsman/feedback-settings-page', alias: '/feedback-settings', defaultContributionId: 'helmsman.product-feedback/settings' }),
   Object.freeze({ id: PROFILE_HEADER_SLOT, alias: '/profile', defaultContributionId: 'helmsman.profile/header' }),
+  Object.freeze({ id: 'helmsman/agent-prompts-page', alias: '/agent-prompts', defaultContributionId: 'helmsman.agent-prompts/page', panelContract: 'helmsman/agent-prompts-panel' }),
   Object.freeze({ id: 'helmsman/execution-settings-page', alias: '/execution-settings', defaultContributionId: 'helmsman.execution-settings/page', panelContract: 'helmsman/execution-settings-panel' }),
   Object.freeze({ id: GITHUB_SETTINGS_PAGE_SLOT, alias: '/github-settings', defaultContributionId: GITHUB_SETTINGS_PAGE_ID, panelContract: 'helmsman/github-settings-panel' }),
   Object.freeze({ id: JIRA_SETTINGS_PAGE_SLOT, alias: '/jira-settings', defaultContributionId: JIRA_SETTINGS_PAGE_ID, panelContract: 'helmsman/jira-settings-panel' }),

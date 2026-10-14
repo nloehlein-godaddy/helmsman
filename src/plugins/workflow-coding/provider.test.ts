@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowPromptInputV1, WorkflowReviewReportV1, WorkflowStepInputV1 } from '../workflow';
 import { codingNext, codingWorkflowProvider, branchWorkflowProvider, feedbackNext } from './provider';
+import { codingPromptRoles } from './prompt-instructions';
 import { renderBranchPrompt, renderCodingPrompt } from './prompt';
 
 const baseSha = 'a'.repeat(40);
@@ -227,4 +228,45 @@ it('requires complete feedback discovery and verified published responses even w
     'which findings still lack a response', 'Use only the workflow-authorized publication tools and credentials',
     'Keep it as the final line and do not duplicate it',
   ]) expect(value).toContain(required);
+});
+
+
+it('replaces real role guidance in-place, isolates roles and preserves default prompt bytes', () => {
+  const defaults = Object.fromEntries(codingPromptRoles.map(role => [role.settingKey, role.defaultText]));
+  for (const stage of ['implement', 'fix', 'review'] as const) {
+    const value = prompt({ stage, baseSha, headSha, reportPath: '/tmp/result.json' });
+    expect(renderCodingPrompt(value, defaults)).toBe(renderCodingPrompt(value));
+  }
+  const settings = { maxRounds: 3, stageTimeoutMinutes: 45, promptImplement: '- Implement custom acceptance checks.', promptFix: '- Repair custom acceptance failures.', promptReview: '- Inspect custom supported paths.' };
+  const workflow = codingWorkflowProvider(settings);
+  const implementation = workflow.renderPrompt(prompt({ stage: 'implement', baseSha, reportPath: '/tmp/metadata.json' }));
+  expect(implementation).toContain(settings.promptImplement);
+  expect(implementation).not.toContain(settings.promptFix);
+  expect(implementation).not.toContain(codingPromptRoles[0].defaultText);
+  const fix = workflow.renderPrompt(prompt({ stage: 'fix', baseSha, reportPath: '/tmp/metadata.json', feedback: 'Actual finding' }));
+  expect(fix).toContain(settings.promptFix);
+  expect(fix).toContain('Actual finding');
+  const review = workflow.renderPrompt(prompt({ stage: 'review', baseSha, headSha, reportPath: '/tmp/review.json' }));
+  expect(review).toContain(settings.promptReview);
+  expect(review).toContain('Do not modify code, commit, push');
+  expect(review).toContain(headSha);
+  const correction = prompt({ stage: 'review', baseSha, headSha, reportPath: '/tmp/result.json', summaryCorrection: { reportPath: '/tmp/prior.json', actualLength: 2100 } });
+  expect(workflow.renderPrompt(correction)).toBe(renderCodingPrompt(correction));
+});
+
+
+it('keeps feedback author and auditor overrides independent with byte-identical defaults', () => {
+  const base = prompt(null);
+  const defaults = Object.fromEntries(codingPromptRoles.map(role => [role.settingKey, role.defaultText]));
+  const settings = { maxRounds: 3, stageTimeoutMinutes: 45, promptBranchAuthor: '- Author custom focused fixes.', promptFeedbackAudit: '- Audit custom response evidence.' };
+  for (const stage of ['author', 'audit'] as const) {
+    const input: WorkflowPromptInputV1 = { ...base, task: { ...base.task, prBranch: 'feature/test', prNumber: 42 },
+      feedback: { stage, round: 1, snapshotPath: '/tmp/snapshot.json', feedbackPath: '/tmp/feedback.txt', reportPath: '/tmp/audit.json',
+        snapshot: { repo: base.task.repo, prNumber: 42, baseSha, headSha, fingerprint: 'c'.repeat(64) } } };
+    expect(renderBranchPrompt(input, defaults)).toBe(renderBranchPrompt(input));
+    const customized = branchWorkflowProvider(settings).renderPrompt(input);
+    expect(customized).toContain(stage === 'author' ? settings.promptBranchAuthor : settings.promptFeedbackAudit);
+    expect(customized).not.toContain(stage === 'author' ? settings.promptFeedbackAudit : settings.promptBranchAuthor);
+    expect(customized).toContain('/tmp/snapshot.json');
+  }
 });

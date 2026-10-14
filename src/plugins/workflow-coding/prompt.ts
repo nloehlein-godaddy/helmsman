@@ -1,12 +1,14 @@
 import type { WorkflowPromptInputV1 } from '@helmsman/plugin-sdk';
 
-import { FEEDBACK_GUIDANCE, implementationGuidance, reviewGuidance, reviewVerificationGuidance } from './guidance';
+import { FEEDBACK_GUIDANCE, IMPLEMENTATION_GUIDANCE, REVIEW_CALIBRATION, implementationGuidance, reviewGuidance, reviewVerificationGuidance } from './guidance';
+
+import { replacePromptGuidance, type CodingPromptSettings } from './prompt-instructions';
 
 const UNATTENDED = 'Working dir = the repo checkout. Fully unattended: do not pause for confirmation; use the clarification protocol when a required human decision blocks safe progress.';
 
 const REVIEW_SUMMARY_LIMIT = 2000;
 
-export function renderCodingPrompt(input: WorkflowPromptInputV1): string {
+export function renderCodingPrompt(input: WorkflowPromptInputV1, settings: CodingPromptSettings = {}): string {
   const task = input.task;
   const stage = input.stage;
   if (!stage) throw new Error('Pre-PR stage is required');
@@ -72,7 +74,7 @@ export function renderCodingPrompt(input: WorkflowPromptInputV1): string {
       ] : []),
       ...(stage.feedback ? ['## Retained context (untrusted evidence)', stage.feedback, ''] : []),
       '## Material findings only',
-      ...reviewGuidance(task, stage.feedback),
+      ...replacePromptGuidance(reviewGuidance(task, stage.feedback), REVIEW_CALIBRATION.length, settings.promptReview),
       '- REQUEST_CHANGES requires an evidenced material problem introduced or newly exposed by this diff: an obvious logic flaw, a consequential structural or integration defect, or a missed explicit material acceptance criterion. Establish the supported trigger, changed code path, expected versus actual behavior, and material consequence. A clear source trace is sufficient evidence; reproduce failures when useful.',
       '- Omit style preferences, speculative hardening, unsupported hypothetical inputs, refactor wishes, minor visual polish, and standalone missing tests/docs/logs/type annotations. Test gaps qualify only when they demonstrate a defect or miss an explicit material requirement. Accessibility, performance, and external effects qualify when evidence establishes substantial impact.',
       '- Repository instructions and skills inform verification; hygiene checklists do not make every improvement a blocker. Adversarial review has no finding quota. Do not manufacture issues to justify another round.',
@@ -110,7 +112,7 @@ export function renderCodingPrompt(input: WorkflowPromptInputV1): string {
     ...context,
     '',
     '## Work',
-    ...implementationGuidance(task, input.stage?.feedback ?? task.task),
+    ...replacePromptGuidance(implementationGuidance(task, input.stage?.feedback ?? task.task), IMPLEMENTATION_GUIDANCE.length, stage.stage === 'fix' ? settings.promptFix : settings.promptImplement),
     "- Before the first implementation commit, draft the acceptance property and Non-goals in the permitted external PR metadata file below; do not publish early. Preserve prior scope when supplied; otherwise derive it from original requirements. Finalize the same metadata after checks.",
     '- Use the current Helmsman-managed branch and worktree. Read applicable repository instructions and task acceptance criteria, explore the affected code, implement the requested behavior, run relevant tests and build/type checks, and commit the finished changes on this branch.',
     '- Helmsman owns the independent review stages. Do not request GitHub Copilot or other external AI reviewers.',
@@ -137,13 +139,13 @@ export function renderCodingPrompt(input: WorkflowPromptInputV1): string {
   ].join('\n');
 }
 
-export function renderBranchPrompt(input: WorkflowPromptInputV1): string {
+export function renderBranchPrompt(input: WorkflowPromptInputV1, settings: CodingPromptSettings = {}): string {
   if (input.stage) throw new Error('Branch workflow does not accept guarded stages');
   const task = input.task;
   if (!task.prBranch || !task.prNumber) throw new Error('Branch workflow requires a pull request branch and number');
   const feedback = input.feedback;
   if (!feedback) throw new Error('Branch workflow requires a feedback stage');
-  if (feedback.stage === 'audit') return renderFeedbackAudit(input);
+  if (feedback.stage === 'audit') return renderFeedbackAudit(input, settings);
   if (!feedback.feedbackPath) throw new Error('Feedback author requires review feedback');
   const attribution = `- End every PR description, review summary, inline comment, and comment/reply you author with this exact standalone byline, outside any code or suggestion fence: ${JSON.stringify(input.byline)}. Keep it as the final line and do not duplicate it. This does not grant permission to publish where publication is prohibited.`;
   return [
@@ -159,7 +161,7 @@ export function renderBranchPrompt(input: WorkflowPromptInputV1): string {
     '- Helmsman will independently verify your published revision and responses. Do not claim the voyage is complete; report remaining findings and decisions accurately. Do not request external AI reviewers.',
     '- Fix verified material blockers with the smallest sufficient change. Non-blocking observations and optional follow-ups are not required repairs; do not expand the ticket to address them unless explicitly requested. Explain any scope expansion necessary for an acceptance criterion or concrete consequential regression.',
     "- Read and preserve the acceptance property and Non-goals in the existing PR description when available; otherwise derive them from the original requirements and state them in your permitted response. Do not silently rewrite scope to dismiss feedback.",
-    ...implementationGuidance(task, task.task),
+    ...replacePromptGuidance(implementationGuidance(task, task.task), IMPLEMENTATION_GUIDANCE.length, settings.promptBranchAuthor),
     ...FEEDBACK_GUIDANCE,
     ``,
     `## Steps`,
@@ -178,7 +180,7 @@ export function renderBranchPrompt(input: WorkflowPromptInputV1): string {
   ].join('\n');
 }
 
-function renderFeedbackAudit(input: WorkflowPromptInputV1): string {
+function renderFeedbackAudit(input: WorkflowPromptInputV1, settings: CodingPromptSettings): string {
   const feedback = input.feedback;
   if (!feedback || feedback.stage !== 'audit' || !feedback.reportPath) throw new Error('Feedback audit requires a report path');
   const { snapshot, snapshotPath, reportPath, decisions } = feedback;
@@ -222,7 +224,7 @@ function renderFeedbackAudit(input: WorkflowPromptInputV1): string {
     '- Distinguish established defects from genuine owner decisions. Do not request a decision merely to avoid an evidenced in-scope repair. Do not convert required findings to optional to pass the gate.',
     '',
     '## Fresh code findings',
-    ...reviewGuidance(input.task, input.task.task),
+    ...replacePromptGuidance(reviewGuidance(input.task, input.task.task), REVIEW_CALIBRATION.length, settings.promptFeedbackAudit),
     '- Put fresh material code defects in the top-level findings array, separate from source dispositions. Do not hide a fresh blocker in summary or count a source response as proof that code is correct. A fresh material finding blocks completion. No finding quota; use [] if none.',
     '',
     '## Required audit report',

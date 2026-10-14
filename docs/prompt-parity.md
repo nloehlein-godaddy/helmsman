@@ -106,6 +106,15 @@ model run is required or performed by these commands. Compare saved baseline and
 changed-prompt predictions with the same actual model settings; inspect rationales
 as well as verdicts. Existing execution snapshots remain frozen.
 
+## Custom role instructions
+
+Config → Agent prompts can replace the built-in role guidance for each coding,
+review and feedback role. These global workflow settings apply to new admissions;
+retained executions use their captured settings. Task context, report schemas,
+clarification protocol and publication restrictions remain code-owned. Restoring
+the built-in default removes the override. The parity checker below verifies the
+unmodified defaults; intentional custom instructions are outside default parity.
+
 ## Checking parity
 
 Run from the post-rewrite checkout, with dependencies installed in both checkouts:

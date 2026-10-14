@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { codingPromptRoles } from '../../../src/plugins/workflow-coding/prompt-instructions';
+import { reviewPromptRoles } from '../../../src/plugins/workflow-review/prompt-instructions';
 import { builtinWorkflows } from './builtin-workflows';
 
 describe('builtin workflows', () => {
@@ -19,6 +21,7 @@ describe('builtin workflows', () => {
     });
     expect(review?.provides.map(value => value.localId)).toEqual(['review']);
     expect(review?.workflows).toEqual({ review: { access: ['workflow-policy'] } });
-    expect(review?.settings).toEqual({});
+    expect(review?.settings).toEqual({ promptReview: { type: 'string', default: reviewPromptRoles[0].defaultText, maxLength: 4096 } });
+    for (const role of codingPromptRoles) expect(coding?.settings?.[role.settingKey]).toEqual({ type: 'string', default: role.defaultText, maxLength: 4096 });
   });
 });

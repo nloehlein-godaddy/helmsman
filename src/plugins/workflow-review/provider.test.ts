@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowPromptInputV1 } from '../workflow';
 import { reviewWorkflowProvider } from './provider';
+import { reviewPromptRoles } from './prompt-instructions';
 import { renderReviewPrompt } from './prompt';
 
 const headSha = 'b'.repeat(40);
@@ -72,4 +73,17 @@ it.each(['review-agent-skill', 'native-subagents'] as const)('preserves the comp
     'outside any code or suggestion fence',
   ]) expect(value).toContain(required);
   expect(value).not.toContain('## Respond to every finding on GitHub');
+});
+
+
+it('replaces the real reviewer guidance while retaining pinned context and report rules', () => {
+  const value = input('native-subagents');
+  expect(reviewWorkflowProvider({ promptReview: reviewPromptRoles[0].defaultText }).renderPrompt(value)).toBe(renderReviewPrompt(value));
+  const customized = reviewWorkflowProvider({ promptReview: '- Inspect supported failures independently.' }).renderPrompt(value);
+  expect(customized).toContain('- Inspect supported failures independently.');
+  expect(customized).not.toContain(reviewPromptRoles[0].defaultText);
+  expect(customized).toContain(headSha);
+  expect(customized).toContain('/tmp/comments.json');
+  expect(customized).toContain('Reviewed by Helmsman');
+  expect(customized).toContain('Use the clarification protocol.');
 });

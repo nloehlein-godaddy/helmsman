@@ -1,3 +1,4 @@
+import { handleAgentPromptSettingsApi, type AgentPromptSettingsServerService } from './agent-prompts-routes';
 import { handleWhiteboardApi } from './whiteboard/routes';
 import type { WhiteboardServerService } from './whiteboard/service';
 import { handleRunInstructionApi } from './run-instruction-routes';
@@ -124,6 +125,7 @@ export interface RouterDeps {
   taskContextSignal?: AbortSignal;
   runInspect?: RunInspectServerService;
   communication?: CommunicationReadServerService;
+  agentPrompts?: AgentPromptSettingsServerService;
   feedbackSettings?: FeedbackSettingsServerService;
   feedbackCommands?: FeedbackCommandServerService;
   communicationCommands?: CommunicationCommandServerService;
@@ -212,6 +214,8 @@ export async function handleApi(
   if (commandResult) return commandResult;
   const communicationResult = handleCommunicationApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.communication });
   if (communicationResult) return communicationResult;
+  const agentPromptsResult = await handleAgentPromptSettingsApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.agentPrompts });
+  if (agentPromptsResult) return agentPromptsResult;
   const feedbackSettingsResult = await handleFeedbackSettingsApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.feedbackSettings });
   if (feedbackSettingsResult) return feedbackSettingsResult;
   const feedbackCommandResult = await handleFeedbackCommandApi({ method, path, query, body: _body, caller: deps.communicationCaller, service: deps.feedbackCommands });

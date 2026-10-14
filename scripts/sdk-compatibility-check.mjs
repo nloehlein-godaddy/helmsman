@@ -42,7 +42,7 @@ export interface OtherRequirement { readonly id: 'helmsman/task-read'; readonly 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('run-instructions permission extension preserves existing manifest inputs without broadening other contracts', async () => {
+for (const permission of ['helmsman/run-instructions', 'helmsman/agent-prompts']) test(`${permission} permission extension preserves existing manifest inputs without broadening other contracts`, async () => {
   const root = await mkdtemp(join(tmpdir(), 'helmsman-sdk-run-instructions-compat-'));
   try {
     const baseline = join(root, 'baseline'); const candidate = join(root, 'candidate');
@@ -60,16 +60,16 @@ export interface OtherRequirement { readonly id: 'helmsman/task-read'; readonly 
       await mkdir(directory); await writeFile(join(directory, 'package.json'), '{"type":"module"}');
       await writeFile(join(directory, 'node.d.ts'), 'export {};'); await writeFile(join(directory, 'index.d.ts'), contract);
     }
-    const extended = contract.replace("id: 'helmsman/task-read';", "id: 'helmsman/task-read' | 'helmsman/run-instructions';");
+    const extended = contract.replace("id: 'helmsman/task-read';", `id: 'helmsman/task-read' | '${permission}';`);
     await writeFile(join(candidate, 'index.d.ts'), extended);
     assert.equal(checkSdkCompatibility(baseline, candidate), 8);
     for (const broken of [
       extended.replace("'helmsman/task-read' | ", ''),
-      extended.replace("'helmsman/run-instructions'", "'helmsman/arbitrary-action'"),
-      extended.replace("'helmsman/run-instructions'", "'helmsman/run-instructions' | 'helmsman/arbitrary-action'"),
+      extended.replace(`'${permission}'`, "'helmsman/arbitrary-action'"),
+      extended.replace(`'${permission}'`, `'${permission}' | 'helmsman/arbitrary-action'`),
       extended.replace('readonly version: 1', 'readonly version: 2'),
       extended.replace('readonly id: string', 'readonly id: number'),
-      extended.replace("OtherRequirement { readonly id: 'helmsman/task-read'", "OtherRequirement { readonly id: 'helmsman/task-read' | 'helmsman/run-instructions'"),
+      extended.replace("OtherRequirement { readonly id: 'helmsman/task-read'", `OtherRequirement { readonly id: 'helmsman/task-read' | '${permission}'`),
     ]) {
       await writeFile(join(candidate, 'index.d.ts'), broken);
       assert.throws(() => checkSdkCompatibility(baseline, candidate), /SDK compatibility check failed/);

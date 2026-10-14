@@ -3,7 +3,7 @@ import { reviewWorkflowProvider } from './provider.js';
 
 const module: WorkflowBackendModuleV1 = {
   activate(context) {
-    context.registerWorkflow('review', reviewWorkflowProvider());
+    context.registerWorkflow('review', reviewWorkflowProvider({ promptReview: typeof context.settings.promptReview === 'string' ? context.settings.promptReview : undefined }));
   },
 };
 

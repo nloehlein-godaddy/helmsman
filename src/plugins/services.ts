@@ -1,3 +1,4 @@
+import type { AgentPromptSettingsServiceV1 } from './agent-prompts';
 import type { WhiteboardServiceV1 } from './whiteboard';
 import type { RunInstructionServiceV1 } from './run-instructions';
 import type { PostmortemServiceV1 } from './postmortem';
@@ -64,6 +65,7 @@ export interface PluginPageServices {
   readonly profile?: ProfileServiceV1;
   readonly executionPolicy?: ExecutionPolicyServiceV1;
   readonly localGit?: LocalGitServiceV1;
+  readonly agentPrompts?: AgentPromptSettingsServiceV1;
   readonly feedbackSettings?: FeedbackSettingsServiceV1;
   readonly feedbackCommands?: FeedbackCommandServiceV1;
   readonly communicationCommands?: CommunicationCommandServiceV1;

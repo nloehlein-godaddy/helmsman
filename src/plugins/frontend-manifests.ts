@@ -1,3 +1,4 @@
+import agentPromptsPackage from './agent-prompts/plugin-package.json' with { type: 'json' };
 import costsPackage from './costs/plugin-package.json' with { type: 'json' };
 import helmPackage from './helm/plugin-package.json' with { type: 'json' };
 import backlogPackage from './backlog/plugin-package.json' with { type: 'json' };
@@ -72,4 +73,4 @@ export const campaignsManifest = campaignsPackage.manifest as PluginManifest;
 export const terminalManifest = terminalPackage.manifest as PluginManifest;
 export const communicationManifest = communicationPackage.manifest as PluginManifest;
 
-export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([productFeedbackPackage.manifest as PluginManifest, profileManifest, executionSettingsManifest, githubSettingsManifest, jiraSettingsManifest, localGitManifest, campaignsManifest, terminalManifest, communicationManifest, runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);
+export const builtinFrontendManifests: readonly PluginManifest[] = Object.freeze([agentPromptsPackage.manifest as PluginManifest, productFeedbackPackage.manifest as PluginManifest, profileManifest, executionSettingsManifest, githubSettingsManifest, jiraSettingsManifest, localGitManifest, campaignsManifest, terminalManifest, communicationManifest, runsManifest, compatibilityPrManifest, runViewerManifest, runHistoryManifest, clarificationsManifest, suggestedContactsManifest, compatibilityClarificationsManifest, todosManifest, triageManifest, bugsManifest, sourceSettingsManifest, costsManifest, helmManifest, backlogManifest, runningManifest, recentManifest, underwayManifest, newRunManifest, repoPrsManifest, shippedManifest, activityManifest]);

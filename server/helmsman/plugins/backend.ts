@@ -41,6 +41,7 @@ export class CapabilityResolutionError extends Error {
 export interface PricingSelections { explicit?: string; workflow?: string; galleon?: string; }
 export interface BuiltinBackendPlugin { package: PluginPackage; module: PluginBackendModule; artifactHash?: string; }
 export interface BackendRuntime {
+  refreshWorkflowSettings(pluginId: string): Promise<void>;
   readonly errors: readonly string[];
   readonly taskSources: TaskSourceRegistry;
   readonly feedbackTrackers: FeedbackTrackerProviderRegistry;
@@ -486,6 +487,21 @@ export async function activateBackendPlugins(options: {
     triggers,
     workflows,
     nativeTerminals,
+    async refreshWorkflowSettings(pluginId: string): Promise<void> {
+      if (disposed) throw new Error('Backend runtime is disposed.');
+      const builtin = options.builtins?.find(value => value.package.manifest.id === pluginId && value.package.backend?.workflows);
+      if (!builtin || !activeIds.has(pluginId)) throw new Error('Workflow plugin is unavailable.');
+      const cleanup = pluginCleanups.get(pluginId);
+      if (!cleanup) throw new Error('Workflow plugin is unavailable.');
+      await cleanup();
+      const ownerIndex = owners.indexOf(cleanup);
+      if (ownerIndex >= 0) owners.splice(ownerIndex, 1);
+      pluginCleanups.delete(pluginId);
+      ids.delete(pluginId);
+      draining.delete(pluginId);
+      await activate(builtin.package, async () => ({ default: builtin.module }), async () => {}, options.coordinator?.builtinArtifactHash(pluginId) ?? builtin.artifactHash);
+      if (!activeIds.has(pluginId) || !workflowSettings.get(pluginId)?.()) throw new Error('Workflow settings could not activate.');
+    },
     activePluginIds: () => Object.freeze([...activeIds].sort()),
     providers: () => Object.freeze([...providers.keys()].sort()),
     async pricing(snapshot, selections = {}) {

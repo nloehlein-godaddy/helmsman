@@ -1,3 +1,4 @@
+import { createHostAgentPromptSettingsService } from './agent-prompts-service';
 import { createHostWhiteboardService } from './whiteboard-service';
 import { createHostRunInstructionService } from './run-instruction-service';
 import { createHostPostmortemService } from './postmortem-service';
@@ -137,6 +138,7 @@ export function createHostPageServices(lifetime: AbortSignal, scope?: () => Task
         communicationCommands: createHostCommunicationCommandService(lifetime, { scope, caller }),
         feedbackCommands: createHostFeedbackCommandService(lifetime, { scope, caller }),
         feedbackSettings: createHostFeedbackSettingsService(lifetime, { scope, caller }),
+        agentPrompts: createHostAgentPromptSettingsService(lifetime, { scope, caller }),
         suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope, caller }),
         sourceAdmin: createHostSourceAdminService(lifetime, { scope, caller }),
         taskActions: createHostTaskActionService(lifetime, { scope, caller }),

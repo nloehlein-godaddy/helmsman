@@ -1,0 +1,80 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.agent-prompts",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [
+      {
+        "id": "page",
+        "title": "Agent prompts",
+        "slots": [
+          "helmsman/agent-prompts-page"
+        ],
+        "panes": [],
+        "requires": [
+          {
+            "id": "helmsman/composition",
+            "version": 1
+          }
+        ],
+        "composition": {
+          "id": "helmsman/agent-prompts-page",
+          "version": 1,
+          "accepts": [
+            {
+              "id": "helmsman/agent-prompts-panel",
+              "version": 1
+            }
+          ],
+          "initialLayout": {
+            "instances": [
+              {
+                "instanceId": "agent-prompts",
+                "contributionId": "helmsman.agent-prompts/panel"
+              }
+            ],
+            "columns": [
+              [
+                {
+                  "instances": [
+                    "agent-prompts"
+                  ],
+                  "activeInstanceId": "agent-prompts",
+                  "collapsed": false
+                }
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "panels": [
+      {
+        "id": "panel",
+        "title": "Agent prompts",
+        "contract": {
+          "id": "helmsman/agent-prompts-panel",
+          "version": 1
+        },
+        "requires": [
+          {
+            "id": "helmsman/agent-prompts",
+            "version": 1
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "minMajor": 22,
+    "maxMajorExclusive": 30
+  },
+  "entries": {
+    "page": "page.js"
+  },
+  "panelEntries": {
+    "panel": "panel.js"
+  }
+}
