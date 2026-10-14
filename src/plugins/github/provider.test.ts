@@ -422,6 +422,7 @@ describe('GitHub pull request provider', () => {
       if (input.path.endsWith('/check-runs')) return { status: 200, body: { total_count: 0, check_runs: [] } };
       if (input.path.endsWith('/status')) return { status: 200, body: { sha: target.headSha, total_count: 0, statuses: [] } };
       if (input.path.endsWith('/reviews')) return { status: 200, body: [] };
+      if (input.path.endsWith('/comments')) return { status: 200, body: [] };
       metadataReads++;
       return { status: 200, body: metadata(metadataReads === 2 ? { head: { sha: 'e'.repeat(40), ref: 'work' } } : {}) };
     }))).rejects.toMatchObject({ reason: 'head-changed' });
@@ -451,4 +452,109 @@ describe('GitHub pull request provider', () => {
     expect(result.files).toHaveLength(100);
     expect(result.files[1]).toMatchObject({ patchStatus: 'truncated' });
   });
+});
+
+describe('independent metadata evidence', () => {
+  const submittedAt = '2025-01-02T03:04:05.000Z';
+  const later = '2025-01-03T03:04:05.000Z';
+  const comment = (id: number, body = 'Discussion text', author = 'alice') => ({ id, body, user: { login: author }, created_at: submittedAt, html_url: `https://github.com/${target.repo}/pull/${target.number}#issuecomment-${id}` });
+  const detailedReview = (id: number, state: string, login: string, body = 'Review text', at = submittedAt) => ({ ...review(id, state, at, login), body, html_url: `https://github.com/${target.repo}/pull/${target.number}#pullrequestreview-${id}` });
+  const detailedCheck = (id: number, name: string, conclusion: string | null = 'success') => ({ ...check(), id, name, conclusion, html_url: `https://github.com/${target.repo}/actions/runs/${id}` });
+  function fixture(options: { comments?: unknown[]; commentStatus?: number; reviews?: unknown[]; checks?: unknown[]; statuses?: unknown[]; raw?: Record<string, unknown>; updated?: boolean } = {}) {
+    let reads = 0;
+    return context(async input => {
+      if (input.path.endsWith('/check-runs')) return { status: 200, body: { total_count: options.checks?.length ?? 0, check_runs: options.checks ?? [] } };
+      if (input.path.endsWith('/status')) return { status: 200, body: { sha: target.headSha, total_count: options.statuses?.length ?? 0, statuses: options.statuses ?? [] } };
+      if (input.path.endsWith('/reviews')) { const page = Number(input.query.page ?? '1'); return { status: 200, body: (options.reviews ?? []).slice((page - 1) * 100, page * 100) }; }
+      if (input.path.endsWith('/comments')) return { status: options.commentStatus ?? 200, body: options.comments ?? [] };
+      reads++;
+      return { status: 200, body: metadata({ comments: options.comments?.length ?? 0, ...options.raw, ...(options.updated && reads === 2 ? { updated_at: later } : {}) }) };
+    });
+  }
+  it('retains decisive changes requested bodies, approved/requested names and check names without changing legacy counts', async () => {
+    const ctx = fixture({ comments: [comment(1, '<img src=x>\nLiteral content'), comment(2)],
+      reviews: [detailedReview(1, 'CHANGES_REQUESTED', 'alice', 'Must fix'), detailedReview(2, 'COMMENTED', 'alice', 'Later comment', later),
+        detailedReview(3, 'CHANGES_REQUESTED', 'bob'), detailedReview(4, 'APPROVED', 'bob', '', later), detailedReview(5, 'CHANGES_REQUESTED', 'carol'), detailedReview(6, 'DISMISSED', 'carol', '', later)],
+      raw: { requested_reviewers: [{ login: 'DAVE' }, { login: 'dave' }], requested_teams: [{ slug: 'platform' }] },
+      checks: [detailedCheck(1, 'Build'), detailedCheck(2, 'Unit tests', 'failure'), detailedCheck(3, 'Integration', null)],
+      statuses: [{ id: 4, context: 'Deploy', state: 'pending', updated_at: submittedAt, target_url: 'https://ci.example.com/job/4' }] });
+    const result = await githubPullRequestProvider.detail(query, ctx);
+    expect(result.comments).toBe(2); expect(result.checks).toEqual({ quality: 'complete', passed: 1, failed: 1, pending: 2 });
+    expect(result.reviews).toMatchObject({ approved: 1, changesRequested: 1, requested: 2 });
+    expect(result.evidence?.changesRequested).toMatchObject({ quality: 'complete', items: [{ id: 'review:1', author: 'alice', body: 'Must fix' }] });
+    expect(result.evidence?.approved.items.map(item => item.label)).toEqual(['bob']);
+    expect(result.evidence?.requested.items.map(item => item.label)).toEqual(['dave', 'team:platform']);
+    expect(result.evidence?.checksPassed.items.map(item => item.name)).toEqual(['Build']);
+    expect(result.evidence?.checksFailed.items.map(item => item.name)).toEqual(['Unit tests']);
+    expect(result.evidence?.checksPending.items.map(item => item.name)).toEqual(['Integration', 'Deploy']);
+    expect(result.evidence?.comments.items[0]?.body).toBe('<img src=x>\nLiteral content');
+    expect(ctx.http.request.mock.calls.filter(([input]) => input.path.endsWith('/comments')).map(([input]) => input.path)).toEqual([`/repos/${target.repo}/issues/${target.number}/comments`]);
+  });
+  it('keeps names and counts independently available when discussion bodies or names are malformed', async () => {
+    const result = await githubPullRequestProvider.detail(query, fixture({ commentStatus: 403, reviews: [review(1, 'CHANGES_REQUESTED'), detailedReview(2, 'APPROVED', 'bob')], checks: [{ ...check(), id: 1 }] }));
+    expect(result.reviews).toMatchObject({ quality: 'complete', changesRequested: 1, approved: 1 }); expect(result.checks).toMatchObject({ quality: 'complete', passed: 1 });
+    expect(result.evidence?.comments).toEqual({ quality: 'unavailable', truncated: false, items: [] });
+    expect(result.evidence?.changesRequested).toEqual({ quality: 'partial', truncated: false, items: [] });
+    expect(result.evidence?.approved).toMatchObject({ quality: 'complete', items: [{ label: 'bob' }] });
+    expect(result.evidence?.checksPassed).toEqual({ quality: 'partial', truncated: false, items: [] });
+  });
+  it('clips UTF-8 body previews explicitly while preserving aggregate counts and independently capped response bytes', async () => {
+    const result = await githubPullRequestProvider.detail(query, fixture({ comments: [comment(1, 'é'.repeat(3000))], reviews: [detailedReview(1, 'CHANGES_REQUESTED', 'alice', '\n'.repeat(8000))] }));
+    expect(result.evidence?.comments.items[0]).toMatchObject({ body: 'é'.repeat(2048), bodyTruncated: true });
+    expect(result.evidence?.changesRequested.items[0]).toMatchObject({ body: '\n'.repeat(4096), bodyTruncated: true });
+    const capped = await githubPullRequestProvider.detail(query, fixture({ comments: Array.from({ length: 100 }, (_, index) => comment(index + 1, '\n'.repeat(4096))),
+      reviews: Array.from({ length: 100 }, (_, index) => detailedReview(index + 1, 'CHANGES_REQUESTED', `reviewer-${index}`, '\n'.repeat(4096))) }));
+    expect(new TextEncoder().encode(JSON.stringify(capped.evidence)).byteLength).toBeLessThanOrEqual(512 * 1024);
+    expect(capped.comments).toBe(100); expect(capped.reviews.changesRequested).toBe(100);
+    expect(capped.evidence?.comments).toMatchObject({ quality: 'partial', truncated: true });
+  });
+  it('drops non-pinned review/comment observations if metadata changes during independent reads', async () => {
+    const result = await githubPullRequestProvider.detail(query, fixture({ updated: true, comments: [comment(1)], reviews: [detailedReview(1, 'APPROVED', 'alice')], checks: [detailedCheck(1, 'Build')] }));
+    expect(result.reviews.quality).toBe('partial'); expect(result.evidence?.approved).toEqual({ quality: 'partial', truncated: false, items: [] });
+    expect(result.evidence?.comments).toEqual({ quality: 'partial', truncated: false, items: [] });
+    expect(result.evidence?.checksPassed.items).toHaveLength(1);
+  });
+});
+
+it.each(['open', 'all', undefined] as const)('scopes recent authored search and browsing to the selected state %s', async state => {
+  const ctx = context(async input => {
+    if (input.path === '/search/issues') {
+      expect(input.query.q).toBe(`is:pr${state === 'open' ? ' is:open' : ''} author:reviewer repo:${target.repo}`);
+      return { status: 200, body: { total_count: 2, incomplete_results: false, items: [listed(41, { state: 'closed', user: { login: 'reviewer' } }), listed(42, { user: { login: 'reviewer' } })] } };
+    }
+    if (input.path.endsWith('/reviews')) return { status: 200, body: [] };
+    return { status: 503, body: null };
+  });
+  const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50, ...(state === undefined ? {} : { state }) }, repos: [target.repo] }, ctx);
+  expect(result.items.map(item => item.status)).toEqual(state === 'open' ? ['open'] : ['closed', 'open']);
+  expect(new URL(result.browseUrl!).searchParams.get('q')).toBe(`is:pr${state === 'open' ? ' is:open' : ''} author:reviewer sort:created-desc`);
+});
+it('uses the open issue fallback and discards closed or merged rows from inconsistent upstream responses', async () => {
+  const ctx = context(async input => {
+    if (input.path === '/search/issues') return { status: 422, body: null };
+    if (input.path === `/repos/${target.repo}/issues`) {
+      expect(input.query.state).toBe('open');
+      return { status: 200, body: [listed(41, { state: 'closed', user: { login: 'reviewer' } }), listed(42, { user: { login: 'reviewer' } }), listed(43, { state: 'closed', merged_at: '2025-01-03T00:00:00Z', user: { login: 'reviewer' } })] };
+    }
+    if (input.path.endsWith('/reviews')) return { status: 200, body: [] };
+    return { status: 503, body: null };
+  });
+  const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'authored-recent', limit: 50, state: 'open' }, repos: [target.repo] }, ctx);
+  expect(result.items.map(item => item.number)).toEqual([42]);
+});
+it('caps check names independently from complete aggregate counts after following bounded pagination', async () => {
+  const checks = Array.from({ length: 150 }, (_, index) => ({ ...check(index + 1), name: `Check ${index + 1}`, html_url: null }));
+  const ctx = context(async input => {
+    if (input.path.endsWith('/check-runs')) {
+      const page = Number(input.query.page); return { status: 200, body: { total_count: checks.length, check_runs: checks.slice((page - 1) * 100, page * 100) },
+        ...(page === 1 ? { link: `<https://api.github.com${input.path}?per_page=100&page=2>; rel="next"` } : {}) };
+    }
+    if (input.path.endsWith('/status')) return { status: 200, body: { sha: target.headSha, total_count: 0, statuses: [] } };
+    if (input.path.endsWith('/reviews') || input.path.endsWith('/comments')) return { status: 200, body: [] };
+    return { status: 200, body: metadata({ comments: 0 }) };
+  });
+  const result = await githubPullRequestProvider.detail(query, ctx);
+  expect(result.checks).toEqual({ quality: 'complete', passed: 150, failed: 0, pending: 0 });
+  expect(result.evidence?.checksPassed).toMatchObject({ quality: 'partial', truncated: true });
+  expect(result.evidence?.checksPassed.items).toHaveLength(100);
 });

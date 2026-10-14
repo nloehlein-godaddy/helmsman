@@ -2,7 +2,7 @@ import { parseTaskRepo } from './tasks';
 
 export type PullRequestReadKindV1 = 'repo-open' | 'authored-recent' | 'review-requested';
 export type PullRequestReadQualityV1 = 'complete' | 'partial' | 'degraded';
-export interface PullRequestReadQueryV1 { readonly version: 1; readonly repo: string | null; readonly kind: PullRequestReadKindV1; readonly limit: number; }
+export interface PullRequestReadQueryV1 { readonly version: 1; readonly repo: string | null; readonly kind: PullRequestReadKindV1; readonly limit: number; readonly state?: 'open' | 'all'; }
 export interface PullRequestReadItemV1 {
   readonly repo: string; readonly number: number; readonly title: string; readonly url: string | null;
   readonly status: 'open' | 'closed' | 'merged'; readonly createdAt: string; readonly mergedAt: string | null;
@@ -48,7 +48,8 @@ export function parsePullRequestReadQueryV1(input: unknown): PullRequestReadQuer
   const value = record(input);
   if (value.version !== 1 || !['repo-open', 'authored-recent', 'review-requested'].includes(value.kind as string)) invalid();
   const limit = count(value.limit, 1); if (limit > PULL_REQUEST_READ_LIMITS.page) invalid();
-  return Object.freeze({ version: 1, repo: value.repo === null ? null : parseTaskRepo(value.repo), kind: value.kind as PullRequestReadKindV1, limit });
+  if (Object.hasOwn(value, 'state') && (value.kind !== 'authored-recent' || !['open', 'all'].includes(value.state as string))) invalid();
+  return Object.freeze({ version: 1, repo: value.repo === null ? null : parseTaskRepo(value.repo), kind: value.kind as PullRequestReadKindV1, limit, ...(Object.hasOwn(value, 'state') ? { state: value.state as 'open' | 'all' } : {}) });
 }
 export function parsePullRequestReadItemV1(input: unknown): PullRequestReadItemV1 {
   const value = record(input);
@@ -74,7 +75,7 @@ export function parsePullRequestReadPageV1(input: unknown, query: PullRequestRea
     const descriptor = Object.getOwnPropertyDescriptor(value.items, index); if (!descriptor || !('value' in descriptor)) invalid();
     const item = parsePullRequestReadItemV1(descriptor.value); const key = `${item.repo.toLowerCase()}#${item.number}`;
     if (!repos.includes(item.repo) || query.repo !== null && item.repo !== query.repo || identities.has(key)
-      || query.kind !== 'authored-recent' && item.status !== 'open') invalid();
+      || (query.kind !== 'authored-recent' || query.state === 'open') && item.status !== 'open') invalid();
     identities.add(key); items.push(item);
   }
   return Object.freeze({ version: 1, repo: query.repo, kind: query.kind, items: Object.freeze(items), quality: value.quality as PullRequestReadQualityV1, truncated: value.truncated, browseUrl: url(value.browseUrl) });

@@ -4,6 +4,7 @@ import { PrStorage, subscribeStorage, type Draft } from './storage.js';
 import { esc, target, sameTarget, parseLookup, renderDetail, renderList, renderRuns, prIcon, type Identity } from './render.js';
 import { validDetail, validDiff, validList, validRun, validPending } from './validation.js';
 import { styles } from './styles.js';
+import { attachEvidenceInteractions } from './evidence-interactions.js';
 function selection(state: PluginPanelState): { target: Identity; mode: 'review' | 'rerun' | null; pane: string | null } | null {
   const value = state.routeState?.version === 1 ? state.routeState.value : null;
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -18,6 +19,7 @@ function selection(state: PluginPanelState): { target: Identity; mode: 'review' 
 class PrPanel implements PluginPanelInstance {
   private state: PluginPanelState;
   private readonly whiteboard: WhiteboardCompanion;
+  private readonly stopEvidence: () => void;
   private disposed = false;
   private generation = 0;
   private controller: AbortController | null = null;
@@ -30,6 +32,7 @@ class PrPanel implements PluginPanelInstance {
   private diff: PullRequestInspectDiffV1 | null = null;
   private lists: { requested: PullRequestReadPageV1 | null; authored: PullRequestReadPageV1 | null } = { requested: null, authored: null };
   private listErrors = { requested: '', authored: '' };
+  private authoredState: 'open' | 'all' = 'open';
   private runs: readonly RunReadSummaryV1[] = [];
   private moreRuns = false;
   private runsError = '';
@@ -65,13 +68,14 @@ class PrPanel implements PluginPanelInstance {
     this.readDraft();
     this.unsubscribe = subscribeStorage(source => { if (source !== this.storage && !this.disposed && !this.container.contains(document.activeElement)) { this.readDraft(); this.draw(); } });
     this.container.addEventListener('click', this.click); this.container.addEventListener('input', this.input); this.container.addEventListener('change', this.input); this.container.addEventListener('keydown', this.keydown);
+    this.stopEvidence = attachEvidenceInteractions(this.container, this.context.signal);
     this.context.signal.addEventListener('abort', this.dispose, { once: true }); this.state.activity.signal.addEventListener('abort', this.cancel, { once: true }); this.context.onDispose(this.dispose);
     if (context.signal.aborted) this.dispose(); else { this.draw(); void this.refresh(); }
   }
   private active(generation = this.generation) { return !this.disposed && !this.context.signal.aborted && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
   private cancel = () => { ++this.generation; this.controller?.abort(); this.controller = null; this.slackConnected = false; this.loading = false; for (const stop of this.watches) stop(); this.watches = []; this.watchKey = ''; };
   dispose = () => {
-    if (this.disposed) return; this.disposed = true; this.cancel(); this.unsubscribe(); this.whiteboard.dispose();
+    if (this.disposed) return; this.disposed = true; this.cancel(); this.unsubscribe(); this.whiteboard.dispose(); this.stopEvidence();
     this.context.signal.removeEventListener('abort', this.dispose); this.state.activity.signal.removeEventListener('abort', this.cancel);
     this.container.removeEventListener('click', this.click); this.container.removeEventListener('input', this.input); this.container.removeEventListener('change', this.input); this.container.removeEventListener('keydown', this.keydown);
   };
@@ -125,6 +129,10 @@ class PrPanel implements PluginPanelInstance {
     else if (button.matches('[data-save-draft]')) this.saveDraft();
     else if (button.matches('[data-refresh]')) void this.refresh();
     else if (button.matches('[data-close-inspection]')) void this.closeInspection();
+    else if (button.dataset.authoredState === 'open' || button.dataset.authoredState === 'all') {
+      if (this.authoredState === button.dataset.authoredState) return;
+      this.authoredState = button.dataset.authoredState; this.lists.authored = null; this.listErrors.authored = ''; void this.refresh();
+    }
     else if (button.dataset.selectRepo) { const next = target({ repo: button.dataset.selectRepo, number: Number(button.dataset.selectNumber) }); if (next) void this.select(next); }
     else if (button.dataset.run && button.dataset.repo) this.context.selectPresentation?.({ version: 1, kind: 'run', repo: button.dataset.repo, runId: button.dataset.run });
     else if (button.dataset.review) void this.review(button.dataset.review as 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT');
@@ -206,7 +214,7 @@ class PrPanel implements PluginPanelInstance {
     this.cancel(); const generation = this.generation; const controller = new AbortController(); this.controller = controller; this.loading = true; this.error = ''; this.journalsReady = false; this.draw();
     const current = this.selected; const repo = this.state.activity.repo;
     const list = async (kind: 'review-requested' | 'authored-recent', name: 'requested' | 'authored') => {
-      try { const result = await this.context.services.pullRequests!.list({ version: 1, repo, kind, limit: 50 }, controller.signal);
+      try { const result = await this.context.services.pullRequests!.list({ version: 1, repo, kind, limit: 50, ...(kind === 'authored-recent' ? { state: this.authoredState } : {}) }, controller.signal);
         if (!this.active(generation)) return;
         if (result?.status !== 'available' || !validList(result.value, repo)) throw new Error(`Pull request list unavailable: ${result?.status === 'unavailable' ? result.reason : 'invalid response'}`);
         this.lists[name] = result.value; this.listErrors[name] = '';
@@ -245,9 +253,9 @@ class PrPanel implements PluginPanelInstance {
     if (this.active(generation)) { this.loading = false; this.readDraft(); this.draw(); this.watch(); }
   };
   private watch() {
-    const key = JSON.stringify([this.state.activity.epoch, this.state.activity.repo]); if (!this.active() || this.watchKey === key) return; this.watchKey = key;
+    const key = JSON.stringify([this.state.activity.epoch, this.state.activity.repo, this.authoredState]); if (!this.active() || this.watchKey === key) return; this.watchKey = key;
     const repo = this.state.activity.repo; const generation = this.generation;
-    for (const [kind, name] of [['review-requested', 'requested'], ['authored-recent', 'authored']] as const) this.watches.push(this.context.services.pullRequests!.watchList({ version: 1, repo, kind, limit: 50 }, result => {
+    for (const [kind, name] of [['review-requested', 'requested'], ['authored-recent', 'authored']] as const) this.watches.push(this.context.services.pullRequests!.watchList({ version: 1, repo, kind, limit: 50, ...(kind === 'authored-recent' ? { state: this.authoredState } : {}) }, result => {
       if (!this.active(generation)) return;
       if (result?.status === 'available' && validList(result.value, repo)) { this.lists[name] = result.value; this.listErrors[name] = ''; } else this.listErrors[name] = this.lists[name]?.items.length ? 'Could not refresh pull requests. Showing previous results.' : 'Could not load pull requests.';
       this.draw();
@@ -335,6 +343,7 @@ class PrPanel implements PluginPanelInstance {
     const disclosures = new Map([...this.container.querySelectorAll<HTMLDetailsElement>('details')].flatMap(detail => { const key = disclosureKey(detail); return key === null ? [] : [[key, detail.open] as const]; }));
     const selectedFocus = focused?.dataset.selectRepo ? [focused.dataset.selectRepo, focused.dataset.selectNumber] : null;
     const runFocus = focused?.dataset.run;
+    const authoredFocus = focused?.dataset.authoredState;
     const disclosureFocus = focused?.matches('summary') && focused.parentElement instanceof HTMLDetailsElement ? disclosureKey(focused.parentElement) : null;
     const composed = this.container.closest('[data-composition-page]') !== null;
     const refreshLabel = composed ? 'Refresh page' : 'Refresh panel';
@@ -342,7 +351,7 @@ class PrPanel implements PluginPanelInstance {
     this.container.innerHTML = `<section class="plugin-public-pr" aria-busy="${this.loading}"><style>${styles}</style>${composed ? '' : '<div class="pr-panel-tools"><button data-refresh>Refresh panel</button></div>'}
       ${this.unsupported ? '<p role="alert">Saved panel state uses an unsupported format. Its original data is kept.</p>' : ''}<p role="alert" data-storage-error>${esc(this.storageError)}</p><button data-save-draft${this.storageError ? '' : ' hidden'}>Save current draft</button>${this.error ? `<p role="alert" class="pr-review-error">${prIcon('bad')}${esc(this.error)}</p>` : ''}${this.result ? `<p role="status" class="pr-command-result">${esc(this.result)}</p>` : ''}
       <section class="pr-lookup-panel panel" data-pr-pane="lookup"><div class="pr-lookup-heading"><h3>${prIcon('inspect')}${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3>${this.selected || this.closePending ? '<button data-close-inspection>Close inspection</button>' : ''}</div>${this.state.activity.repo !== headerRepo ? `<p class="pr-scope-override">Inspection scope: ${esc(this.state.activity.repo ?? (this.state.pirateMode ? 'All galleons' : 'All repositories'))}</p>` : ''}<div class="pr-lookup-form"><label class="interface-field">Pull request number, URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup placeholder="PR number, #number, URL or owner/name#number" value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>${prIcon('inspect')}Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, headerRepo, this.state.pirateMode, this.slackConnected, this.diff) : this.selected ? `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : `Pull request unavailable. ${refreshLabel} to retry.`}</p>` : ''}</div></section>
-      <div class="pr-inbox">${renderList('review-requested', this.lists.requested, this.listErrors.requested, this.state.pirateMode, refreshLabel)}${renderList('authored-recent', this.lists.authored, this.listErrors.authored, this.state.pirateMode, refreshLabel)}</div>${renderRuns(this.runs, this.moreRuns, this.runsError, this.state.pirateMode)}
+      <div class="pr-inbox">${renderList('review-requested', this.lists.requested, this.listErrors.requested, this.state.pirateMode, refreshLabel)}${renderList('authored-recent', this.lists.authored, this.listErrors.authored, this.state.pirateMode, refreshLabel, this.authoredState)}</div>${renderRuns(this.runs, this.moreRuns, this.runsError, this.state.pirateMode)}
       <section aria-label="Retained pull request commands">${this.pendingMarkup()}</section><section aria-label="Saved command results">${this.savedResults()}</section></section>`;
     this.whiteboard.update(this.state, this.detail ? { kind: 'pull-request', ...this.detail.target } : null);
     (this.container.querySelector('.pr-agent-extras') ?? this.container.querySelector('.pr-lookup-result'))?.append(this.whiteboard.element);
@@ -353,6 +362,7 @@ class PrPanel implements PluginPanelInstance {
     if (next) { next.focus({ preventScroll: true }); if (selection && (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement)) next.setSelectionRange(...selection); }
     if (selectedFocus) [...this.container.querySelectorAll<HTMLElement>('[data-select-repo]')].find(control => control.dataset.selectRepo === selectedFocus[0] && control.dataset.selectNumber === selectedFocus[1])?.focus({ preventScroll: true });
     if (runFocus) [...this.container.querySelectorAll<HTMLElement>('[data-run]')].find(control => control.dataset.run === runFocus)?.focus({ preventScroll: true });
+    if (authoredFocus) [...this.container.querySelectorAll<HTMLElement>('[data-authored-state]')].find(control => control.dataset.authoredState === authoredFocus)?.focus({ preventScroll: true });
     if (disclosureFocus) [...this.container.querySelectorAll<HTMLDetailsElement>('details')].find(detail => disclosureKey(detail) === disclosureFocus)?.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
     if (action) [...this.container.querySelectorAll<HTMLElement>(`[${action[0]}]`)].find(control => control.getAttribute(action[0]!) === action[1])?.focus({ preventScroll: true });
     if (this.focusMode && this.active()) { const control = this.container.querySelector<HTMLElement>(this.focusMode === 'rerun' ? '.pr-rerun-feedback' : '.pr-review-agent'); if (control && !(control instanceof HTMLButtonElement && control.disabled)) { this.focusMode = null; this.reveal(control); control.focus({ preventScroll: true }); control.scrollIntoView?.({ block: 'nearest' }); } }

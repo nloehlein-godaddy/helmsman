@@ -336,3 +336,36 @@ it('reveals a collapsed comparison for explicit diff pane navigation', async () 
   const f = await fixture(); await ready(f); f.container.querySelector<HTMLDetailsElement>('.pr-diff-panel')!.open = false;
   await f.instance.update({ ...f.state(), pane: 'diff' }); expect(f.container.querySelector<HTMLDetailsElement>('.pr-diff-panel')?.open).toBe(true);
 });
+
+it('defaults recent PRs to open and retains All, scope and focus through refresh',async()=>{
+  const f=await fixture({},context=>{
+    vi.mocked(context.services.pullRequests!.list).mockImplementation(async query=>available({version:1,repo:query.repo,kind:query.kind,quality:'complete',truncated:false,browseUrl:null,items:query.kind==='authored-recent'?[{repo:'org/b',number:41,title:query.state==='open'?'Still open':'Closed work',url:null,status:query.state==='open'?'open':'closed',createdAt:detail.observedAt,mergedAt:null,draft:false,ticketId:null,reviewDecision:null,comments:null,reviews:null}]:[]}));
+  }); await ready(f);
+  const reads=vi.mocked(f.context.services.pullRequests!.list);
+  expect(reads).toHaveBeenCalledWith(expect.objectContaining({kind:'authored-recent',state:'open',repo:'org/b'}),expect.any(AbortSignal));
+  expect(f.container.textContent).toContain('Still open'); expect(f.container.textContent).not.toContain('Closed work');
+  f.container.querySelector<HTMLButtonElement>('[data-authored-state="all"]')!.focus(); click(f.container,'[data-authored-state="all"]');
+  await vi.waitFor(()=>expect(f.container.textContent).toContain('Closed work'));
+  expect(document.activeElement).toBe(f.container.querySelector('[data-authored-state="all"]'));
+  expect(f.container.querySelector('[data-authored-state="all"]')?.getAttribute('aria-pressed')).toBe('true');
+  await f.instance.refresh?.();
+  expect(reads.mock.calls.at(-1)?.[0]).toMatchObject({kind:'authored-recent',state:'all'});
+  expect(f.context.services.pullRequests!.watchList).toHaveBeenCalledWith(expect.objectContaining({kind:'authored-recent',state:'all'}),expect.any(Function),expect.any(AbortSignal));
+  click(f.container,'[data-authored-state="open"]'); await vi.waitFor(()=>expect(f.container.textContent).toContain('Still open'));
+  expect(f.state().headerRepo).toBe('org/a'); expect(f.context.setScope).not.toHaveBeenCalled(); expect(f.context.navigate).not.toHaveBeenCalled();
+});
+
+it('ignores late authored results from a previous status selection',async()=>{
+  let finish!: (value: Awaited<ReturnType<NonNullable<PluginPanelContext['services']['pullRequests']>['list']>>) => void;
+  const f=await fixture({},context=>{
+    vi.mocked(context.services.pullRequests!.list).mockImplementation(async query=>{
+      if(query.kind==='authored-recent'&&query.state==='open') return new Promise(resolve=>{finish=resolve;});
+      return available({version:1,repo:query.repo,kind:query.kind,quality:'complete',truncated:false,browseUrl:null,items:[]});
+    });
+  });
+  await vi.waitFor(()=>expect(finish).toBeTypeOf('function'));
+  click(f.container,'[data-authored-state="all"]'); await ready(f);
+  finish(available({version:1,repo:'org/b',kind:'authored-recent',quality:'complete',truncated:false,browseUrl:null,items:[{repo:'org/b',number:41,title:'Stale open result',url:null,status:'open',createdAt:detail.observedAt,mergedAt:null,draft:false,ticketId:null,reviewDecision:null,comments:null,reviews:null}]}));
+  await Promise.resolve(); await Promise.resolve();
+  expect(f.container.textContent).not.toContain('Stale open result'); expect(f.container.querySelector('[data-authored-state="all"]')?.getAttribute('aria-pressed')).toBe('true');
+});

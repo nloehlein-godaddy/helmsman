@@ -53,7 +53,7 @@ export function createPullRequestReadService(options: {
     if (!repos.length) return parsePullRequestReadPageV1({ version: 1, repo: query.repo, kind: query.kind, items: [], quality: 'complete', truncated: false, browseUrl: null }, query, repos);
     const identity = options.cacheIdentity?.() ?? null;
     const currentGeneration = generation;
-    const key = JSON.stringify([identity, currentGeneration, query.repo, query.kind, scopeKey]);
+    const key = JSON.stringify([identity, currentGeneration, query.repo, query.kind, scopeKey, query.state ?? 'all']);
     for (const [cachedKey, entry] of completed) if (entry.expiresAt <= now()) removeCached(cachedKey);
     const cached = identity === null ? null : completed.get(key);
     let pending = cached ? Promise.resolve(cached.batch) : reads.get(key);

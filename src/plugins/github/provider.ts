@@ -1,4 +1,5 @@
 import {
+  PULL_REQUEST_INSPECT_EVIDENCE_LIMITS, type PullRequestInspectEvidenceV1, type PullRequestInspectEvidenceListV1, type PullRequestInspectDiscussionEvidenceV1, type PullRequestInspectCheckEvidenceV1, type PullRequestInspectReviewerEvidenceV1,
   PULL_REQUEST_INSPECT_LIMITS, parsePullRequestInspectDetailQueryV1, parsePullRequestInspectDetailV1, parsePullRequestInspectDiffQueryV1, parsePullRequestInspectDiffV1,
   parsePullRequestInspectTargetV1, parsePullRequestReadItemV1, parsePullRequestReadQueryV1, type PullRequestInspectDetailV1, type PullRequestInspectFileV1,
   type PullRequestInspectQualityV1, type PullRequestInspectReviewV1, type PullRequestInspectTargetV1, type PullRequestProviderContextV1, type PullRequestProviderV1,
@@ -185,7 +186,7 @@ async function metadata(query: { repo: string; number: number }, context: PullRe
     comments: raw.comments === undefined || raw.comments === null ? null : integer(raw.comments) ? raw.comments : (() => { throw new Error('Invalid GitHub comment count'); })() };
 }
 
-function feedbackUrl(value: unknown, query: PullRequestInspectDetailQueryV1): string {
+function feedbackUrl(value: unknown, query: { repo: string; number: number }): string {
   if (!text(value)) throw new Error('Invalid GitHub feedback URL');
   const url = new URL(value); const expected = `/${query.repo}/pull/${query.number}`.toLowerCase();
   if (url.origin !== 'https://github.com' || url.username || url.password || url.search
@@ -225,21 +226,82 @@ function feedbackSources(items: readonly unknown[], kind: 'review' | 'comment' |
   });
 }
 
-async function checks(target: PullRequestInspectTargetV1, context: PullRequestProviderContextV1): Promise<PullRequestInspectDetailV1['checks']> {
+function evidenceList<T extends { id: string }>(values: readonly unknown[], listQuality: PullRequestInspectQualityV1, parse: (value: unknown) => T): PullRequestInspectEvidenceListV1<T> {
+  if (listQuality === 'unavailable') return { quality: 'unavailable', truncated: false, items: [] };
+  const items: T[] = []; const ids = new Set<string>(); let malformed = false;
+  for (const value of values.slice(0, PULL_REQUEST_INSPECT_EVIDENCE_LIMITS.items)) {
+    try { const item = parse(value); if (ids.has(item.id)) throw new Error('Duplicate evidence'); ids.add(item.id); items.push(item); }
+    catch { malformed = true; }
+  }
+  const truncated = values.length > PULL_REQUEST_INSPECT_EVIDENCE_LIMITS.items || listQuality === 'partial';
+  return { quality: malformed || truncated ? 'partial' : 'complete', truncated, items };
+}
+function evidenceUrl(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (!text(value)) throw new Error('Invalid evidence URL');
+  const url = new URL(value); if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Invalid evidence URL');
+  return value;
+}
+function discussionEvidence(value: unknown, kind: 'comment' | 'review', target: PullRequestInspectTargetV1): PullRequestInspectDiscussionEvidenceV1 {
+  const item = object(value); const login = item?.user === null ? null : object(item?.user)?.login;
+  const createdAt = kind === 'review' ? item?.submitted_at : item?.created_at;
+  if (!positive(item?.id) || login !== null && !text(login, 128) || !text(createdAt, 64) || !Number.isFinite(Date.parse(createdAt))
+    || typeof item?.body !== 'string' && item?.body !== null) throw new Error('Invalid discussion evidence');
+  const sourceBody = item.body ?? ''; let body = ''; let bytes = 0;
+  for (const char of sourceBody) { const point = char.codePointAt(0) ?? 0; const size = point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4; if (bytes + size > PULL_REQUEST_INSPECT_EVIDENCE_LIMITS.bodyBytes) break; body += char; bytes += size; }
+  if (body.includes('\0')) throw new Error('Invalid discussion body');
+  return { id: `${kind}:${item.id}`, author: login, body, bodyTruncated: body.length !== sourceBody.length,
+    url: item.html_url === undefined || item.html_url === null ? null : feedbackUrl(item.html_url, target), createdAt };
+}
+function checkEvidence(value: unknown, kind: 'check' | 'status'): PullRequestInspectCheckEvidenceV1 {
+  const item = object(value); const name = kind === 'check' ? item?.name : item?.context;
+  if (!positive(item?.id) || !text(name)) throw new Error('Invalid check evidence');
+  return { id: `${kind}:${item.id}`, name, url: evidenceUrl(kind === 'check' ? item.html_url : item.target_url) };
+}
+function reviewerEvidence(review: Review): PullRequestInspectReviewerEvidenceV1 { return { id: `user:${review.login}`, label: review.login, url: `https://github.com/${encodeURIComponent(review.login)}` }; }
+function requestedEvidence(raw: Record<string, unknown>): PullRequestInspectEvidenceListV1<PullRequestInspectReviewerEvidenceV1> {
+  if (requestedReviewCount(raw) === null) return evidenceList([], 'unavailable', () => { throw new Error('Invalid reviewer'); });
+  const users = (raw.requested_reviewers as unknown[]).map(value => ({ kind: 'user', value }));
+  const teams = (raw.requested_teams as unknown[]).map(value => ({ kind: 'team', value }));
+  const seen = new Set<string>();
+  const items = [...users, ...teams].flatMap(({ kind, value }) => {
+    const item = object(value); const label = String(kind === 'user' ? item?.login : item?.slug).toLowerCase(); const id = `${kind}:${label}`;
+    if (seen.has(id)) return []; seen.add(id);
+    return [{ id, label: kind === 'user' ? label : `team:${label}`, url: kind === 'user' ? `https://github.com/${encodeURIComponent(label)}` : null }];
+  });
+  return evidenceList(items, 'complete', value => value as PullRequestInspectReviewerEvidenceV1);
+}
+function boundEvidence(evidence: PullRequestInspectEvidenceV1): PullRequestInspectEvidenceV1 {
+  let bytes = 4096;
+  return Object.fromEntries(Object.entries(evidence).map(([key, list]) => {
+    const items = [];
+    for (const item of list.items) { const size = new TextEncoder().encode(JSON.stringify(item)).byteLength + 1; if (bytes + size > PULL_REQUEST_INSPECT_EVIDENCE_LIMITS.responseBytes) break; bytes += size; items.push(item); }
+    return [key, items.length === list.items.length ? list : { ...list, quality: 'partial', truncated: true, items }];
+  })) as unknown as PullRequestInspectEvidenceV1;
+}
+async function discussionComments(target: PullRequestInspectTargetV1, expectedCount: number | null, context: PullRequestProviderContextV1): Promise<PullRequestInspectEvidenceV1['comments']> {
+  const result = await recentCollection(context, `/repos/${target.repo}/issues/${target.number}/comments`, {}, PULL_REQUEST_INSPECT_EVIDENCE_LIMITS.items, { pages: 1 });
+  const list = evidenceList(result.items, result.quality === 'degraded' ? 'unavailable' : result.quality, value => discussionEvidence(value, 'comment', target));
+  return list.quality === 'complete' && expectedCount !== null && list.items.length !== expectedCount ? { ...list, quality: 'partial' } : list;
+}
+
+async function checks(target: PullRequestInspectTargetV1, context: PullRequestProviderContextV1): Promise<{ counts: PullRequestInspectDetailV1['checks']; evidence: Pick<PullRequestInspectEvidenceV1, 'checksPassed' | 'checksFailed' | 'checksPending'> }> {
+  const unknown = (quality: PullRequestInspectQualityV1) => ({ counts: unknownChecks(quality), evidence: { checksPassed: evidenceList([], quality, value => value as PullRequestInspectCheckEvidenceV1), checksFailed: evidenceList([], quality, value => value as PullRequestInspectCheckEvidenceV1), checksPending: evidenceList([], quality, value => value as PullRequestInspectCheckEvidenceV1) } });
   try {
     const [runs, statuses] = await Promise.all([
       collection(context, `/repos/${target.repo}/commits/${target.headSha}/check-runs`, {}, { key: 'check_runs' }),
       collection(context, `/repos/${target.repo}/commits/${target.headSha}/status`, {}, { key: 'statuses', expectedSha: target.headSha }),
     ]);
-    if (runs.quality !== 'complete' || statuses.quality !== 'complete') return unknownChecks('partial');
+    if (runs.quality !== 'complete' || statuses.quality !== 'complete') return unknown('partial');
+    const evidence: { passed: unknown[]; failed: unknown[]; pending: unknown[] } = { passed: [], failed: [], pending: [] };
     let passed = 0; let failed = 0; let pending = 0; const ids = new Set<number>();
     for (const item of runs.items) {
       const run = object(item); const id = run?.id;
       if (!run || !positive(id) || ids.has(id) || run.head_sha !== target.headSha || !['queued', 'in_progress', 'completed', 'waiting', 'pending', 'requested'].includes(String(run.status))) throw new Error('Invalid GitHub check run');
       ids.add(id);
-      if (run.status !== 'completed' || run.conclusion === null) pending++;
-      else if (['success', 'neutral', 'skipped'].includes(String(run.conclusion))) passed++;
-      else if (['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale'].includes(String(run.conclusion))) failed++;
+      if (run.status !== 'completed' || run.conclusion === null) { pending++; evidence.pending.push({ value: run, kind: 'check' }); }
+      else if (['success', 'neutral', 'skipped'].includes(String(run.conclusion))) { passed++; evidence.passed.push({ value: run, kind: 'check' }); }
+      else if (['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale'].includes(String(run.conclusion))) { failed++; evidence.failed.push({ value: run, kind: 'check' }); }
       else throw new Error('Invalid GitHub check conclusion');
     }
     const contexts = new Map<string, { id: number; state: string; updatedAt: string }>();
@@ -249,14 +311,16 @@ async function checks(target: PullRequestInspectTargetV1, context: PullRequestPr
       const prior = contexts.get(name);
       if (!prior || Date.parse(updatedAt) > Date.parse(prior.updatedAt) || updatedAt === prior.updatedAt && id > prior.id) contexts.set(name, { id, state, updatedAt });
     }
-    if (contexts.size !== statuses.items.length) return unknownChecks('partial');
+    if (contexts.size !== statuses.items.length) return unknown('partial');
     for (const status of contexts.values()) {
-      if (status.state === 'success') passed++;
-      else if (status.state === 'pending') pending++;
-      else failed++;
+      const value = statuses.items.find(item => object(item)?.id === status.id);
+      if (status.state === 'success') { passed++; evidence.passed.push({ value, kind: 'status' }); }
+      else if (status.state === 'pending') { pending++; evidence.pending.push({ value, kind: 'status' }); }
+      else { failed++; evidence.failed.push({ value, kind: 'status' }); }
     }
-    return { quality: 'complete', passed, failed, pending };
-  } catch { return unknownChecks('unavailable'); }
+    const parse = (value: unknown) => { const item = object(value); return checkEvidence(item?.value, item?.kind === 'check' ? 'check' : 'status'); };
+    return { counts: { quality: 'complete', passed, failed, pending }, evidence: { checksPassed: evidenceList(evidence.passed, 'complete', parse), checksFailed: evidenceList(evidence.failed, 'complete', parse), checksPending: evidenceList(evidence.pending, 'complete', parse) } };
+  } catch { context.signal.throwIfAborted(); return unknown('unavailable'); }
 }
 
 type Review = { id: number; login: string; state: PullRequestInspectReviewV1; at: string; commit: string };
@@ -312,19 +376,26 @@ function requestedBy(value: unknown, author: string): boolean | null {
   return matched;
 }
 
-async function reviews(target: PullRequestInspectTargetV1, raw: Record<string, unknown>, context: PullRequestProviderContextV1): Promise<PullRequestInspectDetailV1['reviews']> {
+async function reviews(target: PullRequestInspectTargetV1, raw: Record<string, unknown>, context: PullRequestProviderContextV1): Promise<{ counts: PullRequestInspectDetailV1['reviews']; evidence: Pick<PullRequestInspectEvidenceV1, 'approved' | 'changesRequested' | 'requested'> }> {
+  const requestedList = requestedEvidence(raw);
+  const unknown = (quality: PullRequestInspectQualityV1) => ({ counts: unknownReviews(quality), evidence: { approved: evidenceList([], quality, value => value as PullRequestInspectReviewerEvidenceV1), changesRequested: evidenceList([], quality, value => value as PullRequestInspectDiscussionEvidenceV1), requested: requestedList } });
   try {
     const result = await collection(context, `/repos/${target.repo}/pulls/${target.number}/reviews`, {});
-    if (result.quality !== 'complete') return unknownReviews(result.quality);
-    const requested = requestedReviewCount(raw); if (requested === null) throw new Error('Invalid requested reviewers');
+    if (result.quality !== 'complete') return unknown(result.quality);
+    const requested = requestedReviewCount(raw);
     const submitted = submittedReviews(result.items); const values = effectiveReviews(submitted); let latest: Review | undefined; const author = configuredAuthor(context).trim().toLowerCase();
     for (const review of submitted) {
       if (review.login === author) latest = review;
     }
-    return { quality: 'complete', approved: values.filter(value => value.state === 'APPROVED').length, changesRequested: values.filter(value => value.state === 'CHANGES_REQUESTED').length,
+    const approved = values.filter(value => value.state === 'APPROVED');
+    const changesRequested = values.filter(value => value.state === 'CHANGES_REQUESTED');
+    const evidence = { approved: evidenceList(approved, 'complete', value => reviewerEvidence(value as Review)), requested: requestedList,
+      changesRequested: evidenceList(changesRequested.map(review => result.items.find(value => object(value)?.id === review.id)), 'complete', value => discussionEvidence(value, 'review', target)) };
+    if (requested === null) return { evidence, counts: unknownReviews('unavailable') };
+    return { evidence, counts: { quality: 'complete', approved: values.filter(value => value.state === 'APPROVED').length, changesRequested: values.filter(value => value.state === 'CHANGES_REQUESTED').length,
       commented: values.filter(value => value.state === 'COMMENTED').length, requested, viewerReview: values.find(value => value.login === author)?.state ?? null,
-      viewerReviewedAt: latest?.at ?? null, viewerReviewedCommitId: latest?.commit ?? null };
-  } catch { return unknownReviews('unavailable'); }
+      viewerReviewedAt: latest?.at ?? null, viewerReviewedCommitId: latest?.commit ?? null } };
+  } catch { context.signal.throwIfAborted(); return unknown('unavailable'); }
 }
 
 function readItem(value: unknown, fallbackRepo: string, reviewDecision: 'REVIEW_REQUIRED' | null = null) {
@@ -473,12 +544,12 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
           while (true) {
             context.signal.throwIfAborted();
             const scope = scopes[next++]; if (!scope) return;
-            const result = await recentCollection(context, '/search/issues', { q: `is:pr author:${author} repo:${scope.repo}`, sort: 'created', order: 'desc' }, query.limit, { key: 'items' });
+            const result = await recentCollection(context, '/search/issues', { q: `is:pr${query.state === 'open' ? ' is:open' : ''} author:${author} repo:${scope.repo}`, sort: 'created', order: 'desc' }, query.limit, { key: 'items' });
             if (result.items.length || result.quality === 'complete') {
               sources.push({ repo: '', result, reviewRequested: false });
               continue;
             }
-            const recent = await recentCollection(context, `/repos/${scope.repo}/issues`, { creator: author, state: 'all', sort: 'created', direction: 'desc' }, query.limit,
+            const recent = await recentCollection(context, `/repos/${scope.repo}/issues`, { creator: author, state: query.state === 'open' ? 'open' : 'all', sort: 'created', direction: 'desc' }, query.limit,
               { accept: value => {
                 const raw = object(value); const login = object(raw?.user)?.login;
                 return object(raw?.pull_request) !== null && typeof login === 'string' && login.toLowerCase() === author.toLowerCase();
@@ -505,7 +576,7 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
             if (!requested) continue;
           }
           const parsed = readItem(candidate, source.repo, source.reviewRequested ? 'REVIEW_REQUIRED' : null);
-          if (repos.includes(parsed.repo) && (query.repo === null || parsed.repo === query.repo) && (query.kind === 'authored-recent' || parsed.status === 'open')) items.push({ item: parsed, requested: requestedReviewCount(object(candidate)) });
+          if (repos.includes(parsed.repo) && (query.repo === null || parsed.repo === query.repo) && (query.kind === 'authored-recent' && query.state !== 'open' || parsed.status === 'open')) items.push({ item: parsed, requested: requestedReviewCount(object(candidate)) });
         } catch { degraded = true; }
       }
     }
@@ -513,17 +584,18 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
     const truncated = partial || unique.length > query.limit || unique.length > 300;
     const visible = unique.slice(0, Math.min(300, query.limit));
     const listed = await withListReviews(visible, context);
-    const browseUrl = query.repo && query.kind === 'authored-recent' ? `https://github.com/${query.repo}/pulls?q=${encodeURIComponent(`is:pr author:${author} sort:created-desc`)}`
+    const browseUrl = query.repo && query.kind === 'authored-recent' ? `https://github.com/${query.repo}/pulls?q=${encodeURIComponent(`is:pr${query.state === 'open' ? ' is:open' : ''} author:${author} sort:created-desc`)}`
       : query.kind === 'repo-open' && query.repo ? `https://github.com/${query.repo}/pulls` : null;
     return Object.freeze({ items: Object.freeze(listed), quality: degraded ? 'degraded' as const : truncated ? 'partial' as const : 'complete' as const, truncated, browseUrl });
   },
   async detail(input, context) {
     const query = parsePullRequestInspectDetailQueryV1(input); const first = await metadata(query, context);
-    const [checkResult, reviewResult] = await Promise.all([checks(first.target, context), reviews(first.target, first.raw, context)]);
+    const [checkResult, reviewResult, comments] = await Promise.all([checks(first.target, context), reviews(first.target, first.raw, context), discussionComments(first.target, first.comments, context)]);
     const last = await metadata(query, context); if (!same(first.target, last.target)) throw inspectionFailure('head-changed');
     const { raw: _raw, ...detail } = last;
-    return parsePullRequestInspectDetailV1({ ...detail, version: 1, observedAt: new Date().toISOString(), checks: checkResult,
-      reviews: first.updatedAt === last.updatedAt ? reviewResult : unknownReviews('partial') }, query);
+    return parsePullRequestInspectDetailV1({ ...detail, version: 1, observedAt: new Date().toISOString(), checks: checkResult.counts,
+      evidence: boundEvidence(first.updatedAt === last.updatedAt ? { ...checkResult.evidence, ...reviewResult.evidence, comments } : { ...checkResult.evidence, approved: { quality: 'partial', truncated: false, items: [] }, changesRequested: { quality: 'partial', truncated: false, items: [] }, requested: { quality: 'partial', truncated: false, items: [] }, comments: { quality: 'partial', truncated: false, items: [] } }),
+      reviews: first.updatedAt === last.updatedAt ? reviewResult.counts : unknownReviews('partial') }, query);
   },
   async diff(input, context) {
     const query = parsePullRequestInspectDiffQueryV1(input); const target = parsePullRequestInspectTargetV1(query.target); const first = await metadata(target, context);

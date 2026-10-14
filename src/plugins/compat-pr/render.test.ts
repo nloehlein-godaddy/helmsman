@@ -65,9 +65,9 @@ it('does not invent diff completeness when the diff has not loaded', () => {
 it('groups exact evidence counts and preserves semantic tones without treating zero as unavailable', () => {
   const node = mount(renderDetail(detail, draft, null, false));
   const checks = [...node.querySelectorAll('.pr-checks .pr-evidence-count')];
-  expect(checks.map(item => item.textContent)).toEqual(['2 passed', '0 failed', '0 pending']);
+  expect(checks.map(item => item.querySelector(':scope > details > summary')?.textContent ?? item.textContent)).toEqual(['2 passed', '0 failed', '0 pending']);
   expect(checks.map(item => item.getAttribute('data-tone'))).toEqual(['good', 'neutral', 'neutral']);
-  expect([...node.querySelectorAll('.pr-panel-status .pr-evidence-count')].map(item => item.textContent)).toEqual(['1 approved', '0 changes requested', '0 awaiting review', '3 discussion comments']);
+  expect([...node.querySelectorAll('.pr-panel-status .pr-evidence-count')].map(item => item.querySelector(':scope > details > summary')?.textContent ?? item.textContent)).toEqual(['1 approved', '0 changes requested', '0 awaiting review', '3 discussion comments']);
   expect(node.querySelector('.pr-evidence-quality')).toBeNull();
 });
 it('shows unavailable evidence as unknown independently of partial checks and unavailable reviews', () => {
@@ -192,4 +192,48 @@ it('uses legacy current review evidence only for requested changes and never inf
 it('uses the review row treatment for new comments alone', () => {
   const item = { ...feedbackPage.items[0]!, feedback: { changesRequested: false, newComments: true, latestCommitAt: detail.observedAt } };
   const node = mount(renderList('authored-recent', { ...feedbackPage, items: [item] }, '', false)); expect(node.querySelector('[data-feedback]')?.getAttribute('data-feedback')).toBe('comments'); expect(node.querySelector('.pr-feedback-badge')?.textContent).toBe('New comments');
+});
+
+const evidence = {
+  checksPassed: { quality: 'complete' as const, truncated: false, items: Array.from({ length: 8 }, (_, index) => ({ id: `check:${index}`, name: `Build ${index + 1}`, url: 'https://github.com/org/b/actions/runs/42' })) },
+  checksFailed: { quality: 'partial' as const, truncated: true, items: [{ id: 'check:failed', name: 'Integration', url: null }] },
+  checksPending: { quality: 'unavailable' as const, truncated: false, items: [] },
+  approved: { quality: 'complete' as const, truncated: false, items: [{ id: 'user:alice', label: 'alice', url: 'https://github.com/alice' }] },
+  requested: { quality: 'complete' as const, truncated: false, items: [{ id: 'user:bob', label: 'bob', url: 'https://github.com/bob' }, { id: 'team:web', label: 'team:web', url: null }] },
+  comments: { quality: 'complete' as const, truncated: false, items: [{ id: 'comment:1', author: 'writer', body: 'Please retain the original behavior.\nThanks.', bodyTruncated: false, url: 'https://github.com/org/b/pull/42#issuecomment-1', createdAt: detail.observedAt }] },
+  changesRequested: { quality: 'partial' as const, truncated: true, items: [{ id: 'review:1', author: 'reviewer', body: 'Fix the error path.', bodyTruncated: true, url: 'https://github.com/org/b/pull/42#pullrequestreview-1', createdAt: detail.observedAt }] },
+};
+it('shows only five initial check names and retains the remaining names in a keyed Show more disclosure', () => {
+  const node = mount(renderDetail({ ...detail, evidence }, draft, null, false));
+  const passed = node.querySelector('.pr-checks .pr-stat-preview')!;
+  expect(passed.querySelectorAll(':scope > .pr-stat-popup > ul > li')).toHaveLength(5);
+  const more = passed.querySelector<HTMLDetailsElement>('.pr-evidence-more'); expect(more?.open).toBe(false); expect(more?.querySelector('summary')?.textContent).toBe('Show 3 more'); expect(more?.querySelectorAll('li')).toHaveLength(3);
+  expect(more?.dataset.prDisclosure).toBe(`org/b#42@${detail.target.headSha}:checks-passed:more`);
+  expect(passed.querySelector('summary')?.getAttribute('aria-label')).toContain('show details');
+});
+it('retains approved and awaiting user/team names without converting names into application terminology', () => {
+  const node = mount(renderDetail({ ...detail, evidence }, draft, null, true));
+  const previews = node.querySelectorAll('.pr-panel-status .pr-stat-preview');
+  expect(previews[0]?.querySelectorAll('li')).toHaveLength(1); expect(previews[0]?.textContent).toContain('alice');
+  expect(previews[1]?.textContent).toContain('bob'); expect(previews[1]?.textContent).toContain('team:web'); expect(previews[1]?.querySelector('a')?.getAttribute('rel')).toBe('noopener noreferrer');
+});
+it('renders collapsed, immutable-PR-keyed discussions with literal body text, dates and truncation notes', () => {
+  const node = mount(renderDetail({ ...detail, evidence }, draft, null, false));
+  const sections = [...node.querySelectorAll<HTMLDetailsElement>('.pr-discussion')]; expect(sections.map(section => section.open)).toEqual([false, false]);
+  expect(sections.map(section => section.dataset.prDisclosure)).toEqual([`org/b#42@${detail.target.headSha}:changes-requested`, `org/b#42@${detail.target.headSha}:comments`]);
+  expect(sections[0]?.textContent).toContain('Fix the error path.'); expect(sections[0]?.textContent).toContain('Text shortened.'); expect(sections[0]?.textContent).toContain('Some details are unavailable.');
+  expect(sections[1]?.querySelector('.pr-discussion-text')?.textContent).toBe(evidence.comments.items[0]!.body); expect(sections[1]?.querySelector('time')?.getAttribute('datetime')).toBe(detail.observedAt);
+  const newHead = mount(renderDetail({ ...detail, evidence, target: { ...detail.target, headSha: 'd'.repeat(40) } }, draft, null, false)); expect(newHead.querySelector('.pr-discussion')?.getAttribute('data-pr-disclosure')).not.toBe(sections[0]?.dataset.prDisclosure);
+});
+it('distinguishes missing evidence, partial evidence and a complete empty list', () => {
+  const absent = mount(renderDetail(detail, draft, null, false)); expect(absent.querySelector('.pr-stat-popup')?.textContent).toContain('Details unavailable.'); expect(absent.querySelector('.pr-discussion-body')?.textContent).toContain('Details unavailable.');
+  const node = mount(renderDetail({ ...detail, evidence: { ...evidence, comments: { quality: 'complete', truncated: false, items: [] } } }, draft, null, false));
+  expect(node.querySelectorAll('.pr-checks .pr-stat-popup')[1]?.textContent).toContain('Some details are unavailable.'); expect(node.querySelectorAll('.pr-checks .pr-stat-popup')[2]?.textContent).toContain('Details unavailable.');
+  expect(node.querySelectorAll('.pr-discussion-body')[1]?.textContent).toBe('None.');
+});
+it('escapes check and discussion content and rejects active-content evidence links', () => {
+  const payload = '<img src=x onerror=alert(1)>';
+  const node = mount(renderDetail({ ...detail, evidence: { ...evidence, approved: { ...evidence.approved, items: [{ id: 'user:x', label: payload, url: 'javascript:alert(1)' }] }, comments: { ...evidence.comments, items: [{ ...evidence.comments.items[0]!, body: payload, author: payload, url: 'javascript:alert(1)' }] } } }, draft, null, false));
+  expect(node.querySelector('img')).toBeNull(); expect(node.querySelector('.pr-discussion-text')?.textContent).toBe('Fix the error path.'); expect(node.querySelectorAll('.pr-discussion-text')[1]?.textContent).toBe(payload);
+  expect([...node.querySelectorAll('a')].some(link => link.getAttribute('href')?.startsWith('javascript:'))).toBe(false);
 });

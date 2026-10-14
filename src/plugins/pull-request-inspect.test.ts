@@ -38,3 +38,34 @@ describe('public PR inspection validation', () => {
     expect(() => parsePullRequestInspectDiffV1({ ...diff, files: byteHeavy }, { version: 1, target })).toThrow();
   });
 });
+
+const emptyEvidence = () => ({ comments: { quality: 'complete' as const, truncated: false, items: [] }, changesRequested: { quality: 'complete' as const, truncated: false, items: [] },
+  approved: { quality: 'complete' as const, truncated: false, items: [] }, requested: { quality: 'complete' as const, truncated: false, items: [] },
+  checksPassed: { quality: 'complete' as const, truncated: false, items: [] }, checksFailed: { quality: 'complete' as const, truncated: false, items: [] }, checksPending: { quality: 'complete' as const, truncated: false, items: [] } });
+const discussion = { id: 'comment:1', author: 'author', body: '<img src=x onerror=alert(1)>\nUser content', bodyTruncated: false, url: 'https://github.com/org/project/pull/42#issuecomment-1', createdAt: '2026-09-21T10:00:00Z' };
+it('accepts optional independently qualified evidence and retains plain user content while projecting private fields away', () => {
+  const evidence = { ...emptyEvidence(), comments: { quality: 'partial', truncated: true, items: [{ ...discussion, privateToken: 'hidden' }] },
+    approved: { quality: 'complete', truncated: false, items: [{ id: 'user:alice', label: 'alice', url: null }] },
+    requested: { quality: 'unavailable', truncated: false, items: [] } };
+  const parsed = parsePullRequestInspectDetailV1({ ...detail, evidence }, query);
+  expect(parsed.comments).toBe(detail.comments); expect(parsed.checks).toEqual(detail.checks);
+  expect(parsed.evidence?.comments).toEqual({ quality: 'partial', truncated: true, items: [discussion] });
+  expect(Object.isFrozen(parsed.evidence?.comments.items)).toBe(true);
+  expect(parsePullRequestInspectDetailV1(detail, query)).not.toHaveProperty('evidence');
+});
+it('rejects malformed, contradictory, duplicate and oversized independently scoped evidence', () => {
+  for (const comments of [null, { quality: 'complete', truncated: true, items: [] }, { quality: 'unavailable', truncated: false, items: [discussion] },
+    { quality: 'complete', truncated: false, items: [discussion, discussion] }, { quality: 'complete', truncated: false, items: Array.from({ length: 101 }, (_, index) => ({ ...discussion, id: String(index) })) },
+    { quality: 'partial', truncated: false, items: [{ ...discussion, body: 'é'.repeat(2049) }] },
+    { quality: 'partial', truncated: false, items: [{ ...discussion, url: 'https://secret@github.com/a' }] },
+    { quality: 'partial', truncated: false, items: [{ ...discussion, url: 'javascript:alert(1)' }] },
+    { quality: 'partial', truncated: false, items: [{ ...discussion, createdAt: 'today' }] },
+    { quality: 'partial', truncated: false, items: [{ ...discussion, bodyTruncated: undefined }] }]) {
+    expect(() => parsePullRequestInspectDetailV1({ ...detail, evidence: { ...emptyEvidence(), comments } }, query)).toThrow();
+  }
+  const getter = vi.fn(() => 'body'); const comment = { ...discussion }; Object.defineProperty(comment, 'body', { get: getter });
+  expect(() => parsePullRequestInspectDetailV1({ ...detail, evidence: { ...emptyEvidence(), comments: { quality: 'complete', truncated: false, items: [comment] } } }, query)).toThrow();
+  expect(getter).not.toHaveBeenCalled();
+  const items = Array.from({ length: 100 }, (_, index) => ({ ...discussion, id: String(index), body: '\n'.repeat(4096) }));
+  expect(() => parsePullRequestInspectDetailV1({ ...detail, evidence: { ...emptyEvidence(), comments: { quality: 'complete', truncated: false, items }, changesRequested: { quality: 'complete', truncated: false, items } } }, query)).toThrow();
+});

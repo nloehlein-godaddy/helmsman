@@ -23,7 +23,7 @@ async function mockFeedback(page: Page) {
       ].map(item => ({ repo: repo ?? 'org/a', number: item.number, title: item.title, url: `https://github.com/${repo}/pull/${item.number}`, status: item.number === 46 ? 'merged' : 'open', createdAt: at, mergedAt: item.number === 46 ? at : null,
         draft: false, ticketId: null, reviewDecision: null, comments: 3, reviews: { approved: 0, changesRequested: 1, commented: 2, requested: 0 },
         feedback: { changesRequested: state.cleared ? false : item.changesRequested, newComments: state.cleared ? false : item.newComments, latestCommitAt: item.number === 45 ? null : at } }));
-      return route.fulfill({ json: { version: 1, repo, kind, items: kind === 'authored-recent' ? rows : [], quality: 'complete', truncated: false, browseUrl: null } });
+      return route.fulfill({ json: { version: 1, repo, kind, items: kind === 'authored-recent' ? rows.filter(row => url.searchParams.get('state') === 'all' || row.status === 'open') : [], quality: 'complete', truncated: false, browseUrl: null } });
     }
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.compat-pr']) }
       : path === '/api/context' ? { repos: ['org/a', 'org/b'], jiraBaseUrl: null }
@@ -42,7 +42,7 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 390, mode
   test('distinguishes current feedback from historical counts and clears highlights after fresh observations', async ({ page }) => {
     if (mode === 'light') await page.addInitScript(value => localStorage.setItem('cmux.theme.custom', value), JSON.stringify({ version: 3, palette: generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'light'), recipe: { settings: DEFAULT_THEME_GENERATOR_SETTINGS, overrides: {} } }));
     const f = await mockFeedback(page); await page.goto('/prs?repo=org%2Fa'); const root = page.locator('.plugin-public-pr'); const authored = root.locator('[data-pr-pane="authored"]');
-    await expect(authored.locator('.pr-list-row')).toHaveCount(5);
+    await expect(authored.locator('.pr-list-row')).toHaveCount(4); await expect(authored.locator('[data-select-number="46"]')).toHaveCount(0); await authored.locator('[data-authored-state="all"]').click(); await expect(authored.locator('.pr-list-row')).toHaveCount(5); await expect(authored.locator('[data-authored-state="all"]')).toBeFocused();
     const row = (number: number) => authored.locator(`[data-select-number="${number}"]`);
     await expect(row(42).locator('.pr-feedback-badge')).toHaveText(['Changes requested', 'New comments']);
     await expect(row(42)).toHaveAccessibleName(/Changes requested · New comments$/);
@@ -50,7 +50,7 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 390, mode
     for (const number of [45, 46]) { await expect(row(number).locator('.pr-feedback-badge')).toHaveCount(0); await expect(row(number)).toContainText('3 discussion comments'); }
     await expect(row(42).getByText('New comments', { exact: true })).toHaveAttribute('title', /after the latest commit/);
     await expectReadableSurfaces(authored, ['.pr-feedback-badge', '.pr-list-title']); await expectReadableSurfaces(authored, ['.pr-feedback-badge .pr-phosphor'], 3);
-    await row(42).focus(); await expect(row(42)).toBeFocused(); const outline = await row(42).evaluate(element => getComputedStyle(element).outlineStyle); expect(outline).not.toBe('none');
+    await page.keyboard.press('Tab'); await row(42).focus(); await expect(row(42)).toBeFocused(); const outline = await row(42).evaluate(element => getComputedStyle(element).outlineStyle); expect(outline).not.toBe('none');
     await row(42).evaluate(element => (element as HTMLElement).blur()); if (width === 390) await page.setViewportSize({ width, height: 1800 }); await page.locator('#page-content').evaluate(element => { element.scrollTop = 0; }); await page.mouse.move(0, 0); await expect(authored).toHaveScreenshot(`pr-feedback-${width}-${mode}.png`); if (width === 390) await page.setViewportSize({ width, height: 1100 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     f.state.cleared = true; await page.getByRole('button', { name: 'Refresh page', exact: true }).click(); await expect(authored.locator('.pr-feedback-badge')).toHaveCount(0); await expect(authored.locator('[data-feedback]')).toHaveCount(0);

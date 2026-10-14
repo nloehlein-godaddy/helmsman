@@ -75,6 +75,7 @@ export function createHostPullRequestReadService(lifetime: AbortSignal, options:
     const permission = await call.permitted(query.repo); if (permission.status === 'unavailable') return permission;
     const params = new URLSearchParams({ kind: query.kind, limit: String(query.limit) });
     if (query.repo !== null) params.set('repo', query.repo);
+    if (query.state !== undefined) params.set('state', query.state);
     return call.request(`/api/pull-request-read?${params}`, value => parsePullRequestReadPageV1(value, query, permission.value));
   }
   function watch<T>(read: (signal: AbortSignal) => Promise<PullRequestReadResultV1<T>>, listener: (result: PullRequestReadResultV1<T>) => void,

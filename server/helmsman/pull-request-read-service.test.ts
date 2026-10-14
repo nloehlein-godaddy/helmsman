@@ -129,3 +129,14 @@ describe('public pull request response validation and routes', () => {
     expect(await handlePullRequestReadApi({ ...input, path: '/another-api' })).toBeNull();
   });
 });
+
+it('keeps cached open and all authored windows separate and forwards route selection',async()=>{
+  const read=vi.fn(async(query:PullRequestReadQueryV1)=>({...batch,items:query.state==='open'?[item]:[{...item,status:'closed' as const}]}));
+  const service=createPullRequestReadService({repos:()=>[repo],read,cacheIdentity:()=> 'same'});
+  const input={method:'GET',path:'/api/pull-request-read',query:new URLSearchParams({repo,kind:'authored-recent',state:'open'}),service};
+  expect(await handlePullRequestReadApi(input)).toMatchObject({status:200,json:{items:[{status:'open'}]}});
+  expect(read.mock.calls[0]?.[0]).toMatchObject({state:'open'});
+  expect(await handlePullRequestReadApi({...input,query:new URLSearchParams({repo,kind:'authored-recent',state:'all'})})).toMatchObject({status:200,json:{items:[{status:'closed'}]}});
+  await handlePullRequestReadApi(input); expect(read).toHaveBeenCalledTimes(2);
+  expect(await handlePullRequestReadApi({...input,query:new URLSearchParams({repo,kind:'authored-recent',state:'closed'})})).toMatchObject({status:400});
+});

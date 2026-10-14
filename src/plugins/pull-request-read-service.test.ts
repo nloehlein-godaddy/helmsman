@@ -61,3 +61,13 @@ describe('scoped pull request host reads', () => {
     f.service.watchList(query, listener); await vi.waitFor(() => expect(f.response).toHaveBeenCalled()); f.lifetime.abort(); finish(Response.json({})); await Promise.resolve(); await Promise.resolve(); expect(listener).not.toHaveBeenCalled();
   });
 });
+
+it('transports authored status selection and rejects terminal results for open reads', async () => {
+  const f=fixture();
+  await f.service.list({...query,kind:'authored-recent',state:'open'});
+  expect(f.response.mock.calls[0]?.[0].searchParams.get('state')).toBe('open');
+  f.response.mockImplementation(async()=>Response.json({version:1,repo,kind:'authored-recent',items:[{...item,status:'closed'}],quality:'complete',truncated:false,browseUrl:null}));
+  expect(await f.service.list({...query,kind:'authored-recent',state:'open'})).toEqual({status:'unavailable',reason:'invalid-response'});
+  expect(await f.service.list({...query,kind:'authored-recent',state:'all'})).toMatchObject({status:'available',value:{items:[{status:'closed'}]}});
+  expect(f.response.mock.calls.at(-1)?.[0].searchParams.get('state')).toBe('all');
+});
