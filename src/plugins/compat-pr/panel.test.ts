@@ -320,3 +320,19 @@ it('never pairs a previous comparison with a new head during an independent conn
   resolveDiff(available({ version: 1, target: next.target, observedAt: detail.observedAt, coverage: 'immutable-comparison-preview', quality: 'complete', truncated: false, files: [{ filename: 'src/file.ts', previousFilename: null, status: 'modified', additions: 1, deletions: 0, patch: '+current head', patchStatus: 'preview' }] })); await refreshing;
   expect(f.container.querySelector('.pr-panel .diff-patch')?.textContent).toBe('+current head');
 });
+
+it.each(['.pr-summary', '.pr-agent-section', '.pr-diff-panel'])('retains collapsed %s and its summary focus on refresh', async selector => {
+  const f = await fixture(); await ready(f); const section = f.container.querySelector<HTMLDetailsElement>(selector)!;
+  expect(section).toBeInstanceOf(HTMLDetailsElement); expect(section.open).toBe(true); section.open = false; section.querySelector('summary')!.focus();
+  await f.instance.refresh?.(); expect(f.container.querySelector<HTMLDetailsElement>(selector)?.open).toBe(false); expect(document.activeElement).toBe(f.container.querySelector(`${selector}>summary`));
+});
+it.each(['review', 'rerun'] as const)('reveals a collapsed agent section for explicit %s navigation', async mode => {
+  const f = await fixture(); await ready(f); f.container.querySelector<HTMLDetailsElement>('.pr-agent-section')!.open = false; f.container.querySelector<HTMLDetailsElement>('.pr-summary')!.open = false;
+  await f.instance.update({ ...f.state(), routeState: { version: 1, value: { target: { repo: 'org/b', number: 42 }, mode } } }); await ready(f);
+  expect(f.container.querySelector<HTMLDetailsElement>('.pr-agent-section')?.open).toBe(true); expect(f.container.querySelector<HTMLDetailsElement>('.pr-summary')?.open).toBe(false); expect(document.activeElement).toBe(f.container.querySelector(mode === 'review' ? '.pr-review-agent' : '.pr-rerun-feedback'));
+  expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled();
+});
+it('reveals a collapsed comparison for explicit diff pane navigation', async () => {
+  const f = await fixture(); await ready(f); f.container.querySelector<HTMLDetailsElement>('.pr-diff-panel')!.open = false;
+  await f.instance.update({ ...f.state(), pane: 'diff' }); expect(f.container.querySelector<HTMLDetailsElement>('.pr-diff-panel')?.open).toBe(true);
+});

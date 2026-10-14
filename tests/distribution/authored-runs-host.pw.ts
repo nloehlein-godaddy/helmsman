@@ -103,8 +103,9 @@ test('copied Runs page preserves public PR scope, drafts and command identity an
     } }));
     await runs.locator('[data-pending-kind="review"]:not([data-retry])').click();
     await expect(pr.locator('.pr-review-agent')).toBeEnabled();
+    const crew = pr.locator('.pr-agent-section'); await expect(crew).toHaveAttribute('open', ''); await crew.locator(':scope > summary').focus(); await crew.locator(':scope > summary').press('Space'); await expect(crew).not.toHaveAttribute('open', ''); await expect(crew.locator('.pr-agent-body')).not.toBeVisible();
     await navigate(page, targetPath.replace('mode=rerun', 'mode=review'));
-    await expect(pr.locator('.pr-review-agent')).toBeFocused();
+    await expect(pr.locator('.pr-review-agent')).toBeFocused(); await expect(crew).toHaveAttribute('open', '');
     await page.reload(); await expect(pr).toBeVisible(); await expect(pr.locator('.pr-review-agent')).toBeFocused();
     expect((await layout(page)).instances.map(instance => instance.contributionId)).toEqual(['helmsman.compat-pr/panel', 'helmsman.run-history/panel']);
     const authoredList = runs.locator('details[data-pr-pane="authored"]');

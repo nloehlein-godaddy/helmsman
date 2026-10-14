@@ -83,10 +83,13 @@ class PrPanel implements PluginPanelInstance {
     const changed = scopeChanged || previous.visible !== next.visible || previous.activity !== next.activity || route !== this.route;
     if (previous.pane !== next.pane) this.focusPane = next.pane;
     if (route !== this.route) {
+      const previousTarget = this.selected;
       this.localTarget = false; this.route = route; this.focusMode = routed?.mode ?? null; this.focusPane = next.pane;
       if (routed) this.selected = routed.target;
       else if (scopeChanged) this.selected = null;
-      this.lookup = this.selected ? `${this.selected.repo}#${this.selected.number}` : ''; this.detail = null; this.diff = null; this.readDraft();
+      this.lookup = this.selected ? `${this.selected.repo}#${this.selected.number}` : '';
+      if (!sameTarget(previousTarget, this.selected)) { this.detail = null; this.diff = null; }
+      this.readDraft();
     }
     if (changed) { this.cancel(); if (scopeChanged) { this.lists = { requested: null, authored: null }; this.runs = []; this.detail = null; this.diff = null; } void this.refresh(); }
     this.draw();
@@ -319,6 +322,11 @@ class PrPanel implements PluginPanelInstance {
     this.container.querySelectorAll<HTMLButtonElement>('[data-review], [data-launch]').forEach(button => { button.disabled = unsafe; });
     const error = this.container.querySelector('[data-storage-error]'); if (error) error.textContent = this.storageError; const save = this.container.querySelector<HTMLElement>('[data-save-draft]'); if (save) save.hidden = !this.storageError;
   }
+  private reveal(element: HTMLElement) {
+    for (let node: HTMLElement | null = element; node && node !== this.container; node = node.parentElement) {
+      if (node instanceof HTMLDetailsElement) node.open = true;
+    }
+  }
   private draw() {
     if (this.disposed) return;
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
@@ -347,8 +355,8 @@ class PrPanel implements PluginPanelInstance {
     if (runFocus) [...this.container.querySelectorAll<HTMLElement>('[data-run]')].find(control => control.dataset.run === runFocus)?.focus({ preventScroll: true });
     if (disclosureFocus) [...this.container.querySelectorAll<HTMLDetailsElement>('details')].find(detail => disclosureKey(detail) === disclosureFocus)?.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
     if (action) [...this.container.querySelectorAll<HTMLElement>(`[${action[0]}]`)].find(control => control.getAttribute(action[0]!) === action[1])?.focus({ preventScroll: true });
-    if (this.focusMode && this.active()) { const control = this.container.querySelector<HTMLElement>(this.focusMode === 'rerun' ? '.pr-rerun-feedback' : '.pr-review-agent'); if (control && !(control instanceof HTMLButtonElement && control.disabled)) { this.focusMode = null; control.focus({ preventScroll: true }); control.scrollIntoView?.({ block: 'nearest' }); } }
-    else if (this.focusPane && !this.loading) { const pane = [...this.container.querySelectorAll<HTMLElement>('[data-pr-pane]')].find(node => node.dataset.prPane === this.focusPane); if (pane) { if (pane instanceof HTMLDetailsElement) pane.open = true; pane.scrollIntoView?.({ block: 'start' }); this.focusPane = null; } }
+    if (this.focusMode && this.active()) { const control = this.container.querySelector<HTMLElement>(this.focusMode === 'rerun' ? '.pr-rerun-feedback' : '.pr-review-agent'); if (control && !(control instanceof HTMLButtonElement && control.disabled)) { this.focusMode = null; this.reveal(control); control.focus({ preventScroll: true }); control.scrollIntoView?.({ block: 'nearest' }); } }
+    else if (this.focusPane && !this.loading) { const pane = [...this.container.querySelectorAll<HTMLElement>('[data-pr-pane]')].find(node => node.dataset.prPane === this.focusPane); if (pane) { this.reveal(pane); pane.scrollIntoView?.({ block: 'start' }); this.focusPane = null; } }
   }
 }
 const panel: PluginPanelModule = { mount(container, context) {

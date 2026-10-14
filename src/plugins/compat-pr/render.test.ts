@@ -37,11 +37,26 @@ it('contains selected PR sections in a shared panel with manual review below the
   const node = mount(renderDetail(detail, draft, null, false, false, diff));
   const panel = node.querySelector('.pr-panel');
   expect([...panel!.children].map(child => child.className)).toEqual(['pr-panel-head', 'pr-summary pr-subpanel', 'pr-crew-controls pr-agent-section pr-subpanel', 'pr-diff-panel pr-subpanel', 'pr-review pr-manual-review pr-subpanel']);
-  expect(panel?.querySelector('.pr-summary > .pr-provenance')).not.toBeNull();
-  expect(panel?.querySelector('.pr-diff-panel h4')?.textContent).toBe('Diff'); expect(panel?.querySelector('.pr-diff-panel h3')).toBeNull();
+  expect(panel?.querySelector('.pr-summary-body > .pr-provenance')).not.toBeNull();
+  expect(panel?.querySelector('.pr-diff-panel > summary')?.textContent).toBe('Diff'); expect(panel?.querySelector('.pr-diff-panel h3')).toBeNull();
   expect(panel?.querySelector('.pr-diff-panel')?.textContent).toContain('partial file enumeration');
   expect(panel?.querySelector('.pr-diff-panel')?.textContent).toContain('Inline patch unavailable.');
   expect(panel?.querySelector('.pr-diff-panel')?.nextElementSibling).toBe(panel?.querySelector('.pr-manual-review'));
+  const disclosures = [...node.querySelectorAll<HTMLDetailsElement>('.pr-panel > details')];
+  expect(disclosures.map(section => section.dataset.prDisclosure)).toEqual(['org/b#42:metadata', 'org/b#42:agent-work', 'org/b#42:diff', 'org/b#42:manual-review']);
+  expect(disclosures.map(section => section.open)).toEqual([true, true, true, false]);
+  expect(disclosures.slice(0, 3).every(section => section.firstElementChild?.tagName === 'SUMMARY')).toBe(true);
+  expect(node.querySelector('.pr-agent-body [data-launch="review"]')).not.toBeNull();
+  expect(node.querySelector('.pr-diff-body .diff-file')).not.toBeNull();
+});
+it.each([true, false])('names the collapsible agent section appropriately in pirate mode %s', pirate => {
+  const node = mount(renderDetail(detail, draft, null, pirate));
+  expect(node.querySelector('.pr-summary > summary')?.textContent).toBe('Metadata');
+  expect(node.querySelector('.pr-agent-section > summary')?.textContent).toBe(pirate ? 'Crew work' : 'Agent work');
+  expect(node.querySelector('.pr-agent-section > summary [data-icon="agent"]')?.getAttribute('aria-hidden')).toBe('true');
+  const other = mount(renderDetail({ ...detail, target: { ...detail.target, repo: 'org/other' } }, draft, null, pirate));
+  expect(other.querySelector('.pr-summary')?.getAttribute('data-pr-disclosure')).toBe('org/other#42:metadata');
+  expect(other.querySelector('.pr-agent-section')?.getAttribute('data-pr-disclosure')).toBe('org/other#42:agent-work');
 });
 it('does not invent diff completeness when the diff has not loaded', () => {
   const node = mount(renderDetail(detail, draft, null, false)); expect(node.querySelector('.pr-diff-panel')).toBeNull();

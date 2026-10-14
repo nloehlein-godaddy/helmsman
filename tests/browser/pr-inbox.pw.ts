@@ -187,6 +187,20 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 390, mode
     await detail.locator('.pr-review-agent').hover(); await expectReadableSurfaces(detail, ['.pr-review-agent']); await page.mouse.move(0, 0);
     await expectReadableSurfaces(detail, ['.pr-agent-section h4 .pr-phosphor', '.pr-evidence-count .pr-phosphor', '.pr-slack-review .pr-phosphor'], 3);
     if (width === 390) await page.setViewportSize({ width, height: 1800 }); await page.mouse.move(0, 0); await expect(detail).toHaveScreenshot(`selected-pr-${width}-${mode}.png`); if (width === 390) await page.setViewportSize({ width, height: 1100 });
+    const collapsible = [detail.locator('.pr-summary'), detail.locator('.pr-agent-section'), detail.locator('.pr-diff-panel')];
+    for (const section of collapsible) {
+      const sectionBody = section.locator(':scope > div'); await expect(section).toHaveAttribute('open', ''); await expect(sectionBody).toBeVisible(); const sectionSummary = section.locator(':scope > summary'); await sectionSummary.focus(); await sectionSummary.press('Space'); await expect(section).not.toHaveAttribute('open', ''); await expect(sectionBody).not.toBeVisible();
+      await refresh.evaluate(element => (element as HTMLButtonElement).click()); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(section).not.toHaveAttribute('open', ''); await expect(sectionSummary).toBeFocused();
+      await sectionSummary.press('Enter'); await expect(section).toHaveAttribute('open', ''); await expect(sectionBody).toBeVisible();
+    }
+    for (const section of collapsible) { await section.locator(':scope > summary').focus(); await section.locator(':scope > summary').press('Space'); await expect(section).not.toHaveAttribute('open', ''); }
+    await page.mouse.move(0, 0); await expect(detail).toHaveScreenshot(`selected-pr-collapsed-${width}-${mode}.png`);
+    const navigateTo = async (path: string) => page.evaluate(path => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, path);
+    await navigateTo('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42&mode=review'); await expect(collapsible[1]!).toHaveAttribute('open', ''); await expect(detail.locator('.pr-review-agent')).toBeFocused();
+    await collapsible[1]!.locator(':scope > summary').focus(); await collapsible[1]!.locator(':scope > summary').press('Space');
+    await navigateTo('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42&mode=rerun'); await expect(collapsible[1]!).toHaveAttribute('open', ''); await expect(detail.locator('.pr-rerun-feedback')).toBeFocused();
+    await navigateTo('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42&pane=diff'); await expect(collapsible[2]!).toHaveAttribute('open', ''); await expect(collapsible[0]!).not.toHaveAttribute('open', '');
+    await collapsible[0]!.locator(':scope > summary').focus(); await collapsible[0]!.locator(':scope > summary').press('Enter');
     const manualSummary = manual.locator(':scope > summary'); await manualSummary.focus(); await manualSummary.press('Space'); await expect(manual).toHaveAttribute('open', ''); await expect(body).toBeVisible(); await body.fill('Keep this manual review draft while I work with agents.');
     await context.locator(':scope > summary').focus(); await context.locator(':scope > summary').press('Enter'); await expect(context).toHaveAttribute('open', ''); await expect(context).toContainText('Branch: topic');
     const diffFile = detail.locator('.diff-file'); await diffFile.locator(':scope > summary').focus(); await diffFile.locator(':scope > summary').press('Space'); await expect(diffFile.locator('.diff-patch')).toContainText('return retry("<img src=x>");'); await expect(diffFile.locator('img')).toHaveCount(0);

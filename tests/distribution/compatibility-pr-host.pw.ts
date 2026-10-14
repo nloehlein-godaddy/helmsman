@@ -78,6 +78,10 @@ globalThis.fetch = async (input, init) => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    for (const selector of ['.pr-summary', '.pr-agent-section', '.pr-diff-panel']) await expect(pr.locator(selector)).toHaveAttribute('open', '');
+    const metadata = pr.locator('.pr-summary'); await metadata.locator(':scope > summary').focus(); await metadata.locator(':scope > summary').press('Space');
+    await page.getByRole('button', { name: 'Refresh page', exact: true }).evaluate(element => (element as HTMLButtonElement).click());
+    await expect(metadata).not.toHaveAttribute('open', ''); await expect(metadata.locator('.pr-summary-body')).not.toBeVisible(); await expect(metadata.locator(':scope > summary')).toBeFocused(); await metadata.locator(':scope > summary').press('Enter'); await expect(metadata.locator('.pr-summary-body')).toBeVisible();
     await expect(pr.locator('.pr-manual-review')).not.toHaveAttribute('open', '');
     await expect(pr.locator('.pr-slack-review')).toHaveCount(0);
     await pr.locator('.pr-manual-review > summary').click();
