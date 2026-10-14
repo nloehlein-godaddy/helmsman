@@ -129,7 +129,7 @@ it('leads with the retained subject while keeping immutable identities and full 
   const item = { ...run('canonical-id'), displayKey: 'review', title: 'Fix login behavior', status: 'succeeded' as const, review: { outcome: 'REQUEST_CHANGES' as const, verdict: 'Fix <img src=x onerror=alert(1)>' } };
   const f = await mount(vi.fn(async () => available(page({ items: [item] }))));
   await vi.waitFor(() => expect(f.container.querySelector('.run-open')?.textContent).toBe(item.title));
-  const details = f.container.querySelector<HTMLDetailsElement>('details')!; expect(details.open).toBe(false);
+  const details = f.container.querySelector<HTMLDetailsElement>('.run-details')!; expect(details.open).toBe(false);
   expect(details.textContent).toContain('canonical-id · Attempt 1'); expect(details.textContent).toContain('Started 2026-09-20T00:00:00Z');
   expect(details.textContent).toContain('Review recommendation: REQUEST_CHANGES'); expect(details.textContent).toContain(item.review.verdict);
   expect(f.container.querySelector('.run-open')?.getAttribute('aria-label')).toContain(item.title);
@@ -140,10 +140,10 @@ it('leads with the retained subject while keeping immutable identities and full 
 });
 
 it('retains open Details and canonical selection focus across same-scope refreshes', async () => {
-  const f = await mount(); await vi.waitFor(() => expect(f.container.querySelector('details')).not.toBeNull());
-  const details = f.container.querySelector<HTMLDetailsElement>('details')!; details.open = true; details.dispatchEvent(new Event('toggle'));
+  const f = await mount(); await vi.waitFor(() => expect(f.container.querySelector('.run-details')).not.toBeNull());
+  const details = f.container.querySelector<HTMLDetailsElement>('.run-details')!; details.open = true; details.dispatchEvent(new Event('toggle'));
   f.container.querySelector<HTMLButtonElement>('.run-open')!.focus(); await f.instance.refresh?.();
-  expect(f.container.querySelector<HTMLDetailsElement>('details')?.open).toBe(true);
+  expect(f.container.querySelector<HTMLDetailsElement>('.run-details')?.open).toBe(true);
   expect(document.activeElement?.classList.contains('run-open')).toBe(true);
 });
 
@@ -168,6 +168,30 @@ it('keeps operator intervention visible when a worker completes', async () => {
   const item = { ...run('finished'), status: 'succeeded' as const, sourceSettlement: { state: 'operator-required' as const } };
   const f = await mount(vi.fn(async () => available(page({ items: [item] }))));
   await vi.waitFor(() => expect(f.container.querySelector('.run-settlement')?.textContent).toContain('Needs action'));
-  expect(f.container.querySelector('.run-settlement')?.closest('details')).toBeNull();
+  expect(f.container.querySelector('.run-settlement')?.closest('.run-details')).toBeNull();
   expect(f.container.querySelector('.run-details')?.textContent).toContain('Source settlement: operator-required');
+});
+
+it('starts history open and retains collapsed state and summary focus through refresh', async () => {
+  const f = await mount(); await vi.waitFor(() => expect(f.container.querySelector('.run-row')).not.toBeNull());
+  const disclosure = f.container.querySelector<HTMLDetailsElement>('.run-history-panel')!; expect(disclosure.open).toBe(true);
+  expect(disclosure.querySelector(':scope > summary')?.textContent).toContain('Run history'); expect(disclosure.querySelector(':scope > summary > .run-history-caret')?.getAttribute('aria-hidden')).toBe('true');
+  disclosure.open = false; const summary = disclosure.querySelector<HTMLElement>(':scope > summary')!; summary.focus(); await f.instance.refresh?.();
+  const refreshed = f.container.querySelector<HTMLDetailsElement>('.run-history-panel')!; expect(refreshed.open).toBe(false); expect(document.activeElement).toBe(refreshed.querySelector(':scope > summary'));
+  refreshed.open = true; await f.instance.refresh?.(); expect(f.container.querySelector<HTMLDetailsElement>('.run-history-panel')?.open).toBe(true);
+});
+it('retains panel collapse across scope and status changes without changing existing filter requests', async () => {
+  const history = vi.fn<RunInspectServiceV1['history']>(async query => available(page({ repo: query.repo, items: [run('scoped', query.repo ?? 'org/a')] })));
+  const f = await mount(history); await vi.waitFor(() => expect(f.container.querySelector('.run-row')).not.toBeNull());
+  f.container.querySelector<HTMLDetailsElement>('.run-history-panel')!.open = false;
+  f.instance.update({ ...f.state, repo: 'org/b', activity: { epoch: 2, repo: 'org/b', active: true, signal: new AbortController().signal } });
+  await vi.waitFor(() => expect(history.mock.calls.at(-1)?.[0].repo).toBe('org/b')); expect(f.container.querySelector<HTMLDetailsElement>('.run-history-panel')?.open).toBe(false);
+  const filter = f.container.querySelector<HTMLSelectElement>('[data-focus="filter"]')!; filter.value = 'terminal'; filter.dispatchEvent(new Event('change'));
+  await vi.waitFor(() => expect(history.mock.calls.at(-1)?.[0].kind).toBe('terminal')); expect(f.container.querySelector<HTMLDetailsElement>('.run-history-panel')?.open).toBe(false);
+});
+it('preserves row evidence disclosure through outer collapse and refresh', async () => {
+  const f = await mount(); await vi.waitFor(() => expect(f.container.querySelector('.run-row')).not.toBeNull());
+  const row = f.container.querySelector<HTMLDetailsElement>('.run-details')!; row.open = true; row.dispatchEvent(new Event('toggle'));
+  f.container.querySelector<HTMLDetailsElement>('.run-history-panel')!.open = false; await f.instance.refresh?.();
+  expect(f.container.querySelector<HTMLDetailsElement>('.run-details')?.open).toBe(true); expect(f.container.querySelector<HTMLDetailsElement>('.run-history-panel')?.open).toBe(false);
 });

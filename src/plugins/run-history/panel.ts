@@ -10,7 +10,7 @@ const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null 
 };
 const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; };
 
-const glyphs = { refresh: '\ue094', running: '\ue3d2', succeeded: '\ue184', failed: '\ue4e2', stopped: '\ue3de', review: '\ue282', history: '\ue19a' } as const;
+const glyphs = { refresh: '\ue094', running: '\ue3d2', succeeded: '\ue184', failed: '\ue4e2', stopped: '\ue3de', review: '\ue282', history: '\ue19a', caretRight: '\ue13a' } as const;
 const icon = (name: keyof typeof glyphs) => { const value = node('span', glyphs[name]); value.className = 'run-icon'; value.setAttribute('aria-hidden', 'true'); return value; };
 const statusLabels = { running: 'Worker running', succeeded: 'Worker completed', failed: 'Worker failed', stopped: 'Worker stopped' } as const;
 const recommendationLabels = { APPROVE: 'Approve', REQUEST_CHANGES: 'Changes requested', COMMENT: 'Comment' } as const;
@@ -36,6 +36,7 @@ class HistoryPanel implements PluginPanelInstance {
   private saveError = '';
   private saveQueue: Promise<void> = Promise.resolve();
   private readonly expanded = new Set<string>();
+  private historyOpen = true;
 
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.container = container; this.context = context; this.state = context.state;
@@ -94,11 +95,17 @@ class HistoryPanel implements PluginPanelInstance {
   private button(label: string, action: () => void, disabled = false) { const button = node('button', label); button.type = 'button'; button.disabled = disabled || !this.active(); button.addEventListener('click', action); return button; }
   private draw() {
     if (this.disposed) return;
+    const previousDisclosure = this.container.querySelector<HTMLDetailsElement>('.run-history-panel');
+    if (previousDisclosure) this.historyOpen = previousDisclosure.open;
     const focus = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.focus : undefined;
-    const root = node('section'); root.className = 'plugin-run-history'; root.setAttribute('aria-busy', String(this.loading)); root.append(node('style', styles));
+    const shell = node('section'); shell.className = 'plugin-run-history'; shell.setAttribute('aria-busy', String(this.loading)); shell.append(node('style', styles));
     const composition = this.container.closest('[data-composition-page]'); const composed = composition !== null;
+    const disclosure = node('details'); disclosure.className = 'run-history-panel'; disclosure.open = this.historyOpen;
+    disclosure.addEventListener('toggle', () => { if (disclosure.isConnected) this.historyOpen = disclosure.open; });
+    const summary = node('summary'); summary.dataset.focus = 'history-summary'; const caret = icon('caretRight'); caret.classList.add('run-history-caret'); summary.append(caret);
+    const heading = node(composition?.classList.contains('plugin-run-history') ? 'span' : 'h2', this.state.pirateMode ? 'Voyage history' : 'Run history'); heading.className = 'run-history-title'; heading.prepend(icon('history')); summary.append(heading); disclosure.append(summary);
+    const root = node('div'); root.className = 'run-history-body'; disclosure.append(root); shell.append(disclosure);
     const tools = node('div'); tools.className = 'run-tools';
-    if (!composition?.classList.contains('plugin-run-history')) { const heading = node('h2', this.state.pirateMode ? 'Voyage history' : 'Run history'); heading.prepend(icon('history')); tools.append(heading); }
     const filter = node('select'); filter.setAttribute('aria-label', 'Run status filter'); filter.dataset.focus = 'filter'; filter.disabled = !this.active() || this.unsupported;
     for (const [value, label] of [['all', this.state.pirateMode ? 'All voyages' : 'All runs'], ['running', 'Running'], ['terminal', 'Finished']]) { const option = node('option', label); option.value = value!; filter.append(option); }
     filter.value = this.saved.kind;
@@ -164,8 +171,8 @@ class HistoryPanel implements PluginPanelInstance {
     } else root.append(node('p', this.loading ? 'Loading run history…' : 'Run history is unavailable.'));
     const controls = [...root.querySelectorAll<HTMLElement>('button, a')];
     for (const control of controls) if (!control.dataset.focus) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-id]')?.dataset.runId, control.textContent]);
-    this.container.replaceChildren(root);
-    if (focus) [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });
+    this.container.replaceChildren(shell);
+    if (focus) [...shell.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });
   }
 }
 const panel: PluginPanelModule = { mount(container, context) {

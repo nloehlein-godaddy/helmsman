@@ -82,7 +82,12 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     for (const list of await lists.all()) { await expect(list).toHaveAttribute('open', ''); const listSummary = list.locator(':scope > summary'); await listSummary.focus(); await listSummary.press('Enter'); await expect(list).not.toHaveAttribute('open', ''); }
     await refresh.click(); await expect(refresh).toBeFocused(); await expect(history).toHaveAttribute('aria-busy', 'false');
     for (const list of await lists.all()) await expect(list).not.toHaveAttribute('open', '');
+    const historyDisclosure = history.locator('.run-history-panel'); const historySummary = historyDisclosure.locator(':scope > summary'); const historyBody = history.locator('.run-history-body');
+    await expect(historySummary.locator('.run-history-caret')).toHaveCSS('font-size', '24px'); await expect(historySummary).toHaveCSS('column-gap', '14px');
+    await expect(historyDisclosure).toHaveAttribute('open', ''); await historySummary.focus(); await historySummary.press('Space'); await expect(historyDisclosure).not.toHaveAttribute('open', ''); await expect(historyBody).not.toBeVisible();
+    await refresh.evaluate(button => (button as HTMLButtonElement).click()); await expect(history).toHaveAttribute('aria-busy', 'false'); await expect(historyDisclosure).not.toHaveAttribute('open', ''); await expect(historySummary).toBeFocused(); await expect(page.locator('.repo-select')).toHaveValue('org/a');
     if (mode === 'dark' && width !== 900) { await page.locator('#page-content').evaluate(content => { content.scrollTop = 0; }); await page.mouse.move(0, 0); await expect(page).toHaveScreenshot(`voyages-collapsed-${width}.png`); }
+    await historySummary.press('Enter'); await expect(historyDisclosure).toHaveAttribute('open', ''); await expect(historyBody).toBeVisible(); await expect(historySummary).toBeFocused();
     await history.evaluate(element => element.scrollIntoView({ block: 'start' })); await page.mouse.move(0, 0); await expect(page).toHaveScreenshot(`voyages-history-${width}-${mode}.png`);
     const details = first.locator('.run-details'); const summary = details.locator('summary'); await expect(details).not.toHaveAttribute('open', '');
     if (width === 390) { expect((await summary.boundingBox())?.height).toBeGreaterThanOrEqual(44); await summary.tap(); } else { await summary.focus(); await summary.press('Space'); }

@@ -51,6 +51,11 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
       return [...document.fonts].some(font => font.family.replaceAll('"', '') === 'Helmsman Phosphor Regular' && font.status === 'loaded');
     })).toBe(true);
     await expect(history.locator('[data-run-id]')).toHaveCount(50);
+    const historyDisclosure = history.locator('.run-history-panel'); const historySummary = historyDisclosure.locator(':scope > summary');
+    await expect(historyDisclosure).toHaveAttribute('open', ''); await historySummary.focus(); await historySummary.press('Space'); await expect(historyDisclosure).not.toHaveAttribute('open', ''); await expect(history.locator('.run-history-body')).not.toBeVisible();
+    await history.getByRole('button', { name: 'Refresh page', exact: true }).evaluate(button => (button as HTMLButtonElement).click());
+    await expect(history.locator('section.plugin-run-history')).toHaveAttribute('aria-busy', 'false'); await expect(historyDisclosure).not.toHaveAttribute('open', ''); await expect(historySummary).toBeFocused(); await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await historySummary.press('Enter'); await expect(historyDisclosure).toHaveAttribute('open', ''); await expect(history.locator('.run-history-body')).toBeVisible();
     await history.getByRole('button', { name: 'Next page', exact: true }).click();
     await expect(history.locator('[data-run-id]')).toHaveCount(5);
     await passivePoll();

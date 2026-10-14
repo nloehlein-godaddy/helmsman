@@ -7,6 +7,16 @@ export const styles = `
 .plugin-run-history h1{font-size:26px}
 .plugin-run-history h2{font-size:20px;display:flex;align-items:center;gap:8px}
 .plugin-run-history h3{font-size:18px}
+.plugin-run-history .run-history-panel{display:block;border:1px solid var(--line);border-radius:12px;background:var(--panel);min-width:0}
+.plugin-run-history .run-history-panel>summary{display:flex;align-items:center;gap:14px;list-style:none;cursor:pointer;box-sizing:border-box;min-height:48px;padding:12px 16px;background:var(--panel-hi);border-radius:12px;color:var(--text)}
+.plugin-run-history .run-history-panel>summary::-webkit-details-marker{display:none}
+.plugin-run-history .run-history-panel>summary:hover{background:var(--panel-2)}
+.plugin-run-history .run-history-panel[open]>summary{border-bottom:1px solid var(--line);border-end-start-radius:0;border-end-end-radius:0}
+.plugin-run-history .run-history-title{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:600;min-width:0;overflow-wrap:anywhere}
+.plugin-run-history .run-history-title>.run-icon{color:var(--accent-text,var(--accent));font-size:20px}
+.plugin-run-history .run-history-panel>summary>.run-history-caret{width:24px;height:24px;font-size:24px;color:var(--text-dim)}
+.plugin-run-history .run-history-panel[open]>summary>.run-history-caret{transform:rotate(90deg)}
+.plugin-run-history .run-history-body{display:grid;gap:16px;padding:16px;min-width:0}
 .plugin-run-history :is(button,select){box-sizing:border-box;font:14px/1.4 var(--sans,sans-serif);min-height:32px;color:var(--text);background:var(--panel-hi,var(--face-hi));border:1px solid var(--line-strong);border-radius:6px;padding:6px 10px;max-width:100%}
 .plugin-run-history select{color:var(--input-text,var(--text));background:var(--control-bg,var(--face-hi));border-color:var(--control-border,var(--line-strong));width:100%}
 .plugin-run-history button{cursor:pointer;transition:background-color 160ms ease-out,border-color 160ms ease-out;display:inline-flex;align-items:center;gap:6px}
@@ -41,7 +51,7 @@ export const styles = `
 .plugin-run-history .run-details>summary{cursor:pointer;color:var(--text-dim);width:fit-content;border-radius:3px;min-height:24px;align-content:center}
 .plugin-run-history .run-details>summary:hover{color:var(--text)}
 .plugin-run-history .run-evidence{display:grid;gap:6px;padding:10px 12px;margin-top:6px;background:var(--panel-2,var(--face-hi));border-left:1px solid var(--line-strong);border-radius:0 6px 6px 0;white-space:pre-wrap;overflow-wrap:anywhere}
-@media(max-width:700px){.plugin-run-history .run-observation{display:grid;gap:4px}.plugin-run-history .run-tools{gap:10px}}
+@media(max-width:700px){.plugin-run-history .run-observation{display:grid;gap:4px}.plugin-run-history .run-tools{gap:10px}.plugin-run-history .run-history-body{padding:12px}}
 @media(pointer:coarse){.plugin-run-history :is(button,select),.plugin-run-history .run-details>summary{min-height:44px}}
 @media(prefers-reduced-motion:reduce){.plugin-run-history button{transition:none}}
 `;
