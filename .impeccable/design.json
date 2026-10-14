@@ -788,6 +788,11 @@
         "name": "The PR Feedback Attention Rule",
         "body": "Open PR rows highlight current change requests in red and comments added after the latest head commit in blue, using compact Phosphor badges with explicit labels. Both indicators can coexist; a restrained semantic row boundary and tint reinforce attention without replacing keyboard focus or the title hierarchy. Comment freshness covers discussion, inline and submitted review comments from other authors, compared with the exact head commit timestamp. Unknown or changed-head observations never imply that feedback is clear. Closed and merged rows carry no active-feedback highlight. Failed GitHub search retains readable scoped results and marks incomplete coverage explicitly. Credential- and provider-scoped list snapshots are reused for up to five minutes to bound GitHub API usage; degraded reads retry sooner.",
         "section": "components"
+      },
+      {
+        "name": "The PR Inspection Hierarchy Rule",
+        "body": "Selected PR inspection leads with title and identity, then labeled checks and review counts. A quieter PR context disclosure holds branch, update and prior-review evidence. Agent work uses a distinct neutral section with model and effort controls, branch feedback and direct launch actions; redundant setup links are omitted. Your GitHub review is a separate native disclosure, open for a saved text draft. Both disclosures preserve open state and keyboard focus on refresh. Slack review appears only for an open authored PR after a connected communication snapshot; unavailable, disconnected, failed or stale reads keep it hidden. Whiteboard sits beside the contextual companion actions.",
+        "section": "components"
       }
     ],
     "dos": [

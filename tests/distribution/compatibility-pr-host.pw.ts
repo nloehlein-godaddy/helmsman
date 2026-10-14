@@ -75,6 +75,9 @@ globalThis.fetch = async (input, init) => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
+    await expect(pr.locator('.pr-manual-review')).not.toHaveAttribute('open', '');
+    await expect(pr.locator('.pr-slack-review')).toHaveCount(0);
+    await pr.locator('.pr-manual-review > summary').click();
     await pr.locator('.pr-review-body').fill('Original review body retained across uncertainty');
     await pr.locator('.pr-rerun-feedback').fill('Independent branch feedback');
     await expect(pr.locator('.pr-comment')).toBeEnabled(); await pr.locator('.pr-comment').click();

@@ -10,14 +10,15 @@ const row = (repo: string, number: number, title: string, status: 'open' | 'merg
   reviews: { approved: status === 'merged' ? 1 : 0, changesRequested: 0, commented: 1, requested: 1 } });
 
 async function mockInbox(page: Page) {
-  const state = { quality: 'partial' as 'complete' | 'partial' | 'degraded', empty: false };
+  const state = { quality: 'partial' as 'complete' | 'partial' | 'degraded', empty: false, connected: false, connectionError: false, own: true, detailStatus: 'open' as 'open' | 'closed' };
   const scopes: (string | null)[] = [];
-  const writes: string[] = [];
+  const writes: string[] = []; const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => {
     const request = route.request(); const url = new URL(request.url()); const path = url.pathname;
     if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
     if (!path.startsWith('/api/')) return route.continue();
-    if (request.method() !== 'GET') writes.push(path);
+    if (request.method() !== 'GET') { writes.push(path); return route.abort(); }
+    if (path === '/api/communication-connection') return route.fulfill({ status: state.connectionError ? 503 : 200, json: { version: 1, providerId: state.connected ? 'example.slack/slack' : null, revision: state.connected ? 'a'.repeat(64) : null, status: state.connected ? 'connected' : 'disconnected', message: state.connected ? 'Connected' : 'Not connected', accountLabel: state.connected ? 'T123/U123' : null, redirectUri: null } });
     if (path === '/api/pull-request-read') {
       const repo = url.searchParams.get('repo'); const kind = url.searchParams.get('kind'); scopes.push(repo);
       return route.fulfill({ json: { version: 1, repo, kind, items: kind === 'authored-recent' && !state.empty
@@ -29,7 +30,7 @@ async function mockInbox(page: Page) {
       : path === '/api/context' ? { repos: ['org/a', 'org/b'], jiraEnabled: false, jiraBaseUrl: null }
       : path === '/api/config' ? { config: {}, overridden: [] }
       : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} }
-      : path === '/api/pull-request-inspect/detail' ? { version: 1, target, observedAt: at, title: 'Scoped pull request details', url: `https://github.com/${target.repo}/pull/${target.number}`, status: 'open', draft: false, authorLogin: 'writer', isOwnPr: true, headRefName: 'topic', updatedAt: at, comments: 0,
+      : path === '/api/pull-request-inspect/detail' ? { version: 1, target, observedAt: at, title: 'Scoped pull request details', url: `https://github.com/${target.repo}/pull/${target.number}`, status: state.detailStatus, draft: false, authorLogin: 'writer', isOwnPr: state.own, headRefName: 'topic', updatedAt: at, comments: 0,
         checks: { quality: 'complete', passed: 2, failed: 0, pending: 0 }, reviews: { quality: 'complete', approved: 0, changesRequested: 0, commented: 0, requested: 0, viewerReview: null, viewerReviewedAt: null, viewerReviewedCommitId: null } }
       : path === '/api/pull-request-inspect/diff' ? { version: 1, target, observedAt: at, coverage: 'immutable-comparison-preview', quality: 'complete', truncated: false, files: [] }
       : path === '/api/run-read' ? { version: 1, repo: url.searchParams.get('repo'), items: [{ version: 1, id: 'recent-pr-run', repo: url.searchParams.get('repo'), displayKey: 'PR-42', status: 'succeeded', attempt: 1, startedAt: at, endedAt: at, prNumber: 42, costUsd: null, review: null, sourceSettlement: null }], nextCursor: null }
@@ -37,7 +38,7 @@ async function mockInbox(page: Page) {
       : {};
     return route.fulfill({ json });
   });
-  return { state, scopes, writes };
+  return { state, scopes, writes, errors };
 }
 
 for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode: 'dark' }, { width: 390, mode: 'dark' }, { width: 1440, mode: 'light' }, { width: 390, mode: 'custom' }] as const) test.describe(`Bounties hierarchy at ${width}px in ${mode}`, () => {
@@ -113,6 +114,8 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(panel.locator('.pr-panel')).toBeVisible();
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
     await expect(panel.getByRole('button', { name: 'Explain in Whiteboard', exact: true })).toBeEnabled();
+    const manual = panel.locator('.pr-manual-review'); await expect(manual).not.toHaveAttribute('open', ''); await expect(panel.locator('.pr-slack-review')).toHaveCount(0);
+    await manual.locator(':scope > summary').focus(); await manual.locator(':scope > summary').press('Space'); await expect(manual).toHaveAttribute('open', '');
     await expect(panel.getByRole('button', { name: 'Post comment', exact: true })).toBeEnabled();
     await expect(panel.getByRole('button', { name: 'Update branch with feedback', exact: true })).toBeEnabled();
     const body = panel.locator('[data-draft="body"]'); const feedback = panel.locator('[data-draft="feedback"]');
@@ -158,7 +161,38 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode
     await expect(authored.getByRole('status')).toHaveText('Could not load all pull requests. Refresh page to try again.');
     await expect(authored).not.toContainText('No matching pull requests.');
     expect(f.scopes).toContain('org/a'); expect(f.scopes).toContain('org/b');
-    expect(f.writes).toEqual([]);
+    expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+});
+
+for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 390, mode: 'dark' }, { width: 1440, mode: 'light' }] as const) test.describe(`Selected bounty at ${width}px in ${mode}`, () => {
+  test.use({ viewport: { width, height: 1100 }, hasTouch: width === 390 });
+  test('prioritizes agent work, keeps manual review opt-in and gates Slack on the current connection', async ({ page }) => {
+    page.setDefaultTimeout(10_000);
+    if (mode === 'light') await page.addInitScript(value => localStorage.setItem('cmux.theme.custom', value), JSON.stringify({ version: 3, palette: generateThemePalette(DEFAULT_THEME_GENERATOR_SETTINGS, 'light'), recipe: { settings: DEFAULT_THEME_GENERATOR_SETTINGS, overrides: {} } }));
+    const f = await mockInbox(page); f.state.connected = true;
+    await page.goto('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42');
+    const panel = page.locator('.plugin-public-pr'); const detail = panel.locator('.pr-panel'); const manual = panel.locator('.pr-manual-review'); const context = panel.locator('.pr-provenance'); const refresh = page.getByRole('button', { name: 'Refresh page', exact: true }); const body = detail.locator('.pr-review-body'); const lookup = panel.locator('[data-pr-compat-lookup]');
+    await expect(detail).toHaveAttribute('data-pr-repo', 'org/b'); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(manual).not.toHaveAttribute('open', ''); await expect(context).not.toHaveAttribute('open', ''); await expect(body).not.toBeVisible();
+    await expect(detail.getByRole('button', { name: 'Start deckhand review', exact: true })).toBeVisible(); await expect(detail.getByRole('button', { name: 'Update branch with feedback', exact: true })).toBeVisible();
+    await expect(detail.getByRole('link', { name: /Open (review|branch update) setup/ })).toHaveCount(0);
+    const slack = detail.locator('.pr-slack-review'); await expect(slack).toBeVisible(); const slackHref = await slack.getAttribute('href'); const slackUrl = new URL(slackHref ?? '', 'http://localhost'); expect(slackUrl.searchParams.get('repo')).toBe('org/a'); expect(slackUrl.searchParams.get('prRepo')).toBe('org/b'); expect(slackUrl.searchParams.get('pr')).toBe('42');
+    await expect(detail.locator('.pr-agent-extras').getByRole('button', { name: 'Explain in Whiteboard', exact: true })).toBeVisible();
+    await expectReadableSurfaces(detail, ['.pr-panel-title', '.pr-agent-section h4', '.pr-evidence-count', '.pr-manual-review > summary', '.pr-slack-review', '.pr-review-agent']);
+    await detail.locator('.pr-review-agent').hover(); await expectReadableSurfaces(detail, ['.pr-review-agent']); await page.mouse.move(0, 0);
+    await expectReadableSurfaces(detail, ['.pr-agent-section h4 .pr-phosphor', '.pr-evidence-count .pr-phosphor', '.pr-slack-review .pr-phosphor'], 3);
+    if (width === 390) await page.setViewportSize({ width, height: 1800 }); await page.mouse.move(0, 0); await expect(detail).toHaveScreenshot(`selected-pr-${width}-${mode}.png`); if (width === 390) await page.setViewportSize({ width, height: 1100 });
+    const manualSummary = manual.locator(':scope > summary'); await manualSummary.focus(); await manualSummary.press('Space'); await expect(manual).toHaveAttribute('open', ''); await expect(body).toBeVisible(); await body.fill('Keep this manual review draft while I work with agents.');
+    await context.locator(':scope > summary').focus(); await context.locator(':scope > summary').press('Enter'); await expect(context).toHaveAttribute('open', ''); await expect(context).toContainText('Branch: topic');
+    await manualSummary.focus(); await manualSummary.press('Space'); await refresh.evaluate(element => (element as HTMLButtonElement).click()); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(manual).not.toHaveAttribute('open', ''); await expect(context).toHaveAttribute('open', ''); await expect(manualSummary).toBeFocused(); await expect(body).toHaveValue('Keep this manual review draft while I work with agents.');
+    await lookup.fill('org/b#43'); await lookup.press('Enter'); await expect(detail).toHaveAttribute('data-pr-number', '43'); await expect(manual).not.toHaveAttribute('open', ''); await expect(context).not.toHaveAttribute('open', ''); await expect(body).toHaveValue('');
+    await lookup.fill('org/b#42'); await lookup.press('Enter'); await expect(detail).toHaveAttribute('data-pr-number', '42'); await expect(manual).toHaveAttribute('open', ''); await expect(body).toHaveValue('Keep this manual review draft while I work with agents.');
+    await page.reload(); await expect(manual).toHaveAttribute('open', ''); await expect(body).toHaveValue('Keep this manual review draft while I work with agents.');
+    f.state.connected = false; await refresh.click(); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(slack).toHaveCount(0);
+    f.state.connected = true; f.state.connectionError = true; await refresh.click(); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(slack).toHaveCount(0);
+    f.state.connectionError = false; f.state.own = false; await refresh.click(); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(slack).toHaveCount(0); await expect(detail.locator('.pr-rerun')).toHaveCount(0);
+    f.state.own = true; f.state.detailStatus = 'closed'; await refresh.click(); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(slack).toHaveCount(0); await expect(detail.locator('.pr-review-agent')).toBeDisabled(); await expect(detail.locator('.pr-comment')).toBeDisabled();
+    await expect(page.locator('.repo-select')).toHaveValue('org/a'); expect(f.writes).toEqual([]); expect(f.errors).toEqual([]); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 });

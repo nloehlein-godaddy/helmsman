@@ -77,6 +77,7 @@ test('copied Runs page preserves public PR scope, drafts and command identity an
     await page.route('**/api/config', route => route.request().method() === 'GET' ? route.fulfill({ json: { config: { SLACK_ENABLED: 'true' }, overridden: [] } }) : route.continue());
     await page.goto(`${origin}/prs?repo=org/a&prRepo=org/b&pr=42`);
     const initialPr = page.locator('.pr-lookup-result');
+    await expect(initialPr.locator('.pr-manual-review')).not.toHaveAttribute('open', ''); await initialPr.locator('.pr-manual-review > summary').click();
     await initialPr.locator('.pr-review-body').fill('Review draft retained on authored Runs');
     await initialPr.locator('.pr-rerun-feedback').fill('Feedback retained on authored Runs');
     await initialPr.locator('.pr-comment').click(); await expect(page.locator('[data-pending-kind="review"][data-retry="true"]')).toBeVisible();
@@ -89,7 +90,7 @@ test('copied Runs page preserves public PR scope, drafts and command identity an
     expect(reviews).toHaveLength(1); expect(otherMutations).toEqual([]);
     await runs.locator('[data-pending-kind="review"][data-retry="true"]').click(); await expect.poll(() => reviews.length).toBe(2);
     expect(reviews[1]).toEqual(reviews[0]); expect(reviews[1]?.expectedHeadSha).toBe(target.headSha);
-    await pr.getByRole('link', { name: 'Open review setup ↗', exact: true }).click();
+    await expect(pr.getByRole('link', { name: 'Open review setup ↗', exact: true })).toHaveCount(0);
     await expect(pr.locator('.pr-review-agent')).toBeDisabled();
     await page.reload(); await expect(pr).toBeVisible(); await expect(pr.locator('.pr-review-agent')).toBeDisabled();
     await expect(page.locator('.repo-select')).toHaveValue('org/a');
@@ -100,8 +101,8 @@ test('copied Runs page preserves public PR scope, drafts and command identity an
     } }));
     await runs.locator('[data-pending-kind="review"]:not([data-retry])').click();
     await expect(pr.locator('.pr-review-agent')).toBeEnabled();
-    await navigate(page, targetPath);
-    await pr.getByRole('link', { name: 'Open review setup ↗', exact: true }).click(); await expect(pr.locator('.pr-review-agent')).toBeFocused();
+    await navigate(page, targetPath.replace('mode=rerun', 'mode=review'));
+    await expect(pr.locator('.pr-review-agent')).toBeFocused();
     await page.reload(); await expect(pr).toBeVisible(); await expect(pr.locator('.pr-review-agent')).toBeFocused();
     expect((await layout(page)).instances.map(instance => instance.contributionId)).toEqual(['helmsman.compat-pr/panel', 'helmsman.run-history/panel']);
     const authoredList = runs.locator('details[data-pr-pane="authored"]');

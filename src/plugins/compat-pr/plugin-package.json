@@ -88,6 +88,10 @@
           {
             "id": "helmsman/whiteboard",
             "version": 1
+          },
+          {
+            "id": "helmsman/communication",
+            "version": 1
           }
         ]
       }

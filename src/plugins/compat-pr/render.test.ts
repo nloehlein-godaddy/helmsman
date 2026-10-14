@@ -4,9 +4,11 @@ import { parseLookup, renderDetail, renderList, renderRuns } from './render';
 const detail: PullRequestInspectDetailV1 = { version: 1, target: { repo: 'org/b', number: 42, headSha: 'a'.repeat(40), baseSha: 'b'.repeat(40) }, observedAt: '2026-09-20T12:00:00Z', title: 'Review current work', url: 'https://github.com/org/b/pull/42', status: 'open', draft: false, authorLogin: 'writer', isOwnPr: true, headRefName: 'topic', updatedAt: '2026-09-20T12:00:00Z', comments: 3, checks: { quality: 'complete', passed: 2, failed: 0, pending: 0 }, reviews: { quality: 'complete', approved: 1, changesRequested: 0, commented: 2, requested: 0, viewerReview: 'APPROVED', viewerReviewedAt: '2026-09-19T12:00:00Z', viewerReviewedCommitId: 'c'.repeat(40) } };
 const draft = { body: '', feedback: '', model: '', effort: '' };
 function mount(html: string) { const node = document.createElement('div'); node.innerHTML = html; return node; }
-it('preserves header and explicit PR target in review, rerun and Slack request links', () => {
-  const node = mount(renderDetail(detail, draft, 'org/header', false));
-  for (const link of node.querySelectorAll<HTMLAnchorElement>('a.app-link')) { const url = new URL(link.href, 'http://localhost'); expect(url.searchParams.get('repo')).toBe('org/header'); expect(url.searchParams.get('prRepo')).toBe('org/b'); expect(url.searchParams.get('pr')).toBe('42'); }
+it('preserves header and explicit PR target in the connected Slack link without redundant setup navigation', () => {
+  const node = mount(renderDetail(detail, draft, 'org/header', false, true));
+  const link = node.querySelector<HTMLAnchorElement>('a.pr-slack-review'); expect(link).not.toBeNull();
+  const url = new URL(link!.href, 'http://localhost'); expect(url.searchParams.get('repo')).toBe('org/header'); expect(url.searchParams.get('prRepo')).toBe('org/b'); expect(url.searchParams.get('pr')).toBe('42');
+  expect(node.querySelector('a[href^="/runs"]')).toBeNull(); expect(node.textContent).not.toContain('Open review setup'); expect(node.textContent).not.toContain('Open branch update setup');
   expect(node.textContent).toContain('New commits since review'); expect(node.querySelector('[data-launch="rerun"]')).not.toBeNull();
 });
 it.each([false, null])('does not expose branch-update or Slack publication setup without known ownership %s', isOwnPr => {
@@ -19,6 +21,49 @@ it('escapes provider and draft text and refuses active-content URLs', () => {
 });
 it('retains an explicitly saved custom model instead of silently displaying automatic selection', () => {
   const node = mount(renderDetail(detail, { ...draft, model: 'provider-custom-model' }, null, false)); expect(node.querySelector<HTMLSelectElement>('.pr-model')?.value).toBe('provider-custom-model');
+});
+it.each(['', 'Saved review draft'])('keeps PR context collapsed and opens manual review only for a saved draft %s', body => {
+  const node = mount(renderDetail(detail, { ...draft, body }, null, false));
+  const context = node.querySelector<HTMLDetailsElement>('.pr-provenance'); const manual = node.querySelector<HTMLDetailsElement>('.pr-manual-review');
+  expect(context?.open).toBe(false); expect(context?.dataset.prDisclosure).toBe('org/b#42:context');
+  expect(manual?.open).toBe(Boolean(body)); expect(manual?.dataset.prDisclosure).toBe('org/b#42:manual-review');
+  expect(manual?.querySelector<HTMLTextAreaElement>('[data-draft="body"]')?.value).toBe(body);
+  const other = mount(renderDetail({ ...detail, target: { ...detail.target, repo: 'org/other' } }, draft, null, false));
+  expect(other.querySelector('.pr-manual-review')?.getAttribute('data-pr-disclosure')).toBe('org/other#42:manual-review');
+  expect(node.textContent).not.toContain('signed-in'); expect(node.textContent).not.toContain('Configured author');
+});
+it('groups exact evidence counts and preserves semantic tones without treating zero as unavailable', () => {
+  const node = mount(renderDetail(detail, draft, null, false));
+  const checks = [...node.querySelectorAll('.pr-checks .pr-evidence-count')];
+  expect(checks.map(item => item.textContent)).toEqual(['2 passed', '0 failed', '0 pending']);
+  expect(checks.map(item => item.getAttribute('data-tone'))).toEqual(['good', 'neutral', 'neutral']);
+  expect([...node.querySelectorAll('.pr-panel-status .pr-evidence-count')].map(item => item.textContent)).toEqual(['1 approved', '0 changes requested', '0 awaiting review', '3 discussion comments']);
+  expect(node.querySelector('.pr-evidence-quality')).toBeNull();
+});
+it('shows unavailable evidence as unknown independently of partial checks and unavailable reviews', () => {
+  const node = mount(renderDetail({ ...detail, comments: null, checks: { quality: 'partial', passed: 2, failed: null, pending: null }, reviews: { ...detail.reviews, quality: 'unavailable', approved: null, changesRequested: null, requested: null } }, draft, null, false));
+  expect(node.querySelector('.pr-checks .pr-evidence-quality')?.textContent).toBe('Partial');
+  expect(node.querySelector('.pr-panel-status .pr-evidence-quality')?.textContent).toBe('Unavailable');
+  expect(node.querySelector('.pr-checks')?.textContent).toContain('2 passed'); expect(node.querySelector('.pr-checks')?.textContent).toContain('Unknown failed');
+  expect(node.querySelector('.pr-panel-status')?.textContent).toContain('Unknown discussion comments');
+  expect([...node.querySelectorAll('.pr-evidence-count')].filter(item => item.textContent?.startsWith('Unknown')).every(item => item.getAttribute('data-tone') === 'neutral')).toBe(true);
+});
+it.each([true, false, null])('retains manual GitHub decisions independently of configured-author ownership %s', isOwnPr => {
+  const node = mount(renderDetail({ ...detail, isOwnPr }, draft, null, false));
+  const decisions = [...node.querySelectorAll<HTMLButtonElement>('[data-review]')];
+  expect(decisions.map(button => button.dataset.review)).toEqual(['APPROVE', 'REQUEST_CHANGES', 'COMMENT']);
+  expect(decisions.every(button => !button.disabled)).toBe(true);
+});
+it.each(['closed', 'merged'] as const)('disables review and branch actions and hides Slack for a %s PR', status => {
+  const node = mount(renderDetail({ ...detail, status }, draft, null, false, true));
+  expect([...node.querySelectorAll<HTMLButtonElement>('[data-review],[data-launch]')].every(button => button.disabled)).toBe(true);
+  expect(node.querySelector('.pr-slack-review')).toBeNull();
+});
+it.each([false, undefined])('hides Slack when its connection is disconnected or unknown %s', slackConnected => {
+  const node = mount(renderDetail(detail, draft, null, false, slackConnected)); expect(node.querySelector('.pr-slack-review')).toBeNull();
+});
+it.each([false, null])('hides Slack despite a connection without known configured-author ownership %s', isOwnPr => {
+  const node = mount(renderDetail({ ...detail, isOwnPr }, draft, null, false, true)); expect(node.querySelector('.pr-slack-review')).toBeNull();
 });
 it('keeps approvals, requested changes, and discussion comments distinct from unavailable review counts', () => {
   const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'review-requested', quality: 'partial', truncated: true, browseUrl: null,
@@ -66,7 +111,8 @@ it('keeps recent run history collapsed until requested', () => {
 
 it('keeps labels explicit alongside decorative status and action icons', () => {
   const node = mount(renderDetail({ ...detail, draft: true }, draft, null, false));
-  expect(node.querySelector('.pr-list-status')?.textContent).toBe('Status: open');
+  expect(node.querySelector('.pr-list-status')?.textContent).toBe('open');
+  expect(node.querySelector('.pr-list-status')?.getAttribute('aria-label')).toBe('Status: open');
   expect(node.querySelector('.pr-list-status')?.getAttribute('data-tone')).toBe('review');
   expect(node.querySelector('.pr-draft')?.textContent).toBe('Draft');
   expect(node.querySelector('.pr-request-changes [data-icon="bad"]')).not.toBeNull();

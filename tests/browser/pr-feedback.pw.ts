@@ -28,6 +28,7 @@ async function mockFeedback(page: Page) {
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.compat-pr']) }
       : path === '/api/context' ? { repos: ['org/a', 'org/b'], jiraBaseUrl: null }
       : path === '/api/config' ? { config: {}, overridden: [] }
+      : path === '/api/communication-connection' ? { version: 1, providerId: null, revision: null, status: 'disconnected', message: 'Not connected', accountLabel: null, redirectUri: null }
       : path === '/api/agents' ? { runs: [], autoClaim: [], caps: {} }
       : path === '/api/run-read' ? { version: 1, repo: url.searchParams.get('repo'), items: [], nextCursor: null }
       : path === '/api/vpn-status' ? { version: 1, state: 'unknown', client: 'unknown', network: 'not-configured', checkedAt: at }

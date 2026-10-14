@@ -107,7 +107,7 @@ it('renders unknown counts and patch truncation without inventing completeness',
   const f = await fixture({}, context => {
     vi.mocked(context.services.pullRequestInspect!.detail).mockResolvedValue(available({ ...detail, checks: { quality: 'partial', passed: null, failed: null, pending: null }, reviews: { ...detail.reviews, quality: 'unavailable', approved: null, changesRequested: null, commented: null, requested: null } }));
     vi.mocked(context.services.pullRequestInspect!.diff).mockResolvedValue(available({ version: 1, target: detail.target, observedAt: detail.observedAt, coverage: 'immutable-comparison-preview', quality: 'partial', truncated: true, files: [{ filename: 'large.bin', previousFilename: null, status: 'modified', additions: 0, deletions: 0, patch: null, patchStatus: 'unavailable' }] }));
-  }); await ready(f); expect(f.container.textContent).toContain('unknown passed'); expect(f.container.textContent).toContain('partial file enumeration'); expect(f.container.textContent).toContain('Inline patch unavailable');
+  }); await ready(f); expect(f.container.textContent).toContain('Unknown passed'); expect(f.container.textContent).toContain('partial file enumeration'); expect(f.container.textContent).toContain('Inline patch unavailable');
 });
 it.each(['../private', 'org/..', '-owner/repo', 'org/repo?bad', 'org/repo/extra', 'org/' + 'x'.repeat(101)])('rejects malformed route target before inspection: %s', async repo => {
   const f = await fixture({ savedState: null, routeState: { version: 1, value: { target: { repo, number: 1 }, mode: 'review' } } }); await f.instance.refresh?.(); expect(f.context.services.pullRequestInspect!.detail).not.toHaveBeenCalled();
@@ -179,11 +179,34 @@ it('keeps opaque panel state with unknown fields unchanged during explicit looku
   const f = await fixture({ savedState: { version: 1, value: { target: { repo: 'org/b', number: 42 }, future: true } } }); await f.instance.refresh?.();
   fill(f.container, '[data-pr-compat-lookup]', 'org/b#42'); click(f.container, '[data-load]'); await vi.waitFor(() => expect(f.context.navigate).toHaveBeenCalled()); expect(f.context.saveState).not.toHaveBeenCalled(); expect(f.container.textContent).toContain('unsupported format');
 });
-it('uses the host header default for setup links after the panel receives a different effective scope', async () => {
-  const f = await fixture({ repo: 'org/b', headerRepo: 'org/a' }); await ready(f);
-  const link = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open review setup ↗')!;
-  expect(new URL(link.href).searchParams.get('repo')).toBe('org/a'); expect(new URL(link.href).searchParams.get('prRepo')).toBe('org/b');
-  await f.instance.update({ ...f.state(), headerRepo: null }); const cleared = [...f.container.querySelectorAll<HTMLAnchorElement>('a')].find(link => link.textContent === 'Open review setup ↗')!; expect(new URL(cleared.href).searchParams.has('repo')).toBe(false);
+const connection = (status: 'connected' | 'disconnected' | 'error' | 'unsupported' | 'setup-required') => available({ version: 1 as const, providerId: 'test.communication', revision: '1', status, message: '', accountLabel: null, redirectUri: null });
+it('shows connected Slack action with the header scope and explicit PR target, without duplicate setup links', async () => {
+  const status = vi.fn(async () => connection('connected'));
+  const f = await fixture({ repo: 'org/b', headerRepo: 'org/a' }, context => { Object.assign(context.services, { communication: { version: 1, connectionStatus: status, notifications: vi.fn(), markRead: vi.fn(), settings: vi.fn(), saveSettings: vi.fn() } satisfies NonNullable<PluginPanelContext['services']['communication']> }); }); await ready(f);
+  const link = f.container.querySelector<HTMLAnchorElement>('.pr-slack-review')!;
+  expect(new URL(link.href).searchParams.get('repo')).toBe('org/a'); expect(new URL(link.href).searchParams.get('prRepo')).toBe('org/b'); expect(new URL(link.href).searchParams.get('pr')).toBe('42');
+  expect(f.container.textContent).not.toContain('Open review setup'); expect(f.container.textContent).not.toContain('Open branch update setup'); expect(f.container.textContent).not.toContain('signed-in GitHub account');
+  expect(status).toHaveBeenCalledWith(expect.any(AbortSignal)); expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled();
+  await f.instance.update({ ...f.state(), headerRepo: null }); expect(new URL(f.container.querySelector<HTMLAnchorElement>('.pr-slack-review')!.href).searchParams.has('repo')).toBe(false);
+  status.mockResolvedValue(connection('disconnected')); await f.instance.refresh?.(); expect(f.container.querySelector('.pr-slack-review')).toBeNull();
+});
+it.each(['disconnected', 'error', 'unsupported', 'setup-required'] as const)('hides Slack when connection is %s', async status => {
+  const f = await fixture({}, context => { Object.assign(context.services, { communication: { version: 1, connectionStatus: vi.fn(async () => connection(status)), notifications: vi.fn(), markRead: vi.fn(), settings: vi.fn(), saveSettings: vi.fn() } satisfies NonNullable<PluginPanelContext['services']['communication']> }); }); await ready(f); expect(f.container.querySelector('.pr-slack-review')).toBeNull();
+});
+it('keeps PR controls usable when the optional connection read fails', async () => {
+  const f = await fixture({}, context => { Object.assign(context.services, { communication: { version: 1, connectionStatus: vi.fn(async () => { throw new Error('offline'); }), notifications: vi.fn(), markRead: vi.fn(), settings: vi.fn(), saveSettings: vi.fn() } satisfies NonNullable<PluginPanelContext['services']['communication']> }); }); await ready(f); expect(f.container.querySelector('.pr-slack-review')).toBeNull(); expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+});
+it('does not block inspection or agent actions while the connection read is pending', async () => {
+  const f = await fixture({}, context => { Object.assign(context.services, { communication: { version: 1, connectionStatus: vi.fn(() => new Promise(() => {})), notifications: vi.fn(), markRead: vi.fn(), settings: vi.fn(), saveSettings: vi.fn() } }); });
+  await ready(f); expect(f.container.querySelector('.pr-panel-title')?.textContent).toBe('Public PR'); expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false); expect(f.container.querySelector('.pr-slack-review')).toBeNull();
+});
+it('ignores a stale connected result after hiding and a disconnected refresh', async () => {
+  let resolve!: (value: ReturnType<typeof connection>) => void;
+  const pending = new Promise<ReturnType<typeof connection>>(done => { resolve = done; });
+  const status = vi.fn().mockReturnValueOnce(pending).mockResolvedValue(connection('disconnected'));
+  const f = await fixture({}, context => { Object.assign(context.services, { communication: { version: 1, connectionStatus: status, notifications: vi.fn(), markRead: vi.fn(), settings: vi.fn(), saveSettings: vi.fn() } satisfies NonNullable<PluginPanelContext['services']['communication']> }); });
+  const signal = status.mock.calls[0]?.[0] as AbortSignal; await f.instance.update({ ...f.state(), visible: false }); expect(signal.aborted).toBe(true);
+  await f.instance.update({ ...f.state(), visible: true }); await ready(f); resolve(connection('connected')); await Promise.resolve(); await Promise.resolve(); expect(f.container.querySelector('.pr-slack-review')).toBeNull();
 });
 it('preserves a legacy saved explicit target when its old layout still inherits a different header', async () => {
   const f = await fixture({ repo: 'org/a', headerRepo: 'org/a', activity: { epoch: 1, active: true, repo: 'org/a', signal: new AbortController().signal } }); await f.instance.refresh?.(); await ready(f);
@@ -255,4 +278,18 @@ it.each(['authored-list', 'review-requests-list'])('retains both closed and reop
   expect(f.container.querySelector<HTMLDetailsElement>(selector)?.open).toBe(true); expect(document.activeElement).toBe(f.container.querySelector(`${selector}>summary`));
   expect(f.container.querySelector<HTMLDetailsElement>('[data-pr-disclosure="recent-runs"]')?.open).toBe(false);
   expect(f.context.services.pullRequestCommands?.submit).not.toHaveBeenCalled(); expect(f.context.services.runCommands?.submit).not.toHaveBeenCalled();
+});
+
+it('preserves context and manual review disclosure choices and summary focus through refresh', async () => {
+  const f = await fixture(); await ready(f);
+  const manual = f.container.querySelector<HTMLDetailsElement>('.pr-manual-review')!;
+  const context = f.container.querySelector<HTMLDetailsElement>('.pr-provenance')!;
+  expect(manual.open).toBe(false); expect(context.open).toBe(false);
+  manual.open = true; context.open = true; manual.querySelector('summary')!.focus();
+  await f.instance.refresh?.();
+  expect(f.container.querySelector<HTMLDetailsElement>('.pr-manual-review')?.open).toBe(true); expect(f.container.querySelector<HTMLDetailsElement>('.pr-provenance')?.open).toBe(true);
+  expect(document.activeElement).toBe(f.container.querySelector('.pr-manual-review>summary'));
+  fill(f.container, '.pr-review-body', 'Saved review'); f.container.querySelector<HTMLDetailsElement>('.pr-manual-review')!.open = false;
+  await f.instance.refresh?.(); expect(f.container.querySelector<HTMLDetailsElement>('.pr-manual-review')?.open).toBe(false);
+  f.lifetime.abort(); const next = await fixture(); await ready(next); expect(next.container.querySelector<HTMLDetailsElement>('.pr-manual-review')?.open).toBe(true);
 });

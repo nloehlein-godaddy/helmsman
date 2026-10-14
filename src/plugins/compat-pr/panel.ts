@@ -36,6 +36,7 @@ class PrPanel implements PluginPanelInstance {
   private pendingReviews: readonly PullRequestCommandPendingV1[] = [];
   private pendingRuns: readonly RunCommandPendingV1[] = [];
   private journalsReady = false;
+  private slackConnected = false;
   private loading = false;
   private busy = false;
   private error = '';
@@ -68,7 +69,7 @@ class PrPanel implements PluginPanelInstance {
     if (context.signal.aborted) this.dispose(); else { this.draw(); void this.refresh(); }
   }
   private active(generation = this.generation) { return !this.disposed && !this.context.signal.aborted && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
-  private cancel = () => { ++this.generation; this.controller?.abort(); this.controller = null; this.loading = false; for (const stop of this.watches) stop(); this.watches = []; this.watchKey = ''; };
+  private cancel = () => { ++this.generation; this.controller?.abort(); this.controller = null; this.slackConnected = false; this.loading = false; for (const stop of this.watches) stop(); this.watches = []; this.watchKey = ''; };
   dispose = () => {
     if (this.disposed) return; this.disposed = true; this.cancel(); this.unsubscribe(); this.whiteboard.dispose();
     this.context.signal.removeEventListener('abort', this.dispose); this.state.activity.signal.removeEventListener('abort', this.cancel);
@@ -228,6 +229,14 @@ class PrPanel implements PluginPanelInstance {
         const matches = result.value.items.filter(run => run && run.prNumber !== null && (repo === null || run.repo === repo)); this.runs = matches.slice(0, 10); this.moreRuns = result.value.nextCursor !== null || matches.length > 10; this.runsError = '';
       } catch { if (this.active(generation)) this.runsError = 'Recent PR runs unavailable.'; }
     };
+    const communication = async () => {
+      try {
+        const service = this.context.services.communication;
+        const result = service?.version === 1 ? await service.connectionStatus?.(controller.signal) : null;
+        if (this.active(generation)) { this.slackConnected = result?.status === 'available' && result.value?.status === 'connected'; this.draw(); }
+      } catch { if (this.active(generation)) this.slackConnected = false; }
+    };
+    void communication();
     await Promise.all([list('review-requested', 'requested'), list('authored-recent', 'authored'), detail(), runs(), this.journals().catch(() => { if (this.active(generation)) { this.journalsReady = false; this.error = 'Command journal unavailable. Existing requests are kept.'; } })]);
     if (this.active(generation)) { this.loading = false; this.readDraft(); this.draw(); this.watch(); }
   };
@@ -323,11 +332,11 @@ class PrPanel implements PluginPanelInstance {
     const headerRepo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
     this.container.innerHTML = `<section class="plugin-public-pr" aria-busy="${this.loading}"><style>${styles}</style>${composed ? '' : '<div class="pr-panel-tools"><button data-refresh>Refresh panel</button></div>'}
       ${this.unsupported ? '<p role="alert">Saved panel state uses an unsupported format. Its original data is kept.</p>' : ''}<p role="alert" data-storage-error>${esc(this.storageError)}</p><button data-save-draft${this.storageError ? '' : ' hidden'}>Save current draft</button>${this.error ? `<p role="alert" class="pr-review-error">${prIcon('bad')}${esc(this.error)}</p>` : ''}${this.result ? `<p role="status" class="pr-command-result">${esc(this.result)}</p>` : ''}
-      <section class="pr-lookup-panel panel" data-pr-pane="lookup"><div class="pr-lookup-heading"><h3>${prIcon('inspect')}${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3>${this.selected || this.closePending ? '<button data-close-inspection>Close inspection</button>' : ''}</div>${this.state.activity.repo !== headerRepo ? `<p class="pr-scope-override">Inspection scope: ${esc(this.state.activity.repo ?? (this.state.pirateMode ? 'All galleons' : 'All repositories'))}</p>` : ''}<div class="pr-lookup-form"><label class="interface-field">Pull request number, URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup placeholder="PR number, #number, URL or owner/name#number" value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>${prIcon('inspect')}Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, headerRepo, this.state.pirateMode) : this.selected ? `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : `Pull request unavailable. ${refreshLabel} to retry.`}</p>` : ''}</div></section>${this.diff ? renderDiff(this.diff) : ''}
+      <section class="pr-lookup-panel panel" data-pr-pane="lookup"><div class="pr-lookup-heading"><h3>${prIcon('inspect')}${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3>${this.selected || this.closePending ? '<button data-close-inspection>Close inspection</button>' : ''}</div>${this.state.activity.repo !== headerRepo ? `<p class="pr-scope-override">Inspection scope: ${esc(this.state.activity.repo ?? (this.state.pirateMode ? 'All galleons' : 'All repositories'))}</p>` : ''}<div class="pr-lookup-form"><label class="interface-field">Pull request number, URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup placeholder="PR number, #number, URL or owner/name#number" value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>${prIcon('inspect')}Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, headerRepo, this.state.pirateMode, this.slackConnected) : this.selected ? `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : `Pull request unavailable. ${refreshLabel} to retry.`}</p>` : ''}</div></section>${this.diff ? renderDiff(this.diff) : ''}
       <div class="pr-inbox">${renderList('review-requested', this.lists.requested, this.listErrors.requested, this.state.pirateMode, refreshLabel)}${renderList('authored-recent', this.lists.authored, this.listErrors.authored, this.state.pirateMode, refreshLabel)}</div>${renderRuns(this.runs, this.moreRuns, this.runsError, this.state.pirateMode)}
       <section aria-label="Retained pull request commands">${this.pendingMarkup()}</section><section aria-label="Saved command results">${this.savedResults()}</section></section>`;
     this.whiteboard.update(this.state, this.detail ? { kind: 'pull-request', ...this.detail.target } : null);
-    this.container.querySelector('.pr-lookup-result')?.append(this.whiteboard.element);
+    (this.container.querySelector('.pr-agent-extras') ?? this.container.querySelector('.pr-lookup-result'))?.append(this.whiteboard.element);
     if (focused?.isConnected && this.whiteboard.element.contains(focused)) focused.focus({ preventScroll: true });
     for (const detail of this.container.querySelectorAll<HTMLDetailsElement>('details')) { const key = disclosureKey(detail); if (key !== null && disclosures.has(key)) detail.open = disclosures.get(key) ?? detail.open; }
     if (!this.active() || this.busy) this.container.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = true; }); this.paintSafety();
