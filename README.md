@@ -6,21 +6,65 @@ approval gate before anything merges — running multiple agents across repos, w
 run per repo by default and explicit opt-in for independent parallel work. The dashboard (backlog queue, current run, Ship’s log, shipped PRs)
 is the view; the **Helmsman server** behind it spawns and supervises the agents.
 
-The **Helm** dashboard defaults to Quarterdeck: sea-blue panels, wood-brown trim, brass
-fleet readouts, and a ship-wheel startup animation with compass bearings and course plotting.
+The **Helm** dashboard brings together tasks, active agents, PRs and live logs. Its panels
+can be rearranged, and one personal theme controls the interface. Pirate mode switches
+application labels between nautical and plain language.
 
-## Status
+## Quickstart
 
-- **Built (P0–P6):** the Helmsman server, SQLite run store, dashboard API, and agent execution — launch a ticket, run it in an isolated git worktree,
-  stream its events to a live log drawer, and record the run (P0–P1); Jira status
-  writes with an In-Review gate (P2); a multi-agent running view with per-run stop
-  and live logs (P3); an opt-in per-repo auto-claim scheduler (P4); a generic-command
-  adapter plus hardening — crash recovery, orphaned-worktree sweep, and cost/attempt
-  caps (P5); and a full UI control plane — launch any ticket or a free-form task, a
-  recent-runs history, and a live non-secret config editor (P6); and PR controls —
-  view any PR's status/CI/review decision, approve / request-changes / comment, and
-  re-run the agent on an existing PR branch with feedback (P7). The agent opens a PR
-  and **never merges**.
+Requires **Node.js 22.12+ on the 22 release line, or Node.js 24+**, npm and Git.
+
+```sh
+git clone https://github.com/nloehlein-godaddy/helmsman.git
+cd helmsman
+npm ci
+cp .env.example .env
+```
+
+Skip the copy if you already have a `.env`; keep existing credentials and saved runtime data.
+Edit `.env` before starting:
+
+- Set `AGENTS_ROOT` to the parent directory of your local galleon checkouts. For
+  `your-org/your-repo`, Helmsman expects `<AGENTS_ROOT>/your-repo`; it does not clone it.
+- Set `GITHUB_TOKEN`, `GITHUB_PR_AUTHOR` and `GITHUB_REPO` for your GitHub account and
+  galleon. Replace the example `REPO_PROJECT_MAP` with your mappings, or leave it empty
+  if you do not use Jira. Organization tokens may require SSO authorization.
+- To launch agents, install the selected agent CLI and configure `GOCAAS_API_KEY` or
+  `GOCAAS_API_KEY_HELPER`. The default helper is `~/.gocode/bin/gocode`; CLI sign-in
+  alone does not configure Helmsman's [managed model route](docs/model-routing.md).
+  Install the required trusted `review-agent` skill (for example,
+  `~/.codex/skills/review-agent/SKILL.md`) and ensure every selected reviewer CLI is
+  installed. The default coding review gate selects both Codex and Claude Code. For
+  a Codex-only setup, explicitly choose it before starting the server:
+  `npm run plugins -- select-agent-reviewers helmsman.agent-codex/codex`.
+  Missing required skills or selected reviewers block review preparation.
+- Jira and Slack are optional. Leave their credentials blank if unused, and keep both
+  automatic review watchers disabled until you have verified a manual run.
+
+```sh
+npm run dev
+```
+
+Open **http://localhost:43872**, select your galleon, then check its GitHub connection
+and local checkout under **Config**. The API runs at **http://127.0.0.1:43871**.
+Open **Bounties** (plain mode: **PRs**) to inspect a PR and start a review, or use
+**Helm → New voyage** (plain mode: **New run**) for task work. Starting a review can
+publish comments to GitHub; opening a page or inspecting a PR does not start one.
+Missing integrations show unavailable or partial data, without sample-data fallback.
+
+See [First-time setup](#first-time-setup) for credentials and checkout requirements,
+[Configuration](#configuration) for settings, and the
+[independent plugin quickstart](docs/plugin-quickstart.md) for authoring extensions.
+
+## Features
+
+- Jira and local Todos, manual task launches, and opt-in automatic starts.
+- Isolated worktrees, durable run history, live logs, recovery, and bounded concurrency.
+- Independent review before new coding voyages publish a PR; agents never merge.
+- PR inspection, direct/team review inboxes, manual GitHub reviews, feedback updates
+  and optional automatic reviews from GitHub or Slack.
+- Global native-terminal viewing/control, configurable agent prompts, personal themes
+  and replaceable page, provider, workflow and execution-host plugins.
 
 ## Plugin implementation status
 
@@ -42,7 +86,7 @@ Start with the [independent plugin quickstart](docs/plugin-quickstart.md), [pack
 
 The [authored question/contact guide](docs/authored-clarifications.md) describes the selected `/clarifications` composition, conditional draft/result saves and its always-visible compatibility recovery link. Original drafts and pending requests remain under their original caller in the independently buildable recovery package; the alias does not import or replay them. Renamed copies use their own storage namespace and request journals. The [public PR page and provider guide](docs/pull-request-authoring.md) describes independently buildable PR presentation, replaceable GitHub integration and durable manual-review requests. `/prs` and `/pr` select an authored composition. The [Runs package](src/plugins/runs/README.md) composes the public PR and history panels; separate header, PR and run targets remain intact. The [Communication authoring guide](docs/communication-authoring.md) covers the selected `/communication` composition, notification header, scoped reads and revision-checked settings, caller-owned exact retry, durable Slack requests, and the independently buildable Slack provider.
 
-The [Terminal authoring guide](docs/terminal-authoring.md) covers the selected `/terminal` composition and `/cmux` alias, header and explicit panel scope, revision-bound list/screen/control operations, bounded visible polling, explicit keyboard control, and durable browser/server receipts. Receipt checks never send input, and uncertain controls require inspection before the operator explicitly resumes later controls; the public service has no retry API.
+The [Terminal authoring guide](docs/terminal-authoring.md) covers the selected `/terminal` composition and `/cmux` alias, global terminal scope, revision-bound list/screen/control operations, bounded visible polling, explicit keyboard control, and durable browser/server receipts. Receipt checks never send input, and uncertain controls require inspection before the operator explicitly resumes later controls; the public service has no retry API.
 
 The [Campaign authoring guide](docs/campaigns-authoring.md) covers replaceable campaign presentation, revision-checked mutations, explicit import previews, durable receipts and exact-request recovery. Core retains durable execution coordination; [trigger extraction](docs/trigger-authoring.md), reviewed and pushed through `12a62c9`, moves candidate ordering into a separately selected policy.
 
@@ -51,7 +95,7 @@ The [Local Git authoring guide](docs/local-git-authoring.md) covers scoped branc
 ## Stack
 
 TypeScript (strict). A **Vite** front end (pure logic in `src/logic/`, unit-tested with
-Vitest; `src/render.ts` owns the DOM) plus a persistent **Helmsman Node server**
+Vitest; the shell and authored page/panel packages own their DOM) plus a persistent **Helmsman Node server**
 (`server/helmsman/`, `node:http` + `node:child_process`) that serves the API, owns a
 **SQLite** run store (better-sqlite3), and spawns agents in per-run git worktrees. No
 runtime framework.
@@ -69,78 +113,49 @@ The old `/api/dashboard`, `/api/triage`, `/api/bugs` and private PR routes retur
 ## Commands
 
 ```bash
-npm install
-npm run dev          # Helmsman (:43871) + Vite UI (:43872, proxies /api)
-npm run helmsman     # Helmsman server only
-npm run build        # production build to dist/
-npm test             # vitest
+npm ci                       # install the lockfile's dependencies
+npm run dev                  # API :43871 + Vite UI :43872, proxies /api
+npm run helmsman             # server; serves dist/ when built
+npm run build                # TypeScript check + browser build to dist/
+npm run build:distribution   # runnable server, UI, SDK and plugins in release/
+npm run plugins -- list      # inspect installed plugin packages
+npm test                     # unit tests
+npm run test:browser         # browser tests
+npm run test:distribution    # build + standalone distribution checks
 ```
 
-## Background: the agent this dashboard watches
+## Execution flow
 
-This is the UI half of a pattern for autonomous internal-dev-tooling agents —
-not a customer-facing product, not a general orchestration framework. The
-target use case: a coding agent that works a Jira backlog unattended, opens a
-PR per ticket, and hands off to a human at the review gate before anything
-merges.
+1. Select a task from Jira or local Todos, enter a free-form task, or inspect an existing PR.
+2. Core checks scope, credentials, retained requests, budgets and capacity, then records
+   the run in SQLite and prepares an isolated git worktree.
+3. The selected agent works through the retained workflow. New coding voyages pass
+   independent review before Helmsman pushes the reviewed commit and opens a PR.
+4. Follow progress in the shared log viewer. Jira and Todos retain their own task state;
+   SQLite retains execution, receipts, recovery and run history.
+5. Review the result on GitHub. Helmsman never merges PRs.
 
-This section records the original Jira-only motivation. The current runtime also owns durable execution, claims, command receipts and recovery in SQLite; local Todos own their task state there. See the current [task-source contract](docs/task-source-authoring.md) and [Recovery guide](docs/recovery.md).
-
-### Why not LangGraph / Temporal / CrewAI / an agent framework
-
-Those solve problems this doesn't have. Internal tooling failures are cheap —
-a bad run gets retried, nobody's paged. There's no multi-tenant state to
-coordinate, no cross-service durability requirement, no need for crash-safe
-mid-task resume unless a single ticket routinely spans many hours. Bringing in
-a framework's checkpointing/replay machinery here would be solving for
-durability nobody asked for. The right amount of infrastructure is closer to
-"a scheduled job plus two APIs that already track state" than "a new
-distributed system."
-
-### The actual loop
-
-**State store = Jira, not a new database.** Ticket status *is* the state
-machine — `Backlog → In Progress → In Review → Done` — and it's already the
-view your human reviewers use. Don't shadow it with a parallel SQLite/Postgres
-tracker; that's a second source of truth to keep in sync for no benefit.
-
-```
-heartbeat wakes (cron / Claude Code /schedule, not a standing daemon) →
-  any ticket assigned to the bot still "In Progress"?
-    yes → resume/retry it (never double-claim)
-    no  → query the backlog (JQL, priority order, label-gated to
-          "agent-eligible" so nothing sensitive gets auto-picked)
-        → claim the top one, assign to bot, transition → "In Progress"
-  work it: explore the repo → implement → run tests → open a PR,
-  link the PR back to the ticket
-  transition ticket → "In Review"
-  loop back to the top, claim the next one
-```
-
-**Single-flight per repo.** Multiple tickets against the same codebase in
-parallel just means merge conflicts and wasted work. Parallelize across
-repos if you need throughput; serialize within one.
-
-**The human gate is real, not cosmetic.** PR opened + ticket → "In Review" *is*
-the gate — the agent never merges to main. Same read/write split this
-dashboard's "Working on" panel calls out: investigation (explore, read, run
-tests) is unrestricted; anything that writes — branch push, PR open — is the
-only gated surface, and merge itself is always a human action.
-
-**When this would earn a heavier framework**: tickets start requiring
-multi-session work with real crash-safe resume, or you need explicit
-dependency ordering between tickets (ticket B can't start until ticket A
-merges — that's a dependency graph, not a queue). Until then, Jira-as-state +
-a bounded per-ticket agent session is the whole architecture.
+Each galleon permits one run by default; **Config → Execution settings** can explicitly
+allow independent parallel work within the global concurrency cap. Failed or stopped
+work may retain its worktree and artifacts for recovery. See [Recovery](docs/recovery.md)
+and the [workflow diagrams](docs/helmsman-process.md).
 
 ## First-time setup
 
 1. Install **Node.js 22.12+ on the 22 release line, or Node.js 24+**, npm, and Git.
    These versions satisfy the current Vite and `better-sqlite3` requirements. If npm cannot use a prebuilt
    SQLite binary, install your platform's native build tools (Xcode Command Line Tools
-   on macOS). Install and sign in to the agent CLI you intend to use: `codex` (default),
-   `claude`, or the executable for the `command` adapter. It must be available on the
-   Helmsman server's `PATH`. Install and authenticate GitHub CLI (`gh auth login`) for
+   on macOS). Install `codex` (default) or `claude` on the Helmsman server's `PATH`.
+   The shipped generic command adapter remains available for legacy recovery but does
+   not support new managed runs. Managed model calls require `GOCAAS_API_KEY` or an executable
+   `GOCAAS_API_KEY_HELPER` (default: `~/.gocode/bin/gocode`). Codex and Claude use fresh
+   per-run configuration; signing into their CLI alone is insufficient. See
+   [model routing](docs/model-routing.md) for supported endpoints and authentication.
+   Install the trusted `review-agent` skill in a local skills directory such as
+   `~/.codex/skills/review-agent/`. Helmsman also searches `.codex/skills`,
+   `.claude/skills` and `.agents/skills` under its working directory and your home.
+   Every selected reviewer CLI must be available; a missing skill or reviewer blocks
+   the review gate. Install and authenticate GitHub CLI (`gh auth login`) for
    coding agents that open or update PRs. Git must also be able to fetch your private
    repositories using your SSH key or HTTPS credential helper.
 2. From the Helmsman checkout, run:
@@ -150,8 +165,9 @@ a bounded per-ticket agent session is the whole architecture.
    cp .env.example .env
    ```
 
-   Keep `.env` local. It is required by the server, even if you leave credentials blank
-   to explore the degraded/demo dashboard. Run subsequent npm commands from this directory.
+   Keep `.env` local and do not overwrite an existing file. The file is optional when
+   configuration is supplied by the parent environment. Missing credentials leave the
+   affected integrations unavailable. Run subsequent npm commands from this directory.
 3. Create a parent directory for the repositories Helmsman will work in, and clone each
    repository into a directory matching its **repository name**, without the owner:
 
@@ -160,11 +176,12 @@ a bounded per-ticket agent session is the whole architecture.
    git clone git@github.com:your-org/your-repo.git /absolute/path/to/agent-repos/your-repo
    ```
 
-   Set `AGENTS_ROOT=/absolute/path/to/agent-repos` in `.env`. A configured repository
+   Add `AGENTS_ROOT=/absolute/path/to/agent-repos` to `.env`. A configured repository
    `your-org/your-repo` resolves to `<AGENTS_ROOT>/your-repo`; its agent worktrees live
    under `<AGENTS_ROOT>/your-repo/.worktrees/<run-id>`. Helmsman does not clone missing
-   repositories. Use an ordinary checkout with an `origin` pointing to that GitHub
-   repository. Repositories with the same name under different owners cannot share
+   repositories. Use an ordinary checkout with matching GitHub fetch and push URLs
+   on its remote. Publication prefers `origin`; otherwise exactly one remote must match.
+   Repositories with the same name under different owners cannot share
    this directory layout. Install each target project's dependencies as its own README
    requires, and verify its build/test commands before launching a voyage.
 4. Configure GitHub in `.env`. Create a [personal access token](https://github.com/settings/tokens)
@@ -192,8 +209,10 @@ a bounded per-ticket agent session is the whole architecture.
    the site's `/rest/api/3` endpoints. Set `JIRA_PROJECT` and, if needed,
    `JIRA_ASSIGNEE`. To assign ticket work to a bot, obtain its Jira `accountId` from
    the account's profile or Jira user API and set `BOT_ACCOUNT_ID`; this is not its
-   email address. Match the `JIRA_STATUS_*` values to your workflow's actual status
-   names. Map each tracked repository to its Jira project:
+   email address. Without an explicit claim account, the source uses the authenticated
+   Jira account. Match the `JIRA_STATUS_*` values to your workflow's actual status names.
+   These values initialize the Jira source once; afterwards edit its policy in
+   **Config → Source settings**. Map each tracked repository to its Jira project:
 
    ```dotenv
    REPO_PROJECT_MAP=your-org/your-repo=PROJECT,your-org/another-repo=OTHER
@@ -201,12 +220,12 @@ a bounded per-ticket agent session is the whole architecture.
 
    Replace the organization-specific examples in `.env.example` with your values.
    Jira is optional for PR reviews and free-form voyages. Leave its credentials blank
-   if you do not use it; Jira panels will identify their data as degraded.
+   if you do not use it; Jira panels will identify unavailable data.
 6. Leave both review watchers disabled for the initial check. Run `npm run dev` and open
    the printed Vite URL (normally `http://localhost:43872`). The API listens on
-   `127.0.0.1:43871` by default. Open **Config**, select a repository, and verify the
-   **Local branches & worktrees** card resolves the expected checkout. Check Helm/PR
-   for live data and source-error banners. Resolve credential, checkout, and agent CLI
+   `127.0.0.1:43871` by default. Select a galleon in the header, open
+   **Config → Local branches & worktrees**, and verify the expected checkout.
+   Check Helm/Bounties for live data and source errors. Resolve credential, checkout, and agent CLI
    errors before enabling automatic work. Saving a Config row applies only that row.
 7. When ready, launch a deliberate manual voyage or PR review, then follow
    [Automatic PR reviews](#automatic-pr-reviews) to enable either optional watcher.
@@ -221,18 +240,34 @@ The server serves `dist/` and the API together; `npm run preview` alone is not t
 Helmsman backend. To apply server source or `.env` changes during development,
 stop and restart `npm run dev`; the server process is not a file watcher.
 
+For an installation independent of the source checkout:
+
+```sh
+npm run build:distribution
+node /absolute/path/to/helmsman/release/server/helmsman/main.js
+```
+
+Run the compiled server from a separate data directory containing your optional `.env`.
+Keep databases, run files and worktrees outside `release/`. The distribution is specific
+to its build OS, CPU architecture and Node major. See [Distribution](docs/distribution.md)
+for upgrades, compiled plugin CLI commands and safe-start recovery.
+
+The examples below use `npm run plugins -- <command>` from the source checkout. For a
+compiled installation, use `node /absolute/path/to/release/server/helmsman/plugins/cli.js <command>`.
+
 ### Polling and external requests
 
 The client loads repository metadata from the local `/api/context` endpoint.
-GitHub lists refresh at most every five minutes while Helm or PR is visible. Hidden pages
-pause polling; returning to a page refreshes only data that is due. Local run status
-and notifications update every 30 seconds while visible. Config does not repeatedly
+Visible PR lists and run summaries poll the local server every five seconds; GitHub
+list reads share a server-side cache of up to five minutes. Hidden panels pause polling.
+Notifications poll every 15 seconds while visible, and the open log viewer polls every
+two seconds while following output. Config does not repeatedly
 reload settings or scan local worktrees. The selected cmux screen refreshes every two
 seconds only while its page is visible.
 
 Helm shows the latest 10 completed voyages in the current scope. **All voyages**
-opens the full history, with 25 entries per page and Previous/Next controls.
-Changing galleons resets history to page one; polling keeps the current page.
+opens the full history, with up to 50 entries per page and Previous/Next controls.
+Changing galleons or the status filter starts a new history observation.
 Paging preserves the PR lookup draft and any open voyage logs.
 
 The server shares GitHub list and review-history reads across tabs for five minutes,
@@ -245,11 +280,12 @@ periods above remain fixed in code. The selected scheduling plugin owns the sepa
 
 ## Running agents
 
-Click **Launch** on a backlog ticket (or `POST /api/agents/launch {ticketId,title,repo}`).
-Helmsman creates a git worktree under `AGENTS_ROOT`, spawns the configured agent
-(default: Codex) in it, streams the agent's events to a live log
-drawer over SSE (`GET /api/agents/:id/log`), records the run in SQLite, and removes the
-worktree when it finishes. `POST /api/agents/:id/stop` SIGTERMs a run. One run per repo by
+Launch a ready task from Helm or Todos, or start a PR review from Bounties.
+Helmsman creates a git worktree under `AGENTS_ROOT`, starts the selected agent
+(default: Codex), records the run in SQLite, and exposes its output in the shared log
+viewer. The viewer uses bounded polling through public run services; stop and retry
+controls retain durable command receipts. Completed worktrees are cleaned up when safe;
+failed, stopped or otherwise retained work stays available for recovery. One run per repo by
 default; Execution settings can opt into independent parallel runs. Global concurrency
 is capped by `AGENT_MAX_CONCURRENCY`, and task/branch/PR/workspace collisions remain blocked. The agent opens a PR and
 never merges — the human review gate is real.
@@ -275,7 +311,7 @@ not duplicate it. Human-written reviews submitted through the UI keep their own 
 
 Every new coding voyage implements and commits locally, then passes an adversarial
 review before Helmsman pushes the branch or opens a PR. Select the complete ordered
-reviewer list with `helmsman plugins select-agent-reviewers <plugin/id,...>`. Every
+reviewer list with `npm run plugins -- select-agent-reviewers <plugin/id,...>`. Every
 selected reviewer must be available and complete its review; a failure cannot
 silently reduce the gate. The selected workflow package owns prompt templates and
 guarded stage sequencing. Configure `maxRounds` (1–5) and `stageTimeoutMinutes`
@@ -331,11 +367,12 @@ The PR-creation agent must not request code owners, teams, or human reviewers,
 including through review mentions. GitHub's automatic CODEOWNERS rules can still
 add reviewers.
 
-Opening a voyage shows a bounded preview of its latest 300 log entries. Updates
-are batched to keep the browser responsive; long entries are shortened in the
-preview. **Download full log** retrieves all persisted output, including earlier
+Opening a voyage loads its latest 50 log entries. The preview retains at most 300
+entries as updates or older pages arrive; long entries are shortened for display. **Download full log** retrieves all persisted output, including earlier
 entries and full-length lines. For an active run, the download is a snapshot at
-the time it is requested. Completed voyages close their log streams.
+the time it is requested. The viewer follows the latest output by default; scrolling away
+pauses following, and **Earlier logs** loads older entries. Collapsing the viewer pauses
+its log polling.
 
 Output uses the selected theme's background, text, and syntax colors. Commands,
 JSON, code snippets, and diffs receive lightweight highlighting; errors keep a
@@ -353,28 +390,42 @@ to see the full value. Links and log downloads continue to use the full run ID.
 
 ### PR controls
 
-PR panes show the title, author, overall state, checks, and your submitted review
-status. Approval progress shows the two required distinct reviewers (for example,
-`1/2 approvals · 1 needed`). Dismissed approvals do not count, and outstanding
-change requests remain visible even when two approvals have been received. This
-counts reviews; GitHub still enforces other merge requirements. Ownership and
-personal review status use `GITHUB_PR_AUTHOR`. Relaunch with
-feedback is available only for your own PRs in a configured local repository;
-crew code review remains available for other authors' PRs. A later comment does
-not clear an existing approval or change request.
+PR inspection shows the title, author, state, checks and your submitted review status.
+Expandable sections show discussion comments and requested changes; reviewer and check
+counts expose their available details. Unknown or partial evidence remains labeled.
+GitHub enforces the galleon's merge requirements; Helmsman does not infer a fixed
+number of required approvals.
 
-The **PR** tab lists **Review requests** and **My recent pull requests** (including your open PRs) above the review controls. Review requests include requests addressed directly to you and to your GitHub teams; team matching requires the authenticated account to match the configured GitHub author. Incomplete team membership or PR scans are reported as partial coverage. When GitHub omits organization data because the token needs SSO authorization, the list identifies that requirement instead of treating the returned memberships as complete. Open authored rows show current approval and change-request counts, plus GitHub discussion-comment counts. Unavailable review history stays unknown rather than zero. Select a row to load its details and diff. The **Helm** page keeps **Open PRs** for the selected repository, including every author; select a repository to populate it. Lists report loading, unavailable, empty, and partial-result states independently.
+The **Bounties** tab (**PRs** with Pirate mode off) starts with PR inspection, followed
+by **Review requests**, **My recent bounties** and collapsible recent PR voyages.
+Requested rows distinguish **Direct** requests from named GitHub teams. Team matching
+requires the authenticated account to match `GITHUB_PR_AUTHOR`; incomplete membership
+or PR scans show partial coverage, and missing organization SSO authorization is called
+out explicitly. Authored lists default to **Open**; **All** includes closed and merged
+PRs. Open rows highlight requested changes and comments since the latest commit when
+that evidence is available. Select a row to load its metadata and immutable diff.
+The **Helm** page also lists open PRs for every author in the selected galleon.
+
+**Crew work** (**Agent work** in plain mode) separates **Review** from **Update**.
+Review guidance sits above **Start deckhand review** and **Explain in Whiteboard**;
+Whiteboard opens or generates an explanation through its configured service. Repeating
+a submitted review at the current commit requires a different model or reasoning
+selection; a visible notice explains the disabled action. Update is available for your
+own open PRs with a configured local checkout. Its editable feedback defaults to
+“update the pr using the provided comment feedback.” and updates the existing branch.
+Existing custom feedback is preserved. Slack review requests appear only while the
+selected Slack connection is connected and the PR is owned by the configured user.
 
 **Recent PR voyages** shows the latest 10 PR-related runs in the selected repository
 from the local run history, with status and saved review results. Select a voyage to
 open its output, or **All voyages** for the full list. It uses the existing local
 refresh and preserves any unsent review while updating.
 
-A run with a PR shows a **PR panel** in its drawer (state, CI checks, review decision,
-comments, link); a **Review a PR** panel takes any PR (paste a URL or `owner/repo#number`)
-so you can act on PRs that aren't from a run. From the panel you can **Approve /
-Request changes / Comment** through durable public PR commands and — when the PR's
-repo is checked out under `AGENTS_ROOT` — **Relaunch with feedback**: the agent checks out the
+The **Inspect a bounty** form (**Review a PR** in plain mode) takes a number, URL or
+`owner/repo#number`, including PRs not created by a Helmsman run. Metadata, agent work,
+diff and your manual GitHub review are collapsible sections within the selected PR.
+From the panel you can **Approve / Request changes / Comment** through durable public PR commands and — when the PR's
+repo is checked out under `AGENTS_ROOT` — **Update branch with feedback**: the agent checks out the
 existing PR branch, addresses the feedback, and pushes the **same** branch so the PR updates
 (no new PR, no Jira claim). The feedback agent inventories all reviews, comments,
 and threads, including paginated results, resolved/outdated threads, and non-blocking
@@ -519,10 +570,10 @@ See [task-source authoring](docs/task-source-authoring.md), [recovery](docs/reco
 
 Agent selection pins one immutable writer and an ordered list of immutable reviewers,
 including each provider package, artifact hash, compatible non-secret settings and
-metadata. Select them with `helmsman plugins select-agent <plugin/id>` and
-`helmsman plugins select-agent-reviewers <plugin/id,...>`. The shipped packages are
+metadata. Select them with `npm run plugins -- select-agent <plugin/id>` and
+`npm run plugins -- select-agent-reviewers <plugin/id,...>`. The shipped packages are
 `helmsman.agent-codex/codex`, `helmsman.agent-claude/claude-code`, and
-`helmsman.agent-command/command`. Configure package settings with `helmsman plugins
+`helmsman.agent-command/command`. Configure package settings with `npm run plugins --
 configure <plugin-id> '<json>'` before selection.
 
 Provider metadata declares defaults, review tuning, skills/delegation, Docker
@@ -530,7 +581,10 @@ compatibility and whether costs are delta or cumulative. Codex defaults to
 `gpt-6-astra`/medium; Claude Code uses provider defaults and native subagents. Both
 declare the required `review-agent` skill. Command uses its namespaced `commandTemplate` setting.
 The command template supports `{ticket}`, `{repo}` and `{title}`, is argv-only, and
-an empty template never falls back to Codex. Legacy `AGENT_ADAPTER` and `AGENT_CMD`
+an empty template never falls back to Codex. The shipped command provider declares no
+managed model transport, so it cannot admit new managed runs; its retained settings
+remain available for legacy recovery. A replacement provider must declare a supported
+transport and honor the scoped gateway contract. Legacy `AGENT_ADAPTER` and `AGENT_CMD`
 values remain readable for legacy recovery. The adapter seeds the initial selection
 once; command text is never copied automatically because it may contain credentials.
 Configure a nonsecret `commandTemplate` explicitly; Config cannot edit retired keys.
@@ -550,10 +604,10 @@ prompt rendering and pure next-step policy from core stage, revision and publica
 guards. Select each task mode independently:
 
 ```sh
-helmsman plugins select-workflow coding helmsman.workflow-coding/coding
-helmsman plugins select-workflow review helmsman.workflow-review/review
-helmsman plugins select-workflow branch helmsman.workflow-coding/branch
-helmsman plugins configure helmsman.workflow-coding '{"maxRounds":3,"stageTimeoutMinutes":45}'
+npm run plugins -- select-workflow coding helmsman.workflow-coding/coding
+npm run plugins -- select-workflow review helmsman.workflow-review/review
+npm run plugins -- select-workflow branch helmsman.workflow-coding/branch
+npm run plugins -- configure helmsman.workflow-coding '{"maxRounds":3,"stageTimeoutMinutes":45}'
 ```
 
 `select-workflow <mode> default` (or `null`) restores that mode's shipped default.
@@ -570,8 +624,8 @@ settings once. Explicit lists, settings and subsequent resets are preserved. See
 
 ### Native terminals and browser hosts
 
-Use `helmsman plugins select-native-terminal <plugin/id>` for terminal I/O and
-`helmsman plugins select-browser-host <plugin/id>` for optional browser integrations.
+Use `npm run plugins -- select-native-terminal <plugin/id>` for terminal I/O and
+`npm run plugins -- select-browser-host <plugin/id>` for optional browser integrations.
 The shipped providers are `helmsman.terminal-cmux/cmux`,
 `helmsman.native-firefox/firefox`, and `helmsman.terminal-wezterm/wezterm`; cmux and Firefox support browser primitives.
 Selections are independent. Slack uses the GoCaaS/OI Companion MCP provider by default and requires no Firefox or cmux browser session. Browser-backed Slack remains an explicit legacy selection.
@@ -582,7 +636,7 @@ See [native terminal authoring](docs/native-terminal-authoring.md).
 
 ### Execution hosts
 
-Select a host with `helmsman plugins select-execution-host <plugin/id>`. The shipped
+Select a host with `npm run plugins -- select-execution-host <plugin/id>`. The shipped
 providers are `helmsman.host-local/detached`, `helmsman.host-local/cmux`,
 `helmsman.host-local/wezterm` and `helmsman.host-docker/docker`. Configure namespaced
 settings and restart after selection. Docker's `image` setting resolves to a fixed
@@ -602,8 +656,8 @@ See [execution host authoring](docs/execution-host-authoring.md).
 and built-in feedback updates use one coordinator attempt with bounded review rounds
 from the retained workflow settings. `AGENT_MAX_COST_USD` (opt-in)
 stops work once reported cost reaches the cap. Pre-PR voyages aggregate reported
-cost across author and reviewer sessions; Codex sessions currently provide no cost
-data, so the cap cannot bound their spend. Both, and the live attempt/cost of
+cost across author and reviewer sessions. Cost enforcement depends on validated
+provider-reported cost; absent cost data cannot bound spend. Both, and the live attempt/cost of
 each run, show on the running-agent rows (`×attempt/max`, `$cost/$cap`).
 
 ### Resilience
@@ -637,8 +691,8 @@ to Communication settings. Generic Config rejects migrated integration writes.
 Existing runs keep their launch configuration.
 **Restart** means configure in `.env` or the parent environment and restart the
 server; restart Vite too when changing `HELMSMAN_PORT`. Even Live keys changed in
-`.env` require a restart to be loaded. The auto-claim interval is UI-editable, but its
-timer length changes only after restart. Legacy watcher flags seed trigger settings
+`.env` require a restart to be loaded. The scheduler interval belongs to the selected scheduling plugin; configure its
+`intervalMs` setting and follow the CLI restart instruction. Legacy watcher flags seed trigger settings
 once; they are not live controls. Slack and GitHub settings show read-only watcher
 status and direct configuration to the selected trigger plugin. Follow the plugin
 CLI restart instruction after changing trigger settings.
@@ -647,22 +701,23 @@ CLI restart instruction after changing trigger settings.
 
 | Value | Default | Where it applies / how to set it | Change |
 | --- | --- | --- | --- |
-| `JIRA_ENABLED` | `true` | Initial Jira source enablement during conversion. Manage an existing source independently in Config → Source settings; Todos remains available. | Initial conversion |
-| `JIRA_BASE_URL` | Empty | Jira Cloud site URL, e.g. `https://your-team.atlassian.net`, without an issue/API path. Required with email and token to enable Jira. | Restart |
-| `JIRA_EMAIL` | Empty | Email of the account that owns the API token. Never returned to the UI. | Restart |
-| `JIRA_API_TOKEN` | Empty | Atlassian API token for that account; see setup for read/write permissions. The Jira connection page accepts a revision-checked replacement without returning the token and stores it in SQLite. Empty token updates are rejected. | Live, write-only |
-| `JIRA_PROJECT` | `AIROBUILD` | Default Jira project key. Selecting a mapped repository substitutes its project from `REPO_PROJECT_MAP`. | Live |
-| `JIRA_ASSIGNEE` | `currentUser()` | Assignee for the queue, active-work, and My issues queries. Use a Jira account ID or JQL function such as `currentUser()`. | Live |
-| `JIRA_JQL` | Empty | Full override of the backlog queue query, e.g. `project = PROJECT AND status = Backlog ORDER BY priority`. Also affects auto-claim; a custom query must apply its own project/assignee scope. Other panels retain their own queries. | Live |
-| `BOT_ACCOUNT_ID` | Empty | Jira account ID to assign ticket voyages to. Without it, the initial bot-assignment/claim step is skipped. Free-form and PR tasks do not claim Jira tickets. | Restart |
-| `JIRA_STATUS_IN_PROGRESS` | `In Progress` | Destination status when claiming a ticket; must be reachable through an available Jira transition. | Restart |
-| `JIRA_STATUS_IN_REVIEW` | `In Review` | Destination status after successful ticket work reaches its review gate. | Restart |
-| `JIRA_STATUS_BACKLOG` | `Backlog` | Actual Jira status for Triage's unassigned Backlog column. | Restart |
-| `JIRA_STATUS_TODO` | `To Do` | Actual Jira status for Triage's unassigned To Do column; use the status name rather than a board-column label. | Restart |
+| `JIRA_ENABLED` | `true` | Initial source enablement. Afterwards manage the source in Config → Source settings; Todos remains independent. | Initial conversion |
+| `JIRA_BASE_URL` | Empty | Jira Cloud site URL, e.g. `https://your-team.atlassian.net`. Required with email and token for initial connection provisioning. | Restart |
+| `JIRA_EMAIL` | Empty | Email of the API-token owner; supplied in the server environment. | Restart |
+| `JIRA_API_TOKEN` | Empty | Atlassian API token with the necessary browse/assign/transition permissions. The Jira connection page accepts a revision-checked replacement without returning it. Empty updates are rejected. | Restart for environment changes; live write-only replacement |
+| `JIRA_PROJECT` | `AIROBUILD` | Initial default project; `REPO_PROJECT_MAP` seeds per-galleon project mappings. | Initial conversion; then Source settings |
+| `JIRA_ASSIGNEE` | `currentUser()` | Initial task-list assignee filter. | Initial conversion; then Source settings |
+| `JIRA_JQL` | Empty | Additional task-list filter and optional ordering. Project, assignee and state constraints still apply. | Initial conversion; then Source settings |
+| `BOT_ACCOUNT_ID` | Authenticated Jira account | Initial claim assignee. A supplied value must be a Jira account ID, not an email. | Initial conversion; then Source settings |
+| `JIRA_STATUS_IN_PROGRESS` | `In Progress` | Initial working status used for claims and task views. | Initial conversion; then Source settings |
+| `JIRA_STATUS_IN_REVIEW` | `In Review` | Initial review status after successful ticket work. | Initial conversion; then Source settings |
+| `JIRA_STATUS_BACKLOG` | `Backlog` | Initial Backlog-column status and one of the ready statuses. | Initial conversion; then Source settings |
+| `JIRA_STATUS_TODO` | `To Do` | Initial To do-column status and one of the ready statuses. | Initial conversion; then Source settings |
 
-The default queue JQL still uses literal `Backlog`; use `JIRA_JQL` for a different
-queue status. The active-work query still uses `In Progress`, `In Review`, and `Done`.
-Changing `JIRA_STATUS_*` does not rewrite those dashboard queries.
+Jira source settings retain their project mappings, assignee, additional JQL and
+workflow statuses independently of the bootstrap environment. Changing a seed in
+`.env` does not replace an existing source. Use Source settings for ongoing policy
+changes and the Jira connection page for token replacement.
 
 ### GitHub and repository scope
 
@@ -671,7 +726,7 @@ Changing `JIRA_STATUS_*` does not rewrite those dashboard queries.
 | `GITHUB_TOKEN` | Empty | GitHub token used by the server for API reads and review publication. See setup for repository access and permissions. Never displayed or editable in Config. | Restart |
 | `GITHUB_PR_AUTHOR` | Empty | GitHub login used for authored PRs and review requests. Both this and `GITHUB_TOKEN` must be nonempty for GitHub to be configured. | Live |
 | `GITHUB_REPO` | Empty | Optional `owner/name` repository added to tracked repositories and automatic-review eligibility; also supplies the default repository label. With no repo, the label falls back to `@<author>`. | Live |
-| `REPO_PROJECT_MAP` | Empty | Comma-separated `owner/name=PROJECT` pairs. Populates the repo selector, maps dashboard/auto-claim Jira scope, and permits automatic reviews for those repos. | Live |
+| `REPO_PROJECT_MAP` | Empty | Comma-separated `owner/name=PROJECT` pairs for tracked galleons and automatic-review eligibility; seeds Jira source project mappings once. Existing Jira mappings belong to Source settings. | Live tracked scope; initial Jira source conversion |
 | `GITHUB_REVIEW_WATCH_ENABLED` | `false` | Seeds GitHub review trigger enablement once. Subsequently configure the selected `github-review` trigger. Existing pending requests can launch when enabled. | Initial conversion |
 
 ### Slack GoCaaS/OI Companion
@@ -696,7 +751,7 @@ issuer. Missing or expired credentials leave Slack unavailable until replaced.
 
 The watcher starts disabled. See [Automatic PR reviews](#automatic-pr-reviews) for
 channel setup and trigger activation. Explicit legacy browser selection remains
-available with `helmsman plugins select-communication helmsman.slack/slack`; its
+available with `npm run plugins -- select-communication helmsman.slack/slack`; its
 signed-in browser requirements still apply. A one-time upgrade switches the old shipped
 `helmsman.slack/slack` selection to Companion; custom selections stay unchanged, and
 explicitly reselecting the browser provider after migration persists. Changing providers
@@ -753,7 +808,7 @@ This preflight is read-only and makes no model call or Slack request. After the
 OI deployment enables native tool approvals, select the provider explicitly:
 
 ```sh
-helmsman plugins select-communication helmsman.slack-oi/slack
+npm run plugins -- select-communication helmsman.slack-oi/slack
 ```
 
 Restart after credential or provider changes. Workspace, channel and reviewer
@@ -794,34 +849,42 @@ Recovery. See [Communication authoring](docs/communication-authoring.md).
 | --- | --- | --- | --- |
 | `AGENT_MAX_ATTEMPTS` | `1` | Total attempts for existing-PR voyages, including the initial attempt; `1` means no retry. New coding voyages use one workflow, with review rounds controlled by its captured `maxRounds` setting. | Live |
 | `AGENT_MAX_COST_USD` | Empty (no cap) | Cost limit in USD across attempts, enforced from validated provider cost events. | Live |
-| `PRE_PR_REVIEWER_COUNT` | `2` | Legacy count seeds the explicit ordered agent reviewer list once, preserving an existing explicit list. Subsequently use `plugins select-agent-reviewers ID[,ID...]`; `default` resets to shipped defaults without reimporting the old count. | Bootstrap only |
+| `PRE_PR_REVIEWER_COUNT` | `2` | Legacy count seeds the explicit ordered agent reviewer list once, preserving an existing explicit list. Subsequently use `npm run plugins -- select-agent-reviewers ID[,ID...]`; `default` resets to shipped defaults without reimporting the old count. | Bootstrap only |
 | `PRE_PR_MAX_ROUNDS` | `3` | One-time seed for `helmsman.workflow-coding` setting `maxRounds` (1–5). Afterwards configure the package; explicit settings and resets are preserved. | Bootstrap only |
 | `PRE_PR_STAGE_TIMEOUT_MINUTES` | `45` | One-time seed for `helmsman.workflow-coding` setting `stageTimeoutMinutes` (5–180). Afterwards configure the package; explicit settings and resets are preserved. | Bootstrap only |
 | `AGENT_MAX_CONCURRENCY` | `3` | Maximum simultaneous runs across repositories. Each galleon defaults to one run; Execution settings can explicitly raise its limit within this global cap. | Restart |
 | `AUTO_CLAIM_INTERVAL_MS` | `60000` | One-time migration seed for the shipped scheduling plugin’s `intervalMs`. Does not enable automatic starts or control PR watchers. | Bootstrap only; then configure plugin settings |
 | `AGENTS_ROOT` | Server working directory | Parent directory of target repo checkouts, e.g. `/absolute/path/to/agent-repos`; not the path to a single checkout. | Restart |
 | `RUNS_DIR` | `<AGENTS_ROOT>/.helmsman-runs` | Directory for detached-run specifications, logs, and exit records. Created on startup; use a writable absolute path. | Restart |
-| `RUN_HOST` | Detached process | One-time execution-host selection seed: `detached`, `cmux`, `wezterm` or `docker`. Unknown names fail; unavailable hosts never fall back. After migration use `plugins select-execution-host`. | Bootstrap only; then plugin selection and restart |
+| `RUN_HOST` | Detached process | One-time execution-host selection seed: `detached`, `cmux`, `wezterm` or `docker`. Unknown names fail; unavailable hosts never fall back. After migration use `npm run plugins -- select-execution-host`. | Bootstrap only; then plugin selection and restart |
 | `HELMSMAN_DB` | `<server working directory>/.helmsman.sqlite` | SQLite file for runs, config overrides, watcher state, and notifications. Use a writable path and retain it across restarts. A saved Jira token is stored here, so treat this file as sensitive. | Restart |
 | `HELMSMAN_PORT` | `43871` | Local API/static-server port, bound to `127.0.0.1`; the Vite API proxy uses the same value. | Restart server and Vite |
 | `HELMSMAN_UI_PORT` | `43872` | Vite development and preview UI port; an occupied port stops startup instead of selecting another port. | Restart Vite |
+| `HELMSMAN_PLUGINS_DIR` | `~/.helmsman/plugins` | Plugin store shared by the server and plugin CLI. Set it explicitly to keep separate installations isolated. | Restart server; use the same environment for CLI commands |
+| `VPN_CHECK_URL` | Empty | Optional credential-free, VPN-only HTTPS endpoint for a three-second HEAD reachability check. macOS GlobalProtect status is checked separately. | Restart |
 
 ### Browser preferences
 
-Config's **UI customization → Theme** selector applies immediately and persists in
-that browser's local storage (default: Amber). The selected repository, dashboard
-panel layout/stacking, and collapsed panels also persist locally. These preferences
-have no `.env` keys, do not change server behavior, and are not shared with another
-browser. Per-voyage model/effort choices belong to the launch form; there are no
-global model/effort environment variables in the app's config parser.
+Config's appearance editor manages one personal theme. Hue, saturation, brightness,
+color harmony and the sun/moon appearance control derive the UI palette; five-color
+presets offer starting points. Changes preview live, **Save theme** persists them in
+this browser, and **Discard** restores the saved appearance. Advanced overrides include
+an independent input background. Text and input colors adapt for contrast; error,
+success, review and queued states remain red, green, blue and yellow. See
+[theme palettes](docs/themes.md).
 
-Dark presets include Quarterdeck, Abyss, Forest, Ember, Aubergine, Graphite,
-Phosphor, and Amber, alongside editor-inspired dark and light themes.
-Themes color the full interface, including panels, text, form controls, and scrollbars.
-The theme preview shows surfaces, action and companion accents, field surfaces,
-and sample status chips. Selection applies immediately, including to the next loading screen.
-See [theme palettes](docs/themes.md) for color roles and contrast checks.
-Page panels use the full content width or two equal columns, stacking on smaller screens.
+Pirate mode defaults on and can be toggled in Config or the footer. It changes
+application labels, leaving user content, logs, code and technical identifiers intact.
+The selected galleon, panel layouts, collapsed panels and log heights also persist
+locally. Helm panels can be dragged by their headers or reordered with keyboard
+controls. Browser preferences have no `.env` keys and are not shared between browsers.
+Per-voyage model/effort choices belong to the launch form.
+
+The VPN icon beside the notification bell reports the server machine's connection,
+checked once a minute. On macOS it reads GlobalProtect status. Set optional
+`VPN_CHECK_URL` to a credential-free, VPN-only HTTPS health endpoint for an additional
+reachability check; no redirects are followed and checks time out after three seconds.
+The icon explains unknown or unconfigured evidence. Restart after changing the URL.
 
 Helm's **Mine · underway** panel reads the selected source's optional underway view.
 Jira exposes the configured assignee's unfinished tickets independently of queue JQL;
@@ -837,16 +900,18 @@ does not substitute ordinary queue results or sample tickets.
 > the agent has the same host, shell, and filesystem access as the Helmsman process).
 > The default detached host inherits `GITHUB_TOKEN` and removes `JIRA_API_TOKEN` and
 > `JIRA_EMAIL` from the child environment; cmux workspaces use their own terminal environment.
+> Managed stages receive temporary run-scoped model credentials; the model route removes
+> host GoCaaS, direct model and Slack credentials and creates fresh CLI configuration.
 > Helmsman makes Jira writes itself. Only point `AGENTS_ROOT` at repos,
 > and only launch tickets, you're willing to let an autonomous agent modify on this machine.
 
-### Degraded mode
+### Unavailable integrations and local Git
 
-With `.env` present but credentials missing or invalid, Helmsman falls back per-source to
-`src/data/mock.ts` for whichever of Jira/GitHub it couldn't reach, and the response's
-`degraded` array names which sources are mocked (e.g. `["jira","github"]` with neither integration configured).
-The dashboard renders a banner naming the degraded sources so it never shows fake data as
-real.
+Missing or invalid credentials leave the affected provider unavailable. Pages distinguish
+unavailable data, partial results and confirmed empty lists; they do not substitute mock
+tickets or PRs. Local Todos and other configured providers remain independently usable.
+Review requests and other retained commands keep their original identity so an uncertain
+outcome can be checked before retrying. Use [Recovery](docs/recovery.md) for retained work.
 
 The replaceable Local Git page, linked from Config, reads the selected repository’s
 configured checkout under `AGENTS_ROOT`. It shows the checkout path, local branches
@@ -929,8 +994,8 @@ the selected trigger package and follow the CLI restart instruction. For the shi
 selections:
 
 ```sh
-helmsman plugins configure helmsman.trigger-slack-review '{"enabled":true}'
-helmsman plugins configure helmsman.trigger-github-review '{"enabled":true}'
+npm run plugins -- configure helmsman.trigger-slack-review '{"enabled":true}'
+npm run plugins -- configure helmsman.trigger-github-review '{"enabled":true}'
 ```
 
 Enable only the sources you want. Slack and GitHub settings display watcher status;
@@ -940,7 +1005,7 @@ is eligible; a full URL such as `https://github.com/your-org/your-repo/pull/123`
 trigger. GitHub-only discovery needs no Slack fields or browser and can immediately
 launch reviews for existing pending requests. Automatic reviews publish to GitHub.
 
-Use `helmsman plugins select-trigger <role> <plugin/id>` to replace a policy, with
+Use `npm run plugins -- select-trigger <role> <plugin/id>` to replace a policy, with
 roles `campaign`, `slack-review`, `github-review` and `github-webhook`. `default`
 restores that role's shipped selection; `disabled` or `null` disables it. Explicit
 unavailable selections do not fall back. See [trigger authoring](docs/trigger-authoring.md)
@@ -985,10 +1050,11 @@ cannot access a pinned skill or delegation tools reports a COMMENT limitation. L
 is reserved for serious architecture changes. See the [five-review calibration
 audit](docs/reviewer-calibration-2026-09-17.md) for examples and rationale.
 
-Reviewers target a customer-ready implementation within the ticket scope, not perfection. Scope expansion needs an explicit acceptance criterion or a concrete consequential regression, plus an explanation of why a smaller fix is insufficient. Credible rare edge cases belong in brief **Non-blocking** summary notes; they do not prevent approval or become fix-stage obligations. Blocking a rare case requires concrete evidence of a serious consequence or an explicit material acceptance failure. Only blocking defects belong in findings; a completed staged review with advisory notes uses `APPROVE` and `findings: []`.
-
 Reviews prefer inline findings on the relevant diff lines, with concrete fixes when supported by the code. Exact replacements use GitHub suggestion blocks; broader changes use code examples. The agent writes a concise summary to `.agent-review.md` and a JSON array of inline findings to `.agent-review-comments.json`. Helmsman validates the anchors against the reviewed revision and submits the summary and inline findings together as one COMMENT review. Findings that cannot be safely anchored remain in the summary. If the PR head changed, inline publication fails rather than attaching stale findings to new code. Existing summary-only output remains supported. Reviews do not push code or approve/merge PRs.
 
 Model roles and effort guidance: [official OpenAI model documentation](https://developers.openai.com/codex/models/). Model availability depends on the account/provider.
 
-The header name is an optional [profile contribution](docs/profile-authoring.md). The Pages menu discovers installed page plugins; packages can hide auxiliary-only contributions from that menu. Selecting a menu entry preserves the header galleon and does not change the selected implementation for a page slot.
+The header name is an optional [profile contribution](docs/profile-authoring.md).
+Page tabs expose the installed page compositions and preserve the header galleon.
+The Terminal page shows the connected terminal globally; returning to another page
+restores the header selector and its selection.

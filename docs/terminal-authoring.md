@@ -6,7 +6,7 @@ Terminal presentation and native implementations are separate packages. The host
 
 ## Scope and targets
 
-The page inherits the header galleon. An explicit panel `All` selection requests `repo: null` without changing header scope and includes both configured galleon terminals and unassociated surfaces. Ambiguous ownership is excluded.
+The shipped Terminal page is global. Its panel explicitly selects `All` (`repo: null`) through the public scope service before reading tabs, without changing the header galleon. It includes configured galleon terminals and unassociated surfaces; ambiguous ownership is excluded. The header galleon selector is hidden on this page and returns with its existing selection when navigating elsewhere. Replacement panels may use the public scope service to request a narrower scope.
 
 `TerminalTargetV1` contains the nullable repository, opaque `surfaceRef`, and observed `revision`. The revision binds the selected native provider, settings, selection revision, process/session and the observed surface, window, workspace, working directory, type, repository and inferred agent provider. Pass the complete target returned by `list` to `screen` and `control`. The host revalidates it immediately before reads and controls and rejects stale, ambiguous, or foreign scope rather than silently resolving the same surface against newer state. Titles are display data and never establish repository ownership. Optional `TerminalTabV1.lastPrompt` is bounded display data from the native provider; missing or null means unavailable. It is not part of target identity and must never establish ownership or change a control target.
 

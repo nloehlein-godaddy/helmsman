@@ -1,31 +1,41 @@
-# Theme palettes
+# Personal theme
 
-Themes use separate roles for page backgrounds, panels, controls, action accents, companion accents, and semantic states. Neutral borders separate components without tinting the whole interface with the action color. Companion accents identify section headings; action accents identify interactive elements. Status colors retain their existing meanings.
+Helmsman has one browser-local custom theme. Open **Config → UI customization** to edit it.
+Changes preview live across the interface; **Save theme** persists the recipe and palette,
+**Discard** restores the saved appearance, and **Reset theme** previews the defaults.
+The loading screen uses the saved palette too.
 
-## References
+## Generate a palette
 
-- [Radix Colors: scale use cases](https://www.radix-ui.com/colors/docs/palette-composition/understanding-the-scale) — separate page, component, border, and text roles.
-- [Everforest palette](https://github.com/sainnhe/everforest/blob/master/palette.md) — restrained green-gray surfaces with gold, aqua, and warm accents; inspiration for Forest and Ember.
-- [Rosé Pine palette](https://rosepinetheme.com/palette/ingredients/) — rose, foam, and iris accents on dark neutral surfaces; inspiration for Aubergine.
-- [Nord colors and palettes](https://www.nordtheme.com/docs/colors-and-palettes) — distinct background, foreground, interaction, and semantic color families.
+Choose hue, saturation and brightness with the wheel or sliders. White is at the wheel's
+center and black at its rim. The sun/moon control switches light and dark appearance.
+The generator derives backgrounds, panels, navigation, accents and text using OKLCH.
+Available harmonies are analogous, complementary, split complementary, triadic,
+tetradic, square, monochromatic and shades.
 
-The named editor palettes are UI adaptations, not exact reproductions: small text and status colors are adjusted to remain readable on raised surfaces.
+Five-color presets—Ember Tide, Olive & Copper, Festival, Spring Tide and Daydream—provide
+starting palettes. Their colors are assigned to UI roles rather than applied in the
+order supplied. The default generator uses hue 165°, saturation 35%, brightness 45%,
+analogous harmony and dark appearance.
 
-## Custom directions
+**Advanced color overrides** adjusts individual non-status roles, including the input
+background. Overrides survive changes to the generator; **Reset overrides** clears them.
+Error remains red, success green, review blue and queued yellow.
 
-| Theme | Surfaces | Action / companion |
-| --- | --- | --- |
-| Quarterdeck | Slate and blue-gray | Brass / mint |
-| Abyss | Midnight indigo | Ice / rose |
-| Forest | Sage charcoal | Gold / seafoam |
-| Ember | Warm charcoal | Apricot / sage |
-| Aubergine | Plum and ink | Rose / foam |
-| Graphite | Neutral graphite | Apricot / powder blue |
-| Phosphor | Smoked green-gray | Lime / lavender |
-| Amber | Near-black graphite | Amber / ice |
+## Readability and persistence
 
-Theme IDs remain stable so saved preferences still work. The loading screen and application share the same palette catalog. Amber uses the CSS root defaults; switching to it clears the other theme overrides.
+Surfaces, body text, action labels, controls and semantic states have separate roles.
+The theme derives readable foregrounds instead of using a chosen accent directly as
+text on every surface. Editable fields use an independent `--control-bg`, contrast-aware
+input text and placeholders, and an opaque `--control-border`. Focus uses the readable
+accent text color.
 
-Editable fields use a dedicated `--control-bg` surface and opaque `--control-border`, including fields inside raised PR panels and feature forms. Dark themes use recessed fills; light themes use shaded fills. Text and placeholders retain at least 4.5:1 contrast, and input boundaries retain at least 3:1 against both the fill and surrounding panel surfaces. Focus keeps the theme accent. The Input swatch in Appearance previews the field surface.
+The saved version-3 recipe and five-color source, when present, live under
+`cmux.theme.custom` in browser local storage. Saving one theme replaces the previous
+personal theme; it does not create a separate theme catalog or server-wide preference.
+Pirate mode is a separate preference and does not alter user content or technical text.
 
-`src/data/themes.test.ts` checks text roles at 4.5:1 on the palette surfaces, filled-label contrast, control outlines at 3:1, and page/panel separation. These token checks complement browser checks; they do not certify every composite UI state.
+`src/data/themes.test.ts` and `src/data/themeGenerator.test.ts` check generated palettes,
+text contrast, action labels, control outlines and saved recipes. Browser contrast checks
+cover rendered surfaces, including composite notice backgrounds. Token checks alone do
+not certify every UI state.
