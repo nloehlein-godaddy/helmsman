@@ -104,6 +104,39 @@ describe('authored run viewer lifecycle and commands', () => {
     await f.instance.update({ ...f.state, presentation: null }); await f.instance.refresh?.();
     expect(f.selectPresentation).toHaveBeenLastCalledWith(null); expect(f.container.querySelector('[role=tab]')).toBeNull();
   });
+  it.each([false, true])('closes the active run with a synchronously updating host (remaining tab: %s)', async remaining => {
+    const f = await mount(); await ready(f.container);
+    if (remaining) {
+      await f.instance.update({ ...f.state, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'two' } });
+      await vi.waitFor(() => expect(f.container.querySelector('[role=tab][aria-selected=true]')?.getAttribute('aria-label')).toContain('two'));
+      await ready(f.container);
+    }
+    let hostState = { ...f.state, presentation: { version: 1 as const, kind: 'run' as const, repo: 'org/a', runId: remaining ? 'two' : 'one' } } as PluginPanelState;
+    f.selectPresentation!.mockImplementation(presentation => {
+      hostState = { ...hostState, presentation };
+      void f.instance.update(hostState);
+    });
+    f.container.querySelector<HTMLButtonElement>(`[aria-label="Close run ${remaining ? 'two' : 'one'}"]`)!.click();
+    await vi.waitFor(() => expect(f.container.querySelectorAll('[role=tab]')).toHaveLength(remaining ? 1 : 0));
+    const expected = remaining ? { version: 1, kind: 'run', repo: 'org/a', runId: 'one' } : null;
+    expect(hostState.presentation).toEqual(expected);
+    expect(f.selectPresentation).toHaveBeenCalledExactlyOnceWith(expected);
+    await f.instance.refresh?.();
+    expect(f.container.querySelectorAll('[role=tab]')).toHaveLength(remaining ? 1 : 0);
+    expect(hostState.presentation).toEqual(expected);
+    await vi.waitFor(() => expect(f.saveState).toHaveBeenLastCalledWith(expect.objectContaining({ value: expect.objectContaining({ tabs: remaining ? [expect.objectContaining({ runId: 'one' })] : [], activeKey: remaining ? JSON.stringify(['org/a', 'one']) : null }) })));
+  });
+  it('keeps the active tab when clearing the host selection fails', async () => {
+    const f = await mount(); await ready(f.container);
+    f.selectPresentation!.mockImplementation(() => { throw new Error('Host selection failed.'); });
+    f.container.querySelector<HTMLButtonElement>('[aria-label="Close run one"]')!.click();
+    expect(f.container.querySelectorAll('[role=tab]')).toHaveLength(1);
+    expect(f.container.querySelector('[role=tab]')?.getAttribute('aria-selected')).toBe('true');
+    expect(f.container.textContent).toContain('Host selection failed.');
+    await f.instance.refresh?.();
+    expect(f.container.querySelectorAll('[role=tab]')).toHaveLength(1);
+    expect(f.container.querySelector('pre')?.textContent).toContain('event 51');
+  });
   it.each(['outside-scope', 'pull-request'] as const)('does not restore a saved active run for %s', async scenario => {
     const f = await mount({ state: { presentation: scenario === 'pull-request' ? { version: 1, kind: 'pull-request', repo: 'org/a', number: 42 } : null,
       savedState: { version: 1, value: { tabs: [{ repo: scenario === 'outside-scope' ? 'org/b' : 'org/a', runId: 'one', scrollTop: 0, follow: true }], activeKey: JSON.stringify([scenario === 'outside-scope' ? 'org/b' : 'org/a', 'one']), results: [] } } } });

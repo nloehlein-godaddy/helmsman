@@ -311,13 +311,15 @@ class ViewerPanel implements PluginPanelInstance {
     if (!this.active()) return;
     if (this.activeKey === tabKey(tab)) {
       const next = this.tabs.find(item => item !== tab && this.inScope(item.repo));
+      const previousTabs = this.tabs; const previousKey = this.activeKey; const previousHandled = this.handled;
       try {
         if (!this.context.selectPresentation) throw new Error('Run selection is unavailable.');
-        this.context.selectPresentation(next ? canonical(next) : null); this.handled = locatorKey(next ? canonical(next) : null); this.activeKey = next ? tabKey(next) : null;
-      } catch (error) { this.error = error instanceof Error ? error.message : 'Run selection is unavailable.'; this.draw(); return; }
+        this.tabs = this.tabs.filter(item => item !== tab); this.activeKey = next ? tabKey(next) : null; this.handled = locatorKey(next ? canonical(next) : null);
+        this.context.selectPresentation(next ? canonical(next) : null);
+      } catch (error) { this.tabs = previousTabs; this.activeKey = previousKey; this.handled = previousHandled; this.error = error instanceof Error ? error.message : 'Run selection is unavailable.'; this.draw(); return; }
       this.cancel(); this.controller = new AbortController();
-    }
-    this.tabs = this.tabs.filter(item => item !== tab); void this.persist(); this.draw(); void this.load('follow');
+    } else this.tabs = this.tabs.filter(item => item !== tab);
+    void this.persist(); this.draw(); void this.load('follow');
   }
   private async restorePending(generation: number) {
     if (!this.active(generation)) return;

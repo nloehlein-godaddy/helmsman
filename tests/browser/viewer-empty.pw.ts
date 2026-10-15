@@ -72,3 +72,24 @@ test('empty, failed and loading reads keep unbound controls hidden and allow ref
   f.state.mode = 'loading'; await refresh.click(); await expect(panel.getByRole('status')).toHaveText('Loading recent runs…'); await expectUnboundControlsHidden(page); f.state.mode = 'ready'; f.release(); await expect(panel.locator('.run-picker-row')).toHaveCount(10);
   f.state.resolveFailed = true; await panel.locator('[data-select-run="run-0"]').click(); await expect(panel.getByRole('alert')).toContainText('Selected run is unavailable'); await expectUnboundControlsHidden(page); expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
 });
+
+test('closing the final inspection clears its URL and stays closed after refresh and reload', async ({ page }) => {
+  const f = await mockViewer(page);
+  await page.goto('/run-viewer?repo=org%2Fa&run=run-0&runRepo=org%2Fa');
+  const panel = page.locator('section.plugin-run-viewer');
+  await expect(panel.getByRole('tab')).toHaveCount(1);
+  await expect(panel.locator('.run-log')).toContainText('Literal customer evidence');
+  await panel.getByRole('button', { name: 'Close run run-0', exact: true }).click();
+  await expect(panel.getByRole('tab')).toHaveCount(0);
+  await expect(page).toHaveURL(url => !url.searchParams.has('run') && !url.searchParams.has('runRepo') && url.searchParams.get('repo') === 'org/a');
+  await expect(panel.locator('.run-log')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Refresh page', exact: true }).click();
+  await expect(panel.getByRole('tab')).toHaveCount(0);
+  await page.reload();
+  await expect(panel.getByRole('heading', { name: 'Choose a voyage', exact: true })).toBeVisible();
+  await expect(panel.getByRole('tab')).toHaveCount(0);
+  await panel.locator('[data-select-run="run-0"]').click();
+  await expect(panel.getByRole('tab')).toHaveCount(1);
+  await expect(panel.locator('.run-log')).toContainText('Literal customer evidence');
+  expect(f.errors).toEqual([]); expect(f.writes).toEqual([]);
+});
