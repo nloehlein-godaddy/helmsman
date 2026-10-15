@@ -45,3 +45,31 @@ it('preserves only supported SSO notices on incomplete PR lists', () => {
   expect(() => parsePullRequestReadPageV1({ ...page, quality: 'complete' }, query, [item.repo])).toThrow();
   expect(() => parsePullRequestReadPageV1({ ...page, notice: 'https://example.com/private-token' }, query, [item.repo])).toThrow();
 });
+
+
+describe('review request origins', () => {
+  it('preserves absent origins and freezes both direct and team evidence', () => {
+    expect(parsePullRequestReadItemV1(item)).not.toHaveProperty('reviewRequest');
+    const reviewRequest = { direct: true, teams: [{ name: 'Builder developers', slug: 'builder-devs' }] };
+    const parsed = parsePullRequestReadItemV1({ ...item, reviewRequest });
+    expect(parsed.reviewRequest).toEqual(reviewRequest);
+    expect(Object.isFrozen(parsed.reviewRequest)).toBe(true);
+    expect(Object.isFrozen(parsed.reviewRequest?.teams)).toBe(true);
+    expect(Object.isFrozen(parsed.reviewRequest?.teams[0])).toBe(true);
+  });
+  it.each([null, {}, { direct: 'true', teams: [] }, { direct: false, teams: [] },
+    { direct: true, teams: [null] }, { direct: false, teams: [{ name: '', slug: 'devs' }] },
+    { direct: false, teams: [{ name: 'Devs', slug: '../devs' }] },
+    { direct: true, teams: [{ name: 'Devs', slug: 'devs' }, { name: 'Other', slug: 'DEVS' }] },
+    { direct: true, teams: Array.from({ length: 101 }, (_, index) => ({ name: 'Devs', slug: `devs-${index}` })) },
+  ])('rejects malformed or unbounded origin %j', reviewRequest => {
+    expect(() => parsePullRequestReadItemV1({ ...item, reviewRequest })).toThrow('Invalid pull request read data');
+  });
+  it('rejects nested origin and array accessors without executing them', () => {
+    const getter = () => { throw new Error('Accessor was executed'); };
+    const team = { name: 'Devs', slug: 'devs' }; Object.defineProperty(team, 'name', { get: getter });
+    expect(() => parsePullRequestReadItemV1({ ...item, reviewRequest: { direct: false, teams: [team] } })).toThrow('Invalid pull request read data');
+    const teams: unknown[] = []; Object.defineProperty(teams, '0', { get: getter });
+    expect(() => parsePullRequestReadItemV1({ ...item, reviewRequest: { direct: true, teams } })).toThrow('Invalid pull request read data');
+  });
+});

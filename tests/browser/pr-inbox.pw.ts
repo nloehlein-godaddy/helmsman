@@ -11,7 +11,7 @@ const row = (repo: string, number: number, title: string, status: 'open' | 'merg
   reviews: { approved: status === 'merged' ? 1 : 0, changesRequested: 0, commented: 1, requested: 1 } });
 
 async function mockInbox(page: Page) {
-  const state = { quality: 'partial' as 'complete' | 'partial' | 'degraded', ssoRequired: false, empty: false, withPatch: false, richEvidence: false, connected: false, connectionError: false, own: true, detailStatus: 'open' as 'open' | 'closed' };
+  const state = { quality: 'partial' as 'complete' | 'partial' | 'degraded', ssoRequired: false, requestOrigins: false, empty: false, withPatch: false, richEvidence: false, connected: false, connectionError: false, own: true, detailStatus: 'open' as 'open' | 'closed' };
   const scopes: (string | null)[] = [];
   const listStates: (string | null)[] = [];
   const writes: string[] = []; const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
@@ -24,7 +24,11 @@ async function mockInbox(page: Page) {
     if (path === '/api/pull-request-read') {
       const repo = url.searchParams.get('repo'); const kind = url.searchParams.get('kind'); scopes.push(repo); if (kind === 'authored-recent') listStates.push(url.searchParams.get('state'));
       return route.fulfill({ json: { version: 1, repo, kind, items: kind === 'authored-recent' && !state.empty
-        ? [row(repo ?? 'org/a', 42, 'Restore authored pull requests when search is unavailable', 'open'), ...(url.searchParams.get('state') === 'all' ? [{ ...row(repo ?? 'org/a', 41, 'Preserve matched pull requests from earlier pages', 'merged'), comments: null, reviews: null }] : [])] : [],
+        ? [row(repo ?? 'org/a', 42, 'Restore authored pull requests when search is unavailable', 'open'), ...(url.searchParams.get('state') === 'all' ? [{ ...row(repo ?? 'org/a', 41, 'Preserve matched pull requests from earlier pages', 'merged'), comments: null, reviews: null }] : [])] : state.requestOrigins ? [
+          { ...row(repo ?? 'org/a', 51, 'Directly requested review', 'open'), reviewRequest: { direct: true, teams: [] } },
+          { ...row(repo ?? 'org/a', 52, 'Team review request', 'open'), reviewRequest: { direct: false, teams: [{ name: 'AIRO AI Builder Developers', slug: 'airo-ai-builder-devs' }] } },
+          { ...row(repo ?? 'org/a', 53, 'Direct and team review request', 'open'), reviewRequest: { direct: true, teams: [{ name: 'Platform engineering and developer experience', slug: 'platform-engineering' }] } },
+        ] : [],
         quality: kind === 'authored-recent' ? state.quality : state.ssoRequired ? 'partial' : 'complete', truncated: kind === 'authored-recent' && state.quality !== 'complete', browseUrl: `https://github.com/${repo}/pulls`, ...(kind === 'review-requested' && state.ssoRequired ? { notice: 'github-sso-required' } : {}) } });
     }
     const target = { repo: url.searchParams.get('repo'), number: Number(url.searchParams.get('number')), baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40) };
@@ -42,6 +46,26 @@ async function mockInbox(page: Page) {
   });
   return { state, scopes, listStates, writes, errors };
 }
+
+for (const width of [1440, 390]) test(`labels direct and team review requests at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  const f = await mockInbox(page); f.state.requestOrigins = true;
+  await page.goto('/prs?repo=org%2Fa');
+  const requested = page.locator('[data-pr-pane="review-requests"]');
+  const direct = requested.locator('[data-select-number="51"]');
+  const team = requested.locator('[data-select-number="52"]');
+  const both = requested.locator('[data-select-number="53"]');
+  await expect(direct.locator('.pr-request-origin')).toHaveText(['Direct']);
+  await expect(team.locator('.pr-request-origin')).toHaveText(['AIRO AI Builder Developers']);
+  await expect(both.locator('.pr-request-origin')).toHaveText(['Direct', 'Platform engineering and developer experience']);
+  await expect(team).toHaveAccessibleName(/Team: AIRO AI Builder Developers/);
+  await expectReadableSurfaces(requested, ['.pr-request-origin']);
+  expect(await requested.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await requested.screenshot({ path: `test-results/browser/review-request-origins-${width}.png` });
+  await direct.click();
+  await expect(page.locator('[data-pr-number="51"]')).toBeVisible();
+  expect(f.errors).toEqual([]); expect(f.writes).toEqual([]);
+});
 
 for (const width of [1440, 390]) test(`explains GitHub SSO authorization for missing review requests at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });

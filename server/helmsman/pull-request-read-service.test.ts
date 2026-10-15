@@ -23,6 +23,15 @@ describe('pull request read provider boundary', () => {
     expect((await service.list(query)).notice).toBe('github-sso-required');
     expect(read).toHaveBeenCalledTimes(1);
   });
+  it('preserves sanitized request origins through caching and caller limits', async () => {
+    const reviewRequest = { direct: true, teams: [{ name: 'Builder developers', slug: 'builder-devs', secret: 'credential' }] };
+    const read = vi.fn(async () => ({ ...batch, items: [{ ...item, reviewRequest }] }));
+    const service = createPullRequestReadService({ repos: () => [repo], read, cacheIdentity: () => 'first' });
+    const expected = { direct: true, teams: [{ name: 'Builder developers', slug: 'builder-devs' }] };
+    expect((await service.list({ ...query, kind: 'review-requested', limit: 1 })).items[0]?.reviewRequest).toEqual(expected);
+    expect((await service.list({ ...query, kind: 'review-requested' })).items[0]?.reviewRequest).toEqual(expected);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
   it('invalidates completed and pending feedback after an acknowledged review', async () => {
     const read = vi.fn(async () => batch);
     const service = createPullRequestReadService({ repos: () => [repo], read, cacheIdentity: () => 'first' });

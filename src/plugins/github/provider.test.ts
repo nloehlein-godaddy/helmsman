@@ -175,8 +175,42 @@ describe('GitHub pull request provider', () => {
   it('includes authenticated team requests by stable ID alongside direct requests without matching unrelated same-slug teams', async () => {
     const ctx = teamListFixture({ pulls: [teamRequested(41, 1), teamRequested(42, 2), listed(43, { requested_reviewers: [{ login: 'reviewer' }] })],
       teams: () => ({ status: 200, body: [{ id: 1, slug: 'developers', organization: { login: 'first-org' } }] }) });
-    expect(await requestedList(ctx)).toMatchObject({ quality: 'complete', truncated: false, items: [{ number: 41 }, { number: 43 }] });
+    expect(await requestedList(ctx)).toMatchObject({ quality: 'complete', truncated: false, items: [{ number: 41, reviewRequest: { direct: false, teams: [{ name: 'developers', slug: 'developers' }] } }, { number: 43, reviewRequest: { direct: true, teams: [] } }] });
     expect(ctx.http.request.mock.calls.every(([input]) => input.method === 'GET')).toBe(true);
+  });
+
+  it('labels direct requests and every verified requested team without exposing unrelated teams', async () => {
+    const ctx = teamListFixture({ pulls: [listed(42, { requested_reviewers: [{ login: 'REVIEWER' }], requested_teams: [
+      { id: 1, slug: 'builder-devs', name: 'Builder developers' }, { id: 2, slug: 'final-approval', name: 'Final approval' },
+      { id: 3, slug: 'unrelated', name: 'Unrelated team' }, { id: 1, slug: 'builder-devs', name: 'Builder developers' },
+    ] })], teams: () => ({ status: 200, body: [{ id: 1 }, { id: 2 }] }) });
+    expect((await requestedList(ctx)).items[0]?.reviewRequest).toEqual({ direct: true, teams: [
+      { name: 'Builder developers', slug: 'builder-devs' }, { name: 'Final approval', slug: 'final-approval' },
+    ] });
+  });
+
+  it('uses verified membership labels when a requested team has only an ID', async () => {
+    const ctx = teamListFixture({ pulls: [listed(42, { requested_teams: [{ id: 1 }] })],
+      teams: () => ({ status: 200, body: [{ id: 1, slug: 'builder-devs', name: 'Builder developers' }] }) });
+    expect((await requestedList(ctx)).items[0]?.reviewRequest).toEqual({ direct: false, teams: [{ name: 'Builder developers', slug: 'builder-devs' }] });
+  });
+
+  it('enriches search-only request origins from PR metadata without trusting unrelated team names', async () => {
+    const ctx = teamListFixture({ pulls: [], teams: () => ({ status: 200, body: [{ id: 1 }] }) });
+    const original = ctx.http.request.getMockImplementation()!;
+    ctx.http.request.mockImplementation(input => input.path === '/search/issues'
+      ? Promise.resolve({ status: 200, body: { items: [listed(42)], total_count: 1, incomplete_results: false } })
+      : input.path === `/repos/${target.repo}/pulls/42` ? Promise.resolve({ status: 200, body: metadata({ requested_reviewers: [], requested_teams: [{ id: 1, name: 'Builder developers', slug: 'builder-devs' }, { id: 2, slug: 'unrelated' }] }) })
+        : original(input));
+    expect((await requestedList(ctx)).items[0]?.reviewRequest).toEqual({ direct: false, teams: [{ name: 'Builder developers', slug: 'builder-devs' }] });
+  });
+
+  it('keeps search positives without inventing origins when request details are unavailable', async () => {
+    const ctx = teamListFixture({ pulls: [] }); const original = ctx.http.request.getMockImplementation()!;
+    ctx.http.request.mockImplementation(input => input.path === '/search/issues'
+      ? Promise.resolve({ status: 200, body: { items: [listed(42)], total_count: 1, incomplete_results: false } }) : original(input));
+    const result = await requestedList(ctx);
+    expect(result.items).toHaveLength(1); expect(result.items[0]).not.toHaveProperty('reviewRequest');
   });
 
   it('validates team membership pagination and includes a requested team on the next page', async () => {

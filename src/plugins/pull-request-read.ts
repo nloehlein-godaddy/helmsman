@@ -10,6 +10,7 @@ export interface PullRequestReadItemV1 {
   readonly reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
   readonly comments: number | null;
   readonly reviews: { readonly approved: number | null; readonly changesRequested: number | null; readonly commented: number | null; readonly requested: number | null } | null;
+  readonly reviewRequest?: { readonly direct: boolean; readonly teams: readonly { readonly name: string; readonly slug: string }[] };
   readonly feedback?: { readonly changesRequested: boolean | null; readonly newComments: boolean | null; readonly latestCommitAt: string | null };
 }
 export interface PullRequestReadPageV1 {
@@ -52,6 +53,18 @@ export function parsePullRequestReadQueryV1(input: unknown): PullRequestReadQuer
   if (Object.hasOwn(value, 'state') && (value.kind !== 'authored-recent' || !['open', 'all'].includes(value.state as string))) invalid();
   return Object.freeze({ version: 1, repo: value.repo === null ? null : parseTaskRepo(value.repo), kind: value.kind as PullRequestReadKindV1, limit, ...(Object.hasOwn(value, 'state') ? { state: value.state as 'open' | 'all' } : {}) });
 }
+function reviewRequestOrigin(input: unknown): NonNullable<PullRequestReadItemV1['reviewRequest']> {
+  const value = record(input);
+  if (typeof value.direct !== 'boolean' || !Array.isArray(value.teams) || value.teams.length > 100 || !value.direct && value.teams.length === 0) invalid();
+  const teams = []; const slugs = new Set<string>();
+  for (let index = 0; index < value.teams.length; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value.teams, index); if (!descriptor || !('value' in descriptor)) invalid();
+    const team = record(descriptor.value); const name = text(team.name, 256); const slug = text(team.slug, 100);
+    if (!/^[a-z\d](?:[a-z\d-]*[a-z\d])?$/i.test(slug) || slugs.has(slug.toLowerCase())) invalid();
+    slugs.add(slug.toLowerCase()); teams.push(Object.freeze({ name, slug }));
+  }
+  return Object.freeze({ direct: value.direct, teams: Object.freeze(teams) });
+}
 export function parsePullRequestReadItemV1(input: unknown): PullRequestReadItemV1 {
   const value = record(input);
   if (!['open', 'closed', 'merged'].includes(value.status as string) || value.draft !== null && typeof value.draft !== 'boolean'
@@ -65,6 +78,7 @@ export function parsePullRequestReadItemV1(input: unknown): PullRequestReadItemV
     status: value.status as PullRequestReadItemV1['status'], createdAt: date(value.createdAt), mergedAt, draft: value.draft as boolean | null,
     ticketId: value.ticketId === null ? null : text(value.ticketId, 128), reviewDecision: value.reviewDecision as PullRequestReadItemV1['reviewDecision'],
     comments: nullableCount(value.comments), reviews: reviews ? Object.freeze({ approved: nullableCount(reviews.approved), changesRequested: nullableCount(reviews.changesRequested), commented: nullableCount(reviews.commented), requested: nullableCount(reviews.requested) }) : null,
+    ...(value.reviewRequest === undefined ? {} : { reviewRequest: reviewRequestOrigin(value.reviewRequest) }),
     ...(feedback ? { feedback: Object.freeze({ changesRequested: feedback.changesRequested as boolean | null, newComments: feedback.newComments as boolean | null, latestCommitAt: feedback.latestCommitAt === null ? null : date(feedback.latestCommitAt) }) } : {}) });
 }
 export function parsePullRequestReadPageV1(input: unknown, query: PullRequestReadQueryV1, repos: readonly string[]): PullRequestReadPageV1 {

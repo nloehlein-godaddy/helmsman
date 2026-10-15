@@ -252,3 +252,17 @@ it('escapes check and discussion content and rejects active-content evidence lin
   expect(node.querySelector('img')).toBeNull(); expect(node.querySelector('.pr-discussion-text')?.textContent).toBe('Fix the error path.'); expect(node.querySelectorAll('.pr-discussion-text')[1]?.textContent).toBe(payload);
   expect([...node.querySelectorAll('a')].some(link => link.getAttribute('href')?.startsWith('javascript:'))).toBe(false);
 });
+
+it('labels direct and matched team requests without turning team names into markup', () => {
+  const item = { repo: 'org/b', number: 42, title: 'Review origins', url: null, status: 'open' as const, createdAt: detail.observedAt, mergedAt: null, draft: false, ticketId: null, reviewDecision: null, comments: 0, reviews: null };
+  const name = '\"<img src=x onerror=alert(1)>';
+  const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'review-requested', quality: 'complete', truncated: false, browseUrl: null,
+    items: [{ ...item, reviewRequest: { direct: true, teams: [{ name, slug: 'developers' }] } }, { ...item, number: 43 }] };
+  const node = mount(renderList('review-requested', page, '', false));
+  const button = node.querySelector('[data-select-number="42"]');
+  expect(Array.from(button?.querySelectorAll('.pr-request-origin') ?? []).map(n => n.textContent)).toEqual(['Direct', name]);
+  expect(button?.getAttribute('aria-label')).toContain(`Direct request · Team: ${name}`);
+  expect(node.querySelector('img')).toBeNull(); expect(node.querySelector('[onerror]')).toBeNull();
+  expect(node.querySelector('[data-select-number="43"] .pr-request-origin')).toBeNull();
+  expect(mount(renderList('authored-recent', { ...page, kind: 'authored-recent' }, '', false)).querySelector('.pr-request-origin')).toBeNull();
+});
