@@ -481,3 +481,31 @@ it('allows a review of new commits and sends literal guidance only for review la
   fill(next.container, '.pr-rerun-feedback', 'Update the branch'); click(next.container, '.pr-rerun');
   await vi.waitFor(() => expect(next.context.services.runCommands!.submit).toHaveBeenCalledWith({ version: 1, action: 'launch', repo: 'org/b', launch: { mode: 'rerun', prNumber: 42, feedback: 'Update the branch' } }, expect.any(AbortSignal)));
 });
+
+it.each(['APPROVE', 'REQUEST_CHANGES', 'COMMENT'] as const)('locks another default agent review immediately after a successful current-head %s', async event => {
+  const f = await fixture(); await ready(f);
+  vi.mocked(f.context.services.pullRequestCommands!.submit).mockImplementation(async input => available(reviewReceipt(input)));
+  fill(f.container, '.pr-review-body', 'My review');
+  click(f.container, `[data-review="${event}"]`);
+  await vi.waitFor(() => expect(f.context.services.pullRequestCommands!.acknowledge).toHaveBeenCalled());
+  await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true));
+  expect(f.context.services.pullRequestInspect!.detail).toHaveBeenCalledTimes(1);
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-comment')?.disabled).toBe(false);
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-rerun')?.disabled).toBe(false);
+  const agent = f.container.querySelector<HTMLButtonElement>('.pr-review-agent')!; agent.disabled = false; agent.click();
+  expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled();
+  fill(f.container, '.pr-effort', 'high'); expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+});
+
+it('does not treat a reconciled successful review of an older commit as a review of the current head', async () => {
+  const f = await fixture({}, context => {
+    const input = { version: 1 as const, repo: 'org/b', number: 42, expectedHeadSha: base, event: 'APPROVE' as const, body: '' };
+    vi.mocked(context.services.pullRequestCommands!.pending).mockResolvedValue([{ command: { ...input, requestId }, receipt: null }]);
+    vi.mocked(context.services.pullRequestCommands!.receipt).mockResolvedValue(available(reviewReceipt(input)));
+  });
+  await vi.waitFor(() => expect(f.container.querySelector('[data-pending-kind="review"]')).not.toBeNull());
+  click(f.container, '[data-pending-kind="review"]');
+  await vi.waitFor(() => expect(f.context.services.pullRequestCommands!.acknowledge).toHaveBeenCalled());
+  expect(f.container.querySelector('.pr-panel-context')?.textContent).toContain('You have not reviewed');
+  expect(f.container.querySelector<HTMLElement>('[data-review-repeat-note]')?.hidden).toBe(true);
+});

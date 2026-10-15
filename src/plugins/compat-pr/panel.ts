@@ -332,6 +332,11 @@ class PrPanel implements PluginPanelInstance {
   private async consumeReview(receipt: PullRequestCommandReceiptV1) {
     this.result = receipt.reason ?? `Review ${receipt.status}${receipt.result ? ` by ${receipt.result.actor}` : ''}.`;
     if (receipt.status !== 'succeeded' && receipt.status !== 'rejected') return;
+    if (receipt.status === 'succeeded' && this.detail && sameTarget(receipt.input, this.selected) && sameTarget(receipt.result, this.detail.target)
+      && receipt.result?.headSha === this.detail.target.headSha && receipt.input.expectedHeadSha === receipt.result.headSha) {
+      const viewerReview = { APPROVE: 'APPROVED', REQUEST_CHANGES: 'CHANGES_REQUESTED', COMMENT: 'COMMENTED' } as const;
+      this.detail = { ...this.detail, reviews: { ...this.detail.reviews, viewerReview: viewerReview[receipt.input.event], viewerReviewedCommitId: receipt.result.headSha, viewerReviewedAt: null } };
+    }
     if (this.storageError) throw new Error('Save the current draft before saving the terminal result and acknowledging its request.');
     this.storage.result('review', receipt.input.repo, receipt.requestId, receipt);
     await this.context.services.pullRequestCommands!.acknowledge({ repo: receipt.input.repo, requestId: receipt.requestId });
