@@ -27,6 +27,22 @@ describe('Run viewer composition page', () => {
     await f.instance.update({ ...state, visible: false }); expect(f.active).toHaveBeenLastCalledWith(false);
     f.lifetime.abort(); expect(f.dispose).toHaveBeenCalledOnce(); expect(f.listeners.size).toBe(0);
   });
+  it('keeps the page, stack, log and text selection connected through routine state saves and updates', async () => {
+    const f = await fixture(); await vi.waitFor(() => expect(f.mount).toHaveBeenCalledOnce());
+    const root = f.container.querySelector<HTMLElement>('[data-composition-page]')!;
+    const host = f.container.querySelector<HTMLElement>('[data-panel-instance="run-viewer"]')!; const stack = host.parentElement!;
+    const log = document.createElement('pre'); log.textContent = 'Paused log selection'; host.replaceChildren(log); log.scrollTop = 125; f.container.scrollTop = 260;
+    const selection = window.getSelection()!; const range = document.createRange(); range.setStart(log.firstChild!, 0); range.setEnd(log.firstChild!, 6); selection.removeAllRanges(); selection.addRange(range);
+    const mutations: MutationRecord[] = []; const observer = new MutationObserver(records => mutations.push(...records)); observer.observe(f.container, { subtree: true, childList: true });
+    await f.instance.update({ ...state, themeId: 'light', pirateMode: true });
+    await f.composition.updateLayout({ ...f.layout, instances: f.layout.instances.map(instance => ({ ...instance, state: { 'helmsman.run-viewer/panel': { version: 1, value: { paused: true } } } })) }, f.layout.revision);
+    await vi.waitFor(() => expect(root.querySelector('h1')?.textContent).toBe('Voyage viewer')); await f.instance.refresh?.();
+    const removals = [...mutations, ...observer.takeRecords()].flatMap(record => [...record.removedNodes]); observer.disconnect();
+    expect(removals.some(removed => removed === root || removed === stack || removed === host || removed instanceof Element && removed.contains(log))).toBe(false);
+    expect(f.container.querySelector('[data-composition-page]')).toBe(root); expect(host.parentElement).toBe(stack);
+    expect(log.isConnected).toBe(true); expect(log.scrollTop).toBe(125); expect(f.container.scrollTop).toBe(260); expect(selection.toString()).toBe('Paused');
+    expect(f.mount).toHaveBeenCalledOnce(); expect(f.dispose).not.toHaveBeenCalled();
+  });
   it('preserves deliberately empty layouts until a user adds an implementation', async () => {
     const f = await fixture(true); await vi.waitFor(() => expect(f.container.textContent).toContain('No visible panels. Choose Edit page'));
     expect(f.composition.updateLayout).not.toHaveBeenCalled(); expect(f.mount).not.toHaveBeenCalled();

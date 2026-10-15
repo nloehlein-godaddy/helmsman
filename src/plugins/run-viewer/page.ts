@@ -31,8 +31,19 @@ const page: PluginPageModule = { mount(container, context) {
   let layout: CompositionLayoutV1 | null = null;
   let disposed = false; let generation = 0; let saving = false; let error = '';
   let located: string | null = null; let pendingFocus: string | null = null; let failedRoute: string | null = null;
+  let renderedRoot: HTMLElement | null = null;
+  const stackSections = new Map<string, HTMLElement>();
   const mounted = new Map<string, { node: HTMLElement; handle: ManagedPanelInstanceV1 | null; retired: boolean; active: boolean; contribution: string }>();
   function node<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; return value; }
+  function reconcileChildren(parent: HTMLElement, children: readonly Node[]) {
+    const retained = new Set(children);
+    for (const child of [...parent.childNodes]) if (!retained.has(child)) child.remove();
+    let current = parent.firstChild;
+    for (const child of children) {
+      if (child === current) current = current.nextSibling;
+      else parent.insertBefore(child, current);
+    }
+  }
   function button(label: string, action: () => void) { const value = node('button', label); value.type = 'button'; value.dataset.pageAction = label; value.disabled = saving; value.addEventListener('click', action); return value; }
   function iconButton(label: string, path: string, action: () => void) {
     const value = button(label, action); value.className = 'composition-icon-button'; value.setAttribute('aria-label', label); value.title = label;
@@ -88,6 +99,8 @@ const page: PluginPageModule = { mount(container, context) {
     if (disposed) return;
     const focused = document.activeElement instanceof HTMLElement && container.contains(document.activeElement) ? document.activeElement : null;
     let routedFocus: HTMLElement | null = null;
+    const retainedSections = new Map<Node, HTMLElement>();
+    const currentStacks = new Set<string>();
     const root = node('div'); root.className = 'plugin-run-viewer'; root.dataset.compositionPage = ''; root.append(node('style', styles), node('style', pageControlsStyles));
     const header = node('div'); header.className = 'composition-page-header'; header.append(node('h1', state.pirateMode ? 'Voyage viewer' : 'Run viewer'));
     const toolbar = node('div'); toolbar.className = 'composition-page-actions';
@@ -118,7 +131,9 @@ const page: PluginPageModule = { mount(container, context) {
         child.retired = true; child.handle?.dispose(); mounted.delete(id);
       }
       for (const stack of layout.columns.flat()) {
-        const section = node('section');
+        const key = JSON.stringify(stack.instances); currentStacks.add(key);
+        const section = stackSections.get(key) ?? node('section'); stackSections.set(key, section);
+        const sectionChildren: Node[] = [];
         const visible = stack.instances.filter(id => layout?.instances.some(instance => instance.instanceId === id && !instance.hidden));
         if (visible.length && (visible.length > 1 || stack.collapsed || !visible.includes(stack.activeInstanceId))) {
           const tabs = node('div'); tabs.className = 'composition-panel-tabs'; tabs.setAttribute('role', 'group'); tabs.setAttribute('aria-label', 'Panels');
@@ -130,7 +145,7 @@ const page: PluginPageModule = { mount(container, context) {
             });
             tab.dataset.pageAction = `${id}:tab`; tab.setAttribute('aria-pressed', String(!stack.collapsed && stack.activeInstanceId === id)); tabs.append(tab);
           }
-          section.append(tabs);
+          sectionChildren.push(tabs);
         }
         for (const id of stack.instances) {
           const instance = layout.instances.find(value => value.instanceId === id); if (!instance) continue;
@@ -162,17 +177,21 @@ const page: PluginPageModule = { mount(container, context) {
           child.active = state.visible && !instance.hidden && !stack.collapsed && stack.activeInstanceId === id;
           child.node.hidden = !child.active; child.handle?.setActive(child.active);
           if (pendingFocus === id && document.activeElement instanceof HTMLElement && child.node.contains(document.activeElement)) routedFocus = document.activeElement;
-          section.append(child.node);
+          sectionChildren.push(child.node);
         }
-        root.append(section);
+        reconcileChildren(section, sectionChildren);
+        const placeholder = node('section'); retainedSections.set(placeholder, section); root.append(placeholder);
       }
     }
-    container.replaceChildren(root);
+    for (const key of stackSections.keys()) if (!currentStacks.has(key)) stackSections.delete(key);
+    const children = [...root.childNodes].map(child => retainedSections.get(child) ?? child);
+    if (!renderedRoot) { renderedRoot = root; reconcileChildren(root, children); container.replaceChildren(root); }
+    else reconcileChildren(renderedRoot, children);
     const target = pendingFocus ? mounted.get(pendingFocus) : null;
     if (target?.active && target.node.isConnected) { pendingFocus = null; const control = routedFocus ?? (focused && target.node.contains(focused) ? focused : target.node); control.focus({ preventScroll: true }); target.node.scrollIntoView?.({ block: 'start' }); }
     else if (focused?.isConnected) focused.focus({ preventScroll: true });
     else if (focused?.dataset.pageAction) {
-      const replacement = [...root.querySelectorAll<HTMLElement>('[data-page-action]')].find(value => value.dataset.pageAction === focused.dataset.pageAction);
+      const replacement = [...renderedRoot.querySelectorAll<HTMLElement>('[data-page-action]')].find(value => value.dataset.pageAction === focused.dataset.pageAction);
       (replacement && !(replacement instanceof HTMLButtonElement && replacement.disabled) && !replacement.closest('[hidden]') ? replacement : editButton).focus({ preventScroll: true });
     }
   }
@@ -180,7 +199,7 @@ const page: PluginPageModule = { mount(container, context) {
   const unsubscribe = composition.subscribe(() => { void read(); });
   function dispose() {
     if (disposed) return; disposed = true; ++generation; unsubscribe(); context.signal.removeEventListener('abort', dispose);
-    for (const child of mounted.values()) { child.retired = true; child.handle?.dispose(); } mounted.clear();
+    for (const child of mounted.values()) { child.retired = true; child.handle?.dispose(); } mounted.clear(); stackSections.clear(); renderedRoot = null;
   }
   context.onDispose(dispose); context.signal.addEventListener('abort', dispose, { once: true });
   if (context.signal.aborted) dispose(); else void read();

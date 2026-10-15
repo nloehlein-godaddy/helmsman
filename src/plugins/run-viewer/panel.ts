@@ -18,6 +18,17 @@ const locatorKey = (locator: PresentationLocatorV1 | null | undefined) => !locat
 const canonical = (tab: { repo: string; runId: string }): PresentationLocatorV1 => ({ version: 1, kind: 'run', repo: tab.repo, runId: tab.runId });
 const terminal = (receipt: RunCommandReceiptV1 | null | undefined) => receipt?.status === 'accepted' || receipt?.status === 'rejected';
 const logText = (tab: RunTab) => tab.events.map(event => `[${event.at}] ${event.kind}: ${event.text}${event.truncated ? ' [preview clipped]' : ''}`).join('\n');
+const renderChildren = (parent: HTMLElement, next: HTMLElement, retained: Map<Node, HTMLElement>) => {
+  let cursor = parent.firstChild;
+  for (const child of [...next.childNodes]) {
+    const element = retained.get(child) ?? child;
+    if (element.parentNode === parent) {
+      while (cursor && cursor !== element) { const obsolete = cursor; cursor = cursor.nextSibling; obsolete.remove(); }
+      cursor = element.nextSibling;
+    } else parent.insertBefore(element, cursor);
+  }
+  while (cursor) { const obsolete = cursor; cursor = cursor.nextSibling; obsolete.remove(); }
+};
 
 class ViewerPanel implements PluginPanelInstance {
   private readonly instructions: RunInstructions;
@@ -54,7 +65,10 @@ class ViewerPanel implements PluginPanelInstance {
   private resultsOpen = false;
   private saveQueue: Promise<boolean> = Promise.resolve(true);
   private readonly log = node('pre');
+  private readonly root = node('section');
+  private readonly tools = node('div');
   private logIdentity: string | null = null;
+  private logLoaded = false;
   private readonly downloads = new Set<AbortController>();
 
   constructor(container: HTMLElement, context: PluginPanelContext) {
@@ -349,8 +363,12 @@ class ViewerPanel implements PluginPanelInstance {
   private button(label: string, action: () => void, disabled = false) { const button = node('button', label); button.type = 'button'; button.disabled = disabled || !this.active(); button.addEventListener('click', action); return button; }
   private draw() {
     if (this.disposed) return;
+    const selected = this.selected();
+    if (selected && this.logLoaded && this.logIdentity === tabKey(selected) && this.log.isConnected && !selected.follow) selected.scrollTop = this.log.scrollTop;
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
     const focus = focused?.dataset.focus;
+    const retained = new Map<Node, HTMLElement>();
+    const keep = (element: HTMLElement) => { const marker = document.createComment(''); retained.set(marker, element); return marker; };
     const root = node('section'); root.className = 'plugin-run-viewer'; root.append(node('style', styles));
     if (!this.container.closest('[data-composition-page]')) {
       const header = node('div'); header.className = 'run-tools'; header.append(node('h2', this.state.pirateMode ? 'Voyage viewer' : 'Run viewer'), this.button('Refresh', () => { void this.refresh(); }, this.busy)); root.append(header);
@@ -433,25 +451,27 @@ class ViewerPanel implements PluginPanelInstance {
       if (tab.summary?.status === 'running') tools.append(this.button('Stop run', () => { void this.submit('stop', tab); }, commandDisabled));
       if (tab.summary?.status === 'failed') tools.append(this.button('Retry run', () => { void this.submit('retry', tab); }, commandDisabled));
       if (tab.summary?.status === 'failed' || tab.summary?.status === 'stopped') tools.append(this.button('Ask about this failure', () => { this.postmortem.open({ repo: tab.repo, runId: tab.runId }); }, commandDisabled || !this.context.services.postmortem));
-      tools.append(this.whiteboard.element);
-      root.append(tools, node('small', `Run-wide log preview · ${tab.events.length} events retained (maximum 300) · text may be clipped at 4,000 characters per event.`));
+      tools.append(keep(this.whiteboard.element)); this.tools.className = 'run-tools'; renderChildren(this.tools, tools, retained);
+      root.append(keep(this.tools), node('small', `Run-wide log preview · ${tab.events.length} events retained (maximum 300) · text may be clipped at 4,000 characters per event.`));
       if (tab.newerTrimmed || tab.olderTrimmed) root.append(node('small', `${tab.olderTrimmed ? 'Earlier preview events were released. Earlier logs reopens the latest bounded window.' : 'Newer preview events were released. Follow latest returns to the current tail.'} Download preserves full stored text.`));
       const text = tab.loaded ? logText(tab) || 'No log events yet.' : this.busy ? 'Loading log…' : 'Log unavailable.';
       if (this.log.textContent !== text) this.log.textContent = text;
-      this.logIdentity = tabKey(tab); root.append(this.log);
+      this.logIdentity = tabKey(tab); root.append(keep(this.log));
     }
     this.instructions.update(this.state, tab?.summary ? { version: 1, repo: tab.repo, runId: tab.runId, expectedAttempt: tab.summary.attempt } : null);
-    root.append(this.instructions.element);
+    root.append(keep(this.instructions.element));
     this.whiteboard.update(this.state, tab?.summary ? { kind: 'run', repo: tab.repo, runId: tab.runId, expectedAttempt: tab.summary.attempt } : null);
     this.postmortem.update(this.state, tab ? { repo: tab.repo, runId: tab.runId } : null);
-    root.append(this.postmortem.element);
+    root.append(keep(this.postmortem.element));
     this.drawRequests(root);
-    for (const control of root.querySelectorAll<HTMLElement>('button, a')) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey, control.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, control.getAttribute('role') === 'tab' ? 'select-tab' : control.classList.contains('run-tab-open') ? 'open-tab' : control.getAttribute('aria-label') ?? control.textContent]);
-    this.container.replaceChildren(root);
-    if (tab) { this.log.scrollTop = tab.follow ? this.log.scrollHeight : tab.scrollTop; if (tab.follow) tab.scrollTop = this.log.scrollTop; }
+    this.root.className = root.className; renderChildren(this.root, root, retained);
+    if (this.root.parentNode !== this.container) this.container.replaceChildren(this.root);
+    this.logLoaded = tab?.loaded ?? false;
+    for (const control of this.root.querySelectorAll<HTMLElement>('button, a')) control.dataset.focus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey, control.closest<HTMLElement>('[data-request-id]')?.dataset.requestId, control.getAttribute('role') === 'tab' ? 'select-tab' : control.classList.contains('run-tab-open') ? 'open-tab' : control.getAttribute('aria-label') ?? control.textContent]);
+    if (tab?.loaded) { const scrollTop = tab.follow ? this.log.scrollHeight - this.log.clientHeight : tab.scrollTop; if (this.log.scrollTop !== scrollTop) this.log.scrollTop = scrollTop; if (tab.follow) tab.scrollTop = this.log.scrollTop; }
     if (focused === this.log && this.log.isConnected) this.log.focus({ preventScroll: true });
     else if (focused?.isConnected && (this.instructions.element.contains(focused) || this.postmortem.element.contains(focused) || this.whiteboard.element.contains(focused))) focused.focus({ preventScroll: true });
-    else if (focus) [...root.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });
+    else if (focus) [...this.root.querySelectorAll<HTMLElement>('[data-focus]')].find(control => control.dataset.focus === focus)?.focus({ preventScroll: true });
   }
   private drawRequests(root: HTMLElement) {
     if (this.pending.length) {

@@ -146,6 +146,16 @@ describe('authored run viewer lifecycle and commands', () => {
     await f.instance.update({ ...f.state, themeId: 'dark', pirateMode: true });
     expect(f.container.querySelector('pre')).toBe(log); expect(document.activeElement).toBe(log); expect(vi.mocked(f.inspect.log).mock.calls).toHaveLength(count);
   });
+  it('preserves selected log text and paused reading position through updates and refreshes', async () => {
+    const f = await mount(); await ready(f.container); button(f.container, 'Pause follow').click();
+    const log = f.container.querySelector('pre')!; log.scrollTop = 125; log.focus();
+    const range = document.createRange(); range.selectNodeContents(log); const selection = window.getSelection()!;
+    selection.removeAllRanges(); selection.addRange(range); const selectedText = selection.toString();
+    await f.instance.update({ ...f.state, themeId: 'dark' }); await f.instance.refresh?.();
+    expect(selectedText).toContain('event 51'); expect(selection.toString()).toBe(selectedText);
+    expect(log.scrollTop).toBe(125); expect(document.activeElement).toBe(log);
+    expect(button(f.container, 'Follow latest')).toBeDefined(); selection.removeAllRanges();
+  });
   it('keeps journal requests visible when their run tab closes', async () => {
     const saved: RunCommandPendingV1 = { command: { version: 1, requestId, repo: 'org/a', action: 'stop', target: { runId: 'one', expectedAttempt: 1 } }, receipt: null };
     const f = await mount({ saved: [saved] }); await vi.waitFor(() => expect(f.container.textContent).toContain('Outcome unknown'));
