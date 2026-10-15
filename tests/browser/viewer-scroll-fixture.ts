@@ -2,17 +2,24 @@ import { expect, type Page } from '@playwright/test';
 import { builtinCatalog } from './builtin-catalog';
 
 const at = '2026-10-14T12:00:00.000Z';
-async function mockScrollingViewer(page: Page) {
+async function mockScrollingViewer(page: Page, withOlder = false) {
   const errors: string[] = []; const writes: string[] = [];
-  const state = { lastEvent: 45 };
+  const state = { lastEvent: 45, deferSummary: false };
+  const summaryReleases: (() => void)[] = []; const logReads: { direction: string | null; cursor: string | null }[] = [];
   const run = { version: 1, id: 'run-0', repo: 'org/a', displayKey: 'review', status: 'succeeded', attempt: 1, startedAt: at, endedAt: at, prNumber: 11104, costUsd: null, review: null, sourceSettlement: null };
   const target = { repo: run.repo, runId: run.id, expectedAttempt: 1 };
   page.on('pageerror', error => errors.push(error.message));
-  await page.route('**/*', route => {
+  await page.route('**/*', async route => {
     const request = route.request(); const url = new URL(request.url()); const path = url.pathname;
     if (url.origin !== 'http://127.0.0.1:4175') return route.abort();
     if (!path.startsWith('/api/')) return route.continue();
     if (request.method() !== 'GET') { writes.push(path); return route.abort(); }
+    if (path === '/api/run-read/run-0' && state.deferSummary) await new Promise<void>(resolve => { summaryReleases.push(resolve); });
+    if (path === '/api/run-inspect/run-0/log') {
+      const direction = url.searchParams.get('direction'); const cursor = url.searchParams.get('cursor'); const older = cursor === 'older-proof'; logReads.push({ direction, cursor });
+      const events = Array.from({ length: older ? 10 : state.lastEvent }, (_, i) => ({ sequence: i + 1 + (withOlder && !older ? 50 : 0), at, kind: 'log', text: older ? `Earlier customer evidence ${i + 1}` : Array.from({ length: 12 }, (_, line) => `Event ${i + 1}, line ${line + 1}: Customer evidence stays attached to this review.`).join('\n'), truncated: false }));
+      return route.fulfill({ json: { version: 1, target, provenance: 'run-wide', observedAt: at, workerStatus: run.status, events, throughSequence: state.lastEvent + (withOlder ? 50 : 0), hasEarlier: withOlder && !older, hasLater: false, nextCursor: direction === 'forward' ? 'follow-proof' : withOlder && !older ? 'older-proof' : null, followCursor: cursor ? null : 'follow-proof' } });
+    }
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.run-viewer', 'helmsman.run-history']) }
       : path === '/api/context' ? { repos: ['org/a'], jiraBaseUrl: null }
       : path === '/api/config' ? { config: {}, overridden: [] }
@@ -22,11 +29,10 @@ async function mockScrollingViewer(page: Page) {
       : path === '/api/run-read/run-0' ? { version: 1, repo: run.repo, runId: run.id, run }
       : path === '/api/run-inspect/resolve' ? { version: 1, target, observedAt: at }
       : path === '/api/run-inspect/history' ? { version: 1, repo: run.repo, items: Array.from({ length: 10 }, (_, i) => ({ ...run, id: `run-${i}`, title: `Preserve literal customer evidence ${i}` })), nextCursor: null, total: 10, totalQuality: 'exact', observedAt: at, coverage: 'insertion-bounded-current-state' }
-      : path === '/api/run-inspect/run-0/log' ? { version: 1, target, provenance: 'run-wide', observedAt: at, workerStatus: run.status, events: Array.from({ length: state.lastEvent }, (_, i) => ({ sequence: i + 1, at, kind: 'log', text: Array.from({ length: 12 }, (_, line) => `Event ${i + 1}, line ${line + 1}: Customer evidence stays attached to this review.`).join('\n'), truncated: false })), throughSequence: state.lastEvent, hasEarlier: false, hasLater: false, nextCursor: url.searchParams.get('direction') === 'forward' ? 'follow-proof' : null, followCursor: url.searchParams.has('cursor') ? null : 'follow-proof' }
       : {};
     return route.fulfill({ json });
   });
-  return { errors, writes, state };
+  return { errors, writes, state, logReads, releaseSummary() { state.deferSummary = false; for (const release of summaryReleases.splice(0)) release(); } };
 }
 
 export async function verifyScrollStability(page: Page, drawer: boolean) {
@@ -66,4 +72,20 @@ export async function verifyScrollStability(page: Page, drawer: boolean) {
     const samples = await page.evaluate(() => (window as unknown as { viewerScrollSamples: { log: number; outer: number }[] }).viewerScrollSamples);
     expect(samples.length).toBeGreaterThan(3); expect(samples.every(sample => Math.abs(sample.log - baseline.log) <= 1 && Math.abs(sample.outer - baseline.outer) <= 1)).toBe(true);
     await page.reload(); await expect(log).toContainText('Event 50, line 12'); await expect(viewer.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible(); await expect.poll(() => log.evaluate(element => Math.abs(element.scrollTop - 137))).toBeLessThanOrEqual(1); expect(f.errors).toEqual([]); expect(f.writes).toEqual([]);
+}
+
+export async function verifyEarlierLogsDuringPolling(page: Page) {
+  const f = await mockScrollingViewer(page, true); await page.clock.install(); await page.goto('/run-history?repo=org%2Fa&run=run-0&runRepo=org%2Fa');
+  const viewer = page.locator('section.plugin-run-viewer'); const earlier = viewer.getByRole('button', { name: 'Earlier logs', exact: true });
+  await expect(viewer.locator('.run-log')).toContainText('Event 45, line 12'); await expect(earlier).toBeEnabled(); await earlier.focus(); const originalButton = await earlier.elementHandle();
+  const appearance = await earlier.evaluate(button => ({ opacity: getComputedStyle(button).opacity, color: getComputedStyle(button).color }));
+  f.state.deferSummary = true; const summary = page.waitForRequest(request => new URL(request.url()).pathname === '/api/run-read/run-0'); await page.clock.fastForward(2100); await summary;
+  for (let i = 0; i < 3; i++) {
+    await page.clock.runFor(100); await expect(earlier).toBeEnabled(); await expect(earlier).toBeFocused();
+    expect(await earlier.evaluate((button, original) => button === original, originalButton)).toBe(true);
+    expect(await earlier.evaluate(button => ({ opacity: getComputedStyle(button).opacity, color: getComputedStyle(button).color }))).toEqual(appearance);
+  }
+  await earlier.press('Enter'); await page.clock.runFor(32); expect(f.logReads.filter(read => read.cursor === 'older-proof')).toHaveLength(0);
+  f.releaseSummary(); await expect(viewer.locator('.run-log')).toContainText('Earlier customer evidence 1'); await expect(earlier).toBeDisabled(); await expect(viewer.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible();
+  expect(f.logReads.filter(read => read.direction === 'backward' && read.cursor === 'older-proof')).toHaveLength(1); expect(f.errors).toEqual([]); expect(f.writes).toEqual([]);
 }

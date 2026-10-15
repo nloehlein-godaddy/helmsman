@@ -51,6 +51,7 @@ class ViewerPanel implements PluginPanelInstance {
   private evidenceReady = false;
   private busy = false;
   private reading = false;
+  private queuedOlder: string | null = null;
   private summariesReading = false;
   private summariesReadAt = 0;
   private recentRuns: RunReadSummaryV1[] = [];
@@ -67,6 +68,7 @@ class ViewerPanel implements PluginPanelInstance {
   private readonly log = node('pre');
   private readonly root = node('section');
   private readonly tools = node('div');
+  private readonly earlier = node('button', 'Earlier logs');
   private logIdentity: string | null = null;
   private logLoaded = false;
   private readonly downloads = new Set<AbortController>();
@@ -78,6 +80,11 @@ class ViewerPanel implements PluginPanelInstance {
     this.container = container; this.context = context; this.state = context.state;
     const parsed = readState(this.state.savedState); this.unsupported = parsed === null; const saved = parsed ?? emptyState();
     this.tabs = saved.tabs.map(newTab); this.activeKey = saved.activeKey; this.results = saved.results;
+    this.earlier.type = 'button';
+    this.earlier.addEventListener('click', () => {
+      const tab = this.selected(); if (!tab || this.earlier.disabled || !this.active()) return;
+      tab.follow = false; void this.persist(); void this.load('older');
+    });
     this.log.className = 'run-log'; this.log.tabIndex = 0; this.log.setAttribute('aria-label', 'Run log preview');
     this.log.addEventListener('scroll', () => {
       const tab = this.selected(); if (!tab || this.logIdentity !== tabKey(tab)) return;
@@ -98,6 +105,7 @@ class ViewerPanel implements PluginPanelInstance {
     if (this.timer) clearTimeout(this.timer); this.timer = null;
     for (const controller of this.downloads) controller.abort(); this.downloads.clear();
     this.busy = false; this.reading = false; this.summariesReading = false; this.summariesReadAt = 0; this.commandBusy = false; this.evidenceReady = false;
+    this.queuedOlder = null;
     this.recentLoading = false;
   };
   dispose = () => {
@@ -211,12 +219,15 @@ class ViewerPanel implements PluginPanelInstance {
     })).finally(() => { if (this.active(generation)) this.summariesReading = false; });
   }
   private async load(direction: 'initial' | 'older' | 'follow') {
-    if (this.reading) return;
     const tab = this.selected();
+    if (this.reading) {
+      if (direction === 'older' && tab && this.active()) { this.queuedOlder = tabKey(tab); this.busy = true; this.draw(); }
+      return;
+    }
     if (!this.active() || !tab) { await Promise.all([this.restorePending(this.generation), this.loadRecent(this.generation)]); this.draw(); return; }
     const generation = this.generation; const controller = this.controller ?? new AbortController(); this.controller = controller;
     if (this.timer) clearTimeout(this.timer); this.timer = null;
-    this.reading = true; this.busy = true; this.refreshInactiveSummaries(generation, controller.signal); this.draw();
+    this.reading = true; this.busy = direction !== 'follow' || !tab.loaded; this.refreshInactiveSummaries(generation, controller.signal); this.draw();
     try {
       const target = await this.resolve(tab, controller.signal);
       if (!this.active(generation) || this.selected() !== tab) return;
@@ -242,7 +253,14 @@ class ViewerPanel implements PluginPanelInstance {
       }
       tab.error = ''; await this.restorePending(generation);
     } catch (error) { if (this.active(generation) && this.selected() === tab) { tab.error = error instanceof Error ? error.message : 'Run could not be read.'; tab.summary = null; } }
-    finally { if (this.active(generation)) { this.reading = false; this.busy = false; this.draw(); this.schedule(generation); } }
+    finally {
+      if (this.active(generation)) {
+        this.reading = false;
+        const queuedOlder = this.queuedOlder === tabKey(tab); this.queuedOlder = null;
+        if (queuedOlder) void this.load('older');
+        else { this.busy = false; this.draw(); this.schedule(generation); }
+      }
+    }
   }
   private validLog(page: RunInspectLogPageV1 | null | undefined, target: RunInspectTargetV1): page is RunInspectLogPageV1 {
     return !!page?.target && page.target.repo === target.repo && page.target.runId === target.runId && page.target.expectedAttempt === target.expectedAttempt
@@ -443,9 +461,10 @@ class ViewerPanel implements PluginPanelInstance {
       }
       if (tab.error) { const error = node('p', tab.error); error.setAttribute('role', 'alert'); root.append(error); }
       const tools = node('div'); tools.className = 'run-tools';
+      this.earlier.disabled = !this.active() || this.busy || !tab.hasEarlier && !tab.olderTrimmed;
       tools.append(this.button(tab.follow ? 'Pause follow' : 'Follow latest', () => {
         tab.follow = !tab.follow; void this.persist(); this.draw(); if (tab.follow && !this.busy) void this.load(tab.newerTrimmed ? 'initial' : 'follow');
-      }), this.button('Earlier logs', () => { tab.follow = false; void this.persist(); void this.load('older'); }, this.busy || !tab.hasEarlier && !tab.olderTrimmed),
+      }), keep(this.earlier),
       this.button('Copy preview', () => this.copy(tab, false), !tab.loaded), this.button('Copy run ID', () => this.copy(tab, true)), this.button('Download full log', () => this.download(tab), !tab.target));
       const commandDisabled = !this.evidenceReady || this.commandBusy || this.busy || this.blocked(tab) || !tab.summary || !tab.target;
       if (tab.summary?.status === 'running') tools.append(this.button('Stop run', () => { void this.submit('stop', tab); }, commandDisabled));

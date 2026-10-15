@@ -156,6 +156,17 @@ describe('authored run viewer lifecycle and commands', () => {
     expect(log.scrollTop).toBe(125); expect(document.activeElement).toBe(log);
     expect(button(f.container, 'Follow latest')).toBeDefined(); selection.removeAllRanges();
   });
+  it('keeps earlier pagination available during background reads and queues a click until that read settles', async () => {
+    const f = await mount(); await ready(f.container); const earlier = button(f.container, 'Earlier logs'); earlier.focus();
+    const pending = deferred<Awaited<ReturnType<typeof f.runs.load>>>(); f.runs.load.mockReturnValueOnce(pending.promise);
+    await f.instance.update({ ...f.state, activity: { ...f.state.activity, epoch: 2 } });
+    await vi.waitFor(() => expect(f.runs.load).toHaveBeenCalledTimes(2));
+    expect(button(f.container, 'Earlier logs')).toBe(earlier); expect(earlier.disabled).toBe(false); expect(document.activeElement).toBe(earlier);
+    earlier.click(); expect(earlier.disabled).toBe(true); expect(f.inspect.log).toHaveBeenCalledTimes(1);
+    pending.resolve(available({ version: 1, repo: 'org/a', runId: 'one', run: summary() }));
+    await vi.waitFor(() => expect(f.inspect.log).toHaveBeenLastCalledWith(expect.objectContaining({ direction: 'backward', cursor: 'older-51' }), expect.any(AbortSignal)));
+    await ready(f.container); expect(earlier.disabled).toBe(false); expect(button(f.container, 'Earlier logs')).toBe(earlier);
+  });
   it('keeps journal requests visible when their run tab closes', async () => {
     const saved: RunCommandPendingV1 = { command: { version: 1, requestId, repo: 'org/a', action: 'stop', target: { runId: 'one', expectedAttempt: 1 } }, receipt: null };
     const f = await mount({ saved: [saved] }); await vi.waitFor(() => expect(f.container.textContent).toContain('Outcome unknown'));
