@@ -621,3 +621,25 @@ it.each(['run', 'review'] as const)('does not submit a %s command after its jour
   await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false));
   expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled(); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
 });
+
+it('submits the untouched update default and keeps Review tools above the Update section', async () => {
+  const f = await fixture(); await ready(f);
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-rerun-feedback')?.value).toBe('update the pr using the provided comment feedback.');
+  expect(f.container.querySelector('.pr-agent-review [data-launch="review"]')).not.toBeNull();
+  expect(f.container.querySelector('.pr-agent-update [data-launch="rerun"]')).not.toBeNull();
+  vi.mocked(f.context.services.runCommands!.submit).mockResolvedValue({ status: 'unavailable', reason: 'connection-failed' });
+  click(f.container, '.pr-rerun');
+  await vi.waitFor(() => expect(f.context.services.runCommands!.submit).toHaveBeenCalledWith({ version: 1, action: 'launch', repo: 'org/b', launch: { mode: 'rerun', prNumber: 42, feedback: 'update the pr using the provided comment feedback.' } }, expect.any(AbortSignal)));
+});
+
+it('keeps explicitly cleared update feedback empty through refresh and reload and requires text before launching', async () => {
+  const f = await fixture(); await ready(f);
+  fill(f.container, '.pr-rerun-feedback', '');
+  await f.instance.refresh?.();
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-rerun-feedback')?.value).toBe('');
+  click(f.container, '.pr-rerun');
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Describe the changes to make before launching.'));
+  expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled();
+  f.lifetime.abort(); const next = await fixture(); await ready(next);
+  expect(next.container.querySelector<HTMLTextAreaElement>('.pr-rerun-feedback')?.value).toBe('');
+});

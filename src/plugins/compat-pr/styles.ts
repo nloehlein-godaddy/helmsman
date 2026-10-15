@@ -111,6 +111,10 @@ export const styles = `
 .plugin-public-pr .pr-agent-section { background:var(--panel-hi); }
 .plugin-public-pr .pr-agent-section>summary .pr-phosphor { color:var(--accent-text,var(--accent)); }
 .plugin-public-pr .pr-agent-section .tuning { max-width:720px; }
+.plugin-public-pr .pr-agent-task { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.plugin-public-pr .pr-agent-task h5 { display:flex; align-items:center; gap:6px; margin:0; font-size:15px; font-weight:600; }
+.plugin-public-pr .pr-agent-task h5>.pr-phosphor { color:var(--accent-text,var(--accent)); }
+.plugin-public-pr .pr-agent-update { border-top:1px solid var(--line); margin-top:4px; padding-top:16px; }
 .plugin-public-pr .pr-agent-section :is(label,input,select,textarea) { font-size:14px; }
 .plugin-public-pr .pr-review-agent { background:var(--accent); color:var(--on-accent); border-color:var(--accent); font-weight:600; }
 .plugin-public-pr .pr-review-agent:hover:not(:disabled) { background:var(--accent); color:var(--on-accent); border-color:var(--accent-text,var(--accent)); }

@@ -453,7 +453,7 @@ class PrPanel implements PluginPanelInstance {
       (this.container.querySelector('.pr-manual-body') ?? this.container.querySelector('.pr-panel') ?? this.container.querySelector('.pr-lookup-result'))?.prepend(note);
     }
     this.whiteboard.update(this.state, this.detail ? { kind: 'pull-request', ...this.detail.target } : null);
-    (this.container.querySelector('.pr-agent-extras') ?? this.container.querySelector('.pr-lookup-result'))?.append(this.whiteboard.element);
+    (this.container.querySelector('[data-pr-review-tools]') ?? this.container.querySelector('.pr-lookup-result'))?.append(this.whiteboard.element);
     if (focused?.isConnected && this.whiteboard.element.contains(focused)) focused.focus({ preventScroll: true });
     for (const detail of this.container.querySelectorAll<HTMLDetailsElement>('details')) { const key = disclosureKey(detail); if (key !== null && disclosures.has(key)) detail.open = disclosures.get(key) ?? detail.open; }
     if (!this.active() || this.busy) this.container.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = true; }); this.paintSafety();

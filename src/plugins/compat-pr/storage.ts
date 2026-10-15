@@ -1,6 +1,7 @@
 export interface Draft { body: string; feedback: string; guidance?: string; model: string; effort: string; }
 export interface ReviewSettings { model: string; effort: string; }
-const empty = (): Draft => ({ body: '', feedback: '', guidance: '', model: '', effort: '' });
+export const DEFAULT_BRANCH_FEEDBACK = 'update the pr using the provided comment feedback.';
+const empty = (): Draft => ({ body: '', feedback: DEFAULT_BRANCH_FEEDBACK, guidance: '', model: '', effort: '' });
 const listeners = new Set<(source: PrStorage | null) => void>();
 export function subscribeStorage(listener: (source: PrStorage | null) => void): () => void { const external = () => listener(null); listeners.add(listener); window.addEventListener('storage', external); return () => { listeners.delete(listener); window.removeEventListener('storage', external); }; }
 export class PrStorage {
@@ -16,15 +17,15 @@ export class PrStorage {
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Stored pull request draft is unavailable. Its original data is kept.');
     const data = value as Record<string, unknown>;
-    if (Object.keys(data).some(key => key !== 'version' && key !== 'draft') || data.version !== 1 || !data.draft || typeof data.draft !== 'object' || Array.isArray(data.draft)) throw new Error('Stored pull request draft is unavailable. Its original data is kept.');
+    if (Object.keys(data).some(key => key !== 'version' && key !== 'draft') || (data.version !== 1 && data.version !== 2) || !data.draft || typeof data.draft !== 'object' || Array.isArray(data.draft)) throw new Error('Stored pull request draft is unavailable. Its original data is kept.');
     const draft = data.draft as Record<string, unknown>;
     if (Object.keys(draft).some(key => !['body', 'feedback', 'guidance', 'model', 'effort'].includes(key)) || ['body', 'feedback', 'model', 'effort'].some(key => typeof draft[key] !== 'string') || draft.guidance !== undefined && typeof draft.guidance !== 'string') throw new Error('Stored pull request draft is unavailable. Its original data is kept.');
-    return { body: draft.body as string, feedback: draft.feedback as string, guidance: draft.guidance as string | undefined ?? '', model: draft.model as string, effort: draft.effort as string };
+    return { body: draft.body as string, feedback: data.version === 1 && !(draft.feedback as string).trim() ? DEFAULT_BRANCH_FEEDBACK : draft.feedback as string, guidance: draft.guidance as string | undefined ?? '', model: draft.model as string, effort: draft.effort as string };
   }
   edit(repo: string, number: number, field: keyof Draft, value: string): Draft {
     if (value.length > 20_480) throw new Error('Draft is too long to save. Shorten it before submitting.');
     const draft = { ...this.draft(repo, number), [field]: value };
-    localStorage.setItem(this.key(repo, number), JSON.stringify({ version: 1, draft }));
+    localStorage.setItem(this.key(repo, number), JSON.stringify({ version: 2, draft }));
     for (const listener of listeners) listener(this); return draft;
   }
   results(repo: string, number: number): string[] {

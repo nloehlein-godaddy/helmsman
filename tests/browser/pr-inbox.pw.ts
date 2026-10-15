@@ -225,7 +225,18 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 390, mode
     await expect(detail.getByRole('button', { name: 'Start deckhand review', exact: true })).toBeVisible(); await expect(detail.getByRole('button', { name: 'Update branch with feedback', exact: true })).toBeVisible();
     await expect(detail.getByRole('link', { name: /Open (review|branch update) setup/ })).toHaveCount(0);
     const slack = detail.locator('.pr-slack-review'); await expect(slack).toBeVisible(); const slackHref = await slack.getAttribute('href'); const slackUrl = new URL(slackHref ?? '', 'http://localhost'); expect(slackUrl.searchParams.get('repo')).toBe('org/a'); expect(slackUrl.searchParams.get('prRepo')).toBe('org/b'); expect(slackUrl.searchParams.get('pr')).toBe('42');
-    await expect(detail.locator('.pr-agent-extras').getByRole('button', { name: 'Explain in Whiteboard', exact: true })).toBeVisible();
+    const reviewTask = detail.locator('.pr-agent-review'); const updateTask = detail.locator('.pr-agent-update'); const reviewTools = reviewTask.locator('[data-pr-review-tools]');
+    await expect(reviewTask.getByRole('heading', { name: 'Review', exact: true })).toBeVisible(); await expect(updateTask.getByRole('heading', { name: 'Update', exact: true })).toBeVisible();
+    await expect(reviewTools.getByRole('button', { name: 'Explain in Whiteboard', exact: true })).toBeVisible();
+    await expect(reviewTools.locator('button')).toHaveText(['Start deckhand review', 'Explain in Whiteboard']);
+    await expect(updateTask.locator('.pr-rerun-feedback')).toHaveValue('update the pr using the provided comment feedback.');
+    expect(await detail.locator('.pr-agent-body').evaluate(root => {
+      const ordered = ['.pr-agent-review', '.pr-review-guidance', '[data-pr-review-tools]', '.pr-agent-update', '.pr-rerun-feedback', '.pr-rerun'].map(selector => root.querySelector(selector));
+      return ordered.every((node, index) => node && (index === 0 || !!(ordered[index - 1]!.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)));
+    })).toBe(true);
+    await expectReadableSurfaces(detail, ['.pr-agent-review h5', '.pr-agent-update h5', '.pr-rerun-feedback']);
+    for (const task of [reviewTask, updateTask]) expect(await task.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await detail.locator('.pr-agent-section').screenshot({ path: `test-results/browser/pr-agent-tasks-${width}-${mode}.png` });
     await expectReadableSurfaces(detail, ['.pr-panel-title', '.pr-agent-section h4', '.pr-evidence-count', '.pr-manual-review > summary', '.pr-slack-review', '.pr-review-agent']);
     await detail.locator('.pr-review-agent').hover(); await expectReadableSurfaces(detail, ['.pr-review-agent']); await page.mouse.move(0, 0);
     await expectReadableSurfaces(detail, ['.pr-agent-section h4 .pr-phosphor', '.pr-evidence-count .pr-phosphor', '.pr-slack-review .pr-phosphor'], 3);

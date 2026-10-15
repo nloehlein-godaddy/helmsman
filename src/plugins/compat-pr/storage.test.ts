@@ -63,3 +63,16 @@ it('finds the latest accepted review settings for only the same head and preserv
   expect(saved.reviewSettings(input.repo, 43, headSha)).toBeNull();
   expect(saved.reviewSettings('org/other', 42, headSha)).toBeNull();
 });
+
+it('prefills new and legacy empty update feedback while preserving edited or explicitly cleared feedback', () => {
+  const saved = storage();
+  const feedback = 'update the pr using the provided comment feedback.';
+  expect(saved.draft(input.repo, 42).feedback).toBe(feedback);
+  localStorage.setItem('helmsman.pull-request.v1:core/pull-requests:draft:["org/project",42]', JSON.stringify({ version: 1, draft: { body: 'Existing review', feedback: '', guidance: 'Focus', model: 'sonnet', effort: 'high' } }));
+  expect(saved.draft(input.repo, 42)).toMatchObject({ feedback, body: 'Existing review', guidance: 'Focus', model: 'sonnet' });
+  saved.edit(input.repo, 42, 'feedback', 'Custom instructions');
+  expect(storage().draft(input.repo, 42).feedback).toBe('Custom instructions');
+  saved.edit(input.repo, 42, 'feedback', '');
+  saved.edit(input.repo, 42, 'model', 'opus');
+  expect(storage().draft(input.repo, 42).feedback).toBe('');
+});
