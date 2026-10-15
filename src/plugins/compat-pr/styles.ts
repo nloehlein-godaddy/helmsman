@@ -3,6 +3,9 @@ export const styles = `
 @font-face { font-family:"Helmsman Phosphor Regular"; src:url("${phosphorFontUrl}") format("woff2"); font-weight:400; font-style:normal; font-display:block; }
 .plugin-public-pr { font:16px/1.5 var(--sans,sans-serif); color:var(--text); min-width:0; display:flex; flex-direction:column; gap:16px; }
 .plugin-public-pr [hidden] { display:none!important; }
+.plugin-public-pr .pr-review-recommendation { display:grid; gap:8px; padding:12px; background:var(--panel-2); overflow-wrap:anywhere; }
+.plugin-public-pr .pr-review-recommendation h4 { display:flex; align-items:center; gap:8px; margin:0; }
+.plugin-public-pr .pr-review-recommendation p { white-space:pre-wrap; }
 .plugin-public-pr > section:empty { display:none; }
 .plugin-public-pr :is(h3,p,ul) { margin:0; }
 .plugin-public-pr h3 { font:600 17px/1.3 var(--sans,sans-serif); letter-spacing:-.02em; padding:0; display:flex; align-items:center; gap:8px; }
@@ -117,7 +120,7 @@ export const styles = `
 .plugin-public-pr .pr-manual-review>summary { color:var(--accent-text,var(--accent)); }
 .plugin-public-pr .pr-manual-review>summary>span { display:inline-flex; align-items:center; gap:6px; vertical-align:middle; }
 .plugin-public-pr .pr-manual-body { display:flex; flex-direction:column; gap:12px; margin-top:12px; }
-.plugin-public-pr :is(.pr-review-body,.pr-rerun-feedback) { width:100%; min-height:80px; }
+.plugin-public-pr :is(.pr-review-body,.pr-rerun-feedback,.pr-review-guidance) { width:100%; min-height:80px; }
 .plugin-public-pr .pr-review-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .plugin-public-pr .tuning { display:flex; flex-wrap:wrap; gap:12px; }
 .plugin-public-pr .tuning label { flex:1; min-width:160px; }

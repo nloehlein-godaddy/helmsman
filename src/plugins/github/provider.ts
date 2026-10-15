@@ -561,7 +561,9 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
         const search = recentCollection(context,'/search/issues', { q: `is:pr is:open review-requested:${author}${query.repo ? ` repo:${query.repo}` : ''}`, sort: 'created', order: 'desc' },query.limit,{key:'items'});
         const local = Promise.all(repoPaths.map(async ({ repo }) => ({ repo, result: await direct(repo), reviewRequested: true })));
         const [searchResult, localResults] = await Promise.all([search, local]);
-        sources = [{ repo: '', result: searchResult, reviewRequested: true }, ...localResults];
+        const recoveredSearch = searchResult.failed && localResults.length && localResults.every(source => !source.result.failed)
+          ? { ...searchResult, quality: 'complete' as const, failed: false } : searchResult;
+        sources = [{ repo: '', result: recoveredSearch, reviewRequested: true }, ...localResults];
       }
     } catch { context.signal.throwIfAborted(); return Object.freeze({ items: Object.freeze([]), quality: 'degraded' as const, truncated: false, browseUrl: null }); }
     const items: ListCandidate[] = []; let partial = omittedAuthoredScopes; let degraded = false;
@@ -585,7 +587,8 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
     const visible = unique.slice(0, Math.min(300, query.limit));
     const listed = await withListReviews(visible, context);
     const browseUrl = query.repo && query.kind === 'authored-recent' ? `https://github.com/${query.repo}/pulls?q=${encodeURIComponent(`is:pr${query.state === 'open' ? ' is:open' : ''} author:${author} sort:created-desc`)}`
-      : query.kind === 'repo-open' && query.repo ? `https://github.com/${query.repo}/pulls` : null;
+      : query.kind === 'review-requested' ? `${query.repo ? `https://github.com/${query.repo}/pulls` : 'https://github.com/pulls'}?q=${encodeURIComponent(`is:pr is:open review-requested:${author} sort:created-desc`)}`
+        : query.kind === 'repo-open' && query.repo ? `https://github.com/${query.repo}/pulls` : null;
     return Object.freeze({ items: Object.freeze(listed), quality: degraded ? 'degraded' as const : truncated ? 'partial' as const : 'complete' as const, truncated, browseUrl });
   },
   async detail(input, context) {

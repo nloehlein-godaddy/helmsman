@@ -26,6 +26,15 @@ describe('retry intent reconstruction', () => {
     expect(retryIntent({ ...row, ticketId: 'review', prNumber: 42 }).mode).toBe('review');
   });
 
+  it('preserves literal review guidance through retained intents and retries', () => {
+    const guidance = '  Check retries.\nKeep <customer> input.  ';
+    const launch = { repo: row.repo, mode: 'review', prNumber: 42, guidance };
+    expect(JSON.parse(launchIntentJson(launch))).toEqual(launch);
+    expect(retryIntent({ ...row, launchJson: launchIntentJson(launch) })).toMatchObject(launch);
+    expect(retryIntent(withTask({ review: true, prNumber: 42, task: guidance }))).toMatchObject(launch);
+    expect(() => retryIntent({ ...row, launchJson: launchIntentJson({ ...launch, guidance: 'x'.repeat(20 * 1024 + 1) }) })).toThrow('guidance');
+  });
+
   it('preserves PR update feedback including intentionally empty feedback', () => {
     for (const feedback of ['Fix missing error handling.', '']) {
       expect(retryIntent(withTask({ prBranch: 'old', prNumber: 42, task: feedback })))

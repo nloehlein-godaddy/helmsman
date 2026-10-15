@@ -16,6 +16,13 @@ describe('agent attribution in prompts', () => {
     expect(prompt).toContain('outside any code or suggestion fence');
   });
 
+  it('includes literal optional review guidance without changing the pinned revision', () => {
+    const guidance = '  Check retries.\nPreserve <customer> input.  ';
+    const prompt = buildPrompt({ ...task, review: true, prNumber: 7, prHeadSha: 'a'.repeat(40), task: guidance }, 'codex');
+    expect(prompt).toContain(`## Additional review guidance\n${guidance}\n`);
+    expect(prompt).toContain(`Review the pinned revision ${'a'.repeat(40)}`);
+  });
+
   it('uses selected runtime settings in compact reviewer bylines', () => {
     const prompt = buildPrompt({ ...task, review: true, prNumber: 7, prBranch: 'fix-issue', model: 'sonnet', effort: 'low' }, 'claude-code');
     expect(prompt).toContain('_Helmsman · sonnet - low_');

@@ -87,6 +87,19 @@ describe('page-owned composition', () => {
     expect(initial.activity.signal.aborted).toBe(false);
   });
 
+  it('preserves an original header hint through an auxiliary page scope', async () => {
+    const states: PluginPanelState[] = [];
+    const { host, first } = setup({ mount(_element, context) {
+      states.push(context.state); return { update(state) { states.push(state); }, dispose() {} };
+    } });
+    host.update({ ...page, repo: 'org/run', headerRepo: 'org/header' });
+    await host.service.mount('first', first); await settle();
+    const initial = states.at(-1)!;
+    expect(initial).toMatchObject({ repo: 'org/run', headerRepo: 'org/header' });
+    host.update({ ...page, repo: 'org/run', headerRepo: null }); await settle();
+    expect(states.at(-1)).toMatchObject({ repo: 'org/run', headerRepo: null });
+    expect(states.at(-1)?.activity).toBe(initial.activity);
+  });
   it('delivers current persisted state after a conflict without requiring a broadcast', async () => {
     let context!: PluginPanelContext;
     const observed: PluginPanelState[] = [];

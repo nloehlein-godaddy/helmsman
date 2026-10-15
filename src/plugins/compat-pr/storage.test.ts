@@ -41,3 +41,25 @@ it('keeps saved explanations scoped to their contribution, galleon, and pull req
   new PrStorage('other/pull-requests').result('run', input.repo, 'other-plugin', { input, receipt: { status: 'rejected', message: 'Other contribution' } });
   expect(saved.results(input.repo, 42)).toEqual(['Saved run result: rejected — Matching request']);
 });
+
+it('loads old drafts and retains independent review guidance', () => {
+  const saved = storage();
+  localStorage.setItem('helmsman.pull-request.v1:core/pull-requests:draft:["org/project",42]', JSON.stringify({ version: 1, draft: { body: 'review', feedback: 'branch changes', model: '', effort: '' } }));
+  expect(saved.draft(input.repo, 42).guidance).toBe('');
+  saved.edit(input.repo, 42, 'guidance', '  Focus on retries\nKeep literal text.  ');
+  expect(storage().draft(input.repo, 42)).toMatchObject({ guidance: '  Focus on retries\nKeep literal text.  ', feedback: 'branch changes' });
+});
+
+it('finds the latest accepted review settings for only the same head and preserves receipt idempotency', () => {
+  const saved = storage(); const headSha = 'a'.repeat(40);
+  const launch = { repo: input.repo, action: 'launch', launch: { mode: 'review', prNumber: 42, headSha, model: 'sonnet', effort: 'high' } };
+  const first = { input: launch, receipt: { status: 'accepted' } };
+  saved.result('run', input.repo, 'first', first);
+  saved.result('run', input.repo, 'second', { input: { ...launch, launch: { ...launch.launch, model: 'opus' } }, receipt: { status: 'accepted' } });
+  saved.result('run', input.repo, 'rejected', { input: { ...launch, launch: { ...launch.launch, model: 'fable' } }, receipt: { status: 'rejected' } });
+  saved.result('run', input.repo, 'other-head', { input: { ...launch, launch: { ...launch.launch, headSha: 'b'.repeat(40) } }, receipt: { status: 'accepted' } });
+  saved.result('run', input.repo, 'first', first);
+  expect(saved.reviewSettings(input.repo, 42, headSha)).toEqual({ model: 'opus', effort: 'high' });
+  expect(saved.reviewSettings(input.repo, 43, headSha)).toBeNull();
+  expect(saved.reviewSettings('org/other', 42, headSha)).toBeNull();
+});

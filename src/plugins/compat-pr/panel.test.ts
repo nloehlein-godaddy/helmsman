@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import panel from './panel';
+import { prepareRecommendation } from '../run-viewer/recommendation';
 import type { PluginPanelContext, PluginPanelInstance, PluginPanelState, PullRequestCommandInputV1, PullRequestCommandPendingV1, PullRequestCommandReceiptV1, PullRequestInspectDetailV1, PullRequestInspectDiffV1, RunReadPageV1, RunCommandPendingV1, RunCommandReceiptV1 } from '../sdk';
 
 const head = 'a'.repeat(40); const base = 'b'.repeat(40);
@@ -8,7 +9,7 @@ const detail: PullRequestInspectDetailV1 = { version: 1, target: { repo: 'org/b'
 const available = <T>(value: T) => ({ status: 'available' as const, value });
 const requestId = 'b0ef36b8-e7a2-4b24-a343-2dac4b561824';
 const lifetimes: AbortController[] = [];
-beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/prs?repo=org/a'); });
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); history.replaceState(null, '', '/prs?repo=org/a'); });
 afterEach(() => { lifetimes.splice(0).forEach(value => value.abort()); vi.restoreAllMocks(); document.body.replaceChildren(); });
 async function fixture(overrides: Partial<PluginPanelState> = {}, configure?: (context: PluginPanelContext) => void, contributionId = 'helmsman.compat-pr/panel') {
   const container = document.createElement('div'); document.body.append(container); const lifetime = new AbortController(); lifetimes.push(lifetime);
@@ -31,6 +32,80 @@ async function ready(f: Awaited<ReturnType<typeof fixture>>) { await vi.waitFor(
 function fill(container: HTMLElement, selector: string, value: string) { const control = container.querySelector<HTMLTextAreaElement>(selector)!; control.focus(); control.value = value; control.dispatchEvent(new Event('input', { bubbles: true })); }
 function click(container: HTMLElement, selector: string) { container.querySelector<HTMLButtonElement>(selector)!.click(); }
 const reviewReceipt = (input: PullRequestCommandInputV1, status: PullRequestCommandReceiptV1['status'] = 'succeeded'): PullRequestCommandReceiptV1 => ({ version: 1, requestId, input, status, result: status === 'succeeded' ? { repo: input.repo, number: input.number, headSha: input.expectedHeadSha, actor: 'authenticated-user', reviewId: 23 } : null, reason: status === 'succeeded' ? null : 'Original result uncertain' });
+function recommendedRoute(event: 'APPROVE' | 'REQUEST_CHANGES' = 'REQUEST_CHANGES') {
+  const verdict = '<img src=x> Fix the reviewed behavior.';
+  const url = new URL(prepareRecommendation({ version: 1, id: 'review-run', repo: 'org/b', displayKey: 'review', status: 'succeeded', attempt: 1, startedAt: detail.observedAt, endedAt: detail.observedAt, prNumber: 42, costUsd: null, sourceSettlement: null, review: { outcome: event, verdict } }, 'org/a'), window.location.origin);
+  const routeState = JSON.parse(url.searchParams.get('panelState')!)['helmsman.compat-pr/panel'];
+  return { routeState, verdict };
+}
+
+it('prefills a recommendation as literal review text, opens the current diff, and only publishes on explicit final click', async () => {
+  const { routeState, verdict } = recommendedRoute(); const f = await fixture({ routeState }); await ready(f);
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe(verdict); expect(f.container.querySelector('img')).toBeNull();
+  expect(f.container.querySelector<HTMLDetailsElement>('.pr-manual-review')?.open).toBe(true); expect(f.container.querySelector<HTMLDetailsElement>('.pr-diff-panel')?.open).toBe(true);
+  expect(f.state().headerRepo).toBe('org/a'); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+  vi.mocked(f.context.services.pullRequestCommands!.submit).mockImplementation(async input => available(reviewReceipt(input)));
+  click(f.container, '.pr-request-changes'); await vi.waitFor(() => expect(f.context.services.pullRequestCommands!.submit).toHaveBeenCalledWith({ version: 1, repo: 'org/b', number: 42, event: 'REQUEST_CHANGES', body: verdict, expectedHeadSha: head }, expect.any(AbortSignal)));
+});
+it('preserves an existing unsent review draft and appends the recommendation only on explicit import', async () => {
+  const original = await fixture(); await ready(original); fill(original.container, '.pr-review-body', 'My unsent notes'); original.lifetime.abort();
+  const { routeState, verdict } = recommendedRoute('APPROVE'); const f = await fixture({ routeState }); await ready(f);
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('My unsent notes'); expect(f.container.querySelector('.pr-review-recommendation')?.textContent).toContain(verdict);
+  click(f.container, '[data-append-recommendation]'); expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe(`My unsent notes\n\n${verdict}`);
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value.split(String.fromCharCode(10))).toEqual(['My unsent notes', '', verdict]);
+  expect(f.container.querySelector('[data-append-recommendation]')).toBeNull(); await f.instance.refresh?.(); expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe(`My unsent notes\n\n${verdict}`);
+  expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it.each(['closed', 'merged'] as const)('keeps prepared recommendation visible for a %s PR without publishing', async status => {
+  const { routeState, verdict } = recommendedRoute(); const f = await fixture({ routeState }, context => { vi.mocked(context.services.pullRequestInspect!.detail).mockResolvedValue(available({ ...detail, status })); });
+  await vi.waitFor(() => expect(f.container.querySelector('.pr-review-recommendation')?.textContent).toContain(`This PR is ${status}.`));
+  expect(f.container.querySelector('.pr-review-recommendation')?.textContent).toContain(verdict); expect(f.container.querySelector('[data-review]')).toBeNull(); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it('rejects recommendation reuse for another PR and preserves its own draft', async () => {
+  const { routeState } = recommendedRoute(); const f = await fixture({ routeState }); await ready(f);
+  const next = { ...f.state(), routeState: { ...routeState, value: { ...routeState.value, target: { repo: 'org/b', number: 43 } } } }; await f.instance.update(next);
+  await vi.waitFor(() => expect(f.container.querySelector('.pr-review-recommendation')?.textContent).toContain('unavailable or expired'));
+  await ready(f);
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe(''); expect(f.container.querySelector('[data-append-recommendation]')).toBeNull(); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it('receives a new recommendation for the same mounted PR without replacing the earlier draft', async () => {
+  const first = recommendedRoute(); const f = await fixture({ routeState: first.routeState }); await ready(f);
+  const next = recommendedRoute('APPROVE'); await f.instance.update({ ...f.state(), routeState: next.routeState }); await ready(f);
+  expect(f.container.querySelector('[data-append-recommendation]')).not.toBeNull(); expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe(first.verdict);
+  expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it('clears recommendation content immediately when another PR is explicitly selected', async () => {
+  const { routeState } = recommendedRoute(); const f = await fixture({ routeState }); await ready(f);
+  fill(f.container, '[data-pr-compat-lookup]', 'org/b#43'); click(f.container, '[data-load]');
+  await vi.waitFor(() => expect(f.container.querySelector('.pr-review-recommendation')).toBeNull()); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it('keeps recommendation publication disabled when the current diff is unavailable even after editing the draft', async () => {
+  const { routeState } = recommendedRoute(); const f = await fixture({ routeState }, context => { vi.mocked(context.services.pullRequestInspect!.diff).mockResolvedValue({ status: 'unavailable', reason: 'connection-failed' }); });
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Comparison preview unavailable'));
+  fill(f.container, '.pr-review-body', 'Edited recommendation');
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-request-changes')?.disabled).toBe(true); expect(f.container.querySelector<HTMLButtonElement>('.pr-approve')?.disabled).toBe(true);
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+  click(f.container, '.pr-request-changes'); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+it('prepares Metadata recommendations from the full recent run window without publishing or changing header scope', async () => {
+  const recommendation = { version: 1 as const, id: 'metadata-review', repo: 'org/b', prNumber: 42, displayKey: 'review', status: 'succeeded' as const, attempt: 1, startedAt: '2026-10-14T01:00:00Z', endedAt: '2026-10-14T02:00:00Z', costUsd: null, sourceSettlement: null, review: { outcome: 'APPROVE' as const, verdict: 'Approve the reviewed change.' } };
+  const f = await fixture({}, context => { vi.mocked(context.services.runs!.list).mockImplementation(async query => available({ version: 1, repo: query.repo, items: [
+    ...Array.from({ length: 11 }, (_, index) => ({ ...recommendation, id: `unrelated-${index}`, prNumber: 100 + index, startedAt: '2026-10-14T03:00:00Z' })), recommendation,
+  ], nextCursor: null })); }); await ready(f);
+  const action = f.container.querySelector<HTMLButtonElement>('.pr-summary-body [data-prepare-metadata-review="APPROVE"]')!; expect(action).not.toBeNull(); action.click();
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe(recommendation.review.verdict); expect(f.container.querySelector<HTMLDetailsElement>('.pr-manual-review')?.open).toBe(true);
+  expect(f.state().headerRepo).toBe('org/a'); expect(f.context.navigate).not.toHaveBeenCalled(); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+  action.click(); expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe(recommendation.review.verdict);
+});
+it.each(['COMMENT', null] as const)('does not show an older Metadata approval beyond a newer %s result', async outcome => {
+  const run = { version: 1 as const, id: 'old', repo: 'org/b', prNumber: 42, displayKey: 'review', status: 'succeeded' as const, attempt: 1, startedAt: '2026-10-14T01:00:00Z', endedAt: '2026-10-14T02:00:00Z', costUsd: null, sourceSettlement: null, review: { outcome: 'APPROVE' as const, verdict: 'Earlier approval' } };
+  const f = await fixture({}, context => { vi.mocked(context.services.runs!.list).mockImplementation(async query => available({ version: 1, repo: query.repo, items: [run, { ...run, id: 'new', startedAt: '2026-10-14T03:00:00Z', review: outcome ? { outcome, verdict: 'Comment only' } : null }], nextCursor: null })); }); await ready(f);
+  expect(f.container.querySelector('[data-prepare-metadata-review]')).toBeNull(); expect(f.container.querySelector('.pr-metadata-recommendation')?.textContent ?? '').not.toContain('Earlier approval');
+});
+it.each(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'] as const)('identifies the configured user’s %s review in Metadata', viewerReview => {
+  const f = fixture({}, context => { vi.mocked(context.services.pullRequestInspect!.detail).mockResolvedValue(available({ ...detail, reviews: { ...detail.reviews, viewerReview } })); });
+  return f.then(async fixture => { await ready(fixture); expect(fixture.container.querySelector('.pr-panel-context')?.textContent).toContain(viewerReview === 'APPROVED' ? 'You approved' : viewerReview === 'CHANGES_REQUESTED' ? 'You requested changes' : 'You commented'); });
+});
 
 it('uses public list/detail/immutable diff services and preserves focused edits across refresh and reload', async () => {
   const f = await fixture(); await ready(f);
@@ -368,4 +443,41 @@ it('ignores late authored results from a previous status selection',async()=>{
   finish(available({version:1,repo:'org/b',kind:'authored-recent',quality:'complete',truncated:false,browseUrl:null,items:[{repo:'org/b',number:41,title:'Stale open result',url:null,status:'open',createdAt:detail.observedAt,mergedAt:null,draft:false,ticketId:null,reviewDecision:null,comments:null,reviews:null}]}));
   await Promise.resolve(); await Promise.resolve();
   expect(f.container.textContent).not.toContain('Stale open result'); expect(f.container.querySelector('[data-authored-state="all"]')?.getAttribute('aria-pressed')).toBe('true');
+});
+
+it('locks duplicate current-commit agent review until tuning changes, keeps manual review and branch update available', async () => {
+  const f = await fixture({}, context => { vi.mocked(context.services.pullRequestInspect!.detail).mockResolvedValue(available({ ...detail, reviews: { ...detail.reviews, viewerReview: 'COMMENTED', viewerReviewedCommitId: head } })); }); await ready(f);
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true);
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-rerun')?.disabled).toBe(false);
+  fill(f.container, '.pr-review-guidance', 'Different prompt does not unlock');
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true);
+  const button = f.container.querySelector<HTMLButtonElement>('.pr-review-agent')!; button.disabled = false; button.click();
+  expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled();
+  fill(f.container, '.pr-effort', 'high');
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+  fill(f.container, '.pr-effort', '');
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true);
+});
+
+it('compares persisted tuning after reload and allows either changed model or effort', async () => {
+  const key = 'helmsman.pull-request.v1:helmsman.compat-pr/panel:';
+  localStorage.setItem(`${key}draft:["org/b",42]`, JSON.stringify({ version: 1, draft: { body: '', feedback: '', model: 'sonnet', effort: 'high' } }));
+  localStorage.setItem(`${key}result:run:previous`, JSON.stringify({ version: 1, value: { input: { action: 'launch', repo: 'org/b', launch: { mode: 'review', prNumber: 42, headSha: head, model: 'sonnet', effort: 'high' } }, receipt: { status: 'accepted' } } }));
+  const f = await fixture({}, context => { vi.mocked(context.services.pullRequestInspect!.detail).mockResolvedValue(available({ ...detail, reviews: { ...detail.reviews, viewerReview: 'APPROVED', viewerReviewedCommitId: head } })); }); await ready(f);
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true);
+  fill(f.container, '.pr-model', 'opus'); expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+  fill(f.container, '.pr-model', 'sonnet'); expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true);
+  fill(f.container, '.pr-effort', 'max'); expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+});
+
+it('allows a review of new commits and sends literal guidance only for review launches', async () => {
+  const f = await fixture({}, context => { vi.mocked(context.services.pullRequestInspect!.detail).mockResolvedValue(available({ ...detail, reviews: { ...detail.reviews, viewerReview: 'APPROVED', viewerReviewedCommitId: base } })); }); await ready(f);
+  fill(f.container, '.pr-review-guidance', '  Focus on races\n<literal>  ');
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+  click(f.container, '.pr-review-agent'); await vi.waitFor(() => expect(f.context.services.runCommands!.submit).toHaveBeenCalledWith({ version: 1, action: 'launch', repo: 'org/b', launch: { mode: 'review', prNumber: 42, headSha: head, guidance: '  Focus on races\n<literal>  ' } }, expect.any(AbortSignal)));
+  await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false));
+  f.lifetime.abort(); const next = await fixture(); await ready(next);
+  expect(next.container.querySelector<HTMLTextAreaElement>('.pr-review-guidance')?.value).toBe('  Focus on races\n<literal>  ');
+  fill(next.container, '.pr-rerun-feedback', 'Update the branch'); click(next.container, '.pr-rerun');
+  await vi.waitFor(() => expect(next.context.services.runCommands!.submit).toHaveBeenCalledWith({ version: 1, action: 'launch', repo: 'org/b', launch: { mode: 'rerun', prNumber: 42, feedback: 'Update the branch' } }, expect.any(AbortSignal)));
 });

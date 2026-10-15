@@ -65,6 +65,16 @@ afterEach(() => {
 });
 
 describe('persistent app shell', () => {
+  it('retains the resizable log drawer and its height across scope changes and refresh', async () => {
+    const { root } = await setup(); const drawer = root.querySelector<HTMLDetailsElement>('.plugin-auxiliary-slot')!; drawer.open = true;
+    const handle = drawer.querySelector<HTMLElement>('[data-run-drawer-resize]')!; const host = drawer.querySelector<HTMLElement>('[data-run-viewer-host]')!;
+    expect(handle.getAttribute('aria-controls')).toBe(host.id); expect(handle.getAttribute('aria-orientation')).toBe('horizontal'); expect(handle.getAttribute('aria-valuenow')).not.toBeNull();
+    handle.focus(); handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })); const height = handle.getAttribute('aria-valuenow');
+    const header = root.querySelector<HTMLSelectElement>('.repo-select')!; expect(header.value).toBe('org/a'); expect(document.activeElement).toBe(handle);
+    header.value = 'org/b'; header.dispatchEvent(new Event('change', { bubbles: true })); await vi.advanceTimersByTimeAsync(0); await view?.refresh();
+    expect(root.querySelector('.plugin-auxiliary-slot')).toBe(drawer); expect(drawer.querySelector('[data-run-viewer-host]')).toBe(host); expect(handle.getAttribute('aria-valuenow')).toBe(height); expect(header.value).toBe('org/b');
+    expect(localStorage.getItem('helmsman.runDrawerHeight')).toBe(height);
+  });
   it('keeps Config sibling links and keyboard focus through navigation and refresh', async () => {
     const { root } = await setup('/config?repo=org/a');
     const section = root.querySelector<HTMLElement>('.section-nav')!;

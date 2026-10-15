@@ -1,7 +1,7 @@
 import type { PanelOpaqueStateV1, RunInspectLogEventV1, RunInspectLogPageV1, RunInspectTargetV1, RunReadSummaryV1, RunCommandReceiptV1 } from '@helmsman/plugin-sdk';
 
 export interface SavedTab { repo: string; runId: string; scrollTop: number; follow: boolean; }
-export interface SavedViewer { tabs: SavedTab[]; activeKey: string | null; results: RunCommandReceiptV1[]; }
+export interface SavedViewer { tabs: SavedTab[]; activeKey: string | null; results: RunCommandReceiptV1[]; logHeight: number; }
 export interface RunTab extends SavedTab {
   target: RunInspectTargetV1 | null; summary: RunReadSummaryV1 | null; events: RunInspectLogEventV1[];
   olderCursor: string | null; followCursor: string | null; hasEarlier: boolean; hasLater: boolean;
@@ -11,7 +11,7 @@ export const tabKey = (tab: { repo: string; runId: string }) => JSON.stringify([
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const repo = (value: unknown): value is string => typeof value === 'string' && value.length <= 512 && /^[a-z\d-]+\/[a-z\d_.-]+$/i.test(value) && !['.', '..'].includes(value.split('/')[1]!);
 const runId = (value: unknown): value is string => typeof value === 'string' && /^[a-z\d_-]{1,128}$/i.test(value);
-export function emptyState(): SavedViewer { return { tabs: [], activeKey: null, results: [] }; }
+export function emptyState(): SavedViewer { return { tabs: [], activeKey: null, results: [], logHeight: 420 }; }
 export function readState(input: PanelOpaqueStateV1 | null): SavedViewer | null {
   if (input === null) return emptyState();
   const value = input.value;
@@ -32,15 +32,16 @@ export function readState(input: PanelOpaqueStateV1 | null): SavedViewer | null 
       || item.message !== null && (typeof item.message !== 'string' || item.message.length > 2048)) return null;
     results.push(item as unknown as RunCommandReceiptV1);
   }
-  return { tabs, activeKey: value.activeKey as string | null, results };
+  const logHeight = typeof value.logHeight === 'number' && Number.isFinite(value.logHeight) ? Math.round(Math.max(180, Math.min(1200, value.logHeight))) : 420;
+  return { tabs, activeKey: value.activeKey as string | null, results, logHeight };
 }
 export function newTab(tab: SavedTab): RunTab {
   return { ...tab, target: null, summary: null, events: [], olderCursor: null, followCursor: null, hasEarlier: false, hasLater: false,
     olderTrimmed: false, newerTrimmed: false, loaded: false, error: '', observedAt: null };
 }
-export function saveState(tabs: readonly RunTab[], activeKey: string | null, results: readonly RunCommandReceiptV1[]): PanelOpaqueStateV1 {
+export function saveState(tabs: readonly RunTab[], activeKey: string | null, results: readonly RunCommandReceiptV1[], logHeight = 420): PanelOpaqueStateV1 {
   return { version: 1, value: { tabs: tabs.map(tab => ({ repo: tab.repo, runId: tab.runId, scrollTop: tab.scrollTop, follow: tab.follow })), activeKey,
-    results: results.map(receipt => ({ ...receipt, ...(receipt.resolution ? { resolution: { ...receipt.resolution } } : {}) })) } };
+    logHeight, results: results.map(receipt => ({ ...receipt, ...(receipt.resolution ? { resolution: { ...receipt.resolution } } : {}) })) } };
 }
 export function mergeLog(tab: RunTab, page: RunInspectLogPageV1, direction: 'initial' | 'older' | 'follow'): void {
   const events = new Map<number, RunInspectLogEventV1>();

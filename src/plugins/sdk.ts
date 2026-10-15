@@ -88,6 +88,7 @@ export interface PageResolution {
 }
 
 export interface PluginPageState {
+  readonly headerRepo?: string | null;
   readonly terminal?: TerminalRouteV1 | null;
   readonly pullRequest?: PullRequestRouteV1 | null;
   readonly presentation?: PresentationLocatorV1 | null;

@@ -175,7 +175,8 @@ export function renderAppShell(opts: HelmHeadOpts, content: string): string {
     <main class="page-content" id="page-content" role="tabpanel" aria-labelledby="${activePageTabId(opts)}" tabindex="0">${content}</main>
     <details class="plugin-auxiliary-slot" data-pane="tasks">
       <summary>${term('runLogs')}</summary>
-      <div data-run-viewer-host></div>
+      <div data-run-drawer-resize role="separator" tabindex="0" aria-orientation="horizontal" aria-label="${term('resizeRunLogs')}" aria-controls="run-log-drawer"><span aria-hidden="true"></span></div>
+      <div data-run-viewer-host id="run-log-drawer"></div>
     </details>
     <footer class="app-footer">
       <div class="footer-meta">

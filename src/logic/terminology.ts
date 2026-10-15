@@ -33,6 +33,7 @@ export const TERMINOLOGY = {
   runDetails: { plain: 'Run details', pirate: 'Voyage details' },
   runs: { plain: 'Runs', pirate: 'Voyages' },
   runLogs: { plain: 'Run logs', pirate: 'Voyage logs' },
+  resizeRunLogs: { plain: 'Resize run logs', pirate: 'Resize voyage logs' },
   dashboard: { plain: 'Dashboard', pirate: 'Helm' },
   costsOutcomes: { plain: 'Costs & Outcomes', pirate: 'Costs & Outcomes' },
   pluginSafeMode: { plain: 'Optional plugin pages are disabled in UI safe mode.', pirate: 'Optional plugin pages are disabled in UI safe mode.' },

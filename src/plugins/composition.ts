@@ -107,7 +107,6 @@ export interface PanelActivityV1 {
 }
 
 export interface PluginPanelState extends PluginPageState {
-  readonly headerRepo?: string | null;
   readonly instanceId: string;
   readonly activity: PanelActivityV1;
   readonly savedState: PanelOpaqueStateV1 | null;

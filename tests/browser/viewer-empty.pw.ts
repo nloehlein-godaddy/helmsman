@@ -24,7 +24,7 @@ async function mockViewer(page: Page) {
     }
     if (path === '/api/run-inspect/resolve') {
       selections.push(runId);
-      if (state.resolveFailed) return route.fulfill({ status: 404, json: { error: 'Run not found' } });
+      if (state.resolveFailed) return route.fulfill({ status: 403, json: { error: 'Run unavailable' } });
     }
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.run-viewer']) }
       : path === '/api/context' ? { repos: ['org/a', 'org/b'], jiraBaseUrl: null }

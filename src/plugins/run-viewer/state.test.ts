@@ -30,8 +30,16 @@ describe('authored viewer bounded state', () => {
   it('persists tabs and scroll independently of logs, private paths or cursors', () => {
     const tab = newTab({ repo: target.repo, runId: target.runId, follow: false, scrollTop: 44 }); mergeLog(tab, page(1, 50, null, 'private-cursor'), 'initial');
     const value = saveState([tab], tabKey(tab), []);
-    expect(readState(value)).toEqual({ tabs: [{ repo: 'org/a', runId: 'run-1', follow: false, scrollTop: 44 }], activeKey: tabKey(tab), results: [] });
+    expect(readState(value)).toEqual({ tabs: [{ repo: 'org/a', runId: 'run-1', follow: false, scrollTop: 44 }], activeKey: tabKey(tab), results: [], logHeight: 420 });
     expect(JSON.stringify(value)).not.toContain('private-cursor'); expect(JSON.stringify(value)).not.toContain('event 1');
+  });
+  it('restores legacy heights and bounds persisted size preferences', () => {
+    const legacy = { version: 1, value: { tabs: [], activeKey: null, results: [] } };
+    expect(readState(legacy)?.logHeight).toBe(420);
+    expect(readState(saveState([], null, [], 680))?.logHeight).toBe(680);
+    for (const [height, expected] of [[0, 180], [1500, 1200], [NaN, 420], [Infinity, 420], [400.7, 401]]) {
+      expect(readState(saveState([], null, [], height))?.logHeight).toBe(expected);
+    }
   });
   it('preserves unknown or malformed saved state instead of overwriting it', () => {
     expect(readState({ version: 2, value: {} })).toBeNull();

@@ -17,7 +17,7 @@ describe('public run command contract', () => {
   it.each([
     { mode: 'source', workRef: { sourceId: requestId, externalId: '42' }, sourceInstanceId: 'jira-one', sourceInstanceRevision: 3 },
     { mode: 'freeform', task: 'Implement\nrequirements', model: 'example', effort: 'high' },
-    { mode: 'review', prNumber: 12, headSha: 'a'.repeat(40) },
+    { mode: 'review', prNumber: 12, headSha: 'a'.repeat(40), guidance: '  Check retries.\nPreserve <user> content.  ' },
     { mode: 'rerun', prNumber: 12, feedback: '' },
   ])('accepts only the bounded launch variants: $mode', launch => {
     expect(parseRunCommandInputV1({ version: 1, repo: base.repo, action: 'launch', launch })).toEqual({ version: 1, repo: base.repo, action: 'launch', launch });
@@ -32,7 +32,7 @@ describe('public run command contract', () => {
     { mode: 'ticket', ticketId: 'ISSUE-1' }, { mode: 'freeform', task: ' ' },
     { mode: 'freeform', task: 'a'.repeat(RUN_COMMAND_LIMITS.task + 1) },
     { mode: 'freeform', task: 'x', command: 'injected' }, { mode: 'review', prNumber: -1 },
-    { mode: 'review', prNumber: 1, headSha: 'bad' }, { mode: 'rerun', prNumber: 1, feedback: '\0' },
+    { mode: 'review', prNumber: 1, headSha: 'bad' }, { mode: 'review', prNumber: 1, guidance: 'x'.repeat(RUN_COMMAND_LIMITS.task + 1) }, { mode: 'review', prNumber: 1, guidance: '\0' }, { mode: 'rerun', prNumber: 1, feedback: '\0' },
     { mode: 'source', workRef: { sourceId: requestId, externalId: '42' }, sourceInstanceId: 'x/y', sourceInstanceRevision: 1 },
   ])('rejects malformed launch payloads', launch => { expect(() => parseRunCommandInputV1({ version: 1, repo: base.repo, action: 'launch', launch })).toThrow(); });
   it('does not invoke getters or accept inherited command data', () => {

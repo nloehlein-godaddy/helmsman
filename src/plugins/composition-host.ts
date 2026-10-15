@@ -224,7 +224,7 @@ export class PluginCompositionHost {
     const stack = this.layout?.columns.flat().find(stack => stack.instances.includes(instance.instanceId));
     const visible = this.state.visible && panel.requestedActive && !instance.hidden && !!stack && !stack.collapsed
       && stack.activeInstanceId === instance.instanceId;
-    const state = { ...this.state, headerRepo: this.state.repo, repo: instance.scope.kind === 'inherit' ? this.state.repo
+    const state = { ...this.state, headerRepo: this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo, repo: instance.scope.kind === 'inherit' ? this.state.repo
       : instance.scope.kind === 'all' ? null : instance.scope.repo, visible };
     const savedState = instance.state[instance.contributionId] ?? null;
     const routeTarget = this.layout?.instances.find(value => value.instanceId === state.panelInstance)

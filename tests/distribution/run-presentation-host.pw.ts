@@ -12,9 +12,9 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   try {
     await expect(host.script('prove-presentation-isolation.mjs', `import { readFileSync } from 'node:fs'; readFileSync(${JSON.stringify(join(sourceRoot, 'src/main.ts'))});`)).rejects.toThrow('Source checkout is unavailable');
-    await host.installAuthorPackage('plugin-sources/run-viewer', 'example.run-viewer');
+    await host.installAuthorPackage('plugin-sources/run-viewer', 'example.run-viewer', { buildScript: true });
     await cp(join(host.app, 'plugin-sources/run-viewer'), join(host.app, 'plugin-sources/alternate-viewer'), { recursive: true });
-    await host.installAuthorPackage('plugin-sources/alternate-viewer', 'example.alternate-viewer');
+    await host.installAuthorPackage('plugin-sources/alternate-viewer', 'example.alternate-viewer', { buildScript: true });
     await host.installAuthorPackage('plugin-sources/run-history', 'example.run-history', { buildScript: true });
     await host.cli('select', 'helmsman/run-viewer-page', 'example.run-viewer/page');
     await host.cli('select', 'helmsman/run-history-page', 'example.run-history/page');
@@ -87,7 +87,7 @@ test('installed viewer and history use selected aliases and a scoped auxiliary s
     await expect(viewer.locator('.run-log')).toContainText('log 250');
     await expect(viewer.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible();
     await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
-    await expect(viewer.getByRole('button', { name: 'Follow latest', exact: true, includeHidden: true })).toBeDisabled();
+    await expect(viewer.locator('button').filter({ hasText: 'Follow latest' })).toBeDisabled();
     await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
     await expect(viewer.getByRole('button', { name: 'Follow latest', exact: true })).toBeEnabled();
     await expect(viewer.locator('.run-log')).toContainText('log 250');

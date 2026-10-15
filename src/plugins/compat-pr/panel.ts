@@ -5,11 +5,13 @@ import { esc, target, sameTarget, parseLookup, renderDetail, renderList, renderR
 import { validDetail, validDiff, validList, validRun, validPending } from './validation.js';
 import { styles } from './styles.js';
 import { attachEvidenceInteractions } from './evidence-interactions.js';
-function selection(state: PluginPanelState): { target: Identity; mode: 'review' | 'rerun' | null; pane: string | null } | null {
+import { readRecommendation, clearRecommendation, type ReviewRecommendation } from './recommendation.js';
+import { latestRecommendation } from './latest-recommendation.js';
+function selection(state: PluginPanelState): { target: Identity; mode: 'review' | 'rerun' | null; pane: string | null; recommendationId?: string | null } | null {
   const value = state.routeState?.version === 1 ? state.routeState.value : null;
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const record = value as Record<string, unknown>; const selected = target(record.target);
-    if (selected) return { target: selected, mode: record.mode === 'review' || record.mode === 'rerun' ? record.mode : null, pane: state.pane };
+    if (selected) return { target: selected, mode: record.mode === 'review' || record.mode === 'rerun' ? record.mode : null, pane: state.pane, recommendationId: typeof record.recommendationId === 'string' ? record.recommendationId : null };
   }
   const requested = state.pullRequest;
   if (requested?.version === 1) { const selected = target(requested); if (selected) return { target: selected, mode: requested.mode, pane: state.pane }; }
@@ -34,6 +36,7 @@ class PrPanel implements PluginPanelInstance {
   private listErrors = { requested: '', authored: '' };
   private authoredState: 'open' | 'all' = 'open';
   private runs: readonly RunReadSummaryV1[] = [];
+  private recommendationRuns: readonly RunReadSummaryV1[] = [];
   private moreRuns = false;
   private runsError = '';
   private pendingReviews: readonly PullRequestCommandPendingV1[] = [];
@@ -56,6 +59,11 @@ class PrPanel implements PluginPanelInstance {
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
   private readonly unsaved = new Map<string, { draft: Draft; error: string }>();
+  private recommendation: ReviewRecommendation | null = null;
+  private recommendationId = '';
+  private recommendationNotice = '';
+  private recommendationImported = false;
+  private focusRecommendation = false;
   constructor(container: HTMLElement, context: PluginPanelContext) {
     this.whiteboard = new WhiteboardCompanion(context.services.whiteboard);
     this.container = container; this.context = context; this.state = context.state; this.storage = new PrStorage(context.contributionId);
@@ -66,6 +74,7 @@ class PrPanel implements PluginPanelInstance {
     this.focusMode = routed?.mode ?? null; this.focusPane = this.state.pane;
     this.lookup = this.selected ? `${this.selected.repo}#${this.selected.number}` : '';
     this.readDraft();
+    this.receiveRecommendation();
     this.unsubscribe = subscribeStorage(source => { if (source !== this.storage && !this.disposed && !this.container.contains(document.activeElement)) { this.readDraft(); this.draw(); } });
     this.container.addEventListener('click', this.click); this.container.addEventListener('input', this.input); this.container.addEventListener('change', this.input); this.container.addEventListener('keydown', this.keydown);
     this.stopEvidence = attachEvidenceInteractions(this.container, this.context.signal);
@@ -94,8 +103,9 @@ class PrPanel implements PluginPanelInstance {
       this.lookup = this.selected ? `${this.selected.repo}#${this.selected.number}` : '';
       if (!sameTarget(previousTarget, this.selected)) { this.detail = null; this.diff = null; }
       this.readDraft();
+      this.receiveRecommendation();
     }
-    if (changed) { this.cancel(); if (scopeChanged) { this.lists = { requested: null, authored: null }; this.runs = []; this.detail = null; this.diff = null; } void this.refresh(); }
+    if (changed) { this.cancel(); if (scopeChanged) { this.lists = { requested: null, authored: null }; this.runs = []; this.recommendationRuns = []; this.detail = null; this.diff = null; } void this.refresh(); }
     this.draw();
   }
   private readDraft() {
@@ -110,12 +120,43 @@ class PrPanel implements PluginPanelInstance {
     if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement || control instanceof HTMLSelectElement)) return;
     if (control.matches('[data-pr-compat-lookup]')) { this.lookup = control.value; return; }
     const field = control.dataset.draft as keyof Draft | undefined;
-    if (!field || !['body', 'feedback', 'model', 'effort'].includes(field) || !this.selected) return;
+    if (!field || !['body', 'feedback', 'guidance', 'model', 'effort'].includes(field) || !this.selected) return;
     this.draft = { ...this.draft, [field]: control.value };
     try { this.storage.edit(this.selected.repo, this.selected.number, field, control.value); this.unsaved.delete(JSON.stringify(this.selected)); this.storageError = ''; }
     catch (error) { this.storageError = error instanceof Error ? error.message : 'Draft could not be saved. Keep this page open and retry.'; this.unsaved.set(JSON.stringify(this.selected), { draft: { ...this.draft }, error: this.storageError }); }
     this.paintSafety();
   };
+  private receiveRecommendation() {
+    const value = this.state.routeState?.version === 1 ? this.state.routeState.value : null;
+    const id = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>).recommendationId : null;
+    if (typeof id !== 'string' || !this.selected) { this.recommendation = null; this.recommendationId = ''; this.recommendationNotice = ''; return; }
+    if (id === this.recommendationId && this.recommendation?.repo === this.selected.repo && this.recommendation.number === this.selected.number) return;
+    this.recommendationId = id; this.recommendation = null; this.recommendationImported = false;
+    try {
+      const recommendation = readRecommendation(id, this.selected);
+      if (!recommendation) { this.recommendationNotice = 'This recommendation is unavailable or expired. Return to the run to prepare it again.'; return; }
+      this.recommendation = recommendation; this.recommendationNotice = ''; this.focusRecommendation = true;
+      if (!this.draft.body && !this.storageError) this.importRecommendation();
+      clearRecommendation(id);
+    } catch { this.recommendationNotice = 'The recommendation could not be loaded from browser storage. Return to the run to prepare it again.'; }
+  }
+  private importRecommendation() {
+    if (!this.selected || !this.recommendation || this.recommendation.repo !== this.selected.repo || this.recommendation.number !== this.selected.number || this.recommendationImported || this.storageError) return;
+    const body = this.draft.body ? `${this.draft.body}\n\n${this.recommendation.verdict}` : this.recommendation.verdict;
+    try { this.storage.edit(this.selected.repo, this.selected.number, 'body', body); this.draft = { ...this.draft, body }; this.recommendationImported = true; }
+    catch { this.recommendationNotice = 'The recommendation could not be saved. Your existing review draft is kept.'; }
+  }
+  private prepareMetadataRecommendation(runId: string) {
+    if (!this.active() || this.busy || this.loading || this.detail?.status !== 'open' || this.runsError) return;
+    const run = latestRecommendation(this.recommendationRuns, this.selected); const review = run?.review;
+    if (!run || run.id !== runId || !review || (review.outcome !== 'APPROVE' && review.outcome !== 'REQUEST_CHANGES') || !run.prNumber) return;
+    if (this.recommendation?.runId !== run.id || this.recommendation.event !== review.outcome || this.recommendation.verdict !== review.verdict) {
+      this.recommendation = { repo: run.repo, number: run.prNumber, runId: run.id, event: review.outcome, verdict: review.verdict };
+      this.recommendationId = `metadata:${run.id}`; this.recommendationNotice = ''; this.recommendationImported = false;
+      if (!this.draft.body && !this.storageError) this.importRecommendation();
+    }
+    this.focusRecommendation = true; this.draw();
+  }
   private keydown = (event: KeyboardEvent) => {
     if (event.key === 'Enter' && !event.isComposing && !event.repeat && event.target instanceof Element && event.target.matches('[data-pr-compat-lookup]')) { event.preventDefault(); event.stopPropagation(); void this.lookupTarget(); }
   };
@@ -126,6 +167,8 @@ class PrPanel implements PluginPanelInstance {
     const button = event.target.closest<HTMLButtonElement>('button'); if (!button || button.disabled || !this.active()) return;
     event.stopPropagation();
     if (button.matches('[data-load]')) void this.lookupTarget();
+    else if (button.dataset.recommendationRun) this.prepareMetadataRecommendation(button.dataset.recommendationRun);
+    else if (button.matches('[data-append-recommendation]')) { this.importRecommendation(); this.draw(); }
     else if (button.matches('[data-save-draft]')) this.saveDraft();
     else if (button.matches('[data-refresh]')) void this.refresh();
     else if (button.matches('[data-close-inspection]')) void this.closeInspection();
@@ -141,7 +184,7 @@ class PrPanel implements PluginPanelInstance {
   };
   private saveDraft() {
     if (!this.selected) return;
-    try { for (const field of ['body', 'feedback', 'model', 'effort'] as const) this.storage.edit(this.selected.repo, this.selected.number, field, this.draft[field]); this.unsaved.delete(JSON.stringify(this.selected)); this.storageError = ''; }
+    try { for (const field of ['body', 'feedback', 'guidance', 'model', 'effort'] as const) this.storage.edit(this.selected.repo, this.selected.number, field, this.draft[field] ?? ''); this.unsaved.delete(JSON.stringify(this.selected)); this.storageError = ''; }
     catch (error) { this.storageError = error instanceof Error ? error.message : 'Draft could not be saved.'; }
     this.draw();
   }
@@ -159,7 +202,7 @@ class PrPanel implements PluginPanelInstance {
   private async closeInspection() {
     if (this.busy) return;
     this.busy = true; this.closePending = true;
-    this.cancel(); this.localTarget = true; this.selected = null; this.lookup = ''; this.detail = null; this.diff = null;
+    this.cancel(); this.localTarget = true; this.selected = null; this.lookup = ''; this.detail = null; this.diff = null; this.recommendation = null; this.recommendationId = ''; this.recommendationNotice = ''; this.focusRecommendation = false;
     this.focusMode = null; this.focusPane = null; this.error = ''; this.readDraft(); this.draw();
     try {
       const url = new URL(window.location.href);
@@ -184,7 +227,7 @@ class PrPanel implements PluginPanelInstance {
   }
   private async select(next: Identity) {
     if (this.busy) return;
-    this.closePending = false; this.localTarget = true; this.selected = next; this.lookup = `${next.repo}#${next.number}`; this.detail = null; this.diff = null; this.error = ''; this.focusMode = null; this.readDraft();
+    this.closePending = false; this.localTarget = true; this.selected = next; this.lookup = `${next.repo}#${next.number}`; this.detail = null; this.diff = null; this.error = ''; this.focusMode = null; this.recommendation = null; this.recommendationId = ''; this.recommendationNotice = ''; this.focusRecommendation = false; this.readDraft();
     try {
       if (!this.unsupported) await this.context.saveState({ version: 1, value: { target: next } });
       if (this.state.activity.repo !== next.repo) {
@@ -238,7 +281,7 @@ class PrPanel implements PluginPanelInstance {
       try { const result = await this.context.services.runs!.list({ version: 1, repo, kind: 'all', limit: 100, cursor: null }, controller.signal);
         if (!this.active(generation)) return;
         if (result?.status !== 'available' || !Array.isArray(result.value?.items) || result.value.items.some(run => !validRun(run, repo))) throw new Error('Recent PR runs unavailable.');
-        const matches = result.value.items.filter(run => run && run.prNumber !== null && (repo === null || run.repo === repo)); this.runs = matches.slice(0, 10); this.moreRuns = result.value.nextCursor !== null || matches.length > 10; this.runsError = '';
+        const matches = result.value.items.filter(run => run && run.prNumber !== null && (repo === null || run.repo === repo)); this.recommendationRuns = matches; this.runs = matches.slice(0, 10); this.moreRuns = result.value.nextCursor !== null || matches.length > 10; this.runsError = '';
       } catch { if (this.active(generation)) this.runsError = 'Recent PR runs unavailable.'; }
     };
     const communication = async () => {
@@ -264,6 +307,7 @@ class PrPanel implements PluginPanelInstance {
   private unresolved() { return this.pendingReviews.some(item => sameTarget(item?.command ?? null, this.selected)) || this.pendingRuns.some(item => item?.command?.action === 'launch' && ['review', 'rerun'].includes(item.command.launch.mode) && sameTarget({ repo: item.command.repo, number: 'prNumber' in item.command.launch ? item.command.launch.prNumber : 0 }, this.selected)); }
   private async review(event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT') {
     if (!this.detail || !this.selected || this.busy || this.storageError || !this.journalsReady || this.unresolved()) return;
+    if (this.recommendation && (this.loading || !this.diff)) return;
     if (event !== 'APPROVE' && !this.draft.body.trim()) { this.error = 'Write a review before submitting.'; this.draw(); return; }
     const input = { version: 1 as const, repo: this.selected.repo, number: this.selected.number, expectedHeadSha: this.detail.target.headSha, event, body: this.draft.body };
     await this.command(async () => { await this.journals(); if (this.unresolved()) { this.error = 'Reconcile the retained request before submitting another.'; return; } const result = await this.context.services.pullRequestCommands!.submit(input, this.state.activity.signal);
@@ -272,8 +316,9 @@ class PrPanel implements PluginPanelInstance {
   }
   private async launch(mode: 'review' | 'rerun') {
     if (!this.detail || !this.selected || this.busy || this.storageError || !this.journalsReady || this.unresolved()) return;
+    if (mode === 'review' && this.reviewLaunchBlocked()) { this.error = 'You already reviewed this commit. Choose a different model or reasoning effort to start another agent review.'; this.draw(); return; }
     if (mode === 'rerun' && !this.draft.feedback.trim()) { this.error = 'Describe the changes to make before launching.'; this.draw(); return; }
-    const input: RunCommandInputV1 = { version: 1, action: 'launch', repo: this.selected.repo, launch: { ...(mode === 'review' ? { mode, prNumber: this.selected.number, headSha: this.detail.target.headSha } : { mode, prNumber: this.selected.number, feedback: this.draft.feedback }), ...(this.draft.model ? { model: this.draft.model } : {}), ...(this.draft.effort ? { effort: this.draft.effort } : {}) } };
+    const input: RunCommandInputV1 = { version: 1, action: 'launch', repo: this.selected.repo, launch: { ...(mode === 'review' ? { mode, prNumber: this.selected.number, headSha: this.detail.target.headSha, ...(this.draft.guidance?.trim() ? { guidance: this.draft.guidance } : {}) } : { mode, prNumber: this.selected.number, feedback: this.draft.feedback }), ...(this.draft.model ? { model: this.draft.model } : {}), ...(this.draft.effort ? { effort: this.draft.effort } : {}) } };
     await this.command(async () => { await this.journals(); if (this.unresolved()) { this.error = 'Reconcile the retained request before submitting another.'; return; } const result = await this.context.services.runCommands!.submit(input, this.state.activity.signal);
       if (result?.status === 'available') await this.consumeRun(result.value, input); else this.error = 'Launch result unavailable. Check the retained request before retrying.';
     });
@@ -325,9 +370,18 @@ class PrPanel implements PluginPanelInstance {
     try { return this.storage.results(this.selected.repo, this.selected.number).map(value => `<p class="pr-saved-result">${esc(value)}</p>`).join(''); }
     catch { return '<p role="alert">Saved command results unavailable. Existing evidence is kept.</p>'; }
   }
+  private reviewLaunchBlocked() {
+    if (!this.detail?.reviews.viewerReview || this.detail.reviews.viewerReviewedCommitId !== this.detail.target.headSha || !this.selected) return false;
+    try {
+      const settings = this.storage.reviewSettings(this.selected.repo, this.selected.number, this.detail.target.headSha);
+      return this.draft.model === (settings?.model ?? '') && this.draft.effort === (settings?.effort ?? '');
+    } catch { return true; }
+  }
   private paintSafety() {
     const unsafe = this.busy || !this.active() || Boolean(this.storageError) || !this.journalsReady || this.unresolved() || !this.detail || this.detail.status !== 'open';
-    this.container.querySelectorAll<HTMLButtonElement>('[data-review], [data-launch]').forEach(button => { button.disabled = unsafe; });
+    const reviewBlocked = this.reviewLaunchBlocked();
+    this.container.querySelectorAll<HTMLButtonElement>('[data-review], [data-launch]').forEach(button => { button.disabled = unsafe || button.dataset.launch === 'review' && reviewBlocked || button.hasAttribute('data-review') && !!this.recommendation && (this.loading || !this.diff); });
+    const reviewNote = this.container.querySelector<HTMLElement>('[data-review-repeat-note]'); if (reviewNote) { reviewNote.hidden = !reviewBlocked; reviewNote.textContent = 'You already reviewed this commit. Choose a different model or reasoning effort for another agent review.'; }
     const error = this.container.querySelector('[data-storage-error]'); if (error) error.textContent = this.storageError; const save = this.container.querySelector<HTMLElement>('[data-save-draft]'); if (save) save.hidden = !this.storageError;
   }
   private reveal(element: HTMLElement) {
@@ -353,6 +407,31 @@ class PrPanel implements PluginPanelInstance {
       <section class="pr-lookup-panel panel" data-pr-pane="lookup"><div class="pr-lookup-heading"><h3>${prIcon('inspect')}${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3>${this.selected || this.closePending ? '<button data-close-inspection>Close inspection</button>' : ''}</div>${this.state.activity.repo !== headerRepo ? `<p class="pr-scope-override">Inspection scope: ${esc(this.state.activity.repo ?? (this.state.pirateMode ? 'All galleons' : 'All repositories'))}</p>` : ''}<div class="pr-lookup-form"><label class="interface-field">Pull request number, URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup placeholder="PR number, #number, URL or owner/name#number" value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>${prIcon('inspect')}Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, headerRepo, this.state.pirateMode, this.slackConnected, this.diff) : this.selected ? `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : `Pull request unavailable. ${refreshLabel} to retry.`}</p>` : ''}</div></section>
       <div class="pr-inbox">${renderList('review-requested', this.lists.requested, this.listErrors.requested, this.state.pirateMode, refreshLabel)}${renderList('authored-recent', this.lists.authored, this.listErrors.authored, this.state.pirateMode, refreshLabel, this.authoredState)}</div>${renderRuns(this.runs, this.moreRuns, this.runsError, this.state.pirateMode)}
       <section aria-label="Retained pull request commands">${this.pendingMarkup()}</section><section aria-label="Saved command results">${this.savedResults()}</section></section>`;
+    const recent = this.runsError ? null : latestRecommendation(this.recommendationRuns, this.selected);
+    if (recent?.review && this.detail) {
+      const note = document.createElement('section'); note.className = 'pr-metadata-recommendation pr-review-recommendation';
+      const title = document.createElement('h4'); title.innerHTML = `${prIcon('agent')}Recent agent recommendation`; note.append(title);
+      const verdict = document.createElement('p'); verdict.textContent = recent.review.verdict; note.append(verdict);
+      if (this.detail.status === 'open' && (recent.review.outcome === 'APPROVE' || recent.review.outcome === 'REQUEST_CHANGES')) {
+        const action = document.createElement('button'); action.type = 'button'; action.dataset.recommendationRun = recent.id; action.dataset.prepareMetadataReview = recent.review.outcome;
+        action.innerHTML = `${prIcon(recent.review.outcome === 'APPROVE' ? 'good' : 'bad')}${recent.review.outcome === 'APPROVE' ? 'Approve…' : 'Request changes…'}`;
+        action.title = 'Prepare your GitHub review draft and inspect the current diff before submitting.'; action.disabled = this.loading || this.busy; note.append(action);
+      }
+      this.container.querySelector('.pr-summary-body')?.append(note);
+    }
+    if (this.recommendation || this.recommendationNotice) {
+      const note = document.createElement('section'); note.className = 'pr-review-recommendation';
+      const heading = document.createElement('h4'); heading.innerHTML = `${prIcon(this.recommendation?.event === 'APPROVE' ? 'good' : 'review')}Agent recommendation`; note.append(heading);
+      if (this.recommendation) {
+        const verdict = document.createElement('p'); verdict.textContent = this.recommendation.verdict; note.append(verdict);
+        const status = document.createElement('p'); status.setAttribute('role', 'status');
+        status.textContent = this.detail?.status === 'closed' || this.detail?.status === 'merged' ? `This PR is ${this.detail.status}. A GitHub review cannot be submitted.`
+          : 'Review the current diff before submitting. This recommendation comes from the earlier run.'; note.append(status);
+        if (!this.recommendationImported && this.detail?.status === 'open') { const append = document.createElement('button'); append.type = 'button'; append.dataset.appendRecommendation = ''; append.innerHTML = `${prIcon('edit')}Append recommendation to my draft`; append.disabled = this.busy || !!this.storageError; note.append(append); }
+      }
+      if (this.recommendationNotice) { const message = document.createElement('p'); message.setAttribute('role', 'alert'); message.textContent = this.recommendationNotice; note.append(message); }
+      (this.container.querySelector('.pr-manual-body') ?? this.container.querySelector('.pr-panel') ?? this.container.querySelector('.pr-lookup-result'))?.prepend(note);
+    }
     this.whiteboard.update(this.state, this.detail ? { kind: 'pull-request', ...this.detail.target } : null);
     (this.container.querySelector('.pr-agent-extras') ?? this.container.querySelector('.pr-lookup-result'))?.append(this.whiteboard.element);
     if (focused?.isConnected && this.whiteboard.element.contains(focused)) focused.focus({ preventScroll: true });
@@ -365,6 +444,12 @@ class PrPanel implements PluginPanelInstance {
     if (authoredFocus) [...this.container.querySelectorAll<HTMLElement>('[data-authored-state]')].find(control => control.dataset.authoredState === authoredFocus)?.focus({ preventScroll: true });
     if (disclosureFocus) [...this.container.querySelectorAll<HTMLDetailsElement>('details')].find(detail => disclosureKey(detail) === disclosureFocus)?.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
     if (action) [...this.container.querySelectorAll<HTMLElement>(`[${action[0]}]`)].find(control => control.getAttribute(action[0]!) === action[1])?.focus({ preventScroll: true });
+    if (this.focusRecommendation && this.detail && !this.loading && this.diff) {
+      this.focusRecommendation = false;
+      const editor = this.container.querySelector<HTMLTextAreaElement>('.pr-review-body'); const diff = this.container.querySelector<HTMLElement>('.pr-diff');
+      if (editor) { this.reveal(editor); editor.focus({ preventScroll: true }); }
+      if (diff) { this.reveal(diff); diff.scrollIntoView?.({ block: 'start' }); }
+    }
     if (this.focusMode && this.active()) { const control = this.container.querySelector<HTMLElement>(this.focusMode === 'rerun' ? '.pr-rerun-feedback' : '.pr-review-agent'); if (control && !(control instanceof HTMLButtonElement && control.disabled)) { this.focusMode = null; this.reveal(control); control.focus({ preventScroll: true }); control.scrollIntoView?.({ block: 'nearest' }); } }
     else if (this.focusPane && !this.loading) { const pane = [...this.container.querySelectorAll<HTMLElement>('[data-pr-pane]')].find(node => node.dataset.prPane === this.focusPane); if (pane) { this.reveal(pane); pane.scrollIntoView?.({ block: 'start' }); this.focusPane = null; } }
   }

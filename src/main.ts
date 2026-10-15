@@ -33,6 +33,7 @@ import { renderThemeModeIcon } from './renderThemeModeIcon';
 import { CUSTOM_THEME_OVERRIDE_FIELDS, renderCustomThemeEditor, type CustomThemeEditorState } from './renderCustomThemeEditor';
 import { renderPirateModeIcon } from './renderPirateModeIcon';
 import { createThemeColorWheel } from './logic/themeColorWheel';
+import { createRunDrawerResize } from './logic/runDrawerResize';
 import {
   loadSavedRepoScope,
   saveRepoScope,
@@ -44,6 +45,7 @@ export class DashboardView {
   private readonly root: HTMLElement;
   private readonly rootEvents = new window.AbortController();
   private readonly themeColorWheel: ReturnType<typeof createThemeColorWheel>;
+  private readonly runDrawerResize: ReturnType<typeof createRunDrawerResize>;
   private readonly feedbackContribution: AuxiliaryPageHost;
   private readonly profileContribution: AuxiliaryPageHost;
   private readonly headerContribution: AuxiliaryPageHost;
@@ -83,7 +85,7 @@ export class DashboardView {
   private view: PageView = parseRoute(new URL('/helm', window.location.origin)).view;
   private route: AppRoute = parseRoute(new URL('/helm', window.location.origin));
   private routeSeq: number = 0;
-  private readonly onResize = (): void => { this.revealActiveTab(); };
+  private readonly onResize = (): void => { this.revealActiveTab(); this.runDrawerResize.sync(); };
   private readonly onPopState = (): void => { void this.navigate(parseRoute(new URL(window.location.href)), 'none'); };
   private themeId: string = CUSTOM_THEME_ID;
   private customTheme: CustomThemeEditorState = { palette: loadCustomTheme(), recipe: loadCustomThemeRecipe() ?? { settings: { ...DEFAULT_THEME_GENERATOR_SETTINGS }, overrides: {} }, dirty: false, message: null, error: false };
@@ -109,6 +111,7 @@ export class DashboardView {
 
   constructor(root: HTMLElement) {
     this.root = root;
+    this.runDrawerResize = createRunDrawerResize(root, this.rootEvents.signal);
     onIntegrationSettingsChanged(() => { void this.refreshIntegrationStatus(true); }, this.rootEvents.signal);
     this.themeColorWheel = createThemeColorWheel(root, this.rootEvents.signal, () => this.customTheme.recipe.settings, selection => {
       this.customTheme.recipe.settings = { ...this.customTheme.recipe.settings, ...selection };
@@ -1019,6 +1022,7 @@ export class DashboardView {
   }
 
   private rehomeRunViewer(): void {
+    this.runDrawerResize.sync();
     const presentation = this.pluginPresentationState();
     const standalone = this.isPluginPage() && this.isRunViewerPage();
     const auxiliarySlot = this.root.querySelector<HTMLDetailsElement>('.plugin-auxiliary-slot');

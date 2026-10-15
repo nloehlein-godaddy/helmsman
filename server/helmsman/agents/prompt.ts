@@ -19,6 +19,7 @@ export function buildPrompt(task: AgentTask, runtime: string = 'claude-code'): s
       clarificationPrompt(task),
       ...(task.skillsPath ? [`- Use only the pinned skills under ${JSON.stringify(`${task.skillsPath}/skills`)}. Read each required SKILL.md in this directory before reviewing or delegating; do not use or install global skill copies.`] : []),
       ``,
+      ...(task.task ? [`## Additional review guidance`, task.task, ``] : []),
       `## Review scope`,
       attribution,
       ...(task.prHeadSha ? [`- Review the pinned revision ${task.prHeadSha} in this detached worktree. Do not check out or switch to another revision, even if the PR has newer commits.`] : []),

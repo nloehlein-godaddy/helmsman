@@ -18,6 +18,7 @@ export interface LaunchIntent {
   task?: string;
   prNumber?: number;
   feedback?: string;
+  guidance?: string;
   model?: string;
   effort?: string;
   adapter?: string;
@@ -38,7 +39,7 @@ function positive(value: unknown): value is number {
 }
 
 export function launchIntentJson(body: LaunchIntent): string {
-  return JSON.stringify(Object.fromEntries(['repo', 'mode', 'todoId', 'workRef', 'sourceInstanceId', 'sourceInstanceRevision', 'ticketId', 'title', 'task', 'prNumber', 'feedback', 'model', 'effort', 'adapter']
+  return JSON.stringify(Object.fromEntries(['repo', 'mode', 'todoId', 'workRef', 'sourceInstanceId', 'sourceInstanceRevision', 'ticketId', 'title', 'task', 'prNumber', 'feedback', 'guidance', 'model', 'effort', 'adapter']
     .flatMap(key => body[key as keyof LaunchIntent] === undefined ? [] : [[key, body[key as keyof LaunchIntent]]])));
 }
 
@@ -76,7 +77,9 @@ export function retryIntent(row: RunRow): LaunchIntent {
   if (mode === 'review' || !saved && (task?.review === true || row.ticketId === 'review')) {
     const prNumber = source?.prNumber ?? row.prNumber;
     if (!positive(prNumber)) throw new RetryError('The original PR number is missing. Start a new PR review.');
-    return { ...base, mode: 'review', prNumber };
+    const guidance = saved ? saved.guidance : task?.task;
+    if (guidance !== undefined && (typeof guidance !== 'string' || guidance.length > 20 * 1024 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(guidance))) throw new RetryError('The original review guidance is invalid. Start a new PR review.');
+    return { ...base, mode: 'review', prNumber, ...(guidance === undefined ? {} : { guidance }) };
   }
   if (mode === 'rerun' || !saved && (task?.prBranch || row.ticketId === 'rerun')) {
     const prNumber = source?.prNumber ?? row.prNumber;

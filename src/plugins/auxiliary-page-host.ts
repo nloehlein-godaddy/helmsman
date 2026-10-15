@@ -127,6 +127,7 @@ export class AuxiliaryPageHost {
     if (!this.connected && !this.mounted) return;
     this.mounted = true;
     this.host.show(page.contributionId, module, { ...this.state,
+      headerRepo: this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo,
       repo: this.scopeOverride ? this.scopeOverride.repo : this.state.repo,
       visible: this.state.visible && this.element.isConnected,
       presentation: this.presentation,

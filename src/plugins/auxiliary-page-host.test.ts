@@ -95,17 +95,25 @@ describe('auxiliary page lifecycle', () => {
     f.host.update(state(), { contributionId: null, scopeRepo: 'org/a' }); await settle();
     expect(f.mount).toHaveBeenCalledOnce();
   });
+  it('preserves an All header while explicitly scoping auxiliary content', async () => {
+    const f = setup();
+    f.host.update(state({ repo: null, presentation: { version: 1, kind: 'run', repo: 'org/b', runId: 'run-1' } }), { contributionId: null, scopeRepo: 'org/b' });
+    f.host.rehome(f.first); await settle();
+    expect(f.contexts[0]?.state).toMatchObject({ repo: 'org/b', headerRepo: null });
+    f.host.update(state({ repo: 'org/a', presentation: { version: 1, kind: 'run', repo: 'org/b', runId: 'run-1' } }), { contributionId: null, scopeRepo: 'org/b' }); await settle();
+    expect(f.update).toHaveBeenLastCalledWith(expect.objectContaining({ repo: 'org/b', headerRepo: 'org/a' }));
+  });
   it('captures an explicit panel scope without changing the header and resets it when the header changes', async () => {
     const f = setup(); f.host.rehome(f.first); await settle();
     const locator = { version: 1 as const, kind: 'run' as const, repo: 'org/b', runId: 'run-1' };
     f.host.select(locator, 'org/b'); await settle();
-    expect(f.update).toHaveBeenLastCalledWith(expect.objectContaining({ repo: 'org/b', presentation: locator }));
+    expect(f.update).toHaveBeenLastCalledWith(expect.objectContaining({ repo: 'org/b', headerRepo: 'org/a', presentation: locator }));
     f.host.update(state({ pirateMode: false })); await settle();
-    expect(f.update).toHaveBeenLastCalledWith(expect.objectContaining({ repo: 'org/b', presentation: locator, pirateMode: false }));
+    expect(f.update).toHaveBeenLastCalledWith(expect.objectContaining({ repo: 'org/b', headerRepo: 'org/a', presentation: locator, pirateMode: false }));
     f.contexts[0]?.selectPresentation?.(locator);
     expect(f.options.selectPresentation).toHaveBeenLastCalledWith(locator, 'org/b');
     f.host.update(state({ repo: 'org/c' })); await settle();
-    expect(f.update).toHaveBeenLastCalledWith(expect.objectContaining({ repo: 'org/c', presentation: null }));
+    expect(f.update).toHaveBeenLastCalledWith(expect.objectContaining({ repo: 'org/c', headerRepo: 'org/c', presentation: null }));
     expect(() => f.host.select(locator, 'org/c')).toThrow('outside');
   });
   it('shows a missing selected replacement without falling back and revokes removed modules', async () => {

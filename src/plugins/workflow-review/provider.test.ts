@@ -26,6 +26,13 @@ describe('review workflow', () => {
     expect(reviewWorkflowProvider().metadata).toEqual({ version: 1, label: 'Pull request review', modes: ['review'], execution: 'direct', requiredSkills: [], maxRounds: 1, stageTimeoutMinutes: 45 });
   });
 
+  it('includes literal operator guidance with the retained review revision', () => {
+    const value = input('native-subagents'); const guidance = '  Check retries.\nPreserve <customer> input.  ';
+    const prompt = renderReviewPrompt({ ...value, task: { ...value.task, task: guidance } });
+    expect(prompt).toContain(`## Additional review guidance\n${guidance}\n`);
+    expect(prompt).toContain(headSha);
+  });
+
   it.each([
     ['review-agent-skill', '$review-agent'],
     ['native-subagents', "runtime's sub-agent tools"],

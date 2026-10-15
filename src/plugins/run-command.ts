@@ -3,7 +3,7 @@ import { parseTaskRepo, parseWorkRefV1, type WorkRefV1 } from './tasks';
 export type RunCommandLaunchV1 = (
   | { readonly mode: 'source'; readonly workRef: WorkRefV1; readonly sourceInstanceId: string; readonly sourceInstanceRevision: number }
   | { readonly mode: 'freeform'; readonly task: string }
-  | { readonly mode: 'review'; readonly prNumber: number; readonly headSha?: string }
+  | { readonly mode: 'review'; readonly prNumber: number; readonly headSha?: string; readonly guidance?: string }
   | { readonly mode: 'rerun'; readonly prNumber: number; readonly feedback: string }
 ) & { readonly model?: string; readonly effort?: string };
 export interface RunCommandTargetV1 { readonly runId: string; readonly expectedAttempt: number; }
@@ -83,9 +83,9 @@ function launch(input: unknown): RunCommandLaunchV1 {
     return Object.freeze({ mode: 'freeform', task: text(value.task, RUN_COMMAND_LIMITS.task, true), ...tuning });
   }
   if (value.mode === 'review') {
-    fields(value, ['mode', 'prNumber'], [...optional, 'headSha']);
+    fields(value, ['mode', 'prNumber'], [...optional, 'headSha', 'guidance']);
     if (value.headSha !== undefined && (typeof value.headSha !== 'string' || !/^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(value.headSha))) invalid();
-    return Object.freeze({ mode: 'review', prNumber: integer(value.prNumber), ...(value.headSha === undefined ? {} : { headSha: value.headSha.toLowerCase() }), ...tuning });
+    return Object.freeze({ mode: 'review', prNumber: integer(value.prNumber), ...(value.headSha === undefined ? {} : { headSha: value.headSha.toLowerCase() }), ...(value.guidance === undefined ? {} : { guidance: text(value.guidance, RUN_COMMAND_LIMITS.task, true, true) }), ...tuning });
   }
   if (value.mode === 'rerun') {
     fields(value, ['mode', 'prNumber', 'feedback'], optional);

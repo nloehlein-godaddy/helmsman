@@ -1,10 +1,13 @@
 import { WhiteboardCompanion } from './whiteboard.js';
+import { prepareRecommendation } from './recommendation.js';
 import { RunInstructions } from './instructions.js';
 import { PostmortemChat } from './postmortem-chat.js';
 import type { RunReadSummaryV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PresentationLocatorV1,
   RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptQueryV1, RunCommandReceiptV1, RunInspectLogPageV1, RunInspectTargetV1 } from '@helmsman/plugin-sdk';
 import { emptyState, mergeLog, newTab, readState, saveState, tabKey, type RunTab } from './state.js';
 import { styles } from './styles.js';
+import { icon, type IconName } from './icons.js';
+import { LogResize } from './log-resize.js';
 
 const feedbackLabel = (run: RunReadSummaryV1 | null | undefined): string | null => {
   const state = run?.feedbackOutcome?.state;
@@ -34,6 +37,8 @@ class ViewerPanel implements PluginPanelInstance {
   private readonly instructions: RunInstructions;
   private readonly whiteboard: WhiteboardCompanion;
   private readonly postmortem: PostmortemChat;
+  private readonly resize: LogResize;
+  private logHeight: number;
   private readonly container: HTMLElement;
   private readonly context: PluginPanelContext;
   private state: PluginPanelState;
@@ -64,6 +69,7 @@ class ViewerPanel implements PluginPanelInstance {
   private saveError = '';
   private commandError = '';
   private resultsOpen = false;
+  private readonly disclosures = new Set<string>();
   private saveQueue: Promise<boolean> = Promise.resolve(true);
   private readonly log = node('pre');
   private readonly root = node('section');
@@ -80,7 +86,10 @@ class ViewerPanel implements PluginPanelInstance {
     this.container = container; this.context = context; this.state = context.state;
     const parsed = readState(this.state.savedState); this.unsupported = parsed === null; const saved = parsed ?? emptyState();
     this.tabs = saved.tabs.map(newTab); this.activeKey = saved.activeKey; this.results = saved.results;
+    this.logHeight = saved.logHeight;
+    this.resize = new LogResize(this.log, this.logHeight, height => { this.logHeight = height; void this.persist(); });
     this.earlier.type = 'button';
+    this.earlier.prepend(icon('clock-counter-clockwise'));
     this.earlier.addEventListener('click', () => {
       const tab = this.selected(); if (!tab || this.earlier.disabled || !this.active()) return;
       tab.follow = false; void this.persist(); void this.load('older');
@@ -102,6 +111,7 @@ class ViewerPanel implements PluginPanelInstance {
   private selected() { return this.tabs.find(tab => tabKey(tab) === this.activeKey && this.inScope(tab.repo)) ?? null; }
   private cancel = () => {
     ++this.generation; this.controller?.abort(); this.controller = null;
+    this.resize.cancelDrag();
     if (this.timer) clearTimeout(this.timer); this.timer = null;
     for (const controller of this.downloads) controller.abort(); this.downloads.clear();
     this.busy = false; this.reading = false; this.summariesReading = false; this.summariesReadAt = 0; this.commandBusy = false; this.evidenceReady = false;
@@ -109,7 +119,7 @@ class ViewerPanel implements PluginPanelInstance {
     this.recentLoading = false;
   };
   dispose = () => {
-    if (this.disposed) return; this.disposed = true; this.cancel(); this.instructions.dispose(); this.postmortem.dispose(); this.whiteboard.dispose();
+    if (this.disposed) return; this.disposed = true; this.cancel(); this.instructions.dispose(); this.postmortem.dispose(); this.whiteboard.dispose(); this.resize.dispose();
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     this.context.signal.removeEventListener('abort', this.dispose); this.state.activity.signal.removeEventListener('abort', this.cancel); this.container.replaceChildren();
   };
@@ -152,9 +162,10 @@ class ViewerPanel implements PluginPanelInstance {
     }
     if (locator.kind === 'pull-request') { this.activeKey = null; void this.persist(); this.draw(); await Promise.all([this.restorePending(generation), this.loadRecent(generation)]); return; }
     if (locator.kind === 'run' && !this.inScope(locator.repo)) { this.activeKey = null; this.error = 'Selected run is outside this panel’s scope.'; this.draw(); await Promise.all([this.restorePending(generation), this.loadRecent(generation)]); return; }
+    if (this.selected()?.runId !== locator.runId || locator.kind === 'run' && this.selected()?.repo !== locator.repo) this.activeKey = null;
     this.busy = true; this.draw();
     try {
-      const result = await this.context.services.runInspect!.resolve({ version: 1, runId: locator.runId }, this.controller.signal);
+      const result = await this.resolvePresentation(locator, generation, this.controller.signal);
       if (!this.active(generation)) return;
       if (result?.status !== 'available' || !result.value?.target || !this.inScope(result.value.target.repo)
         || result.value.target.runId !== locator.runId || locator.kind === 'run' && result.value.target.repo !== locator.repo) throw new Error('Selected run is unavailable in this scope.');
@@ -171,6 +182,18 @@ class ViewerPanel implements PluginPanelInstance {
       void this.persist(); await this.load(tab.loaded ? 'follow' : 'initial');
     } catch (error) { if (this.active(generation)) { this.activeKey = null; this.error = error instanceof Error ? error.message : 'Selected run is unavailable.'; } }
     finally { if (this.active(generation)) { this.busy = false; await Promise.all([this.restorePending(generation), this.selected() ? Promise.resolve() : this.loadRecent(generation)]); this.draw(); } }
+  }
+  private async resolvePresentation(locator: Extract<PresentationLocatorV1, { kind: 'run' | 'legacy-run' }>, generation: number, signal: AbortSignal) {
+    for (let retry = 0; ; retry++) {
+      signal.throwIfAborted();
+      const result = await this.context.services.runInspect!.resolve({ version: 1, runId: locator.runId }, signal);
+      if (!this.active(generation) || locator.kind !== 'run' || result?.status !== 'unavailable' || result.reason !== 'not-found' || retry >= 12) return result;
+      await new Promise<void>((resolve, reject) => {
+        const cancel = () => { clearTimeout(timer); signal.removeEventListener('abort', cancel); reject(signal.reason); };
+        const timer = setTimeout(() => { signal.removeEventListener('abort', cancel); resolve(); }, 2500);
+        if (signal.aborted) cancel(); else signal.addEventListener('abort', cancel, { once: true });
+      });
+    }
   }
   private async resolve(tab: RunTab, signal: AbortSignal): Promise<RunInspectTargetV1> {
     const result = await this.context.services.runInspect!.resolve({ version: 1, runId: tab.runId }, signal);
@@ -268,7 +291,7 @@ class ViewerPanel implements PluginPanelInstance {
   }
   private persist(): Promise<boolean> {
     if (this.unsupported || this.disposed) return Promise.resolve(false);
-    const snapshot = saveState(this.tabs, this.activeKey, this.results);
+    const snapshot = saveState(this.tabs, this.activeKey, this.results, this.logHeight);
     const work = this.saveQueue.catch(() => false).then(async () => {
       if (this.disposed) return false;
       try { await this.context.saveState(snapshot); this.saveError = ''; return true; }
@@ -378,7 +401,20 @@ class ViewerPanel implements PluginPanelInstance {
         .catch(() => { if (this.active(generation)) { this.message = 'Copy unavailable. Select text in the log preview.'; this.draw(); } });
     } catch { this.message = 'Copy unavailable. Select text in the log preview.'; this.draw(); }
   }
-  private button(label: string, action: () => void, disabled = false) { const button = node('button', label); button.type = 'button'; button.disabled = disabled || !this.active(); button.addEventListener('click', action); return button; }
+  private openRecommendation(tab: RunTab) {
+    if (!this.active() || this.selected() !== tab || !this.inScope(tab.repo) || !tab.summary || tab.summary.repo !== tab.repo || tab.summary.id !== tab.runId) return;
+    try { this.context.navigate(prepareRecommendation(tab.summary, this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo)); }
+    catch (error) { this.message = error instanceof Error ? error.message : 'The review draft could not be opened. Refresh to try again.'; this.draw(); }
+  }
+  private button(label: string, action: () => void, disabled = false, symbol?: IconName, compact = false) {
+    const button = node('button'); if (symbol) button.append(icon(symbol)); button.append(node('span', label));
+    if (compact) { button.className = 'run-icon-action'; button.title = label; }
+    button.type = 'button'; button.disabled = disabled || !this.active(); button.addEventListener('click', action); return button;
+  }
+  private disclosure(key: string, label: string, className: string) {
+    const details = node('details'); details.className = className; details.open = this.disclosures.has(key); details.append(node('summary', label));
+    details.addEventListener('toggle', () => { if (details.isConnected) { if (details.open) this.disclosures.add(key); else this.disclosures.delete(key); } }); return details;
+  }
   private draw() {
     if (this.disposed) return;
     const selected = this.selected();
@@ -421,8 +457,8 @@ class ViewerPanel implements PluginPanelInstance {
         if (!next) return; event.preventDefault(); this.activate(next);
         [...this.container.querySelectorAll<HTMLElement>('[role=tab]')].find(control => control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey === tabKey(next))?.focus({ preventScroll: true });
       });
-      const close = this.button('×', () => this.close(tab), !this.context.selectPresentation); close.setAttribute('aria-label', `Close run ${tab.runId}`);
-      const open = node('a', '↗'); open.className = 'run-tab-open';
+      const close = this.button('', () => this.close(tab), !this.context.selectPresentation, 'x'); close.setAttribute('aria-label', `Close run ${tab.runId}`); close.title = 'Close tab';
+      const open = node('a'); open.append(icon('arrow-square-out')); open.className = 'run-tab-open';
       const headerRepo = this.state.headerRepo === undefined ? this.state.repo : this.state.headerRepo;
       open.href = `/run-viewer?${new URLSearchParams({ ...(headerRepo ? { repo: headerRepo } : {}), runRepo: tab.repo, run: tab.runId })}`;
       open.target = '_blank'; open.rel = 'noopener noreferrer'; open.setAttribute('aria-label', `Open ${label} in a new browser tab`); open.title = 'Open in a new browser tab';
@@ -451,31 +487,51 @@ class ViewerPanel implements PluginPanelInstance {
       root.append(empty);
     }
     else {
-      root.append(node('small', `${tab.repo} · ${tab.runId}${tab.target ? ` · Attempt ${tab.target.expectedAttempt}` : ''}`));
+      const overview = node('div'); overview.className = 'run-overview';
+      const identity = node('div'); identity.className = 'run-overview-identity'; identity.append(icon('git-branch'), node('strong', tab.repo));
+      const technical = this.disclosure(`run:${tabKey(tab)}`, 'Run details', 'run-identity-details'); technical.querySelector('summary')?.prepend(icon('fingerprint'));
+      technical.append(node('code', tab.runId)); identity.append(technical); overview.append(identity);
+      const statusLine = node('div'); statusLine.className = 'run-status-line';
+      const badge = (text: string, symbol: IconName, tone = 'neutral') => { const item = node('span'); item.className = 'run-badge'; item.dataset.tone = tone; item.append(icon(symbol), node('span', text)); return item; };
       if (tab.summary) {
-        root.append(node('p', `Worker: ${tab.summary.status} · ${tab.summary.costUsd === null ? 'Spend unknown' : `$${tab.summary.costUsd.toFixed(2)} observed spend`}`));
+        statusLine.append(badge(`Worker: ${tab.summary.status}`, 'robot', tab.summary.status === 'failed' ? 'bad' : tab.summary.status === 'succeeded' ? 'good' : tab.summary.status === 'running' ? 'review' : 'neutral'),
+          badge(tab.summary.costUsd === null ? 'Spend unknown' : `$${tab.summary.costUsd.toFixed(2)} observed spend`, 'currency-dollar'));
         const feedback = feedbackLabel(tab.summary);
-        if (feedback) { const outcome = node('p', feedback); outcome.className = 'run-feedback-outcome'; outcome.title = tab.summary.feedbackOutcome?.summary ?? ''; root.append(outcome); }
-        if (tab.summary.sourceSettlement) root.append(node('p', `Source settlement: ${tab.summary.sourceSettlement.state}`));
-        if (tab.summary.review) root.append(node('p', `Review recommendation: ${tab.summary.review.outcome} — ${tab.summary.review.verdict}`));
+        if (feedback) { const outcome = badge(feedback, feedback === 'Feedback completed' ? 'check-circle' : 'warning-circle', feedback === 'Feedback completed' ? 'good' : feedback === 'Awaiting decision' ? 'review' : 'bad'); outcome.classList.add('run-feedback-outcome'); outcome.title = tab.summary.feedbackOutcome?.summary ?? ''; statusLine.append(outcome); }
+        if (tab.summary.sourceSettlement) overview.append(node('p', `Source settlement: ${tab.summary.sourceSettlement.state}`));
+        if (tab.summary.review) {
+          const recommendation = node('div'); recommendation.className = 'run-review-recommendation'; recommendation.append(node('p', `Review recommendation: ${tab.summary.review.outcome} — ${tab.summary.review.verdict}`));
+          if (tab.summary.status === 'succeeded' && typeof tab.summary.prNumber === 'number' && Number.isSafeInteger(tab.summary.prNumber) && tab.summary.prNumber > 0
+            && (tab.summary.review.outcome === 'APPROVE' || tab.summary.review.outcome === 'REQUEST_CHANGES')) {
+            const approve = tab.summary.review.outcome === 'APPROVE';
+            const action = this.button(approve ? 'Approve…' : 'Request changes…', () => this.openRecommendation(tab), this.busy, approve ? 'check-circle' : 'warning-circle');
+            action.dataset.prepareReview = tab.summary.review.outcome; action.title = 'Open a GitHub review draft. Inspect the current diff before submitting.'; action.setAttribute('aria-label', `${approve ? 'Approve' : 'Request changes'}: open GitHub review draft`); recommendation.append(action);
+          }
+          overview.append(recommendation);
+        }
       }
+      if (tab.target) statusLine.append(badge(`Attempt ${tab.target.expectedAttempt}`, 'clock-counter-clockwise'));
+      overview.insertBefore(statusLine, identity.nextSibling); root.append(overview);
       if (tab.error) { const error = node('p', tab.error); error.setAttribute('role', 'alert'); root.append(error); }
       const tools = node('div'); tools.className = 'run-tools';
       this.earlier.disabled = !this.active() || this.busy || !tab.hasEarlier && !tab.olderTrimmed;
       tools.append(this.button(tab.follow ? 'Pause follow' : 'Follow latest', () => {
         tab.follow = !tab.follow; void this.persist(); this.draw(); if (tab.follow && !this.busy) void this.load(tab.newerTrimmed ? 'initial' : 'follow');
-      }), keep(this.earlier),
-      this.button('Copy preview', () => this.copy(tab, false), !tab.loaded), this.button('Copy run ID', () => this.copy(tab, true)), this.button('Download full log', () => this.download(tab), !tab.target));
+      }, false, tab.follow ? 'pause' : 'arrow-line-down'), keep(this.earlier),
+      this.button('Copy preview', () => this.copy(tab, false), !tab.loaded, 'copy', true), this.button('Copy run ID', () => this.copy(tab, true), false, 'fingerprint', true), this.button('Download full log', () => this.download(tab), !tab.target, 'download-simple'));
       const commandDisabled = !this.evidenceReady || this.commandBusy || this.busy || this.blocked(tab) || !tab.summary || !tab.target;
-      if (tab.summary?.status === 'running') tools.append(this.button('Stop run', () => { void this.submit('stop', tab); }, commandDisabled));
-      if (tab.summary?.status === 'failed') tools.append(this.button('Retry run', () => { void this.submit('retry', tab); }, commandDisabled));
-      if (tab.summary?.status === 'failed' || tab.summary?.status === 'stopped') tools.append(this.button('Ask about this failure', () => { this.postmortem.open({ repo: tab.repo, runId: tab.runId }); }, commandDisabled || !this.context.services.postmortem));
+      if (tab.summary?.status === 'running') { const stop = this.button('Stop run', () => { void this.submit('stop', tab); }, commandDisabled, 'stop'); stop.className = 'run-stop'; tools.append(stop); }
+      if (tab.summary?.status === 'failed') tools.append(this.button('Retry run', () => { void this.submit('retry', tab); }, commandDisabled, 'arrow-counter-clockwise'));
+      if (tab.summary?.status === 'failed' || tab.summary?.status === 'stopped') tools.append(this.button('Ask about this failure', () => { this.postmortem.open({ repo: tab.repo, runId: tab.runId }); }, commandDisabled || !this.context.services.postmortem, 'chat-circle-text'));
       tools.append(keep(this.whiteboard.element)); this.tools.className = 'run-tools'; renderChildren(this.tools, tools, retained);
-      root.append(keep(this.tools), node('small', `Run-wide log preview · ${tab.events.length} events retained (maximum 300) · text may be clipped at 4,000 characters per event.`));
+      this.tools.classList.add('run-log-toolbar');
+      const logHeader = node('div'); logHeader.className = 'run-log-heading'; const logTitle = node('h3', 'Log preview'); logTitle.prepend(icon('terminal-window'));
+      const preview = this.disclosure('preview', `${tab.events.length} events`, 'run-preview-details'); preview.append(node('small', 'Run-wide log preview · Maximum 300 events · Preview text may be clipped at 4,000 characters per event. Download the full log for complete text.'));
+      logHeader.append(logTitle, preview); root.append(logHeader, keep(this.tools));
       if (tab.newerTrimmed || tab.olderTrimmed) root.append(node('small', `${tab.olderTrimmed ? 'Earlier preview events were released. Earlier logs reopens the latest bounded window.' : 'Newer preview events were released. Follow latest returns to the current tail.'} Download preserves full stored text.`));
       const text = tab.loaded ? logText(tab) || 'No log events yet.' : this.busy ? 'Loading log…' : 'Log unavailable.';
       if (this.log.textContent !== text) this.log.textContent = text;
-      this.logIdentity = tabKey(tab); root.append(keep(this.log));
+      this.logIdentity = tabKey(tab); root.append(keep(this.log), keep(this.resize.element));
     }
     this.instructions.update(this.state, tab?.summary ? { version: 1, repo: tab.repo, runId: tab.runId, expectedAttempt: tab.summary.attempt } : null);
     root.append(keep(this.instructions.element));
@@ -494,19 +550,22 @@ class ViewerPanel implements PluginPanelInstance {
   }
   private drawRequests(root: HTMLElement) {
     if (this.pending.length) {
-      const requests = node('section'); requests.append(node('h3', 'Saved requests'));
+      const requests = node('section'); requests.className = 'run-saved-requests'; const heading = node('h3', 'Saved requests'); heading.prepend(icon('tray')); heading.append(node('span', String(this.pending.length))); requests.append(heading);
       for (const entry of this.pending) {
         const command = entry.command; if (command.action === 'launch') continue;
         const row = node('article'); row.className = 'run-row'; row.dataset.requestId = command.requestId;
-        row.append(node('p', `${command.action === 'stop' ? 'Stop' : 'Retry'} ${command.target.runId} · ${command.repo} · Original attempt ${command.target.expectedAttempt}`),
-          node('small', `Request ${command.requestId}`), node('p', `${entry.receipt?.status ?? 'Outcome unknown'}${entry.receipt?.message ? ` — ${entry.receipt.message}` : ''}. Worker status is reported separately.`));
+        const header = node('div'); header.className = 'run-request-header'; const title = node('strong', command.action === 'stop' ? 'Stop requested' : 'Retry requested'); title.prepend(icon(command.action === 'stop' ? 'stop' : 'arrow-counter-clockwise'));
+        const status = node('span', entry.receipt?.status ?? 'Outcome unknown'); status.className = 'run-badge'; status.dataset.tone = entry.receipt?.status === 'accepted' ? 'good' : entry.receipt?.status === 'rejected' || entry.receipt?.status === 'recovery-required' ? 'bad' : 'neutral'; header.append(title, status);
+        const details = this.disclosure(`request:${command.repo}:${command.requestId}`, 'Request details', 'run-request-details'); details.append(node('small', `Run ${command.target.runId} · Request ${command.requestId}`));
+        row.append(header, node('small', `${command.repo} · Original attempt ${command.target.expectedAttempt}`),
+          node('p', `${entry.receipt?.message ?? 'Worker status is reported separately.'}`), details);
         const tools = node('div'); tools.className = 'run-tools';
-        if (terminal(entry.receipt)) tools.append(this.button('Save result and dismiss request', () => { void this.acknowledge(entry); }, this.commandBusy || this.unsupported));
+        if (terminal(entry.receipt)) tools.append(this.button('Save result and dismiss request', () => { void this.acknowledge(entry); }, this.commandBusy || this.unsupported, 'check'));
         else {
-          tools.append(this.button('Check request', () => { void this.checkRequest(entry); }, this.commandBusy));
+          tools.append(this.button('Check request', () => { void this.checkRequest(entry); }, this.commandBusy, 'arrow-clockwise'));
           if (!entry.receipt || entry.receipt.status === 'pending') tools.append(this.button('Retry delivery', () => {
             void this.deliver({ repo: command.repo, requestId: command.requestId });
-          }, this.commandBusy || !this.evidenceReady || !this.context.services.runCommands?.retry));
+          }, this.commandBusy || !this.evidenceReady || !this.context.services.runCommands?.retry, 'arrow-counter-clockwise'));
           if (entry.receipt?.status === 'recovery-required') tools.append(node('p', 'Requires Recovery. No new request will be issued.'));
         }
         if (entry.receipt?.status === 'accepted' && command.action === 'retry' && entry.receipt.runId) {
@@ -520,7 +579,7 @@ class ViewerPanel implements PluginPanelInstance {
     }
     const visibleResults = this.results.filter(result => this.inScope(result.repo));
     if (visibleResults.length) {
-      const results = node('details'); results.open = this.resultsOpen; results.addEventListener('toggle', () => { if (results.isConnected) this.resultsOpen = results.open; }); results.append(node('summary', `Saved command results (${visibleResults.length})`));
+      const results = node('details'); results.className = 'run-saved-results'; results.open = this.resultsOpen; results.addEventListener('toggle', () => { if (results.isConnected) this.resultsOpen = results.open; }); const title = node('summary', `Saved command results (${visibleResults.length})`); title.prepend(icon('receipt')); results.append(title);
       for (const result of visibleResults) {
         const row = node('article'); row.className = 'run-row'; row.dataset.requestId = result.requestId;
         row.append(node('p', `${result.action} · ${result.status} · ${result.repo} · ${result.runId ?? 'No run admitted'}${result.message ? ` — ${result.message}` : ''}`),

@@ -226,7 +226,7 @@ for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 390, mode
     f.state.connected = false; await refresh.click(); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(slack).toHaveCount(0);
     f.state.connected = true; f.state.connectionError = true; await refresh.click(); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(slack).toHaveCount(0);
     f.state.connectionError = false; f.state.own = false; await refresh.click(); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(slack).toHaveCount(0); await expect(detail.locator('.pr-rerun')).toHaveCount(0);
-    f.state.own = true; f.state.detailStatus = 'closed'; await refresh.click(); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(slack).toHaveCount(0); await expect(detail.locator('.pr-review-agent')).toBeDisabled(); await expect(detail.locator('.pr-comment')).toBeDisabled();
+    f.state.own = true; f.state.detailStatus = 'closed'; await refresh.click(); await expect(panel).toHaveAttribute('aria-busy', 'false'); await expect(slack).toHaveCount(0); await expect(detail.locator('.pr-agent-section')).toHaveCount(0); await expect(detail.locator('.pr-manual-review')).toHaveCount(0); await expect(detail.locator('[data-launch], [data-review], [data-draft]')).toHaveCount(0); await expect(detail.locator('.pr-diff-panel')).toBeVisible();
     await expect(page.locator('.repo-select')).toHaveValue('org/a'); expect(f.writes).toEqual([]); expect(f.errors).toEqual([]); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 });

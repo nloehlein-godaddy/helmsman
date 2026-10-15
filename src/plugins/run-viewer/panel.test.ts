@@ -3,7 +3,7 @@ import type { DownloadRequestV1, PluginPanelContext, PluginPanelInstance, Plugin
 import panel from './panel';
 
 const instances: PluginPanelInstance[] = [];
-afterEach(() => { instances.splice(0).forEach(instance => instance.dispose()); document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { instances.splice(0).forEach(instance => instance.dispose()); document.body.replaceChildren(); sessionStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 const available = <T>(value: T) => ({ status: 'available' as const, value });
 const target = { repo: 'org/a', runId: 'one', expectedAttempt: 1 };
 const when = '2026-09-20T00:00:00Z';
@@ -44,6 +44,18 @@ async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Par
 }
 const button = (root: HTMLElement, text: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text)!;
 async function ready(root: HTMLElement) { await vi.waitFor(() => expect(button(root, 'Stop run')?.disabled).toBe(false)); }
+
+it.each(['APPROVE', 'REQUEST_CHANGES'] as const)('opens a prepared %s review draft from the recommendation without publishing', async outcome => {
+  const f = await mount({ state: { headerRepo: 'org/header' }, status: 'succeeded' });
+  f.runs.load.mockImplementation(async input => available({ version: 1, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), status: 'succeeded', prNumber: 42, review: { outcome, verdict: 'Reviewed recommendation' } } }));
+  await f.instance.refresh?.();
+  const action = f.container.querySelector<HTMLButtonElement>(`[data-prepare-review="${outcome}"]`)!;
+  expect(action).not.toBeNull(); expect(action.querySelector('[data-icon]')).not.toBeNull(); action.click();
+  const href = vi.mocked(f.context.navigate).mock.calls.at(-1)?.[0]; expect(href).toBeTruthy();
+  const url = new URL(href!, window.location.origin); expect(url.pathname).toBe('/prs'); expect(url.searchParams.get('repo')).toBe('org/header'); expect(url.search).not.toContain('Reviewed');
+  const routed = JSON.parse(url.searchParams.get('panelState')!)['helmsman.compat-pr/panel']; expect(routed.value.target).toEqual({ repo: 'org/a', number: 42 });
+  expect(f.commands.submit).not.toHaveBeenCalled(); expect(f.selectPresentation).not.toHaveBeenCalled();
+});
 
 describe('authored run viewer lifecycle and commands', () => {
   it('offers recent scoped runs without selecting or running commands until a choice is made', async () => {
@@ -100,7 +112,7 @@ describe('authored run viewer lifecycle and commands', () => {
   it.each(['pull-request', 'outside-scope', 'unavailable-run'] as const)('offers recent runs after %s selection without replacing it automatically', async scenario => {
     const f = await mount({ state: { presentation: scenario === 'pull-request' ? { version: 1, kind: 'pull-request', repo: 'org/a', number: 42 }
       : { version: 1, kind: 'run', repo: scenario === 'outside-scope' ? 'org/b' : 'org/a', runId: 'unavailable' } },
-      inspect: { resolve: vi.fn<RunInspectServiceV1['resolve']>(async () => ({ status: 'unavailable', reason: 'not-found' })) },
+      inspect: { resolve: vi.fn<RunInspectServiceV1['resolve']>(async () => ({ status: 'unavailable', reason: 'forbidden' })) },
       list: async query => available({ version: 1, repo: query.repo, items: [summary()], nextCursor: null }) });
     await vi.waitFor(() => expect(f.container.querySelector('[data-select-run="one"]')).not.toBeNull());
     expect(f.selectPresentation).not.toHaveBeenCalled(); expect(f.container.querySelector('pre')).toBeNull();
@@ -233,6 +245,38 @@ describe('authored run viewer lifecycle and commands', () => {
       .mockResolvedValue(available({ version: 1, target, observedAt: when }));
     const f = await mount({ inspect: { resolve } }); await vi.waitFor(() => expect(f.container.textContent).toContain('Selected run is unavailable'));
     button(f.container, 'Refresh').click(); await ready(f.container); expect(f.container.querySelector('pre')?.textContent).toContain('event 51');
+  });
+  it('waits for an accepted run to become inspectable and replaces the previous viewer automatically', async () => {
+    vi.useFakeTimers();
+    const resolve = vi.fn<RunInspectServiceV1['resolve']>().mockResolvedValueOnce({ status: 'unavailable', reason: 'not-found' })
+      .mockImplementation(async input => available({ version: 1, target: { ...target, runId: input.runId }, observedAt: when }));
+    const f = await mount({ state: { presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'new-run' },
+      savedState: { version: 1, value: { tabs: [{ repo: 'org/a', runId: 'old-run', follow: true, scrollTop: 0 }], activeKey: JSON.stringify(['org/a', 'old-run']), results: [] } } }, inspect: { resolve } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.container.querySelector('.run-log')).toBeNull(); expect(f.container.textContent).toContain('Resolving selected run…');
+    expect(f.runs.load).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(f.container.querySelector('.run-log')?.textContent).toContain('event 51');
+    expect(f.container.querySelector('[role=tab][aria-selected=true]')?.textContent).toContain('new-run');
+    expect(f.runs.load).toHaveBeenCalledWith({ version: 1, repo: 'org/a', runId: 'new-run' }, expect.any(AbortSignal));
+    expect(f.state.repo).toBe('org/a'); expect(f.commands.submit).not.toHaveBeenCalled();
+  });
+  it('stops pending run resolution retries when the viewer scope changes', async () => {
+    vi.useFakeTimers();
+    const resolve = vi.fn<RunInspectServiceV1['resolve']>(async () => ({ status: 'unavailable', reason: 'not-found' }));
+    const f = await mount({ inspect: { resolve } }); await vi.advanceTimersByTimeAsync(0);
+    const signal = resolve.mock.calls[0]?.[1];
+    await f.instance.update({ ...f.state, repo: 'org/b', activity: { ...f.state.activity, repo: 'org/b', epoch: 2, signal: new AbortController().signal } });
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(signal?.aborted).toBe(true); expect(resolve).toHaveBeenCalledTimes(1); expect(f.runs.load).not.toHaveBeenCalled();
+    expect(f.container.querySelector('.run-log')).toBeNull();
+  });
+  it('bounds pending run resolution and preserves the unavailable result after retry exhaustion', async () => {
+    vi.useFakeTimers();
+    const resolve = vi.fn<RunInspectServiceV1['resolve']>(async () => ({ status: 'unavailable', reason: 'not-found' }));
+    const f = await mount({ inspect: { resolve } }); await vi.advanceTimersByTimeAsync(35_000);
+    expect(resolve).toHaveBeenCalledTimes(13); expect(f.container.textContent).toContain('Selected run is unavailable');
+    expect(f.container.querySelector('.run-log')).toBeNull(); expect(f.runs.load).not.toHaveBeenCalled();
   });
   it('rejects a canonical repository mismatch before reading run metadata or logs', async () => {
     const f = await mount({ inspect: { resolve: vi.fn(async () => available({ version: 1 as const, target: { ...target, repo: 'org/b' }, observedAt: when })) } });

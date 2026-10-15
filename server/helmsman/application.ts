@@ -1511,6 +1511,7 @@ void runRecovery.initial.catch(() => {});
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json' };
 
 async function launch(body: LaunchIntent & { runId?: string; headSha?: string; retryOf?: string; workflowRef?: string; trigger?: TriggerProvenanceV1; commandBinding?: RunCommandAdmissionBinding }): Promise<string> {
+  if (body.guidance !== undefined && (body.mode !== 'review' || typeof body.guidance !== 'string' || body.guidance.length > 20 * 1024 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(body.guidance))) throw new RetryError('Review guidance is invalid.');
   const runId: string = body.runId ?? randomUUID();
   if (db.getRun(runId) || pm.hasRun(runId) || admissions.get(runId)) return runId;
   const capacity = pm.canStart(body.repo);
@@ -1663,6 +1664,7 @@ async function launch(body: LaunchIntent & { runId?: string; headSha?: string; r
           ticketId: 'review', title: pr.title, repo: body.repo,
           jiraBaseUrl: cfg.jira?.baseUrl ?? '',
           prBranch: pr.headRefName, prNumber: pr.number, review: true,
+          ...(body.guidance === undefined ? {} : { task: body.guidance }),
           model: choice.model, effort: choice.effort, reviewComplexity: choice.complexity,
           reviewReason: choice.reason, prHeadSha: scope?.headSha ?? pr.headSha,
         };

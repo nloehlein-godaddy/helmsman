@@ -30,7 +30,7 @@ export interface PluginPageHostOptions {
   createComposition?(id: string, container: HTMLElement, state: PluginPageState): PluginCompositionHost | null;
 }
 
-const sameState = (a: PluginPageState, b: PluginPageState) => a.repo === b.repo && a.themeId === b.themeId
+const sameState = (a: PluginPageState, b: PluginPageState) => a.repo === b.repo && a.headerRepo === b.headerRepo && a.themeId === b.themeId
   && a.pirateMode === b.pirateMode && a.visible === b.visible && a.pane === b.pane && a.panelInstance === b.panelInstance
   && a.panelContribution === b.panelContribution && samePresentationLocatorV1(a.presentation, b.presentation) && samePullRequestRouteV1(a.pullRequest, b.pullRequest) && sameTerminalRouteV1(a.terminal, b.terminal)
   && JSON.stringify(a.panelRouteState ?? {}) === JSON.stringify(b.panelRouteState ?? {});

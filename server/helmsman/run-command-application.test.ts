@@ -45,6 +45,14 @@ function setup() {
     service: createApplicationRunCommands(options), disable: () => { catalog = { ...catalog, safeMode: true }; }, removeRepo: () => { repos = []; } };
 }
 describe('application run command authority', () => {
+  it('delivers exact review guidance through the durable command boundary', async () => {
+    const f = setup(); const guidance = '  Check retries.\nPreserve <customer> input.  ';
+    const input = parseRunCommandV1({ ...command, launch: { mode: 'review', prNumber: 42, headSha: 'a'.repeat(40), guidance } });
+    const receipt = await f.service.submit(caller, input);
+    expect(receipt.status).toBe('accepted');
+    expect(f.launch).toHaveBeenCalledWith(expect.objectContaining({ repo: command.repo, mode: 'review', prNumber: 42, guidance }));
+    expect(f.store.get(caller, input.requestId)?.command).toEqual(input);
+  });
   it.each([
     [new RetryError('Pull request is no longer open for rerun'), 'rejected'],
     [new RetryError('PR changed before preparation'), 'rejected'],

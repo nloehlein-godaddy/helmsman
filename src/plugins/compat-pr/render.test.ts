@@ -84,10 +84,17 @@ it.each([true, false, null])('retains manual GitHub decisions independently of c
   expect(decisions.map(button => button.dataset.review)).toEqual(['APPROVE', 'REQUEST_CHANGES', 'COMMENT']);
   expect(decisions.every(button => !button.disabled)).toBe(true);
 });
-it.each(['closed', 'merged'] as const)('disables review and branch actions and hides Slack for a %s PR', status => {
-  const node = mount(renderDetail({ ...detail, status }, draft, null, false, true));
-  expect([...node.querySelectorAll<HTMLButtonElement>('[data-review],[data-launch]')].every(button => button.disabled)).toBe(true);
-  expect(node.querySelector('.pr-slack-review')).toBeNull();
+it.each(['closed', 'merged'] as const)('omits agent work and your review while retaining inspection content for a %s PR', status => {
+  const diff: PullRequestInspectDiffV1 = { version: 1, target: detail.target, observedAt: detail.observedAt, coverage: 'immutable-comparison-preview', quality: 'complete', truncated: false, files: [] };
+  for (const pirate of [false, true]) {
+    const node = mount(renderDetail({ ...detail, status }, { ...draft, body: 'Retained review draft', feedback: 'Retained feedback draft' }, null, pirate, true, diff));
+    expect(node.querySelector('.pr-agent-section')).toBeNull(); expect(node.querySelector('.pr-manual-review')).toBeNull();
+    expect(node.querySelectorAll('[data-review],[data-launch],[data-draft]')).toHaveLength(0);
+    expect(node.querySelector('.pr-slack-review')).toBeNull();
+    expect(node.querySelector('.pr-summary')).not.toBeNull(); expect(node.querySelector('.pr-diff-panel')).not.toBeNull();
+    expect(node.querySelector('.pr-panel-head')?.textContent).toContain(detail.title);
+    expect(node.textContent).not.toContain('Your GitHub review'); expect(node.textContent).not.toContain(pirate ? 'Crew work' : 'Agent work');
+  }
 });
 it.each([false, undefined])('hides Slack when its connection is disconnected or unknown %s', slackConnected => {
   const node = mount(renderDetail(detail, draft, null, false, slackConnected)); expect(node.querySelector('.pr-slack-review')).toBeNull();

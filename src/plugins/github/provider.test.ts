@@ -178,8 +178,30 @@ describe('GitHub pull request provider', () => {
       return {status:503,body:null};
     });
     const result=await githubPullRequestProvider.list({query:{version:1,repo:target.repo,kind:'review-requested',limit:1},repos:[target.repo]},ctx);
-    expect(result).toMatchObject({quality:'degraded',items:[{number:101}]});
+    expect(result).toMatchObject({quality:'complete',items:[{number:101}]});
     expect(ctx.http.request.mock.calls.filter(([input])=>input.path===`/repos/${target.repo}/pulls`).map(([input])=>input.query.page)).toEqual(['1','2']);
+  });
+  it.each([false, true])('uses successful direct requested-review scanning when search rejects the query, bounded=%s', async bounded => {
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return { status: 422, body: null };
+      if (input.path === `/repos/${target.repo}/pulls`) return { status: 200, body: bounded ? Array.from({ length: 100 }, (_, index) => listed(index + 1, { requested_reviewers: [] })) : [] };
+      return { status: 503, body: null };
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'review-requested', limit: 100 }, repos: [target.repo] }, ctx);
+    expect(result).toMatchObject({ quality: bounded ? 'partial' : 'complete', items: [], truncated: bounded });
+    expect(new URL(result.browseUrl ?? '').searchParams.get('q')).toBe('is:pr is:open review-requested:reviewer sort:created-desc');
+    expect(ctx.http.request.mock.calls.every(([input]) => input.method === 'GET')).toBe(true);
+  });
+  it('retains positive search rows before a later search failure when the direct fallback succeeds', async () => {
+    const ctx = context(async input => {
+      if (input.path === '/search/issues') return input.query.page === '1'
+        ? { status: 200, body: { total_count: 101, incomplete_results: false, items: [listed(42)] }, link: `<https://api.github.com/search/issues?${new URLSearchParams({ ...input.query, page: '2' })}>; rel="next"` }
+        : { status: 503, body: null };
+      if (input.path === `/repos/${target.repo}/pulls`) return { status: 200, body: [listed(43, { requested_reviewers: [{ login: 'reviewer' }] })] };
+      return { status: 503, body: null };
+    });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'review-requested', limit: 100 }, repos: [target.repo] }, ctx);
+    expect(result.quality).toBe('complete'); expect(result.items.map(item => item.number)).toEqual([42, 43]);
   });
   it('surfaces malformed requested-reviewer arrays as degraded without removing other local matches',async()=>{
     const ctx=context(async input=>{
