@@ -11,6 +11,7 @@ import { reviewVerdictLine } from './review-verdict';
 import { parseInlineReviewComments, type InlineReviewInput } from './inline-review';
 import { agentAttribution } from './agent-attribution';
 import { createClarificationChannel, parseClarificationChannel } from './clarification-protocol-store';
+import { RequiredClarificationTimeoutError } from './clarification-runtime';
 import { buildRoutedAgentCommand } from './model-routing';
 import { hasVerifiedFeedbackCompletion } from './feedback-completion';
 
@@ -628,6 +629,7 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
   const recordedStatus = session.terminalStatus ?? null;
   let stopped = recordedStatus === 'stopped';
   let capped = false;
+  let clarificationFailed = false;
   let nextDiscovery = 0;
   const tail = tailLog(spec.logPath, row.logOffset ?? 0, events.consume, offset => {
     check(); deps.db.updateRun(row.id, { logOffset: offset });
@@ -636,7 +638,6 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
     while (true) {
       check();
       if (tailError) throw tailError;
-      deps.pollClarifications?.(row.id, row.attempt);
       const exit = await readExitEvidence(spec);
       check();
       if (recordedStatus === null) stopped ||= deps.isStopped?.() ?? false;
@@ -647,13 +648,19 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
         const offset = readLogLines(spec.logPath, deps.db.getRun(row.id)?.logOffset ?? row.logOffset ?? 0, events.consume, true);
         deps.db.updateRun(row.id, { logOffset: offset });
         capped ||= reachedCostCap(events.cost(), deps.maxCostUsd);
-        const failed = events.failed();
+        const failed = events.failed() || clarificationFailed || (deps.hasRequiredUnanswered?.(row.id, row.attempt) ?? false);
         session.terminal({ status: recordedStatus ?? (stopped ? 'stopped' : exit.exitCode === 0 && !failed ? 'succeeded' : 'failed'), exitCode: exit.exitCode, evidence: exit });
         if (exit.exitCode !== 0 && recordedStatus === null) events.onEvent({ kind: 'error', text: `Agent process exited with code ${exit.exitCode}` });
         return { exitCode: exit.exitCode, stopped, capped, failed };
       }
+      try { deps.pollClarifications?.(row.id, row.attempt); }
+      catch (error) {
+        if (!(error instanceof RequiredClarificationTimeoutError)) throw error;
+        if (!clarificationFailed) events.onEvent({ kind: 'error', text: error.message });
+        clarificationFailed = true;
+      }
       capped ||= reachedCostCap(events.cost(), deps.maxCostUsd);
-      if (!requestedStop && (stopped || capped)) {
+      if (!requestedStop && (stopped || capped || clarificationFailed)) {
         requestedStop = true;
         await deps.host.stop(ref);
         check();

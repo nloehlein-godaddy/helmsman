@@ -4,6 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { parseClarificationQuestionLine, type ClarificationStore } from './clarifications';
 import type { ClarificationChannel } from './clarification-protocol-store';
 
+export class RequiredClarificationTimeoutError extends Error {
+  constructor() { super('Required clarification timed out without an answer'); }
+}
+
 export function clarificationPaths(runsDir: string, runId: string) {
   if (!/^[a-z\d_-]{1,128}$/i.test(runId)) throw new Error('Invalid clarification run ID');
   return { questionsPath: join(runsDir, `${runId}.clarifications.jsonl`), answersPath: join(runsDir, `${runId}.clarification-answers.jsonl`) };
@@ -53,7 +57,7 @@ export function createClarificationRuntime(store: ClarificationStore, runsDir: s
         renameSync(temporary, paths.answersPath);
         lastOutput.set(outputKey, answers);
       }
-      if (store.hasRequiredTimedOut(runId)) throw new Error('Required clarification timed out without an answer');
+      if (!terminal && store.hasRequiredTimedOut(runId)) throw new RequiredClarificationTimeoutError();
     },
     hasUnanswered(runId: string, expectedAttempt?: number, expectedChannelId?: string) {
       binding(runId, expectedAttempt, expectedChannelId); return store.hasRequiredUnanswered(runId);

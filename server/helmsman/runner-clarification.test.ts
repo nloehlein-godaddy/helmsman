@@ -79,6 +79,58 @@ it('recovers the exact immutable channel after a lost worker launch response and
   expect(second.executions.snapshot(before.id)).toEqual(before);
 });
 
+it.each([0, 1])('finalizes an exited worker with a required timeout after restart and exit code %i', async exitCode => {
+  const f = fixture(); let spec!: LaunchSpec;
+  const launch = vi.fn(async (value: LaunchSpec) => { spec = value; await f.host.launch(value); throw new Error('Response lost'); });
+  const first = f.open({ ...f.host, launch }); const preparedTask = { ...f.task(), review: true, prNumber: 123 };
+  const question = { kind: 'question', id: 'expired', required: true, prompt: 'Authorize publication?', timeoutAt: '2020-01-01T00:00:00.000Z' };
+  first.deps.adapter.buildCommand = value => ({ cmd: process.execPath,
+    args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(value.clarification?.questionsPath)},${JSON.stringify(`${JSON.stringify(question)}\n`)});process.exit(${exitCode})`] });
+  await startRun(preparedTask, first.deps);
+  await vi.waitFor(async () => expect(await readExitEvidence(spec)).toMatchObject({ exitCode }), { timeout: 10_000 });
+  first.close(); const second = f.open(); const postReview = vi.fn();
+  second.deps.postReview = postReview; second.deps.readReview = async () => 'APPROVE'; second.deps.preserveWorktreeOnFailure = true;
+  const result = await reattachRun(second.db.getRun('run-1')!, second.deps);
+  expect(result?.status).toBe('attached'); if (result?.status === 'attached') await result.completion;
+  expect(second.db.getRun('run-1')).toMatchObject({ status: 'failed' });
+  expect(second.executions.attempt({ runId: 'run-1', attempt: 1 })?.outcome).toMatchObject({ status: 'failed', evidence: { exitCode } });
+  expect(second.executions.pins()).toEqual([]);
+  expect(second.store.listForChannel(preparedTask.clarification)).toEqual([expect.objectContaining({ id: 'expired', state: 'timed-out', answer: null })]);
+  expect(postReview).not.toHaveBeenCalled(); expect(launch).toHaveBeenCalledOnce();
+});
+
+it('stops a live worker once when required clarification expires and finalizes its verified exit as failed', async () => {
+  const f = fixture(); const stop = vi.fn(f.host.stop); const state = f.open({ ...f.host, stop });
+  const preparedTask = { ...f.task(), review: true, prNumber: 123 }; const postReview = vi.fn(); state.deps.postReview = postReview;
+  state.deps.adapter.buildCommand = value => ({ cmd: process.execPath,
+    args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(value.clarification?.questionsPath)},${JSON.stringify(`${JSON.stringify({ kind: 'question', id: 'expired', required: true, prompt: 'Proceed?', timeoutAt: '2020-01-01T00:00:00.000Z' })}\n`)});setTimeout(()=>process.exit(0),30000)`] });
+  await startRun(preparedTask, state.deps);
+  expect(stop).toHaveBeenCalledOnce();
+  expect(state.db.getRun('run-1'), JSON.stringify(state.db.listEvents('run-1'))).toMatchObject({ status: 'failed' });
+  expect(state.executions.attempt({ runId: 'run-1', attempt: 1 })?.outcome).toMatchObject({ status: 'failed' });
+  expect(state.executions.pins()).toEqual([]); expect(postReview).not.toHaveBeenCalled();
+  expect(state.store.listForChannel(preparedTask.clarification)[0]).toMatchObject({ state: 'timed-out', answer: null });
+});
+
+it('keeps malformed terminal clarification data blocked even when a required question timed out', async () => {
+  const f = fixture(); let spec!: LaunchSpec;
+  const first = f.open({ ...f.host, launch: async value => { spec = value; await f.host.launch(value); throw new Error('Response lost'); } });
+  const preparedTask = f.task();
+  await startRun(preparedTask, first.deps);
+  await vi.waitFor(async () => expect(await readExitEvidence(spec)).toMatchObject({ exitCode: 0 }), { timeout: 10_000 });
+  const questionLine = `${JSON.stringify({ kind: 'question', id: 'expired', required: true, prompt: 'Proceed?', timeoutAt: '2020-01-01T00:00:00.000Z' })}\n`;
+  writeFileSync(preparedTask.clarification.questionsPath, questionLine);
+  expect(() => first.deps.pollClarifications?.('run-1', 1)).toThrow('Required clarification timed out');
+  writeFileSync(preparedTask.clarification.questionsPath, `${questionLine}{"kind":`);
+  first.close(); const second = f.open();
+  const result = await reattachRun(second.db.getRun('run-1')!, second.deps);
+  expect(result?.status).toBe('attached');
+  if (result?.status === 'attached') await expect(result.completion).rejects.toThrow('incomplete record');
+  expect(second.db.getRun('run-1')).toMatchObject({ status: 'running' });
+  expect(second.executions.attempt({ runId: 'run-1', attempt: 1 })?.outcome).toBeNull();
+  expect(second.executions.pins()).toHaveLength(1);
+});
+
 it.each([1, 2])('ingests the final required question observed during exit reading with %i allowed attempts', async maxAttempts => {
   const f = fixture(); const state = f.open(); const preparedTask = f.task();
   state.deps.maxAttempts = maxAttempts;
