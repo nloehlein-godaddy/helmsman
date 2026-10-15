@@ -12,6 +12,16 @@ function fixture(overrides: Partial<Parameters<typeof createPullRequestProviderH
 }
 
 describe('pull request provider HTTP', () => {
+  it('permits paginated authenticated team reads without opening membership writes or other team APIs', async () => {
+    const f = fixture({ mutation: true });
+    await expect(f.http.request({ method: 'GET', path: '/user/teams', query: { page: '2', per_page: '100' }, body: null })).resolves.toMatchObject({ status: 200 });
+    for (const path of ['/user/teams', '/user/teams/123', '/orgs/owner/teams', '/teams/123/members', '/user/memberships/teams/123']) {
+      await expect(f.http.request({ method: 'POST', path, query: {}, body: {} })).rejects.toThrow('not permitted');
+      if (path !== '/user/teams') await expect(f.http.request({ method: 'GET', path, query: {}, body: null })).rejects.toThrow('not permitted');
+    }
+    expect(f.fetcher).toHaveBeenCalledTimes(1);
+    expect(f.authorize).toHaveBeenCalledTimes(2);
+  });
   it('allows scoped repository identity, creator-filtered issues and immutable commit details without opening writes or mutable refs',async()=>{
     const f=fixture({mutation:true});
     for(const path of ['/repos/owner/repo','/repos/owner/repo/issues',`/repos/owner/repo/commits/${'a'.repeat(40)}`,`/repos/owner/repo/commits/${'b'.repeat(64)}`]) {

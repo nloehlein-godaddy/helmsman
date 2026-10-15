@@ -28,7 +28,7 @@ function validatePath(path: string, method: 'GET' | 'POST'): void {
   const repo = '[A-Za-z0-9_.-]+';
   const pull = `/repos/${repo}/${repo}/pulls`;
   const commit = `/repos/${repo}/${repo}/commits/(?:[a-f\\d]{40}|[a-f\\d]{64})`;
-  const read = new RegExp(`^(?:/user|/search/issues|/repos/${repo}/${repo}|${pull}|${pull}/[1-9]\\d*(?:/reviews|/comments)?|/repos/${repo}/${repo}/issues(?:/[1-9]\\d*/comments)?|${commit}(?:/(?:check-runs|status))?|/repos/${repo}/${repo}/compare/[a-f\\d]{40,64}\\.\\.\\.[a-f\\d]{40,64})$`, 'i');
+  const read = new RegExp(`^(?:/user(?:/teams)?|/search/issues|/repos/${repo}/${repo}|${pull}|${pull}/[1-9]\\d*(?:/reviews|/comments)?|/repos/${repo}/${repo}/issues(?:/[1-9]\\d*/comments)?|${commit}(?:/(?:check-runs|status))?|/repos/${repo}/${repo}/compare/[a-f\\d]{40,64}\\.\\.\\.[a-f\\d]{40,64})$`, 'i');
   const review = new RegExp(`^${pull}/[1-9]\\d*/reviews$`, 'i');
   if (method === 'GET' ? !read.test(path) : !review.test(path)) throw new Error('Pull request provider path is not permitted.');
 }

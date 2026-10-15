@@ -156,6 +156,72 @@ describe('current list feedback',()=>{
 });
 
 describe('GitHub pull request provider', () => {
+  function teamListFixture(options: {
+    pulls: unknown[];
+    identity?: string | null;
+    teams?: (page: number) => { status: number; body: unknown; link?: string };
+  }) {
+    return context(async input => {
+      if (input.path === '/user') return { status: 200, body: { login: options.identity === undefined ? 'reviewer' : options.identity } };
+      if (input.path === '/user/teams') return options.teams?.(Number(input.query.page)) ?? { status: 200, body: [] };
+      if (input.path === '/search/issues') return { status: 200, body: { items: [], total_count: 0, incomplete_results: false } };
+      if (input.path === `/repos/${target.repo}/pulls`) return { status: 200, body: options.pulls };
+      return { status: 503, body: null };
+    });
+  }
+  const teamRequested = (number: number, id: number, slug = 'developers') => listed(number, { requested_teams: [{ id, slug }] });
+  const requestedList = (ctx: ReturnType<typeof context>) => githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'review-requested', limit: 100 }, repos: [target.repo] }, ctx);
+
+  it('includes authenticated team requests by stable ID alongside direct requests without matching unrelated same-slug teams', async () => {
+    const ctx = teamListFixture({ pulls: [teamRequested(41, 1), teamRequested(42, 2), listed(43, { requested_reviewers: [{ login: 'reviewer' }] })],
+      teams: () => ({ status: 200, body: [{ id: 1, slug: 'developers', organization: { login: 'first-org' } }] }) });
+    expect(await requestedList(ctx)).toMatchObject({ quality: 'complete', truncated: false, items: [{ number: 41 }, { number: 43 }] });
+    expect(ctx.http.request.mock.calls.every(([input]) => input.method === 'GET')).toBe(true);
+  });
+
+  it('validates team membership pagination and includes a requested team on the next page', async () => {
+    const ctx = teamListFixture({ pulls: [teamRequested(42, 2)], teams: page => page === 1
+      ? { status: 200, body: [{ id: 1 }], link: '<https://api.github.com/user/teams?per_page=100&page=2>; rel="next"' }
+      : { status: 200, body: [{ id: 2 }] } });
+    expect(await requestedList(ctx)).toMatchObject({ quality: 'complete', items: [{ number: 42 }] });
+    expect(ctx.http.request.mock.calls.filter(([input]) => input.path === '/user/teams').map(([input]) => input.query.page)).toEqual(['1', '2']);
+  });
+
+  it.each(['denied', 'malformed', 'identity-mismatch', 'foreign-next', 'repeated-next'] as const)('preserves direct requests without trusting unknown team membership: %s', async failure => {
+    const ctx = teamListFixture({ identity: failure === 'identity-mismatch' ? 'another-user' : 'reviewer',
+      pulls: [teamRequested(41, 1), listed(42, { requested_reviewers: [{ login: 'reviewer' }] })],
+      teams: () => failure === 'denied' ? { status: 403, body: { message: 'Forbidden' } }
+        : failure === 'malformed' ? { status: 200, body: [{ slug: 'developers' }] }
+          : { status: 200, body: [{ id: 2 }], link: failure === 'foreign-next'
+            ? '<https://attacker.example/user/teams?per_page=100&page=2>; rel="next"'
+            : '<https://api.github.com/user/teams?per_page=100&page=1>; rel="next"' } });
+    expect(await requestedList(ctx)).toMatchObject({ quality: 'degraded', items: [{ number: 42 }] });
+    if (failure === 'identity-mismatch') expect(ctx.http.request.mock.calls.some(([input]) => input.path === '/user/teams')).toBe(false);
+    expect(ctx.http.request.mock.calls.some(([input]) => input.path.includes('attacker'))).toBe(false);
+  });
+
+  it.each(['failed-page', 'bounded', 'malformed-row'] as const)('retains proven team membership matches while reporting incomplete coverage: %s', async failure => {
+    const ctx = teamListFixture({ pulls: [teamRequested(41, 1), listed(42, { requested_reviewers: [{ login: 'reviewer' }] })],
+      teams: page => failure === 'failed-page' && page === 2 ? { status: 403, body: null }
+        : { status: 200, body: failure === 'bounded' ? Array.from({ length: 100 }, (_, index) => ({ id: (page - 1) * 100 + index + 1 }))
+          : failure === 'malformed-row' ? [{ id: 1 }, null] : [{ id: 1 }],
+        ...(failure !== 'malformed-row' ? { link: `<https://api.github.com/user/teams?per_page=100&page=${page + 1}>; rel="next"` } : {}) } });
+    expect(await requestedList(ctx)).toMatchObject({ quality: 'partial', truncated: true, items: [{ number: 41 }, { number: 42 }] });
+    expect(ctx.http.request.mock.calls.filter(([input]) => input.path === '/user/teams')).toHaveLength(failure === 'bounded' ? 3 : failure === 'failed-page' ? 2 : 1);
+  });
+
+  it('preserves direct requests after the membership deadline even when the transport ignores cancellation', async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = teamListFixture({ pulls: [teamRequested(41, 1), listed(42, { requested_reviewers: [{ login: 'reviewer' }] })] });
+      const originalRequest = ctx.http.request.getMockImplementation()!;
+      ctx.http.request.mockImplementation(input => input.path === '/user/teams' ? new Promise(() => {}) : originalRequest(input));
+      const result = requestedList(ctx);
+      await vi.advanceTimersByTimeAsync(3_000);
+      await expect(result).resolves.toMatchObject({ quality: 'degraded', items: [{ number: 42 }] });
+    } finally { vi.useRealTimers(); }
+  });
+
   it.each(['repo-open','review-requested'] as const)('preserves positive %s rows when an independent source fails',async kind=>{
     const ctx=context(async input=>{
       if(input.path==='/search/issues')return {status:200,body:{total_count:1,incomplete_results:false,items:[listed(42)]}};
@@ -455,7 +521,7 @@ describe('GitHub pull request provider', () => {
     failures[1]!(new TypeError('fetch failed'));
     await expect(result).resolves.toMatchObject({ quality: 'degraded', items: [] });
     await new Promise(resolve => setTimeout(resolve, 0));
-    expect(ctx.http.request).toHaveBeenCalledTimes(2);
+    expect(ctx.http.request.mock.calls.map(([input]) => input.path).sort()).toEqual(['/user', '/search/issues', `/repos/${target.repo}/pulls`].sort());
   });
 
   it('projects checks and effective viewer approval from the immutable PR observation', async () => {
