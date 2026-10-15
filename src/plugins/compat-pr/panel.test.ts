@@ -509,3 +509,45 @@ it('does not treat a reconciled successful review of an older commit as a review
   expect(f.container.querySelector('.pr-panel-context')?.textContent).toContain('You have not reviewed');
   expect(f.container.querySelector<HTMLElement>('[data-review-repeat-note]')?.hidden).toBe(true);
 });
+
+it('shows an uncertain launch and its original-request controls beside the disabled launch action', async () => {
+  const f = await fixture(); await ready(f);
+  const service = f.context.services.runCommands!;
+  vi.mocked(service.submit).mockImplementation(async input => { f.runPending.push({ command: { ...input, requestId }, receipt: null }); return { status: 'unavailable', reason: 'connection-failed' }; });
+  click(f.container, '.pr-review-agent');
+  await vi.waitFor(() => expect(f.container.querySelector('[data-pr-retained-actions]')?.textContent).toContain('Uncertain result'));
+  const crew = f.container.querySelector('.pr-crew-controls')!;
+  const launch = crew.querySelector<HTMLButtonElement>('.pr-review-agent')!;
+  expect(launch.disabled).toBe(true);
+  expect(launch.title).toContain('saved request');
+  expect(crew.querySelector<HTMLElement>('[data-launch-feedback]')?.hidden).toBe(false);
+  expect(crew.querySelector('[data-launch-feedback]')?.textContent).toContain('Check its receipt below before starting another.');
+  expect(f.container.querySelectorAll(`[data-pending-id="${requestId}"]`)).toHaveLength(2);
+  const requestDetails = crew.querySelector<HTMLDetailsElement>('[data-pr-retained-actions] details')!;
+  expect(requestDetails.open).toBe(false); expect(requestDetails.querySelector('code')?.textContent).toBe(requestId);
+  requestDetails.open = true;
+  expect(f.container.querySelector('[aria-label="Retained pull request commands"]')?.textContent).not.toContain(requestId);
+  fill(f.container, '.pr-model', 'opus');
+  vi.mocked(service.receipt).mockResolvedValue(available(null));
+  click(crew as HTMLElement, '[data-pending-id]:not([data-retry])');
+  await vi.waitFor(() => expect(service.receipt).toHaveBeenCalledWith({ repo: 'org/b', requestId }, expect.any(AbortSignal)));
+  expect(service.retry).not.toHaveBeenCalled(); expect(service.submit).toHaveBeenCalledTimes(1);
+  expect(f.container.querySelector<HTMLDetailsElement>('[data-pr-retained-actions] details')?.open).toBe(true);
+  const receipt: RunCommandReceiptV1 = { version: 1, repo: 'org/b', requestId, action: 'launch', status: 'accepted', runId: 'recovered-run', attempt: 1, message: null };
+  vi.mocked(service.retry!).mockResolvedValue(available(receipt));
+  await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('[data-pr-retained-actions] [data-retry="true"]')?.disabled).toBe(false));
+  click(f.container, '[data-pr-retained-actions] [data-retry="true"]');
+  await vi.waitFor(() => expect(service.acknowledge).toHaveBeenCalledWith({ repo: 'org/b', requestId }));
+  expect(service.retry).toHaveBeenCalledWith({ repo: 'org/b', requestId }, expect.any(AbortSignal));
+  expect(service.submit).toHaveBeenCalledTimes(1);
+  expect(f.context.selectPresentation).toHaveBeenCalledWith({ version: 1, kind: 'run', repo: 'org/b', runId: 'recovered-run' });
+  expect(f.container.querySelector('[data-pr-retained-actions]')?.textContent).toBe('');
+});
+
+it('keeps requests for other PRs outside the current agent controls without blocking launch', async () => {
+  const f = await fixture({}, context => { vi.mocked(context.services.runCommands!.pending).mockResolvedValue([{ command: { version: 1, action: 'launch', repo: 'org/b', requestId, launch: { mode: 'review', prNumber: 43, headSha: head } }, receipt: null }]); });
+  await ready(f);
+  expect(f.container.querySelector('[data-pr-retained-actions]')?.textContent).toBe('');
+  expect(f.container.querySelector('[aria-label="Retained pull request commands"]')?.textContent).toContain(requestId);
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+});

@@ -280,3 +280,56 @@ test('shows the saved launch rejection reason as literal text after reload',asyn
   await page.reload(); await expect(result).toContainText('Retained <worktree> & branch ownership blocks this launch.');
   expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
 });
+
+for (const width of [1440, 390]) test(`keeps uncertain review recovery beside launch and emphasizes diff counts at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1100 });
+  const f = await mockInbox(page); f.state.withPatch = true; f.state.own = false;
+  const requestId = 'b0ef36b8-e7a2-4b24-a343-2dac4b561824';
+  const original = { version: 1, repo: 'org/a', action: 'launch', launch: { mode: 'review', prNumber: 42, headSha: 'b'.repeat(40) } };
+  const deliveries: unknown[] = []; const checks: string[] = [];
+  await page.route(url => url.pathname.startsWith('/api/run-commands'), async route => {
+    const request = route.request();
+    if (request.method() === 'GET') { checks.push(new URL(request.url()).pathname); return route.fulfill({ json: null }); }
+    deliveries.push(request.postDataJSON());
+    return route.fulfill({ json: { version: 1, repo: 'org/a', requestId, action: 'launch', status: 'rejected', runId: null, attempt: null, message: 'Mock request resolved without launching.' } });
+  });
+  await page.goto('/prs?repo=org%2Fa&pr=42');
+  const launch = page.locator('.pr-review-agent'); await expect(launch).toBeEnabled();
+  await page.evaluate(async ({ requestId, original }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => { const opened = indexedDB.open('helmsman.run-commands', 1); opened.onsuccess = () => resolve(opened.result); opened.onerror = () => reject(opened.error); });
+    const caller = 'helmsman.compat-pr/panel';
+    await new Promise<void>((resolve, reject) => { const tx = database.transaction('pending', 'readwrite'); tx.objectStore('pending').put({ key: JSON.stringify([caller, original]), caller, command: { ...original, requestId }, receipt: null }); tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); }); database.close();
+  }, { requestId, original });
+  await page.reload();
+  const crew = page.locator('.pr-crew-controls'); const retained = crew.locator('[data-pr-retained-actions]');
+  await expect(launch).toBeDisabled();
+  await expect(crew.locator('[data-launch-feedback]')).toBeVisible();
+  await expect(crew.locator('[data-launch-feedback]')).toContainText('Check its receipt below before starting another');
+  await expect(launch).toHaveAttribute('title', /saved request/);
+  await expect(retained).toContainText('Uncertain result');
+  const requestDetails = retained.locator('details');
+  await expect(requestDetails).not.toHaveAttribute('open', '');
+  await expect(requestDetails.locator('code')).toBeHidden();
+  expect(deliveries).toEqual([]); expect(checks).toEqual([]);
+  expect(await crew.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await expectReadableSurfaces(crew, ['[data-launch-feedback]', '.pr-pending h4']);
+  await crew.screenshot({ path: `test-results/browser/uncertain-review-${width}.png` });
+  const diff = page.locator('.pr-diff-panel');
+  await expect(diff.locator('.diff-file-added')).toHaveText('+1'); await expect(diff.locator('.diff-file-deleted')).toHaveText('−1');
+  const counts = await diff.locator('.diff-file-stat strong').evaluateAll(nodes => nodes.map(node => ({ weight: getComputedStyle(node).fontWeight, color: getComputedStyle(node).color })));
+  expect(counts).toHaveLength(2); for (const count of counts) expect(Number(count.weight)).toBeGreaterThanOrEqual(700);
+  expect(counts[0]?.color).not.toBe(counts[1]?.color);
+  await expectReadableSurfaces(diff, ['.diff-file-added', '.diff-file-deleted']);
+  expect(await diff.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await diff.screenshot({ path: `test-results/browser/diff-counts-${width}.png` });
+  await requestDetails.getByText('Request details', { exact: true }).click();
+  await expect(requestDetails.locator('code')).toHaveText(requestId);
+  await retained.getByRole('button', { name: 'Check original receipt', exact: true }).click();
+  await expect.poll(() => checks.length).toBe(1); expect(deliveries).toEqual([]);
+  await expect(requestDetails).toHaveAttribute('open', '');
+  const retry = retained.getByRole('button', { name: 'Retry original request', exact: true }); await expect(retry).toBeEnabled(); await retry.click();
+  await expect.poll(() => deliveries.length).toBe(1);
+  expect(deliveries[0]).toMatchObject({ ...original, requestId });
+  await expect(launch).toBeEnabled(); await expect(retained).toBeHidden();
+  expect(f.errors).toEqual([]); expect(f.writes).toEqual([]);
+});

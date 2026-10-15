@@ -21,3 +21,5 @@ Selected inspection contains labeled status evidence and optional PR context, di
 Recent authored PRs default to Open; All includes closed and merged PRs. The selection filters the provider query and survives refresh and scope changes for the mounted panel. Metadata includes expandable discussion comments and effective change requests, with reviewer and check previews available by hover, keyboard focus or tap. Named previews show five items initially and disclose the remainder. Missing or incomplete evidence is labeled independently of the existing counts; text is displayed literally and links are validated.
 
 Review-request rows identify direct requests with a person icon and verified matching team requests with a group icon and GitHub team name. Both may appear together. Unknown origins stay unlabeled; team names remain literal in Pirate mode.
+
+Disabled launch actions show their reason beside the controls. Retained requests for the selected PR appear in Agent work, where checking or retrying preserves the original request identity. Diff file summaries use bold semantic green additions and red deletions.

@@ -134,7 +134,10 @@ export const styles = `
 .plugin-public-pr .diff-file { min-width:0; border:1px solid var(--line-faint); border-radius:6px; background:var(--panel-2); }
 .plugin-public-pr .diff-file-head { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 12px; font-size:14px; }
 .plugin-public-pr .diff-file-name { min-width:0; overflow-wrap:anywhere; }
-.plugin-public-pr .diff-file-stat { white-space:nowrap; color:var(--text-dim); }
+.plugin-public-pr .diff-file-stat { display:inline-flex; gap:6px; white-space:nowrap; }
+.plugin-public-pr .diff-file-stat strong { font-weight:700; }
+.plugin-public-pr .diff-file-added { color:var(--good); }
+.plugin-public-pr .diff-file-deleted { color:var(--bad); }
 .plugin-public-pr .diff-file>.empty-note { padding:8px 12px; }
 .plugin-public-pr .diff-patch { margin:0; padding:12px; overflow-x:auto; font:14px/1.45 var(--mono,monospace); border-top:1px solid var(--line-faint); }
 .plugin-public-pr .pr-phosphor { display:inline-block; width:18px; height:18px; flex-shrink:0; font-family:"Helmsman Phosphor Regular"; font-size:18px; font-weight:400; font-style:normal; font-synthesis:none; line-height:1; letter-spacing:normal; text-transform:none; vertical-align:-3px; }
