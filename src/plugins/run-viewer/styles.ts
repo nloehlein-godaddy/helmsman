@@ -57,6 +57,16 @@ export const styles = `
 .plugin-run-viewer .run-tab:has([aria-selected=true]) { background: color-mix(in srgb,var(--accent) 10%,var(--face)); }
 .plugin-run-viewer .run-tab>button:not([role=tab]) { min-height: 32px; width: 32px; padding: 4px; }
 .plugin-run-viewer .run-log { border-radius: 6px; }
+.plugin-run-viewer [hidden] { display: none !important; }
+.plugin-run-viewer .run-tabs:empty { display: none; }
+.plugin-run-viewer .run-picker { padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.plugin-run-viewer .run-picker-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.plugin-run-viewer .run-picker-list>li+li { border-top: 1px solid var(--line-faint); }
+.plugin-run-viewer .run-picker-row { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; padding: 12px 8px; text-align: left; background: transparent; border: 0; }
+.plugin-run-viewer .run-picker-row:hover:not(:disabled) { background: var(--panel-hi); }
+.plugin-run-viewer .run-picker-title { font-weight: 600; }
+.plugin-run-viewer .run-picker-meta { font-size: 14px; color: var(--text-dim); }
+.plugin-run-viewer .run-picker-state { color: var(--text-dim); }
 @media(any-pointer:coarse) {
   .plugin-run-viewer :is(button,select,summary) { min-height: 44px; min-width: 44px; }
   .plugin-run-viewer .run-tab-open,.plugin-run-viewer .run-tab>button:not([role=tab]) { width: 44px; height: 44px; min-height: 44px; box-sizing: border-box; }

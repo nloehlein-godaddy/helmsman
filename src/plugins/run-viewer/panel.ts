@@ -42,6 +42,10 @@ class ViewerPanel implements PluginPanelInstance {
   private reading = false;
   private summariesReading = false;
   private summariesReadAt = 0;
+  private recentRuns: RunReadSummaryV1[] = [];
+  private recentLoading = false;
+  private recentLoaded = false;
+  private recentError = '';
   private commandBusy = false;
   private error = '';
   private message = '';
@@ -80,6 +84,7 @@ class ViewerPanel implements PluginPanelInstance {
     if (this.timer) clearTimeout(this.timer); this.timer = null;
     for (const controller of this.downloads) controller.abort(); this.downloads.clear();
     this.busy = false; this.reading = false; this.summariesReading = false; this.summariesReadAt = 0; this.commandBusy = false; this.evidenceReady = false;
+    this.recentLoading = false;
   };
   dispose = () => {
     if (this.disposed) return; this.disposed = true; this.cancel(); this.instructions.dispose(); this.postmortem.dispose(); this.whiteboard.dispose();
@@ -94,7 +99,7 @@ class ViewerPanel implements PluginPanelInstance {
     const changed = scopeChanged || previous.activity.epoch !== next.activity.epoch || previous.activity.signal !== next.activity.signal || previous.visible !== next.visible || previous.activity.active !== next.activity.active;
     if (changed) {
       this.cancel(); this.pending = []; this.error = ''; this.commandError = ''; this.message = '';
-      if (scopeChanged) { this.handled = ''; for (const tab of this.tabs) { tab.target = null; tab.summary = null; tab.events = []; tab.loaded = false; } }
+      if (scopeChanged) { this.handled = ''; this.recentRuns = []; this.recentLoaded = false; this.recentError = ''; if (!this.selected()) this.activeKey = null; for (const tab of this.tabs) { tab.target = null; tab.summary = null; tab.events = []; tab.loaded = false; } }
       if (this.active()) {
         this.controller = new AbortController();
         const locator = next.presentation;
@@ -114,8 +119,17 @@ class ViewerPanel implements PluginPanelInstance {
     if (!this.active()) return;
     this.cancel(); const generation = this.generation; this.controller = new AbortController();
     const locator = this.state.presentation; this.handled = locatorKey(locator); this.error = ''; this.message = '';
-    if (!locator || locator.kind === 'pull-request') { this.activeKey = null; void this.persist(); this.draw(); await this.restorePending(generation); return; }
-    if (locator.kind === 'run' && !this.inScope(locator.repo)) { this.activeKey = null; this.error = 'Selected run is outside this panel’s scope.'; this.draw(); return; }
+    if (!locator) {
+      const saved = this.selected();
+      if (saved && this.context.selectPresentation) {
+        try { this.handled = locatorKey(canonical(saved)); this.context.selectPresentation(canonical(saved)); await this.load(saved.loaded ? 'follow' : 'initial'); }
+        catch { this.error = 'Saved run selection could not be restored. Choose a run to try again.'; this.draw(); }
+        return;
+      }
+      this.activeKey = null; void this.persist(); this.draw(); await Promise.all([this.restorePending(generation), this.loadRecent(generation)]); return;
+    }
+    if (locator.kind === 'pull-request') { this.activeKey = null; void this.persist(); this.draw(); await Promise.all([this.restorePending(generation), this.loadRecent(generation)]); return; }
+    if (locator.kind === 'run' && !this.inScope(locator.repo)) { this.activeKey = null; this.error = 'Selected run is outside this panel’s scope.'; this.draw(); await Promise.all([this.restorePending(generation), this.loadRecent(generation)]); return; }
     this.busy = true; this.draw();
     try {
       const result = await this.context.services.runInspect!.resolve({ version: 1, runId: locator.runId }, this.controller.signal);
@@ -134,12 +148,33 @@ class ViewerPanel implements PluginPanelInstance {
       }
       void this.persist(); await this.load(tab.loaded ? 'follow' : 'initial');
     } catch (error) { if (this.active(generation)) { this.activeKey = null; this.error = error instanceof Error ? error.message : 'Selected run is unavailable.'; } }
-    finally { if (this.active(generation)) { this.busy = false; await this.restorePending(generation); this.draw(); } }
+    finally { if (this.active(generation)) { this.busy = false; await Promise.all([this.restorePending(generation), this.selected() ? Promise.resolve() : this.loadRecent(generation)]); this.draw(); } }
   }
   private async resolve(tab: RunTab, signal: AbortSignal): Promise<RunInspectTargetV1> {
     const result = await this.context.services.runInspect!.resolve({ version: 1, runId: tab.runId }, signal);
     if (result?.status !== 'available' || !result.value?.target || result.value.target.repo !== tab.repo || result.value.target.runId !== tab.runId || !this.inScope(tab.repo)) throw new Error('Run is unavailable in this scope.');
     return result.value.target;
+  }
+  private async loadRecent(generation: number) {
+    if (!this.active(generation) || this.selected() || this.recentLoading) return;
+    this.recentLoading = true; this.recentError = ''; this.draw();
+    const repo = this.state.activity.repo;
+    try {
+      const result = await this.context.services.runs?.list({ version: 1, repo, kind: 'all', limit: 10, cursor: null }, this.controller?.signal);
+      if (!this.active(generation)) return;
+      if (result?.status !== 'available' || result.value?.version !== 1 || result.value?.repo !== repo || !Array.isArray(result.value?.items)) throw new Error('Recent runs could not be loaded. Refresh to try again.');
+      this.recentRuns = result.value.items.filter(run => !!run && this.inScope(run.repo) && typeof run.repo === 'string' && /^[a-z\d-]+\/[a-z\d_.-]+$/i.test(run.repo)
+        && typeof run.id === 'string' && /^[a-z\d_-]{1,128}$/i.test(run.id) && typeof run.displayKey === 'string'
+        && ['running', 'succeeded', 'failed', 'stopped'].includes(run.status)).slice(0, 10);
+    } catch { if (this.active(generation)) { this.recentRuns = []; this.recentError = 'Recent runs could not be loaded. Refresh to try again.'; } }
+    finally { if (this.active(generation)) { this.recentLoading = false; this.recentLoaded = true; this.draw(); } }
+  }
+  private selectRecent(run: RunReadSummaryV1) {
+    if (!this.active() || !this.inScope(run.repo)) return;
+    try {
+      if (!this.context.selectPresentation) throw new Error('Run selection is unavailable.');
+      this.context.selectPresentation(canonical({ repo: run.repo, runId: run.id }));
+    } catch { this.recentError = 'Run selection is unavailable. Refresh to try again.'; this.draw(); }
   }
   private schedule(generation: number) {
     if (this.timer) clearTimeout(this.timer);
@@ -164,7 +199,7 @@ class ViewerPanel implements PluginPanelInstance {
   private async load(direction: 'initial' | 'older' | 'follow') {
     if (this.reading) return;
     const tab = this.selected();
-    if (!this.active() || !tab) { await this.restorePending(this.generation); this.draw(); return; }
+    if (!this.active() || !tab) { await Promise.all([this.restorePending(this.generation), this.loadRecent(this.generation)]); this.draw(); return; }
     const generation = this.generation; const controller = this.controller ?? new AbortController(); this.controller = controller;
     if (this.timer) clearTimeout(this.timer); this.timer = null;
     this.reading = true; this.busy = true; this.refreshInactiveSummaries(generation, controller.signal); this.draw();
@@ -317,7 +352,9 @@ class ViewerPanel implements PluginPanelInstance {
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement : null;
     const focus = focused?.dataset.focus;
     const root = node('section'); root.className = 'plugin-run-viewer'; root.append(node('style', styles));
-    const header = node('div'); header.className = 'run-tools'; header.append(node('h2', this.state.pirateMode ? 'Voyage viewer' : 'Run viewer'), this.button('Refresh', () => { void this.refresh(); }, this.busy)); root.append(header);
+    if (!this.container.closest('[data-composition-page]')) {
+      const header = node('div'); header.className = 'run-tools'; header.append(node('h2', this.state.pirateMode ? 'Voyage viewer' : 'Run viewer'), this.button('Refresh', () => { void this.refresh(); }, this.busy)); root.append(header);
+    }
     const tabs = node('div'); tabs.className = 'run-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Open runs');
     const visibleTabs = this.tabs.filter(item => this.inScope(item.repo));
     for (const [index, tab] of visibleTabs.entries()) {
@@ -358,7 +395,25 @@ class ViewerPanel implements PluginPanelInstance {
     for (const text of [this.error, this.saveError, this.commandError, this.unsupported ? 'Saved viewer state uses an unsupported version. It is preserved; request acknowledgment is unavailable.' : '']) if (text) { const error = node('p', text); error.setAttribute('role', 'alert'); root.append(error); }
     if (this.message) { const status = node('p', this.message); status.setAttribute('role', 'status'); root.append(status); }
     const tab = this.selected();
-    if (!tab) root.append(node('p', this.busy ? 'Resolving selected run…' : 'Select a run to inspect its log.'));
+    if (!tab) {
+      const empty = node('section'); empty.className = 'run-picker'; empty.append(node('h3', this.state.pirateMode ? 'Choose a voyage' : 'Choose a run'));
+      const message = node('p', this.busy ? 'Resolving selected run…' : this.recentLoading ? 'Loading recent runs…' : this.recentError
+        || (!this.recentLoaded || this.recentRuns.length ? 'Select a run to see its log and controls.' : 'No runs in this scope yet. Start a run, then open its log here.'));
+      message.className = 'run-picker-state'; message.setAttribute('role', this.recentError ? 'alert' : 'status'); empty.append(message);
+      if (!this.busy && !this.recentLoading && !this.recentError) {
+        const list = node('ul'); list.className = 'run-picker-list';
+        for (const run of this.recentRuns) {
+          const item = this.button(run.displayKey === 'rerun' ? `Branch update${run.prNumber ? ` #${run.prNumber}` : ''}` : run.displayKey === 'review' ? `${this.state.pirateMode ? 'Inspection' : 'Review'}${run.prNumber ? ` #${run.prNumber}` : ''}` : run.displayKey,
+            () => this.selectRecent(run), !this.context.selectPresentation);
+          const title = node('span', item.textContent ?? ''); title.className = 'run-picker-title'; item.replaceChildren(title);
+          item.className = 'run-picker-row'; item.dataset.runKey = tabKey({ repo: run.repo, runId: run.id }); item.dataset.selectRun = run.id; item.dataset.runStatus = run.status;
+          const meta = node('span', `${run.repo} · ${run.status}`); meta.className = 'run-picker-meta'; item.append(meta);
+          if (typeof run.title === 'string' && run.title) item.append(node('span', run.title)); const row = node('li'); row.append(item); list.append(row);
+        }
+        empty.append(list);
+      }
+      root.append(empty);
+    }
     else {
       root.append(node('small', `${tab.repo} · ${tab.runId}${tab.target ? ` · Attempt ${tab.target.expectedAttempt}` : ''}`));
       if (tab.summary) {

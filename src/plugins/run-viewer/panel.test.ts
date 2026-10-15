@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DownloadRequestV1, PluginPanelContext, PluginPanelInstance, PluginPanelState, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, RunCommandServiceV1, RunInspectLogPageV1, RunInspectServiceV1, RunReadSummaryV1 } from '@helmsman/plugin-sdk';
+import type { DownloadRequestV1, PluginPanelContext, PluginPanelInstance, PluginPanelState, RunCommandInputV1, RunCommandPendingV1, RunCommandReceiptV1, RunCommandServiceV1, RunInspectLogPageV1, RunInspectServiceV1, RunReadServiceV1, RunReadSummaryV1 } from '@helmsman/plugin-sdk';
 import panel from './panel';
 
 const instances: PluginPanelInstance[] = [];
@@ -14,14 +14,14 @@ const requestId = '00000000-0000-4000-8000-000000000001';
 const receipt = (status: RunCommandReceiptV1['status'] = 'accepted'): RunCommandReceiptV1 => ({ version: 1, repo: 'org/a', requestId, action: 'stop', status, runId: 'one', attempt: 1, message: null });
 const deferred = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 
-async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Partial<RunInspectServiceV1>; saved?: RunCommandPendingV1[]; saveState?: PluginPanelContext['saveState']; selector?: boolean; whiteboard?: PluginPanelContext['services']['whiteboard']; status?: RunReadSummaryV1['status'] } = {}) {
+async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Partial<RunInspectServiceV1>; list?: RunReadServiceV1['list']; composed?: boolean; saved?: RunCommandPendingV1[]; saveState?: PluginPanelContext['saveState']; selector?: boolean; whiteboard?: PluginPanelContext['services']['whiteboard']; status?: RunReadSummaryV1['status'] } = {}) {
   const lifetime = new AbortController(); const activity = new AbortController();
   const state: PluginPanelState = { repo: 'org/a', themeId: 'default', pirateMode: false, visible: true, pane: null, instanceId: 'viewer', savedState: null,
     activity: { epoch: 1, repo: 'org/a', active: true, signal: activity.signal }, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'one' }, ...options.state };
   let pending = options.saved ?? [];
   const inspect: RunInspectServiceV1 = { version: 1, resolve: vi.fn(async input => available({ version: 1 as const, target: { ...target, runId: input.runId }, observedAt: when })),
     history: vi.fn(), log: vi.fn(async input => available(page({ target: input.target }))), exportLog: vi.fn(), ...options.inspect };
-  const runs = { version: 1 as const, list: vi.fn(), log: vi.fn(), load: vi.fn(async (input: { runId: string }) => available({ version: 1 as const, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), ...(options.status ? { status: options.status } : {}) } })), watchList: vi.fn(), watchLoad: vi.fn(), watchLog: vi.fn() };
+  const runs = { version: 1 as const, list: vi.fn<RunReadServiceV1['list']>(options.list ?? (async query => available({ version: 1, repo: query.repo, items: [], nextCursor: null }))), log: vi.fn(), load: vi.fn(async (input: { runId: string }) => available({ version: 1 as const, repo: 'org/a', runId: input.runId, run: { ...summary(input.runId), ...(options.status ? { status: options.status } : {}) } })), watchList: vi.fn(), watchLoad: vi.fn(), watchLog: vi.fn() };
   const commands = { version: 1 as const,
     submit: vi.fn(async (input: RunCommandInputV1) => { const result = { ...receipt(), action: input.action }; pending = [{ command: { ...input, requestId }, receipt: result }]; return available(result); }),
     retry: vi.fn<NonNullable<RunCommandServiceV1['retry']>>(async query => {
@@ -34,7 +34,9 @@ async function mount(options: { state?: Partial<PluginPanelState>; inspect?: Par
   const downloads = { version: 1 as const, save: vi.fn(async (_request: DownloadRequestV1, _signal?: AbortSignal) => ({ status: 'delivered-to-browser' as const, bytesWritten: 1 })) };
   const selectPresentation = options.selector === false ? undefined : vi.fn();
   const saveState = options.saveState ?? vi.fn(async () => {});
-  const container = document.createElement('div'); document.body.append(container);
+  const container = document.createElement('div');
+  if (options.composed) { const composition = document.createElement('div'); composition.dataset.compositionPage = 'viewer'; composition.append(container); document.body.append(composition); }
+  else document.body.append(container);
   const context: PluginPanelContext = { state, signal: lifetime.signal, activity: state.activity, services: { version: 1, runInspect: inspect, runs, runCommands: commands, downloads, whiteboard: options.whiteboard },
     saveState, onDispose: vi.fn(), navigate: vi.fn(), selectPresentation };
   const instance = await panel.mount(container, context); instances.push(instance);
@@ -44,6 +46,66 @@ const button = (root: HTMLElement, text: string) => [...root.querySelectorAll<HT
 async function ready(root: HTMLElement) { await vi.waitFor(() => expect(button(root, 'Stop run')?.disabled).toBe(false)); }
 
 describe('authored run viewer lifecycle and commands', () => {
+  it('offers recent scoped runs without selecting or running commands until a choice is made', async () => {
+    const f = await mount({ state: { presentation: null, headerRepo: 'org/header' }, composed: true,
+      list: async query => available({ version: 1, repo: query.repo, items: [{ ...summary(), title: 'Recent work' }, { ...summary('other'), repo: 'org/b' }], nextCursor: null }) });
+    await vi.waitFor(() => expect(f.container.querySelectorAll('[data-select-run]')).toHaveLength(1));
+    expect(f.runs.list).toHaveBeenCalledWith({ version: 1, repo: 'org/a', kind: 'all', limit: 10, cursor: null }, expect.any(AbortSignal));
+    expect(f.container.querySelector('h2')).toBeNull(); expect(button(f.container, 'Refresh')).toBeUndefined();
+    expect(f.container.textContent).toContain('Recent work'); expect(f.container.textContent).not.toContain('org/b');
+    expect(f.selectPresentation).not.toHaveBeenCalled(); expect(f.inspect.resolve).not.toHaveBeenCalled(); expect(f.commands.submit).not.toHaveBeenCalled();
+    f.container.querySelector<HTMLButtonElement>('[data-select-run="one"]')!.click();
+    expect(f.selectPresentation).toHaveBeenCalledWith({ version: 1, kind: 'run', repo: 'org/a', runId: 'one' });
+    expect(f.state.headerRepo).toBe('org/header'); expect(f.context.navigate).not.toHaveBeenCalled();
+    await f.instance.update({ ...f.state, presentation: { version: 1, kind: 'run', repo: 'org/a', runId: 'one' } }); await ready(f.container);
+    expect(f.container.querySelector('.run-picker')).toBeNull(); expect(f.container.querySelector('pre')?.textContent).toContain('event 51');
+  });
+  it('shows empty and failed recent run reads with refresh recovery', async () => {
+    const f = await mount({ state: { presentation: null } });
+    await vi.waitFor(() => expect(f.container.textContent).toContain('No runs in this scope yet.'));
+    f.runs.list.mockResolvedValueOnce({ status: 'unavailable', reason: 'connection-failed' });
+    await f.instance.refresh?.(); expect(f.container.querySelector('.run-picker [role=alert]')?.textContent).toContain('Refresh to try again.');
+    await f.instance.refresh?.(); expect(f.container.textContent).toContain('No runs in this scope yet.');
+    expect(f.commands.submit).not.toHaveBeenCalled();
+  });
+  it('cancels recent chooser reads on scope changes and disposal and ignores late rows', async () => {
+    const late = deferred<Awaited<ReturnType<RunReadServiceV1['list']>>>();
+    const f = await mount({ state: { presentation: null }, list: () => late.promise });
+    await vi.waitFor(() => expect(f.runs.list).toHaveBeenCalledOnce());
+    expect(f.container.textContent).toContain('Loading recent runs…'); const signal = f.runs.list.mock.calls[0]?.[1];
+    f.runs.list.mockImplementationOnce(async query => available({ version: 1, repo: query.repo, items: [], nextCursor: null }));
+    const activity = new AbortController(); await f.instance.update({ ...f.state, repo: 'org/b', presentation: null, activity: { epoch: 2, repo: 'org/b', active: true, signal: activity.signal } });
+    late.resolve(available({ version: 1, repo: 'org/a', items: [summary()], nextCursor: null }));
+    await vi.waitFor(() => expect(f.container.textContent).toContain('No runs in this scope yet.')); expect(signal?.aborted).toBe(true);
+    expect(f.container.querySelector('[data-select-run]')).toBeNull(); expect(f.selectPresentation).not.toHaveBeenCalled();
+    const after = deferred<Awaited<ReturnType<RunReadServiceV1['list']>>>(); f.runs.list.mockImplementationOnce(() => after.promise);
+    void f.instance.refresh?.(); await vi.waitFor(() => expect(f.runs.list).toHaveBeenCalledTimes(3)); const disposalSignal = f.runs.list.mock.calls[2]?.[1];
+    f.instance.dispose(); after.resolve(available({ version: 1, repo: 'org/b', items: [], nextCursor: null })); await Promise.resolve();
+    expect(disposalSignal?.aborted).toBe(true); expect(f.container.childNodes).toHaveLength(0);
+  });
+  it('restores a valid saved active run when the route has no selection', async () => {
+    const f = await mount({ state: { presentation: null, savedState: { version: 1, value: { tabs: [{ repo: 'org/a', runId: 'one', scrollTop: 0, follow: true }], activeKey: JSON.stringify(['org/a', 'one']), results: [] } } } });
+    await ready(f.container); expect(f.selectPresentation).toHaveBeenCalledWith({ version: 1, kind: 'run', repo: 'org/a', runId: 'one' });
+    expect(f.runs.list).not.toHaveBeenCalled(); expect(f.container.querySelector('pre')?.textContent).toContain('event 51');
+    f.container.querySelector<HTMLButtonElement>('[aria-label="Close run one"]')!.click();
+    await vi.waitFor(() => expect(f.container.querySelector('[role=tab]')).toBeNull());
+    await f.instance.update({ ...f.state, presentation: null }); await f.instance.refresh?.();
+    expect(f.selectPresentation).toHaveBeenLastCalledWith(null); expect(f.container.querySelector('[role=tab]')).toBeNull();
+  });
+  it.each(['outside-scope', 'pull-request'] as const)('does not restore a saved active run for %s', async scenario => {
+    const f = await mount({ state: { presentation: scenario === 'pull-request' ? { version: 1, kind: 'pull-request', repo: 'org/a', number: 42 } : null,
+      savedState: { version: 1, value: { tabs: [{ repo: scenario === 'outside-scope' ? 'org/b' : 'org/a', runId: 'one', scrollTop: 0, follow: true }], activeKey: JSON.stringify([scenario === 'outside-scope' ? 'org/b' : 'org/a', 'one']), results: [] } } } });
+    await vi.waitFor(() => expect(f.saveState).toHaveBeenCalled()); expect(f.selectPresentation).not.toHaveBeenCalled(); expect(f.inspect.resolve).not.toHaveBeenCalled(); expect(f.container.querySelector('pre')).toBeNull();
+  });
+  it.each(['pull-request', 'outside-scope', 'unavailable-run'] as const)('offers recent runs after %s selection without replacing it automatically', async scenario => {
+    const f = await mount({ state: { presentation: scenario === 'pull-request' ? { version: 1, kind: 'pull-request', repo: 'org/a', number: 42 }
+      : { version: 1, kind: 'run', repo: scenario === 'outside-scope' ? 'org/b' : 'org/a', runId: 'unavailable' } },
+      inspect: { resolve: vi.fn<RunInspectServiceV1['resolve']>(async () => ({ status: 'unavailable', reason: 'not-found' })) },
+      list: async query => available({ version: 1, repo: query.repo, items: [summary()], nextCursor: null }) });
+    await vi.waitFor(() => expect(f.container.querySelector('[data-select-run="one"]')).not.toBeNull());
+    expect(f.selectPresentation).not.toHaveBeenCalled(); expect(f.container.querySelector('pre')).toBeNull();
+    if (scenario !== 'pull-request') expect(f.container.querySelector('[role=alert]')).not.toBeNull();
+  });
   it('resolves canonical scope and preserves text as inert bounded log content', async () => {
     const f = await mount({ inspect: { log: vi.fn(async () => available(page({ events: [{ ...event(1), text: '<img src=x onerror=alert(1)>' }] }))) } });
     await ready(f.container); expect(f.container.querySelector('pre')?.textContent).toContain('<img src=x'); expect(f.container.querySelector('img')).toBeNull();
