@@ -90,7 +90,7 @@ npm run build
 npm run test:browser
 ```
 
-The browser harness uses a production Vite preview with mocked APIs. It checks alias/canonical Costs rendering, header scope and reload, unavailable pages, navigation, a visual baseline, failed-save draft preservation, period changes while editing, and navigation during a pending save. Install its browser on a new development machine with `npx playwright install chromium`. Update snapshots only after reviewing the rendered change.
+The browser harness uses a production Vite preview with mocked APIs. It checks alias/canonical Costs rendering, header scope and reload, unavailable pages, navigation, a visual baseline, failed-save draft preservation, period changes while editing, and navigation during a pending save. Run viewer scroll and follow behavior is covered in Chromium and Firefox. Install the browsers on a new development machine with `npx playwright install chromium firefox`. Update snapshots only after reviewing the rendered change.
 
 The external-package browser harness proves frontend installation and import using real catalog/asset handlers. The [isolated distribution harness](distribution.md#acceptance-evidence) also exercises the real compiled server with source access denied. Isolated third-party execution and durable run/provider lifecycle remain later gates.
 
