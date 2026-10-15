@@ -16,6 +16,7 @@ export interface PullRequestReadPageV1 {
   readonly version: 1; readonly repo: string | null; readonly kind: PullRequestReadKindV1;
   readonly items: readonly PullRequestReadItemV1[]; readonly quality: PullRequestReadQualityV1;
   readonly truncated: boolean; readonly browseUrl: string | null;
+  readonly notice?: 'github-sso-required';
 }
 export type PullRequestReadUnavailableReasonV1 = 'forbidden' | 'selection-required' | 'selection-changed' | 'service-unavailable' | 'invalid-response' | 'connection-failed' | 'timeout';
 export type PullRequestReadResultV1<T> = { readonly status: 'available'; readonly value: T }
@@ -69,7 +70,8 @@ export function parsePullRequestReadItemV1(input: unknown): PullRequestReadItemV
 export function parsePullRequestReadPageV1(input: unknown, query: PullRequestReadQueryV1, repos: readonly string[]): PullRequestReadPageV1 {
   const value = record(input);
   if (value.version !== 1 || value.repo !== query.repo || value.kind !== query.kind || !['complete', 'partial', 'degraded'].includes(value.quality as string)
-    || typeof value.truncated !== 'boolean' || value.quality === 'complete' && value.truncated || !Array.isArray(value.items) || value.items.length > query.limit) invalid();
+    || typeof value.truncated !== 'boolean' || value.quality === 'complete' && value.truncated || !Array.isArray(value.items) || value.items.length > query.limit
+    || value.notice !== undefined && (value.notice !== 'github-sso-required' || value.quality === 'complete')) invalid();
   const items: PullRequestReadItemV1[] = []; const identities = new Set<string>();
   for (let index = 0; index < value.items.length; index++) {
     const descriptor = Object.getOwnPropertyDescriptor(value.items, index); if (!descriptor || !('value' in descriptor)) invalid();
@@ -78,5 +80,5 @@ export function parsePullRequestReadPageV1(input: unknown, query: PullRequestRea
       || (query.kind !== 'authored-recent' || query.state === 'open') && item.status !== 'open') invalid();
     identities.add(key); items.push(item);
   }
-  return Object.freeze({ version: 1, repo: query.repo, kind: query.kind, items: Object.freeze(items), quality: value.quality as PullRequestReadQualityV1, truncated: value.truncated, browseUrl: url(value.browseUrl) });
+  return Object.freeze({ version: 1, repo: query.repo, kind: query.kind, items: Object.freeze(items), quality: value.quality as PullRequestReadQualityV1, truncated: value.truncated, browseUrl: url(value.browseUrl), ...(value.notice === undefined ? {} : { notice: value.notice as 'github-sso-required' }) });
 }

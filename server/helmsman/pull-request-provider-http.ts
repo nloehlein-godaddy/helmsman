@@ -67,7 +67,7 @@ export function createPullRequestProviderHttp(options: {
     || !Number.isSafeInteger(maxTransportBytes) || maxTransportBytes < maxResponseBytes || maxTransportBytes > 64 * 1024 * 1024) throw new Error('Invalid pull request provider HTTP limits.');
   const fetcher = options.fetcher ?? fetch;
   let transportBytes = 0;
-  async function request(input: PullRequestProviderHttpRequest): Promise<{ readonly status: number; readonly body: unknown; readonly link?: string }> {
+  async function request(input: PullRequestProviderHttpRequest): ReturnType<PullRequestHttpV1['request']> {
     options.signal.throwIfAborted();
     if (transportBytes >= maxTransportBytes) throw new Error('Pull request provider transport budget is exhausted.');
     const value = parseRequest(input, options.mutation); const url = new URL(value.path, origin);
@@ -105,7 +105,9 @@ export function createPullRequestProviderHttp(options: {
     }
     const link = response.headers.get('link');
     if (link !== null && (!safeText(link, 8192) || /[\r\n]/.test(link))) throw new Error('Pull request provider pagination link is invalid.');
-    return Object.freeze({ status: response.status, body, ...(link === null ? {} : { link }) });
+    const ssoHeader = response.headers.get('x-github-sso')?.split(';')[0]?.trim().toLowerCase();
+    const sso = ssoHeader === 'partial-results' ? 'partial' : ssoHeader === 'required' ? 'required' : null;
+    return Object.freeze({ status: response.status, body, ...(link === null ? {} : { link }), ...(sso === null ? {} : { sso }) });
   }
   return Object.freeze({ request });
 }

@@ -37,3 +37,11 @@ describe('authored status selection',()=>{
     expect(parsePullRequestReadPageV1(page,query,[query.repo]).items).toHaveLength(1);
   });
 });
+
+it('preserves only supported SSO notices on incomplete PR lists', () => {
+  const query = { version: 1, repo: item.repo, kind: 'review-requested', limit: 25 } as const;
+  const page = { version: 1, repo: item.repo, kind: query.kind, items: [], quality: 'partial', truncated: false, browseUrl: null, notice: 'github-sso-required' };
+  expect(parsePullRequestReadPageV1(page, query, [item.repo]).notice).toBe('github-sso-required');
+  expect(() => parsePullRequestReadPageV1({ ...page, quality: 'complete' }, query, [item.repo])).toThrow();
+  expect(() => parsePullRequestReadPageV1({ ...page, notice: 'https://example.com/private-token' }, query, [item.repo])).toThrow();
+});

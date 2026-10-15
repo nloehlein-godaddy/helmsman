@@ -16,6 +16,13 @@ function fixture() {
 }
 
 describe('pull request read provider boundary', () => {
+  it('preserves SSO notices through sanitization, caching and caller limits', async () => {
+    const read = vi.fn(async () => ({ ...batch, quality: 'partial' as const, notice: 'github-sso-required' as const }));
+    const service = createPullRequestReadService({ repos: () => [repo], read, cacheIdentity: () => 'first' });
+    expect((await service.list({ ...query, limit: 1 })).notice).toBe('github-sso-required');
+    expect((await service.list(query)).notice).toBe('github-sso-required');
+    expect(read).toHaveBeenCalledTimes(1);
+  });
   it('invalidates completed and pending feedback after an acknowledged review', async () => {
     const read = vi.fn(async () => batch);
     const service = createPullRequestReadService({ repos: () => [repo], read, cacheIdentity: () => 'first' });

@@ -12,6 +12,13 @@ function fixture(overrides: Partial<Parameters<typeof createPullRequestProviderH
 }
 
 describe('pull request provider HTTP', () => {
+  it.each([['partial-results; organizations=123,456', 'partial'], ['required; url=https://github.com/enterprises/company/sso?authorization_request=private', 'required']] as const)('reports sanitized SSO access from %s', async (header, sso) => {
+    const f = fixture({ fetcher: vi.fn<typeof fetch>(async () => Response.json([], { headers: { 'x-github-sso': header } })) });
+    const result = await f.http.request({ method: 'GET', path: '/user/teams', query: {}, body: null });
+    expect(result).toEqual({ status: 200, body: [], sso });
+    expect(JSON.stringify(result)).not.toContain('authorization_request');
+    expect(JSON.stringify(result)).not.toContain('organizations');
+  });
   it('permits paginated authenticated team reads without opening membership writes or other team APIs', async () => {
     const f = fixture({ mutation: true });
     await expect(f.http.request({ method: 'GET', path: '/user/teams', query: { page: '2', per_page: '100' }, body: null })).resolves.toMatchObject({ status: 200 });

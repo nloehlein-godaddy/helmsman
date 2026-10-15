@@ -110,9 +110,14 @@ async function collection(context: PullRequestProviderContextV1, path: string, q
   return { quality: 'partial', items: [] };
 }
 
+type RecentCollection = { quality: 'complete' | 'partial' | 'degraded'; items: unknown[]; failed?: boolean; sso?: 'partial' | 'required' };
+
 async function recentCollection(context: PullRequestProviderContextV1, path: string, query: Readonly<Record<string, string>>, limit: number,
-  options: { key?: string; pageSize?: number; pages?: number; accept?(value: unknown): boolean } = {}): Promise<{ quality: 'complete' | 'partial' | 'degraded'; items: unknown[]; failed?: boolean }> {
+  options: { key?: string; pageSize?: number; pages?: number; accept?(value: unknown): boolean } = {}): Promise<RecentCollection> {
   const items: unknown[] = [];
+  let sso: RecentCollection['sso'];
+  const result = (value: RecentCollection): RecentCollection => ({ ...value,
+    ...(sso ? { sso, quality: value.quality === 'complete' ? 'partial' : value.quality } : {}) });
   const pageSize = options.pageSize ?? PULL_REQUEST_INSPECT_LIMITS.page;
   const pages = options.pages ?? PULL_REQUEST_INSPECT_LIMITS.pages;
   let total: number | null = null;
@@ -121,6 +126,7 @@ async function recentCollection(context: PullRequestProviderContextV1, path: str
     try {
       const pagination = { ...query, per_page: String(pageSize), page: String(page), ...(after ? { after } : {}) };
       const response = await request(context, 'GET', path, pagination);
+      if (response.sso && sso !== 'required') sso = response.sso;
       if (response.status !== 200) throw new Error('Recent GitHub collection is unavailable');
       const data = options.key ? object(response.body) : null;
       const values = options.key ? data?.[options.key] : response.body;
@@ -128,7 +134,7 @@ async function recentCollection(context: PullRequestProviderContextV1, path: str
       items.push(...(options.accept ? values.filter(options.accept) : values));
       if (options.key) {
         const count = data?.total_count;
-        if (!integer(count) || total !== null && count !== total || data?.incomplete_results === true) return { quality: 'partial', items };
+        if (!integer(count) || total !== null && count !== total || data?.incomplete_results === true) return result({ quality: 'partial', items });
         if (data?.incomplete_results !== undefined && data.incomplete_results !== false) throw new Error('Invalid GitHub collection completeness');
         total = count;
       }
@@ -146,16 +152,16 @@ async function recentCollection(context: PullRequestProviderContextV1, path: str
       if (next?.after) cursors.add(next.after);
       after = next?.after ?? null;
       const more = next || (total !== null ? total > page * pageSize : values.length === pageSize);
-      if (items.length >= limit) return { quality: more || items.length > limit ? 'partial' : 'complete', items };
+      if (items.length >= limit) return result({ quality: more || items.length > limit ? 'partial' : 'complete', items });
       if (!next && (values.length < pageSize || total !== null)) {
-        return { quality: total !== null && total > page * pageSize ? 'partial' : 'complete', items };
+        return result({ quality: total !== null && total > page * pageSize ? 'partial' : 'complete', items });
       }
     } catch {
       context.signal.throwIfAborted();
-      return { quality: items.length ? 'partial' : 'degraded', items, failed: true };
+      return result({ quality: items.length ? 'partial' : 'degraded', items, failed: true });
     }
   }
-  return { quality: 'partial', items };
+  return result({ quality: 'partial', items });
 }
 
 function recentNextPage(link: string | undefined, path: string, query: Readonly<Record<string,string>>, page: number, canonicalPath?: string): { after: string | null } | null {
@@ -366,9 +372,10 @@ function requestedReviewCount(raw: Record<string, unknown> | null): number | nul
   return reviewers.size + requestedTeams.size;
 }
 
-type RequestedTeamMemberships = { ids: ReadonlySet<number>; quality: 'complete' | 'partial' | 'degraded' };
+type RequestedTeamMemberships = { ids: ReadonlySet<number>; quality: 'complete' | 'partial' | 'degraded'; sso?: 'partial' | 'required' };
 
 async function requestedTeamMemberships(author: string, context: PullRequestProviderContextV1): Promise<RequestedTeamMemberships> {
+  let sso: RequestedTeamMemberships['sso'];
   const deadline = new AbortController(); const timer = setTimeout(() => deadline.abort(), teamMembershipTimeoutMs);
   const signal = AbortSignal.any([context.signal, deadline.signal]);
   const boundedContext = { ...context, http: { request: async (input: Parameters<typeof context.http.request>[0]) => {
@@ -380,9 +387,11 @@ async function requestedTeamMemberships(author: string, context: PullRequestProv
   } } };
   try {
     const identity = await request(boundedContext, 'GET', '/user');
+    sso = identity.sso;
     const login = object(identity.body)?.login;
     if (identity.status !== 200 || !text(login, 128) || login.toLowerCase() !== author.trim().toLowerCase()) throw new Error('Authenticated review identity is unavailable');
     const teams = await recentCollection(boundedContext, '/user/teams', {}, 301);
+    sso = teams.sso ?? sso;
     const ids = new Set<number>(); let malformed = false;
     for (const value of teams.items) {
       const id = object(value)?.id;
@@ -390,10 +399,10 @@ async function requestedTeamMemberships(author: string, context: PullRequestProv
       if (ids.has(id)) malformed = true;
       ids.add(id);
     }
-    return { ids, quality: malformed && teams.quality === 'complete' ? 'partial' : teams.quality };
+    return { ids, quality: (malformed || sso) && teams.quality === 'complete' ? 'partial' : teams.quality, ...(sso ? { sso } : {}) };
   } catch {
     context.signal.throwIfAborted();
-    return { ids: new Set(), quality: 'degraded' };
+    return { ids: new Set(), quality: 'degraded', ...(sso ? { sso } : {}) };
   } finally { clearTimeout(timer); }
 }
 
@@ -571,7 +580,7 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
     const direct = async (repo: string) => recentCollection(context, `/repos/${repo}/pulls`, { state: 'open', sort: 'created', direction: 'desc' }, query.limit,
       { pageSize: directListPageSize, pages: Math.ceil(PULL_REQUEST_INSPECT_LIMITS.page * PULL_REQUEST_INSPECT_LIMITS.pages / directListPageSize),
         ...(query.kind === 'review-requested' ? { accept: (value: unknown) => requestedBy(value, author, memberships) !== false } : {}) });
-    let sources: Array<{ repo: string; result: { quality: 'complete' | 'partial' | 'degraded'; items: unknown[]; failed?: boolean }; reviewRequested: boolean }> = [];
+    let sources: Array<{ repo: string; result: RecentCollection; reviewRequested: boolean }> = [];
     let omittedAuthoredScopes = false;
     try {
       if (query.kind === 'repo-open') sources = await Promise.all(repoPaths.map(async ({ repo }) => ({ repo, result: await direct(repo), reviewRequested: false })));
@@ -609,7 +618,8 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
         sources = [{ repo: '', result: recoveredSearch, reviewRequested: true }, ...localResults];
       }
     } catch { context.signal.throwIfAborted(); return Object.freeze({ items: Object.freeze([]), quality: 'degraded' as const, truncated: false, browseUrl: null }); }
-    const items: ListCandidate[] = []; let partial = omittedAuthoredScopes; let degraded = false;
+    const ssoRequired = query.kind === 'review-requested' && Boolean(memberships.sso || sources.some(source => source.result.sso));
+    const items: ListCandidate[] = []; let partial = omittedAuthoredScopes || ssoRequired; let degraded = false;
     for (const source of sources) {
       partial ||= source.result.quality !== 'complete';
       degraded ||= source.result.quality === 'degraded' || query.kind !== 'authored-recent' && source.result.failed === true;
@@ -637,7 +647,8 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
     const browseUrl = query.repo && query.kind === 'authored-recent' ? `https://github.com/${query.repo}/pulls?q=${encodeURIComponent(`is:pr${query.state === 'open' ? ' is:open' : ''} author:${author} sort:created-desc`)}`
       : query.kind === 'review-requested' ? `${query.repo ? `https://github.com/${query.repo}/pulls` : 'https://github.com/pulls'}?q=${encodeURIComponent(`is:pr is:open review-requested:${author} sort:created-desc`)}`
         : query.kind === 'repo-open' && query.repo ? `https://github.com/${query.repo}/pulls` : null;
-    return Object.freeze({ items: Object.freeze(listed), quality: degraded ? 'degraded' as const : truncated ? 'partial' as const : 'complete' as const, truncated, browseUrl });
+    return Object.freeze({ items: Object.freeze(listed), quality: degraded ? 'degraded' as const : truncated ? 'partial' as const : 'complete' as const, truncated, browseUrl,
+      ...(ssoRequired ? { notice: 'github-sso-required' as const } : {}) });
   },
   async detail(input, context) {
     const query = parsePullRequestInspectDetailQueryV1(input); const first = await metadata(query, context);

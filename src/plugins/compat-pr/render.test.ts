@@ -130,6 +130,14 @@ it.each(['complete', 'partial', 'degraded'] as const)('distinguishes an empty %s
   expect(node.textContent?.includes('No matching')).toBe(quality === 'complete');
 });
 
+it('explains SSO authorization instead of showing an empty or generic partial-result message', () => {
+  const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'review-requested', quality: 'partial', truncated: false, browseUrl: null, items: [], notice: 'github-sso-required' };
+  const node = mount(renderList('review-requested', page, '', false));
+  expect(node.textContent).toContain('GitHub SSO authorization is needed');
+  expect(node.textContent).not.toContain('No matching pull requests');
+  expect(node.textContent).not.toContain('Only some results were returned');
+});
+
 it('makes the title the selection control and keeps scoped galleon metadata quiet', () => {
   const item = { repo: 'org/b', number: 42, title: 'Clear title', url: null, status: 'open' as const, createdAt: detail.observedAt, mergedAt: null, draft: false, ticketId: null, reviewDecision: null, comments: 0, reviews: null };
   const page: PullRequestReadPageV1 = { version: 1, repo: 'org/b', kind: 'authored-recent', quality: 'complete', truncated: false, browseUrl: null, items: Array.from({ length: 10 }, (_, index) => ({ ...item, number: index + 1 })) };

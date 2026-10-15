@@ -64,7 +64,7 @@ export function createPullRequestReadService(options: {
         if (!batch || !Array.isArray(batch.items) || batch.items.length > 300) throw new PullRequestReadError(503, 'Invalid pull request provider response');
         const items = batch.items.map(parsePullRequestReadItemV1).filter(item => repos.includes(item.repo));
         const truncated = batch.truncated || items.length > PULL_REQUEST_READ_LIMITS.page;
-        const normalized = parsePullRequestReadPageV1({ version: 1, repo: query.repo, kind: query.kind, browseUrl: batch.browseUrl,
+        const normalized = parsePullRequestReadPageV1({ version: 1, repo: query.repo, kind: query.kind, browseUrl: batch.browseUrl, ...(batch.notice === undefined ? {} : { notice: batch.notice }),
           items: items.slice(0, PULL_REQUEST_READ_LIMITS.page), truncated, quality: batch.quality === 'complete' && truncated ? 'partial' : batch.quality }, { ...query, limit: PULL_REQUEST_READ_LIMITS.page }, repos);
         if (identity !== null && options.cacheIdentity?.() === identity && generation === currentGeneration) {
           const bytes = Buffer.byteLength(JSON.stringify(normalized));
@@ -99,7 +99,7 @@ export function createPullRequestReadService(options: {
     if (!batch || !Array.isArray(batch.items) || batch.items.length > 300) throw new PullRequestReadError(503, 'Invalid pull request provider response');
     const items = batch.items.map(parsePullRequestReadItemV1).filter(item => repos.includes(item.repo));
     const truncated = batch.truncated || items.length > query.limit;
-    return parsePullRequestReadPageV1({ version: 1, repo: query.repo, kind: query.kind, items: items.slice(0, query.limit),
+    return parsePullRequestReadPageV1({ version: 1, repo: query.repo, kind: query.kind, items: items.slice(0, query.limit), ...(batch.notice === undefined ? {} : { notice: batch.notice }),
       quality: batch.quality === 'complete' && truncated ? 'partial' : batch.quality, truncated, browseUrl: batch.browseUrl }, query, repos);
   } });
 }

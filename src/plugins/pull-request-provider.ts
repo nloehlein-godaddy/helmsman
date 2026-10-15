@@ -8,6 +8,7 @@ export interface PullRequestProviderBatchV1 {
   readonly quality: PullRequestReadQualityV1;
   readonly truncated: boolean;
   readonly browseUrl: string | null;
+  readonly notice?: 'github-sso-required';
 }
 
 export interface PullRequestHttpV1 {
@@ -16,7 +17,7 @@ export interface PullRequestHttpV1 {
     readonly path: string;
     readonly query: Readonly<Record<string, string>>;
     readonly body: unknown | null;
-  }): Promise<{ readonly status: number; readonly body: unknown; readonly link?: string }>;
+  }): Promise<{ readonly status: number; readonly body: unknown; readonly link?: string; readonly sso?: 'partial' | 'required' }>;
 }
 
 export interface PullRequestProviderContextV1 {

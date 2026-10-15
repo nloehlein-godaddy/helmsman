@@ -11,7 +11,7 @@ const row = (repo: string, number: number, title: string, status: 'open' | 'merg
   reviews: { approved: status === 'merged' ? 1 : 0, changesRequested: 0, commented: 1, requested: 1 } });
 
 async function mockInbox(page: Page) {
-  const state = { quality: 'partial' as 'complete' | 'partial' | 'degraded', empty: false, withPatch: false, richEvidence: false, connected: false, connectionError: false, own: true, detailStatus: 'open' as 'open' | 'closed' };
+  const state = { quality: 'partial' as 'complete' | 'partial' | 'degraded', ssoRequired: false, empty: false, withPatch: false, richEvidence: false, connected: false, connectionError: false, own: true, detailStatus: 'open' as 'open' | 'closed' };
   const scopes: (string | null)[] = [];
   const listStates: (string | null)[] = [];
   const writes: string[] = []; const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
@@ -25,7 +25,7 @@ async function mockInbox(page: Page) {
       const repo = url.searchParams.get('repo'); const kind = url.searchParams.get('kind'); scopes.push(repo); if (kind === 'authored-recent') listStates.push(url.searchParams.get('state'));
       return route.fulfill({ json: { version: 1, repo, kind, items: kind === 'authored-recent' && !state.empty
         ? [row(repo ?? 'org/a', 42, 'Restore authored pull requests when search is unavailable', 'open'), ...(url.searchParams.get('state') === 'all' ? [{ ...row(repo ?? 'org/a', 41, 'Preserve matched pull requests from earlier pages', 'merged'), comments: null, reviews: null }] : [])] : [],
-        quality: kind === 'authored-recent' ? state.quality : 'complete', truncated: kind === 'authored-recent' && state.quality !== 'complete', browseUrl: `https://github.com/${repo}/pulls` } });
+        quality: kind === 'authored-recent' ? state.quality : state.ssoRequired ? 'partial' : 'complete', truncated: kind === 'authored-recent' && state.quality !== 'complete', browseUrl: `https://github.com/${repo}/pulls`, ...(kind === 'review-requested' && state.ssoRequired ? { notice: 'github-sso-required' } : {}) } });
     }
     const target = { repo: url.searchParams.get('repo'), number: Number(url.searchParams.get('number')), baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40) };
     const json = path === '/api/plugins/catalog' ? { version: 1, safeMode: false, plugins: [], bindings: {}, builtins: builtinCatalog(['helmsman.compat-pr']) }
@@ -42,6 +42,21 @@ async function mockInbox(page: Page) {
   });
   return { state, scopes, listStates, writes, errors };
 }
+
+for (const width of [1440, 390]) test(`explains GitHub SSO authorization for missing review requests at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  const f = await mockInbox(page); f.state.ssoRequired = true;
+  await page.goto('/prs?repo=org%2Fa');
+  const requested = page.locator('[data-pr-pane="review-requests"]');
+  await expect(requested.getByRole('status')).toContainText('GitHub SSO authorization is needed');
+  await expect(requested).not.toContainText('Only some results were returned');
+  await expect(requested).not.toContainText('No matching pull requests');
+  await expect(requested.getByRole('link', { name: 'View all on GitHub' })).toBeVisible();
+  await expectReadableSurfaces(requested, ['.pr-list-notice']);
+  expect(await requested.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await requested.screenshot({ path: `test-results/browser/github-sso-${width}.png` });
+  expect(f.errors).toEqual([]); expect(f.writes).toEqual([]);
+});
 
 for (const { width, mode } of [{ width: 1440, mode: 'dark' }, { width: 900, mode: 'dark' }, { width: 390, mode: 'dark' }, { width: 1440, mode: 'light' }, { width: 390, mode: 'custom' }] as const) test.describe(`Bounties hierarchy at ${width}px in ${mode}`, () => {
   test.use({ viewport: { width, height: 1100 }, hasTouch: width === 390 });

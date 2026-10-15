@@ -66,6 +66,7 @@ export function renderList(kind: string, page: PullRequestReadPageV1 | null, err
   if (kind === 'authored-recent' && authoredState === 'open' && page) page = { ...page, items: page.items.filter(pr => pr.status === 'open') };
   const filters = kind === 'authored-recent' ? `<div class="pr-authored-filters" role="group" aria-label="Recent pull request status"><button type="button" data-authored-state="open" aria-pressed="${authoredState === 'open'}">Open</button><button type="button" data-authored-state="all" aria-pressed="${authoredState === 'all'}">All</button></div>` : '';
   const status = error ? `${error} ${refreshLabel} to try again.` : !page ? 'Loading pull requests…'
+    : page.notice === 'github-sso-required' ? 'GitHub SSO authorization is needed to include your organization’s review requests. Authorize your token for the organization in GitHub, then refresh this page.'
     : page.quality === 'degraded' ? `Could not load all pull requests. ${refreshLabel} to try again.`
     : page.quality === 'partial' || page.truncated ? 'Only some results were returned. More may be available in the full list.'
     : page.items.length ? '' : 'No matching pull requests.';

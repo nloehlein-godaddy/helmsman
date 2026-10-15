@@ -15,7 +15,7 @@ const comparison = (overrides: Record<string, unknown> = {}) => ({ url: `https:/
 const listed = (number: number, overrides: Record<string, unknown> = {}) => ({ repository_url: `https://api.github.com/repos/${target.repo}`, number, title: `Pull request ${number}`,
   state: 'open', pull_request: {}, created_at: '2025-01-02T03:04:05.000Z', draft: false, comments: 3, requested_reviewers: [], requested_teams: [], ...overrides });
 
-function context(request: (input: { method: 'GET' | 'POST'; path: string; query: Readonly<Record<string, string>>; body: unknown | null }) => Promise<{ status: number; body: unknown; link?: string }>) {
+function context(request: (input: { method: 'GET' | 'POST'; path: string; query: Readonly<Record<string, string>>; body: unknown | null }) => Promise<{ status: number; body: unknown; link?: string; sso?: 'partial' | 'required' }>) {
   return { signal: new AbortController().signal, configuredAuthor: 'reviewer', http: { request: vi.fn(request) } };
 }
 
@@ -159,7 +159,7 @@ describe('GitHub pull request provider', () => {
   function teamListFixture(options: {
     pulls: unknown[];
     identity?: string | null;
-    teams?: (page: number) => { status: number; body: unknown; link?: string };
+    teams?: (page: number) => { status: number; body: unknown; link?: string; sso?: 'partial' | 'required' };
   }) {
     return context(async input => {
       if (input.path === '/user') return { status: 200, body: { login: options.identity === undefined ? 'reviewer' : options.identity } };
@@ -185,6 +185,33 @@ describe('GitHub pull request provider', () => {
       : { status: 200, body: [{ id: 2 }] } });
     expect(await requestedList(ctx)).toMatchObject({ quality: 'complete', items: [{ number: 42 }] });
     expect(ctx.http.request.mock.calls.filter(([input]) => input.path === '/user/teams').map(([input]) => input.query.page)).toEqual(['1', '2']);
+  });
+
+  it.each(['partial', 'required'] as const)('reports GitHub SSO %s membership access without discarding proven direct or team requests', async sso => {
+    const ctx = teamListFixture({ pulls: [teamRequested(41, 1), listed(42, { requested_reviewers: [{ login: 'reviewer' }] })],
+      teams: () => ({ status: sso === 'required' ? 403 : 200, body: sso === 'required' ? null : [{ id: 1 }], sso }) });
+    const result = await requestedList(ctx);
+    expect(result).toMatchObject({ quality: sso === 'required' ? 'degraded' : 'partial', truncated: true, notice: 'github-sso-required' });
+    expect(result.items.map(item => item.number)).toEqual(sso === 'required' ? [42] : [41, 42]);
+  });
+
+  it('keeps an empty SSO-filtered team response incomplete even when every visible pull has no team request', async () => {
+    const ctx = teamListFixture({ pulls: [], teams: () => ({ status: 200, body: [], sso: 'partial' }) });
+    expect(await requestedList(ctx)).toMatchObject({ quality: 'partial', truncated: true, notice: 'github-sso-required', items: [] });
+  });
+
+  it('retains the SSO notice when a later membership page succeeds after a filtered first page', async () => {
+    const ctx = teamListFixture({ pulls: [teamRequested(41, 2)], teams: page => page === 1
+      ? { status: 200, body: [{ id: 1 }], sso: 'partial', link: '<https://api.github.com/user/teams?per_page=100&page=2>; rel="next"' }
+      : { status: 200, body: [{ id: 2 }] } });
+    expect(await requestedList(ctx)).toMatchObject({ quality: 'partial', truncated: true, notice: 'github-sso-required', items: [{ number: 41 }] });
+  });
+
+  it('retains requested-review search positives while reporting SSO-filtered search coverage', async () => {
+    const ctx = teamListFixture({ pulls: [] }); const original = ctx.http.request.getMockImplementation()!;
+    ctx.http.request.mockImplementation(input => input.path === '/search/issues'
+      ? Promise.resolve({ status: 200, body: { items: [listed(42)], total_count: 1, incomplete_results: false }, sso: 'partial' }) : original(input));
+    expect(await requestedList(ctx)).toMatchObject({ quality: 'partial', truncated: true, notice: 'github-sso-required', items: [{ number: 42 }] });
   });
 
   it.each(['denied', 'malformed', 'identity-mismatch', 'foreign-next', 'repeated-next'] as const)('preserves direct requests without trusting unknown team membership: %s', async failure => {
