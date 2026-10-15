@@ -607,3 +607,17 @@ it('fails launch closed when live journal reconciliation fails and recovers on t
   await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false));
   expect(f.container.textContent).not.toContain('Command journal unavailable');
 });
+
+it.each(['run', 'review'] as const)('does not submit a %s command after its journal preflight is canceled by a new activity', async kind => {
+  const f = await fixture(); await ready(f);
+  let reject!: (error: Error) => void;
+  vi.mocked(f.context.services.runCommands!.pending).mockImplementationOnce(() => new Promise((_resolve, no) => { reject = no; }));
+  if (kind === 'review') fill(f.container, '.pr-review-body', 'Publish only in the original activity');
+  click(f.container, kind === 'run' ? '.pr-review-agent' : '.pr-comment');
+  await vi.waitFor(() => expect(reject).toBeDefined());
+  const previous = f.state();
+  await f.instance.update({ ...previous, activity: { ...previous.activity, epoch: previous.activity.epoch + 1, signal: new AbortController().signal } });
+  reject(new DOMException('Previous activity ended', 'AbortError'));
+  await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false));
+  expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled(); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});

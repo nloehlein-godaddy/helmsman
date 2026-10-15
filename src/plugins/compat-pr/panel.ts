@@ -245,11 +245,12 @@ class PrPanel implements PluginPanelInstance {
   private async journals() {
     const generation = this.generation; const read = ++this.journalRead;
     const result = await Promise.all([this.context.services.pullRequestCommands!.pending(), this.context.services.runCommands!.pending()]).catch(error => { if (this.active(generation) && read === this.journalRead) throw error; return null; });
-    if (!result || !this.active(generation) || read !== this.journalRead) return;
+    if (!result || !this.active(generation) || read !== this.journalRead) return false;
     const [reviews, runs] = result;
     if (!Array.isArray(reviews) || !Array.isArray(runs) || reviews.some(item => !validPending(item, 'review')) || runs.some(item => !validPending(item, 'run'))) throw new Error('Command journal unavailable. Existing requests are kept.');
     this.pendingReviews = reviews; this.pendingRuns = runs; this.journalsReady = true;
     if (this.error === 'Command journal unavailable. Existing requests are kept.') this.error = '';
+    return true;
   }
   refresh = async () => {
     if (!this.active()) return;
@@ -321,7 +322,7 @@ class PrPanel implements PluginPanelInstance {
     if (this.recommendation && (this.loading || !this.diff)) return;
     if (event !== 'APPROVE' && !this.draft.body.trim()) { this.error = 'Write a review before submitting.'; this.draw(); return; }
     const input = { version: 1 as const, repo: this.selected.repo, number: this.selected.number, expectedHeadSha: this.detail.target.headSha, event, body: this.draft.body };
-    await this.command(async () => { await this.journals(); if (this.unresolved()) { this.error = 'Reconcile the retained request before submitting another.'; return; } const result = await this.context.services.pullRequestCommands!.submit(input, this.state.activity.signal);
+    await this.command(async () => { if (!await this.journals()) return; if (this.unresolved()) { this.error = 'Reconcile the retained request before submitting another.'; return; } const result = await this.context.services.pullRequestCommands!.submit(input, this.state.activity.signal);
       if (result?.status === 'available') await this.consumeReview(result.value); else this.error = 'Review result unavailable. Check the retained request before retrying.';
     });
   }
@@ -330,7 +331,7 @@ class PrPanel implements PluginPanelInstance {
     if (mode === 'review' && this.reviewLaunchBlocked()) { this.error = 'You already reviewed this commit. Choose a different model or reasoning effort to start another agent review.'; this.draw(); return; }
     if (mode === 'rerun' && !this.draft.feedback.trim()) { this.error = 'Describe the changes to make before launching.'; this.draw(); return; }
     const input: RunCommandInputV1 = { version: 1, action: 'launch', repo: this.selected.repo, launch: { ...(mode === 'review' ? { mode, prNumber: this.selected.number, headSha: this.detail.target.headSha, ...(this.draft.guidance?.trim() ? { guidance: this.draft.guidance } : {}) } : { mode, prNumber: this.selected.number, feedback: this.draft.feedback }), ...(this.draft.model ? { model: this.draft.model } : {}), ...(this.draft.effort ? { effort: this.draft.effort } : {}) } };
-    await this.command(async () => { await this.journals(); if (this.unresolved()) { this.error = 'Reconcile the retained request before submitting another.'; return; } const result = await this.context.services.runCommands!.submit(input, this.state.activity.signal);
+    await this.command(async () => { if (!await this.journals()) return; if (this.unresolved()) { this.error = 'Reconcile the retained request before submitting another.'; return; } const result = await this.context.services.runCommands!.submit(input, this.state.activity.signal);
       if (result?.status === 'available') await this.consumeRun(result.value, input); else this.error = 'Launch result unavailable. Check the retained request before retrying.';
     });
   }
