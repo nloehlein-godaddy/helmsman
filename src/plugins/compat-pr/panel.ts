@@ -400,7 +400,7 @@ class PrPanel implements PluginPanelInstance {
     const reviewBlocked = this.reviewLaunchBlocked();
     this.container.querySelectorAll<HTMLButtonElement>('[data-review], [data-launch]').forEach(button => { button.disabled = unsafe || button.dataset.launch === 'review' && reviewBlocked || button.hasAttribute('data-review') && !!this.recommendation && (this.loading || !this.diff); if (button.dataset.launch) button.title = blockedReason || (button.dataset.launch === 'review' && reviewBlocked ? 'You already reviewed this commit. Choose a different model or reasoning effort.' : ''); });
     const launchNote = this.container.querySelector<HTMLElement>('[data-launch-feedback]'); if (launchNote) { launchNote.hidden = !blockedReason; launchNote.textContent = blockedReason; }
-    const reviewNote = this.container.querySelector<HTMLElement>('[data-review-repeat-note]'); if (reviewNote) { reviewNote.hidden = !reviewBlocked; reviewNote.textContent = 'You already reviewed this commit. Choose a different model or reasoning effort for another agent review.'; }
+    const reviewNote = this.container.querySelector<HTMLElement>('[data-review-repeat-note]'); if (reviewNote) reviewNote.hidden = !reviewBlocked;
     const error = this.container.querySelector('[data-storage-error]'); if (error) error.textContent = this.storageError; const save = this.container.querySelector<HTMLElement>('[data-save-draft]'); if (save) save.hidden = !this.storageError;
   }
   private reveal(element: HTMLElement) {

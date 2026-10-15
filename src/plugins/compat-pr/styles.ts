@@ -115,6 +115,8 @@ export const styles = `
 .plugin-public-pr .pr-agent-task h5 { display:flex; align-items:center; gap:6px; margin:0; font-size:15px; font-weight:600; }
 .plugin-public-pr .pr-agent-task h5>.pr-phosphor { color:var(--accent-text,var(--accent)); }
 .plugin-public-pr .pr-agent-update { border-top:1px solid var(--line); margin-top:4px; padding-top:16px; }
+.plugin-public-pr .pr-review-repeat-note { display:flex; align-items:flex-start; gap:8px; padding:12px; border:1px solid color-mix(in srgb,var(--review) 40%,var(--line)); border-radius:6px; color:var(--review); background:color-mix(in srgb,var(--review) 8%,var(--panel-hi)); font-size:14px; font-weight:600; }
+.plugin-public-pr .pr-review-repeat-note>.pr-phosphor { margin-top:2px; }
 .plugin-public-pr .pr-agent-section :is(label,input,select,textarea) { font-size:14px; }
 .plugin-public-pr .pr-review-agent { background:var(--accent); color:var(--on-accent); border-color:var(--accent); font-weight:600; }
 .plugin-public-pr .pr-review-agent:hover:not(:disabled) { background:var(--accent); color:var(--on-accent); border-color:var(--accent-text,var(--accent)); }
