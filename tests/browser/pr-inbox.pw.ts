@@ -333,3 +333,41 @@ for (const width of [1440, 390]) test(`keeps uncertain review recovery beside la
   await expect(launch).toBeEnabled(); await expect(retained).toBeHidden();
   expect(f.errors).toEqual([]); expect(f.writes).toEqual([]);
 });
+
+test('reconciles a request acknowledged in another tab without losing the focused draft or launching again', async ({ page, context }) => {
+  const f = await mockInbox(page);
+  const requestId = 'b0ef36b8-e7a2-4b24-a343-2dac4b561824';
+  const original = { version: 1, repo: 'org/a', action: 'launch', launch: { mode: 'review', prNumber: 42, headSha: 'b'.repeat(40) } };
+  const path = '/prs?repo=org%2Fa&pr=42';
+  await page.goto(path);
+  const launch = page.locator('.pr-review-agent'); await expect(launch).toBeEnabled();
+  await page.evaluate(async ({ requestId, original }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => { const opened = indexedDB.open('helmsman.run-commands', 1); opened.onsuccess = () => resolve(opened.result); opened.onerror = () => reject(opened.error); });
+    const caller = 'helmsman.compat-pr/panel';
+    await new Promise<void>((resolve, reject) => { const tx = database.transaction('pending', 'readwrite'); tx.objectStore('pending').put({ key: JSON.stringify([caller, original]), caller, command: { ...original, requestId }, receipt: null }); tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); }); database.close();
+  }, { requestId, original });
+  await page.reload();
+  const retained = page.locator('[data-pr-retained-actions]');
+  await expect(retained).toContainText('Uncertain result'); await expect(launch).toBeDisabled();
+  const draft = page.locator('.pr-review-guidance');
+  await draft.fill('Keep my current review instructions.'); await expect(draft).toBeFocused();
+  const other = await context.newPage(); const otherFixture = await mockInbox(other);
+  const checks: string[] = [];
+  await other.route(url => url.pathname.startsWith('/api/run-commands'), async route => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    checks.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ json: { version: 1, repo: 'org/a', requestId, action: 'launch', status: 'rejected', runId: null, attempt: null, message: 'Original request resolved in another tab.' } });
+  });
+  await other.goto(path);
+  const otherRetained = other.locator('[data-pr-retained-actions]');
+  await expect(otherRetained).toContainText('Uncertain result');
+  await otherRetained.getByRole('button', { name: 'Check original receipt', exact: true }).click();
+  await expect(other.locator('.pr-saved-result')).toContainText('Saved run result: rejected');
+  await expect(otherRetained).toBeHidden();
+  await page.bringToFront();
+  await expect(retained).toBeHidden({ timeout: 15_000 }); await expect(launch).toBeEnabled();
+  await expect(page.locator('.pr-saved-result')).toContainText('Original request resolved in another tab.');
+  await expect(draft).toHaveValue('Keep my current review instructions.'); await expect(draft).toBeFocused();
+  expect(checks).toEqual([`/api/run-commands/${requestId}`]);
+  expect(f.writes).toEqual([]); expect(otherFixture.writes).toEqual([]); expect(f.errors).toEqual([]); expect(otherFixture.errors).toEqual([]);
+});

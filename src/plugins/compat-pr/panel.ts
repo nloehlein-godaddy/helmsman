@@ -42,6 +42,7 @@ class PrPanel implements PluginPanelInstance {
   private pendingReviews: readonly PullRequestCommandPendingV1[] = [];
   private pendingRuns: readonly RunCommandPendingV1[] = [];
   private journalsReady = false;
+  private journalRead = 0;
   private slackConnected = false;
   private loading = false;
   private busy = false;
@@ -242,9 +243,13 @@ class PrPanel implements PluginPanelInstance {
     } catch (error) { this.error = error instanceof Error ? error.message : 'Target could not be selected. Refresh and retry.'; this.draw(); }
   }
   private async journals() {
-    const [reviews, runs] = await Promise.all([this.context.services.pullRequestCommands!.pending(), this.context.services.runCommands!.pending()]);
+    const generation = this.generation; const read = ++this.journalRead;
+    const result = await Promise.all([this.context.services.pullRequestCommands!.pending(), this.context.services.runCommands!.pending()]).catch(error => { if (this.active(generation) && read === this.journalRead) throw error; return null; });
+    if (!result || !this.active(generation) || read !== this.journalRead) return;
+    const [reviews, runs] = result;
     if (!Array.isArray(reviews) || !Array.isArray(runs) || reviews.some(item => !validPending(item, 'review')) || runs.some(item => !validPending(item, 'run'))) throw new Error('Command journal unavailable. Existing requests are kept.');
     this.pendingReviews = reviews; this.pendingRuns = runs; this.journalsReady = true;
+    if (this.error === 'Command journal unavailable. Existing requests are kept.') this.error = '';
   }
   refresh = async () => {
     if (!this.active()) return;
@@ -302,7 +307,13 @@ class PrPanel implements PluginPanelInstance {
       if (!this.active(generation)) return;
       if (result?.status === 'available' && validList(result.value, repo)) { this.lists[name] = result.value; this.listErrors[name] = ''; } else this.listErrors[name] = this.lists[name]?.items.length ? 'Could not refresh pull requests. Showing previous results.' : 'Could not load pull requests.';
       this.draw();
+      if (kind === 'review-requested' && !this.busy) void this.syncJournals(generation);
     }, this.state.activity.signal));
+  }
+  private async syncJournals(generation: number) {
+    try { await this.journals(); }
+    catch { if (this.active(generation)) { this.journalsReady = false; this.error = 'Command journal unavailable. Existing requests are kept.'; } }
+    if (this.active(generation)) this.draw();
   }
   private unresolved() { return this.pendingReviews.some(item => sameTarget(item?.command ?? null, this.selected)) || this.pendingRuns.some(item => item?.command?.action === 'launch' && ['review', 'rerun'].includes(item.command.launch.mode) && sameTarget({ repo: item.command.repo, number: 'prNumber' in item.command.launch ? item.command.launch.prNumber : 0 }, this.selected)); }
   private async review(event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT') {

@@ -551,3 +551,59 @@ it('keeps requests for other PRs outside the current agent controls without bloc
   expect(f.container.querySelector('[aria-label="Retained pull request commands"]')?.textContent).toContain(requestId);
   expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
 });
+
+function pollRequests(f: Awaited<ReturnType<typeof fixture>>) {
+  const watch = vi.mocked(f.context.services.pullRequests!.watchList).mock.calls.find(([query]) => query.kind === 'review-requested');
+  expect(watch).toBeDefined();
+  const [query, listener] = watch!;
+  listener(available({ ...query, items: [], quality: 'complete', truncated: false, browseUrl: null }));
+}
+const retainedRun: RunCommandPendingV1 = { command: { version: 1, action: 'launch', repo: 'org/b', requestId, launch: { mode: 'review', prNumber: 42, headSha: head } }, receipt: null };
+
+it.each(['run', 'review'] as const)('reconciles another tab’s acknowledged %s request during live refresh without disturbing focused edits', async kind => {
+  let pending = true;
+  const f = await fixture({}, context => {
+    if (kind === 'run') vi.mocked(context.services.runCommands!.pending).mockImplementation(async () => pending ? [retainedRun] : []);
+    else vi.mocked(context.services.pullRequestCommands!.pending).mockImplementation(async () => pending ? [{ command: { version: 1, repo: 'org/b', number: 42, expectedHeadSha: head, event: 'COMMENT', body: 'Original', requestId }, receipt: null }] : []);
+  });
+  await vi.waitFor(() => expect(f.container.querySelector('[data-pr-retained-actions]')?.textContent).toContain('Uncertain result'));
+  fill(f.container, '.pr-review-body', 'Keep my focused draft');
+  const control = f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')!; control.setSelectionRange(5, 7);
+  localStorage.setItem('helmsman.pull-request.v1:helmsman.compat-pr/panel:result:run:other-tab', JSON.stringify({ version: 1, value: { input: { repo: 'org/b', launch: { prNumber: 42 } }, receipt: { status: 'accepted', runId: 'other-tab-run' } } }));
+  pollRequests(f);
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Saved run result: accepted'));
+  expect(f.container.querySelector('[data-pr-retained-actions]')?.textContent).toContain('Uncertain result');
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true);
+  pending = false; pollRequests(f);
+  await vi.waitFor(() => expect(f.container.querySelector('[data-pr-retained-actions]')?.textContent).toBe(''));
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+  const currentControl = f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')!;
+  expect(document.activeElement).toBe(currentControl); expect(currentControl.value).toBe('Keep my focused draft'); expect(currentControl.selectionStart).toBe(5); expect(currentControl.selectionEnd).toBe(7);
+  expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled(); expect(f.context.services.runCommands!.retry).not.toHaveBeenCalled(); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
+});
+
+it.each(['stale-data', 'stale-failure'] as const)('ignores %s from an older journal read after a newer live refresh', async outcome => {
+  let resolve!: (value: readonly RunCommandPendingV1[]) => void; let reject!: (error: Error) => void;
+  const f = await fixture(); await ready(f);
+  vi.mocked(f.context.services.runCommands!.pending).mockImplementationOnce(() => new Promise((yes, no) => { resolve = yes; reject = no; }));
+  pollRequests(f);
+  pollRequests(f);
+  await vi.waitFor(() => expect(f.context.services.runCommands!.pending).toHaveBeenCalledTimes(3));
+  await Promise.resolve(); await Promise.resolve();
+  if (outcome === 'stale-data') resolve([retainedRun]); else reject(new Error('Old journal error'));
+  await new Promise(done => setTimeout(done, 0));
+  expect(f.container.querySelector('[data-pr-retained-actions]')?.textContent).toBe('');
+  expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
+  expect(f.container.textContent).not.toContain('Command journal unavailable');
+});
+
+it('fails launch closed when live journal reconciliation fails and recovers on the next poll', async () => {
+  const f = await fixture(); await ready(f);
+  vi.mocked(f.context.services.runCommands!.pending).mockRejectedValueOnce(new Error('Database unavailable'));
+  pollRequests(f);
+  await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true));
+  expect(f.container.textContent).toContain('Command journal unavailable');
+  pollRequests(f);
+  await vi.waitFor(() => expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false));
+  expect(f.container.textContent).not.toContain('Command journal unavailable');
+});
