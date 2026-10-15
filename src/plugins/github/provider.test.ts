@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { inspectQuery as query, inspectTarget as target } from '../pull-request-inspect.test-fixture';
 import { githubPullRequestProvider } from './provider';
 import { formatPullRequestReviewBody } from '@helmsman/plugin-sdk';
+import { createPullRequestProviderHttp } from '../../../server/helmsman/pull-request-provider-http';
 
 const review = (id: number, state: string, submittedAt = '2025-01-02T03:04:05.000Z', login = 'reviewer') => ({ id, state, user: { login }, submitted_at: submittedAt, commit_id: target.headSha });
 const metadata = (overrides: Record<string, unknown> = {}) => ({ number: target.number, base: { sha: target.baseSha, repo: { full_name: target.repo } }, head: { sha: target.headSha, ref: 'work' }, state: 'open', draft: false, merged: false,
@@ -135,7 +136,10 @@ describe('current list feedback',()=>{
   });
   it('bounds freshness work to the first50 open rows and preserves counts with unknown comments outside that budget',async()=>{
     const ctx=context(async input=>{
-      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:Array.from({length:60},(_,index)=>listed(index+1))};
+      if(input.path===`/repos/${target.repo}/pulls`) {
+        const size=Number(input.query.per_page);const start=(Number(input.query.page)-1)*size;
+        return {status:200,body:Array.from({length:Math.min(size,60-start)},(_,index)=>listed(start+index+1))};
+      }
       if(input.path.endsWith('/reviews'))return {status:200,body:[]};
       return {status:503,body:null};
     });
@@ -174,21 +178,48 @@ describe('GitHub pull request provider', () => {
   it('counts requested matches rather than raw rows when scanning bounded local review-requested pages',async()=>{
     const ctx=context(async input=>{
       if(input.path==='/search/issues')return {status:422,body:null};
-      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:input.query.page==='1'?Array.from({length:100},(_,index)=>listed(index+1,{requested_reviewers:[{login:'someone-else'}]})):[listed(101,{requested_reviewers:[{login:'ReViewer'}]})]};
+      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:input.query.page==='1'?Array.from({length:Number(input.query.per_page)},(_,index)=>listed(index+1,{requested_reviewers:[{login:'someone-else'}]})):[listed(101,{requested_reviewers:[{login:'ReViewer'}]})]};
       return {status:503,body:null};
     });
     const result=await githubPullRequestProvider.list({query:{version:1,repo:target.repo,kind:'review-requested',limit:1},repos:[target.repo]},ctx);
     expect(result).toMatchObject({quality:'complete',items:[{number:101}]});
     expect(ctx.http.request.mock.calls.filter(([input])=>input.path===`/repos/${target.repo}/pulls`).map(([input])=>input.query.page)).toEqual(['1','2']);
   });
+  it.each(['repo-open', 'review-requested'] as const)('keeps large %s pull responses within the real transport limit', async kind => {
+    const records = Array.from({ length: 126 }, (_, index) => listed(index + 1, { body: 'x'.repeat(30_000), base: { repo: { id: 123, full_name: target.repo } },
+      requested_reviewers: index === 125 ? [{ login: 'reviewer' }] : [] }));
+    expect(Buffer.byteLength(JSON.stringify(records.slice(0, 100)))).toBeGreaterThan(2 * 1024 * 1024);
+    const signal = new AbortController().signal;
+    const connection = { id: 'github', credentialHandle: 'github-test', origin: 'https://api.github.com', subject: 'reviewer' };
+    const fetcher = vi.fn<typeof fetch>(async input => {
+      const url = new URL(String(input));
+      if (url.pathname === '/search/issues') return Response.json({ message: 'Validation failed' }, { status: 422 });
+      if (url.pathname === `/repos/${target.repo}/pulls`) {
+        const size = Number(url.searchParams.get('per_page')); const page = Number(url.searchParams.get('page'));
+        const start = (page - 1) * size;
+        return Response.json(records.slice(start, start + size), { headers: start + size < records.length
+          ? { link: `<https://api.github.com/repositories/123/pulls?${new URLSearchParams({ ...Object.fromEntries(url.searchParams), page: String(page + 1) })}>; rel="next"` } : {} });
+      }
+      return Response.json(null, { status: 503 });
+    });
+    const http = createPullRequestProviderHttp({ connection, signal, mutation: false, authorize: () => {}, fetcher,
+      resolve: async () => ({ ...connection, headers: {} }) });
+    const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind, limit: 100 }, repos: [target.repo] }, { signal, configuredAuthor: 'reviewer', http });
+    if (kind === 'review-requested') expect(result).toMatchObject({ quality: 'complete', truncated: false, items: [{ number: 126 }] });
+    else { expect(result).toMatchObject({ quality: 'partial', truncated: true }); expect(result.items).toHaveLength(100); }
+    const reads = fetcher.mock.calls.map(([url]) => new URL(String(url))).filter(url => url.pathname === `/repos/${target.repo}/pulls`);
+    expect(reads).toHaveLength(kind === 'review-requested' ? 6 : 4);
+    expect(reads.every(url => url.searchParams.get('per_page') === '25')).toBe(true);
+  });
   it.each([false, true])('uses successful direct requested-review scanning when search rejects the query, bounded=%s', async bounded => {
     const ctx = context(async input => {
       if (input.path === '/search/issues') return { status: 422, body: null };
-      if (input.path === `/repos/${target.repo}/pulls`) return { status: 200, body: bounded ? Array.from({ length: 100 }, (_, index) => listed(index + 1, { requested_reviewers: [] })) : [] };
+      if (input.path === `/repos/${target.repo}/pulls`) return { status: 200, body: bounded ? Array.from({ length: Number(input.query.per_page) }, (_, index) => listed(index + 1, { requested_reviewers: [] })) : [] };
       return { status: 503, body: null };
     });
     const result = await githubPullRequestProvider.list({ query: { version: 1, repo: target.repo, kind: 'review-requested', limit: 100 }, repos: [target.repo] }, ctx);
     expect(result).toMatchObject({ quality: bounded ? 'partial' : 'complete', items: [], truncated: bounded });
+    expect(ctx.http.request.mock.calls.filter(([input]) => input.path === `/repos/${target.repo}/pulls`)).toHaveLength(bounded ? 12 : 1);
     expect(new URL(result.browseUrl ?? '').searchParams.get('q')).toBe('is:pr is:open review-requested:reviewer sort:created-desc');
     expect(ctx.http.request.mock.calls.every(([input]) => input.method === 'GET')).toBe(true);
   });

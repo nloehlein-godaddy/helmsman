@@ -22,6 +22,7 @@ const listReviewConcurrency = 4;
 const authoredRepositoryLimit = 8;
 const listFeedbackLimit = 50;
 const listEnrichmentTimeoutMs = 15_000;
+const directListPageSize = 25;
 
 function inspectionFailure(reason: 'head-changed'): Error & { reason: 'head-changed' } {
   return Object.assign(new Error(reason), { reason });
@@ -531,7 +532,8 @@ export const githubPullRequestProvider: PullRequestProviderV1 = Object.freeze<Pu
     const query = parsePullRequestReadQueryV1(input.query); const repos = [...new Set(input.repos)]; const author = configuredAuthor(context);
     const repoPaths = (query.repo === null ? repos : [query.repo]).map(repo => ({ repo, path: `/repos/${repo}/pulls` }));
     const direct = async (repo: string) => recentCollection(context, `/repos/${repo}/pulls`, { state: 'open', sort: 'created', direction: 'desc' }, query.limit,
-      query.kind === 'review-requested' ? { accept: value => requestedBy(value, author) !== false } : {});
+      { pageSize: directListPageSize, pages: Math.ceil(PULL_REQUEST_INSPECT_LIMITS.page * PULL_REQUEST_INSPECT_LIMITS.pages / directListPageSize),
+        ...(query.kind === 'review-requested' ? { accept: (value: unknown) => requestedBy(value, author) !== false } : {}) });
     let sources: Array<{ repo: string; result: { quality: 'complete' | 'partial' | 'degraded'; items: unknown[]; failed?: boolean }; reviewRequested: boolean }> = [];
     let omittedAuthoredScopes = false;
     try {
