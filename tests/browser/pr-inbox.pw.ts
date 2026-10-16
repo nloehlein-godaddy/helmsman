@@ -48,6 +48,34 @@ async function mockInbox(page: Page) {
   return { state, scopes, listStates, writes, errors };
 }
 
+for (const width of [1440, 390]) test(`restores bounty lists on return while refreshing in the background at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  const f = await mockInbox(page); f.state.requestOrigins = true;
+  await page.goto('/prs?repo=org%2Fa');
+  await expect(page.locator('.plugin-public-pr')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('[data-pr-pane="authored"] [data-select-number="42"]')).toBeVisible();
+  const navigate = (path: string) => page.evaluate(path => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, path);
+  await navigate('/config?repo=org%2Fa');
+  await expect(page.locator('.plugin-public-pr')).toHaveCount(0);
+  let release!: () => void; const blocked = new Promise<void>(resolve => { release = resolve; });
+  const hold = async (route: import('@playwright/test').Route) => { await blocked; await route.fallback(); };
+  await page.route('**/api/pull-request-read?**', hold); await page.route('**/api/run-read?**', hold);
+  try {
+    await navigate('/prs?repo=org%2Fa');
+    const panel = page.locator('.plugin-public-pr'); await expect(panel).toHaveAttribute('aria-busy', 'true');
+    await expect(panel.locator('[data-select-number="51"]')).toBeVisible();
+    await expect(panel.locator('[data-pr-pane="authored"] [data-select-number="42"]')).toBeVisible();
+    await expect(panel.locator('[data-run="recent-pr-run"]')).toHaveCount(1);
+    await expect(panel).not.toContainText('Loading pull requests');
+    await expectReadableSurfaces(panel, ['.pr-list-author', '.pr-feedback-badge']);
+    await panel.screenshot({ path: `test-results/browser/bounty-cached-return-${width}.png` });
+    f.state.empty = true;
+  } finally { release(); }
+  await expect(page.locator('.plugin-public-pr')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('[data-pr-pane="authored"] [data-select-number="42"]')).toHaveCount(0);
+  expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
+});
+
 for (const width of [1440, 390]) test(`labels direct and team review requests at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });
   const f = await mockInbox(page); f.state.requestOrigins = true;
