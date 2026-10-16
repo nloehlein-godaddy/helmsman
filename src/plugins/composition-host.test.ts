@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PluginCompositionHost } from './composition-host';
 import { PluginPanelRegistry } from './panels';
+import { PluginPanelHost } from './panel-host';
+import { PluginPageHost } from './page-host';
+import * as apiClient from '../data/api-client';
 import { CompositionLayoutConflictError } from './composition-layout';
 import type { CompositionLayoutV1, PluginPanelContext, PluginPanelModule, PluginPanelState } from './composition';
 
@@ -35,12 +38,46 @@ function setup(module: PluginPanelModule) {
       read, update, subscribe: () => () => {},
     } });
   hosts.push(host);
-  return { host, first, second, registry, unregister, current: () => layout, read, update };
+  return { host, owner, first, second, registry, unregister, current: () => layout, read, update };
 }
 
-afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); });
+afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 describe('page-owned composition', () => {
+  it('keeps composed page polls cached while manual refreshes force child reads', async () => {
+    const transport = vi.fn(async (input: RequestInfo | URL) => String(input) === '/api/context'
+      ? Response.json({ repos: [page.repo] }) : Response.json({ version: 1, repo: page.repo, items: [], nextCursor: null }));
+    const client = apiClient.createApiClient({ fetch: transport });
+    vi.spyOn(apiClient, 'createApiReadScope').mockImplementation(client.createReadScope);
+    const f = setup({ mount(_element, context) { return { update() {}, dispose() {}, async refresh() {
+      await context.services.runs!.list({ version: 1, repo: page.repo, kind: 'all', limit: 10, cursor: null });
+    } }; } });
+    const host = new PluginPageHost(f.owner, { createComposition: () => f.host, navigate() {}, loadingMessage: () => 'Loading', errorMessage: () => 'Failed' });
+    try {
+      host.show('example.composed/page', { async mount(element, context) {
+        const node = document.createElement('section'); element.append(node);
+        const handle = await context.composition!.mount('first', node);
+        return { update() {}, dispose() {}, async refresh() { await context.composition!.readLayout(); await handle.refresh(); } };
+      } }, page);
+      const reads = () => transport.mock.calls.filter(([input]) => String(input).startsWith('/api/run-read')).length;
+      await host.refresh(false); await host.refresh(false); expect(reads()).toBe(1);
+      await host.refresh(); expect(reads()).toBe(2);
+      await host.refresh(false); expect(reads()).toBe(2);
+    } finally { host.dispose(); }
+  });
+
+  it('inherits lifecycle refresh intent and restores manual freshness after success or failure', async () => {
+    const f = setup({ mount: () => ({ update() {}, dispose() {}, refresh() {} }) });
+    const handle = await f.host.service.mount('first', f.first); await settle();
+    const refresh = vi.spyOn(PluginPanelHost.prototype, 'refresh');
+    await f.host.withPageRefresh(false, async () => { await Promise.resolve(); await handle.refresh(); });
+    expect(refresh).toHaveBeenLastCalledWith(false);
+    await handle.refresh(); expect(refresh).toHaveBeenLastCalledWith(true);
+    await expect(f.host.withPageRefresh(false, async () => { throw new Error('Failed lifecycle'); })).rejects.toThrow('Failed lifecycle');
+    await handle.refresh(); expect(refresh).toHaveBeenLastCalledWith(true);
+    await f.host.refresh(false); expect(refresh).toHaveBeenLastCalledWith(false);
+  });
+
   it('defers the first mount of inactive panels until selected and retains their mounted state afterward', async () => {
     const mount = vi.fn(() => ({ update: vi.fn(), dispose: vi.fn() }));
     const { host, first, second, current } = setup({ mount });

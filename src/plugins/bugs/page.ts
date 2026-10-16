@@ -70,7 +70,7 @@ const page: PluginPageModule = { mount(container, context) {
     const root = node('div'); root.className = 'plugin-bugs'; root.dataset.compositionPage = ''; root.append(node('style', styles), node('style', pageControlsStyles));
     const header = node('div'); header.className = 'composition-page-header'; header.append(node('h1', 'Bugs'));
     const toolbar = node('div'); toolbar.className = 'composition-page-actions';
-    const refreshButton = iconButton('Refresh page', '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>', () => { void refresh(); });
+    const refreshButton = iconButton('Refresh page', '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>', () => { void (context.refresh?.() ?? refresh()); });
     const editButton = editing ? button('Done', () => { editing = false; draw(); }) : iconButton('Edit page', '<path d="m15 4 5 5M4 20l4-1L20 7a2 2 0 0 0-3-3L5 16l-1 4Z"/>', () => { editing = true; draw(); });
     editButton.classList.add('composition-page-edit'); editButton.setAttribute('aria-label', editing ? 'Done editing page' : 'Edit page'); editButton.title = editing ? 'Done editing page' : 'Edit page'; editButton.dataset.pageAction = 'edit-page'; editButton.disabled = false; editButton.setAttribute('aria-pressed', String(editing)); editButton.setAttribute('aria-controls', editorId);
     toolbar.append(refreshButton, editButton); header.append(toolbar); root.append(header);

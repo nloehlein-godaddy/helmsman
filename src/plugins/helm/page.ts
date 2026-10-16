@@ -257,7 +257,7 @@ class HelmPage implements PluginPageInstance {
     this.dragStatus = element('p', this.moveNotice); this.dragStatus.className = 'helm-sr-only'; this.dragStatus.setAttribute('aria-live', 'polite'); this.dragStatus.setAttribute('aria-atomic', 'true'); page.append(instructions, this.dragStatus);
     const toolbar = element('div'); toolbar.className = 'helm-tools composition-page-header'; toolbar.append(element('h1', this.state.pirateMode ? 'Helm' : 'Dashboard'));
     const actions = element('div'); actions.className = 'composition-page-actions';
-    const refresh = iconButton('Refresh page', 'M20 11a8 8 0 0 0-14.5-4.5L3 9m0-6v6h6 M4 13a8 8 0 0 0 14.5 4.5L21 15m0 6v-6h-6', () => { void this.refresh(); }, this.saving); refresh.dataset.helmFocus = 'page:refresh'; actions.append(refresh);
+    const refresh = iconButton('Refresh page', 'M20 11a8 8 0 0 0-14.5-4.5L3 9m0-6v6h6 M4 13a8 8 0 0 0 14.5 4.5L21 15m0 6v-6h-6', () => { void (this.context.refresh?.() ?? this.refresh()); }, this.saving); refresh.dataset.helmFocus = 'page:refresh'; actions.append(refresh);
     const edit = this.editing ? button('Done', () => { this.editing = false; this.draw(); }, this.saving)
       : iconButton('Edit page', 'M12 20h9 M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z', () => { this.editing = true; this.draw(); }, this.saving);
     edit.classList.add('composition-page-edit'); edit.setAttribute('aria-label', this.editing ? 'Done editing page' : 'Edit page'); edit.setAttribute('aria-pressed', String(this.editing)); edit.title = this.editing ? 'Done editing page' : 'Edit page'; edit.dataset.helmFocus = 'page:edit'; actions.append(edit); toolbar.append(actions); page.append(toolbar);

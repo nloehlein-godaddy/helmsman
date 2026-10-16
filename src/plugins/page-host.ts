@@ -215,7 +215,8 @@ export class PluginPageHost {
 
   private async refreshInstance(session: PageSession, force: boolean): Promise<void> {
     try {
-      const operation = async () => { await session.instance?.refresh?.(); };
+      const refresh = async () => { await session.instance?.refresh?.(); };
+      const operation = () => session.composition ? session.composition.withPageRefresh(force, refresh) : refresh();
       if (force) await session.readScope.fresh(operation); else await operation();
     } catch { this.fail(session); }
   }

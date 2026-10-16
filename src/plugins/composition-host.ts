@@ -74,6 +74,7 @@ export class PluginCompositionHost {
   private disposed = false;
   private readonly lifetime = new AbortController();
   private reading = 0;
+  private pageRefreshForce: boolean | null = null;
 
   constructor(state: PluginPageState, options: PluginCompositionHost['options']) {
     this.state = Object.freeze({ ...state });
@@ -109,9 +110,16 @@ export class PluginCompositionHost {
     this.reconcile();
   }
 
-  async refresh(): Promise<void> {
+  async refresh(force = true): Promise<void> {
     if (this.disposed) return;
-    await Promise.all([...this.panels.values()].map(panel => panel.host?.refresh()));
+    await Promise.all([...this.panels.values()].map(panel => panel.host?.refresh(force)));
+  }
+
+  async withPageRefresh<T>(force: boolean, operation: () => Promise<T>): Promise<T> {
+    const previous = this.pageRefreshForce;
+    this.pageRefreshForce = force;
+    try { return await operation(); }
+    finally { this.pageRefreshForce = previous; }
   }
 
   dispose(): void {
@@ -178,7 +186,7 @@ export class PluginCompositionHost {
       },
       refresh: async () => {
         const current = this.panels.get(instanceId);
-        if (!this.disposed && current?.handle === handle) await current.host?.refresh();
+        if (!this.disposed && current?.handle === handle) await current.host?.refresh(this.pageRefreshForce ?? true);
       },
       dispose: () => {
         const current = this.panels.get(instanceId);

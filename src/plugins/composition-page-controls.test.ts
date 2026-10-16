@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { CompositionLayoutV1, CompositionServiceV1, PluginPageModule, PluginPageState } from '@helmsman/plugin-sdk';
 import bugs from './bugs/page';
+import agentPrompts from './agent-prompts/page';
 import campaigns from './campaigns/page';
 import clarifications from './clarifications/page';
 import communication from './communication/page';
@@ -18,6 +19,7 @@ import todos from './todos-ui/page';
 import triage from './triage/page';
 
 const pages: { name: string; module: PluginPageModule; compositionId: string }[] = [
+  { name: 'Agent prompts', module: agentPrompts, compositionId: 'helmsman/agent-prompts-page' },
   { name: 'Bugs', module: bugs, compositionId: 'helmsman/bugs-page' },
   { name: 'Campaigns', module: campaigns, compositionId: 'helmsman/campaigns-page' },
   { name: 'Agent questions', module: clarifications, compositionId: 'helmsman/clarifications-page' },
@@ -42,7 +44,7 @@ const title = 'Example panel';
 const lifetimes: AbortController[] = [];
 afterEach(() => { lifetimes.splice(0).forEach(lifetime => lifetime.abort()); document.body.replaceChildren(); });
 
-async function fixture(testPage: (typeof pages)[number], initial: 'single' | 'stacked' | 'collapsed' | 'hidden-active' = 'single') {
+async function fixture(testPage: (typeof pages)[number], initial: 'single' | 'stacked' | 'collapsed' | 'hidden-active' = 'single', refresh?: () => Promise<void>) {
   const container = document.createElement('div'); document.body.append(container);
   const lifetime = new AbortController(); lifetimes.push(lifetime);
   const second = initial === 'stacked' || initial === 'hidden-active';
@@ -71,7 +73,7 @@ async function fixture(testPage: (typeof pages)[number], initial: 'single' | 'st
   const composition: CompositionServiceV1 = { version: 1, compositionId: testPage.compositionId, readLayout, updateLayout, mount,
     discover: () => [{ id: 'panel', title, pluginId: 'example.panel', contributionId, contract: { id: 'example/panel', version: 1 }, requires: [] }],
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; } };
-  const instance = await testPage.module.mount(container, { state, signal: lifetime.signal, composition, onDispose: vi.fn(), navigate: vi.fn() });
+  const instance = await testPage.module.mount(container, { state, refresh, signal: lifetime.signal, composition, onDispose: vi.fn(), navigate: vi.fn() });
   await vi.waitFor(() => expect(mount).toHaveBeenCalledTimes(second ? 2 : 1));
   return { container, instance, composition, handles, readLayout, updateLayout, get layout() { return layout; } };
 }
@@ -83,6 +85,12 @@ const row = (container: HTMLElement, id: string) => [...container.querySelectorA
   .find(value => value.dataset.instanceId === id)!;
 const mountedNode = (composition: CompositionServiceV1, id: string) => vi.mocked(composition.mount).mock.calls
   .find(([instanceId]) => instanceId === id)?.[1];
+
+it.each(pages)('$name requests a fresh host refresh from its explicit page control', async testPage => {
+  const refresh = vi.fn(async () => {}); const f = await fixture(testPage, 'single', refresh);
+  expect(refresh).not.toHaveBeenCalled(); const reads = f.readLayout.mock.calls.length;
+  control(f.container, 'Refresh page').click(); expect(refresh).toHaveBeenCalledOnce(); expect(f.readLayout).toHaveBeenCalledTimes(reads);
+});
 
 it.each(pages)('$name gates composition edits behind Edit page', async testPage => {
   const f = await fixture(testPage);

@@ -8,7 +8,7 @@ import taskTable from '../backlog-alternative/panel';
 const sourceId = '11111111-1111-4111-8111-111111111111';
 const repo = 'owner/project';
 const state = { repo, themeId: 'dark', pirateMode: false, visible: true, pane: null };
-async function fixture(page: PluginPageModule = helm, panel: PluginPanelModule = backlog) {
+async function fixture(page: PluginPageModule = helm, panel: PluginPanelModule = backlog, refresh?: () => Promise<void>) {
   const container = document.createElement('div'); document.body.append(container);
   const lifetime = new AbortController();
   let layout: CompositionLayoutV1 = { version: 1, compositionId: 'helmsman/helm-page', revision: 1, instances: [{ instanceId: 'first', contributionId: 'example.test/panel', hidden: false, scope: { kind: 'inherit' }, state: { 'example.missing/panel': { version: 2, value: { draft: 'kept' } } } }], columns: [[{ instances: ['first'], activeInstanceId: 'first', collapsed: false }]] };
@@ -36,13 +36,18 @@ async function fixture(page: PluginPageModule = helm, panel: PluginPanelModule =
   });
   const composition: CompositionServiceV1 = { version: 1, compositionId: layout.compositionId, discover: () => [{ id: 'panel', contributionId: 'example.test/panel', pluginId: 'example.test', title: 'Tasks', contract: { id: 'helmsman/helm-panel', version: 1 }, requires: [] }],
     readLayout: vi.fn(async () => layout), updateLayout: updates, subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; }, mount: mounts };
-  const instance = await page.mount(container, { state, composition, signal: lifetime.signal, onDispose: vi.fn(), navigate: vi.fn(), services });
+  const instance = await page.mount(container, { state, refresh, composition, signal: lifetime.signal, onDispose: vi.fn(), navigate: vi.fn(), services });
   return { container, instance, lifetime, tasks, composition, mounts, updates, listeners, childInstances, get layout() { return layout; } };
 }
 afterEach(() => { document.body.replaceChildren(); });
 function editPage(container: HTMLElement) { const edit = container.querySelector<HTMLButtonElement>('[aria-label="Edit page"]'); if (!edit) throw new Error('Missing Edit page'); edit.click(); }
 
 describe.each([['shipped Helm', helm], ['independent Helm', workspace]] as const)('%s public composition', (_name, page) => {
+  it('routes the page Refresh control through the host', async () => {
+    const refresh = vi.fn(async () => {}); const f = await fixture(page, backlog, refresh);
+    await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledOnce()); expect(refresh).not.toHaveBeenCalled();
+    f.container.querySelector<HTMLButtonElement>('[aria-label="Refresh page"]')!.click(); expect(refresh).toHaveBeenCalledOnce(); f.lifetime.abort();
+  });
   it('keeps layout controls in Edit page and removes the last instance without recreating it', async () => {
     const f = await fixture(page); await vi.waitFor(() => expect(f.mounts).toHaveBeenCalledOnce());
     expect(f.container.querySelector<HTMLButtonElement>('[aria-label="Refresh page"]')).not.toBeNull();
