@@ -52,6 +52,7 @@ export const styles = `
 .plugin-public-pr :is(.pr-list-meta,.pr-list-stats) { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; font-size:14px; color:var(--text-dim); overflow-wrap:anywhere; }
 .plugin-public-pr :is(.pr-list-status,.pr-draft) { display:inline-flex; align-items:center; gap:5px; color:var(--text); }
 .plugin-public-pr .pr-list-stat { white-space:nowrap; }
+.plugin-public-pr .pr-list-author { display:inline-flex; align-items:center; gap:5px; }
 .plugin-public-pr .pr-request-origin { display:inline-flex; align-items:baseline; gap:5px; min-width:0; color:var(--text-dim); }
 .plugin-public-pr .pr-request-origin .pr-phosphor { align-self:center; flex-shrink:0; }
 .plugin-public-pr .pr-list-github { font-size:14px; align-self:flex-start; }

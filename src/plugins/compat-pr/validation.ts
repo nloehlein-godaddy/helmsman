@@ -53,7 +53,9 @@ export function validDiff(input: unknown, expected: PullRequestInspectDetailV1['
 export function validList(input: unknown, repo: string | null): input is PullRequestReadPageV1 {
   const value = record(input);
   return value?.version === 1 && value.repo === repo && Array.isArray(value.items) && value.items.length <= 50 && value.items.every(item => {
-    const row = record(item); return row && target(row) && (repo === null || row.repo === repo) && typeof row.title === 'string' && ['open', 'closed', 'merged'].includes(String(row.status)) && count(row.comments);
+    const row = record(item); return row && target(row) && (repo === null || row.repo === repo) && typeof row.title === 'string' && ['open', 'closed', 'merged'].includes(String(row.status)) && count(row.comments)
+      && (row.authorLogin === undefined || row.authorLogin === null || evidenceText(row.authorLogin, 128))
+      && (row.viewerHasReviewed === undefined || row.viewerHasReviewed === null || typeof row.viewerHasReviewed === 'boolean');
   });
 }
 export function validRun(input: unknown, repo: string | null): input is RunReadSummaryV1 {

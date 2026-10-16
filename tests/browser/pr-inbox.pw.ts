@@ -24,10 +24,11 @@ async function mockInbox(page: Page) {
     if (path === '/api/pull-request-read') {
       const repo = url.searchParams.get('repo'); const kind = url.searchParams.get('kind'); scopes.push(repo); if (kind === 'authored-recent') listStates.push(url.searchParams.get('state'));
       return route.fulfill({ json: { version: 1, repo, kind, items: kind === 'authored-recent' && !state.empty
-        ? [row(repo ?? 'org/a', 42, 'Restore authored pull requests when search is unavailable', 'open'), ...(url.searchParams.get('state') === 'all' ? [{ ...row(repo ?? 'org/a', 41, 'Preserve matched pull requests from earlier pages', 'merged'), comments: null, reviews: null }] : [])] : state.requestOrigins ? [
-          { ...row(repo ?? 'org/a', 51, 'Directly requested review', 'open'), reviewRequest: { direct: true, teams: [] } },
-          { ...row(repo ?? 'org/a', 52, 'Team review request', 'open'), reviewRequest: { direct: false, teams: [{ name: 'AIRO AI Builder Developers', slug: 'airo-ai-builder-devs' }] } },
-          { ...row(repo ?? 'org/a', 53, 'Direct and team review request', 'open'), reviewRequest: { direct: true, teams: [{ name: 'Platform engineering and developer experience', slug: 'platform-engineering' }] } },
+        ? [{ ...row(repo ?? 'org/a', 42, 'Restore authored pull requests when search is unavailable', 'open'), ...(state.requestOrigins ? { authorLogin: 'authored-writer', viewerHasReviewed: false, feedback: { changesRequested: false, newComments: true, latestCommitAt: at } } : {}) }, ...(url.searchParams.get('state') === 'all' ? [{ ...row(repo ?? 'org/a', 41, 'Preserve matched pull requests from earlier pages', 'merged'), comments: null, reviews: null }] : [])] : state.requestOrigins ? [
+          { ...row(repo ?? 'org/a', 51, 'Directly requested review', 'open'), authorLogin: 'direct-author', viewerHasReviewed: false, feedback: { changesRequested: false, newComments: true, latestCommitAt: at }, reviewRequest: { direct: true, teams: [] } },
+          { ...row(repo ?? 'org/a', 52, 'Team review request', 'open'), authorLogin: '<img src=x> & writer', viewerHasReviewed: true, feedback: { changesRequested: false, newComments: true, latestCommitAt: at }, reviewRequest: { direct: false, teams: [{ name: 'AIRO AI Builder Developers', slug: 'airo-ai-builder-devs' }] } },
+          { ...row(repo ?? 'org/a', 53, 'Direct and team review request', 'open'), authorLogin: null, viewerHasReviewed: null, feedback: { changesRequested: false, newComments: true, latestCommitAt: at }, reviewRequest: { direct: true, teams: [{ name: 'Platform engineering and developer experience', slug: 'platform-engineering' }] } },
+          { ...row(repo ?? 'org/a', 54, 'Review requested without new discussion', 'open'), authorLogin: 'quiet-author', viewerHasReviewed: false, feedback: { changesRequested: false, newComments: false, latestCommitAt: at }, reviewRequest: { direct: true, teams: [] } },
         ] : [],
         quality: kind === 'authored-recent' ? state.quality : state.ssoRequired ? 'partial' : 'complete', truncated: kind === 'authored-recent' && state.quality !== 'complete', browseUrl: `https://github.com/${repo}/pulls`, ...(kind === 'review-requested' && state.ssoRequired ? { notice: 'github-sso-required' } : {}) } });
     }
@@ -59,9 +60,19 @@ for (const width of [1440, 390]) test(`labels direct and team review requests at
   await expect(team.locator('.pr-request-origin')).toHaveText(['AIRO AI Builder Developers']);
   await expect(both.locator('.pr-request-origin')).toHaveText(['Direct', 'Platform engineering and developer experience']);
   await expect(team).toHaveAccessibleName(/Team: AIRO AI Builder Developers/);
-  await expectReadableSurfaces(requested, ['.pr-request-origin']);
+  const quiet = requested.locator('[data-select-number="54"]');
+  await expect(direct.locator('.pr-list-author')).toContainText('direct-author'); await expect(team.locator('.pr-list-author')).toContainText('<img src=x> & writer'); await expect(both.locator('.pr-list-author')).toContainText('Author unavailable');
+  await expect(requested.locator('img, script')).toHaveCount(0);
+  const authored = page.locator('[data-pr-pane="authored"] [data-select-number="42"]');
+  await expect(authored).toContainText('New comments'); await expect(authored).not.toContainText('Not reviewed');
+  for (const unreviewed of [direct, quiet]) {
+    await expect(unreviewed.locator('.pr-feedback-badge')).toHaveText('Not reviewed');
+    await expect(unreviewed).not.toContainText('New comments'); await expect(unreviewed).toHaveAccessibleName(/Not reviewed/);
+  }
+  for (const reviewed of [team, both]) { await expect(reviewed.locator('.pr-feedback-badge')).toHaveText('New comments'); await expect(reviewed).not.toContainText('Not reviewed'); }
+  await expectReadableSurfaces(requested, ['.pr-request-origin', '.pr-list-author', '.pr-feedback-badge']);
   expect(await requested.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-  await requested.screenshot({ path: `test-results/browser/review-request-origins-${width}.png` });
+  await page.setViewportSize({ width, height: 2000 }); await requested.screenshot({ path: `test-results/browser/review-request-origins-${width}.png` }); await page.setViewportSize({ width, height: 1000 });
   await direct.click();
   await expect(page.locator('[data-pr-number="51"]')).toBeVisible();
   expect(f.errors).toEqual([]); expect(f.writes).toEqual([]);

@@ -266,3 +266,29 @@ it('labels direct and matched team requests without turning team names into mark
   expect(node.querySelector('[data-select-number="43"] .pr-request-origin')).toBeNull();
   expect(mount(renderList('authored-recent', { ...page, kind: 'authored-recent' }, '', false)).querySelector('.pr-request-origin')).toBeNull();
 });
+
+it.each([false, true, null, undefined])('shows personal review history without inferring it from comment counts (%s)', viewerHasReviewed => {
+  const item = { ...feedbackPage.items[0]!, authorLogin: '<img src=x> & writer', viewerHasReviewed, feedback: { changesRequested: true, newComments: true, latestCommitAt: detail.observedAt } };
+  const page = { ...feedbackPage, kind: 'review-requested' as const, items: [item] };
+  const result = mount(renderList('review-requested', page, '', false));
+  const button = result.querySelector('.pr-list-select');
+  expect(result.querySelector('.pr-list-author')?.textContent).toBe('by <img src=x> & writer');
+  expect(button?.getAttribute('aria-label')).toContain('by <img src=x> & writer');
+  expect(result.querySelector('img')).toBeNull();
+  const labels = [...result.querySelectorAll('.pr-feedback-badge')].map(node => node.textContent);
+  expect(labels).toEqual(['Changes requested', viewerHasReviewed === false ? 'Not reviewed' : 'New comments']);
+  expect(button?.getAttribute('aria-label')).toContain(viewerHasReviewed === false ? 'Not reviewed' : 'New comments');
+  const authored = mount(renderList('authored-recent', { ...page, kind: 'authored-recent' }, '', false));
+  expect(authored.textContent).not.toContain('Not reviewed');
+  expect(authored.querySelector('.pr-list-author')).toBeNull();
+});
+
+it('shows an unreviewed request without fresh comments and keeps unavailable history unknown', () => {
+  const item = { ...feedbackPage.items[0]!, authorLogin: null, viewerHasReviewed: false, feedback: { changesRequested: false, newComments: false, latestCommitAt: detail.observedAt } };
+  const result = mount(renderList('review-requested', { ...feedbackPage, kind: 'review-requested', items: [item] }, '', true));
+  expect(result.querySelector('.pr-list-author')?.textContent).toBe('Author unavailable');
+  expect(result.querySelector('.pr-feedback-badge')?.textContent).toBe('Not reviewed');
+  expect(result.querySelector('.pr-feedback-badge [data-icon=inspect]')).not.toBeNull();
+  const unknown = mount(renderList('review-requested', { ...feedbackPage, kind: 'review-requested', items: [{ ...item, viewerHasReviewed: null }] }, '', true));
+  expect(unknown.querySelector('.pr-feedback-badge')).toBeNull();
+});

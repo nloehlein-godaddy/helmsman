@@ -7,6 +7,7 @@ export interface PullRequestReadItemV1 {
   readonly repo: string; readonly number: number; readonly title: string; readonly url: string | null;
   readonly status: 'open' | 'closed' | 'merged'; readonly createdAt: string; readonly mergedAt: string | null;
   readonly draft: boolean | null; readonly ticketId: string | null;
+  readonly authorLogin?: string | null; readonly viewerHasReviewed?: boolean | null;
   readonly reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
   readonly comments: number | null;
   readonly reviews: { readonly approved: number | null; readonly changesRequested: number | null; readonly commented: number | null; readonly requested: number | null } | null;
@@ -74,11 +75,14 @@ export function parsePullRequestReadItemV1(input: unknown): PullRequestReadItemV
   const reviews = value.reviews === null ? null : record(value.reviews);
   const feedback = value.feedback === undefined ? null : record(value.feedback);
   if (feedback && [feedback.changesRequested, feedback.newComments].some(flag => flag !== null && typeof flag !== 'boolean')) invalid();
+  if (value.viewerHasReviewed !== undefined && value.viewerHasReviewed !== null && typeof value.viewerHasReviewed !== 'boolean') invalid();
   return Object.freeze({ repo: parseTaskRepo(value.repo), number: count(value.number, 1), title: text(value.title, 2048), url: url(value.url),
     status: value.status as PullRequestReadItemV1['status'], createdAt: date(value.createdAt), mergedAt, draft: value.draft as boolean | null,
     ticketId: value.ticketId === null ? null : text(value.ticketId, 128), reviewDecision: value.reviewDecision as PullRequestReadItemV1['reviewDecision'],
     comments: nullableCount(value.comments), reviews: reviews ? Object.freeze({ approved: nullableCount(reviews.approved), changesRequested: nullableCount(reviews.changesRequested), commented: nullableCount(reviews.commented), requested: nullableCount(reviews.requested) }) : null,
     ...(value.reviewRequest === undefined ? {} : { reviewRequest: reviewRequestOrigin(value.reviewRequest) }),
+    ...(value.authorLogin === undefined ? {} : { authorLogin: value.authorLogin === null ? null : text(value.authorLogin, 128) }),
+    ...(value.viewerHasReviewed === undefined ? {} : { viewerHasReviewed: value.viewerHasReviewed as boolean | null }),
     ...(feedback ? { feedback: Object.freeze({ changesRequested: feedback.changesRequested as boolean | null, newComments: feedback.newComments as boolean | null, latestCommitAt: feedback.latestCommitAt === null ? null : date(feedback.latestCommitAt) }) } : {}) });
 }
 export function parsePullRequestReadPageV1(input: unknown, query: PullRequestReadQueryV1, repos: readonly string[]): PullRequestReadPageV1 {

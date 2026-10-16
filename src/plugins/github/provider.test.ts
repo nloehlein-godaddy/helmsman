@@ -93,11 +93,11 @@ describe('exact review receipt reconciliation', () => {
 describe('current list feedback',()=>{
   const commitAt='2025-01-02T00:00:00.000Z';const newer='2025-01-03T00:00:00.000Z';
   const comment=(id:number,login='other',created_at=newer)=>({id,user:{login},created_at,updated_at:newer,body:'Feedback'});
-  function feedbackFixture(options:{reviews?:unknown[];issues?:unknown[];inline?:unknown[];failed?:string;changed?:boolean;partial?:boolean}={}){
+  function feedbackFixture(options:{reviews?:unknown[];issues?:unknown[];inline?:unknown[];failed?:string;changed?:boolean;partial?:boolean;author?:unknown;reviewFailure?:boolean;reviewsPartial?:boolean}={}){
     let reads=0;
     return context(async input=>{
-      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:[listed(42)]};
-      if(input.path.endsWith('/42/reviews'))return {status:200,body:options.reviews??[]};
+      if(input.path===`/repos/${target.repo}/pulls`)return {status:200,body:[listed(42,{user:{login:options.author??'author'}})]};
+      if(input.path.endsWith('/42/reviews'))return options.reviewFailure||options.reviewsPartial&&input.query.page!=='1'?{status:503,body:null}:{status:200,body:options.reviews??[],...(options.reviewsPartial?{link:`<https://api.github.com${input.path}?per_page=100&page=2>; rel="next"`}:{})};
       if(input.path===`/repos/${target.repo}/pulls/42`){reads++;return {status:200,body:metadata(options.changed&&reads===2?{head:{sha:'f'.repeat(40),ref:'work'}}:{})};}
       if(input.path.includes('/commits/'))return {status:200,body:{sha:target.headSha,commit:{committer:{date:commitAt},author:{date:'2024-01-01T00:00:00.000Z'}}}};
       if(input.path.endsWith('/comments')){
@@ -110,6 +110,36 @@ describe('current list feedback',()=>{
     });
   }
   const list=async(ctx:ReturnType<typeof context>)=>githubPullRequestProvider.list({query:{version:1,repo:target.repo,kind:'repo-open',limit:100},repos:[target.repo]},ctx);
+  it('includes the PR author and verifies that an empty complete review history is personally unreviewed', async () => {
+    const ctx = feedbackFixture();
+    expect((await list(ctx)).items[0]).toMatchObject({ authorLogin: 'author', viewerHasReviewed: false });
+    expect(ctx.http.request.mock.calls.filter(([input]) => input.path.endsWith('/42/reviews'))).toHaveLength(1);
+  });
+  it.each(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'])('counts a personal %s review as previously reviewed', async state => {
+    const ctx = feedbackFixture({ reviews: [review(1, state, newer, 'ReViEwEr')] });
+    expect((await list(ctx)).items[0]?.viewerHasReviewed).toBe(true);
+    expect(ctx.http.request.mock.calls.filter(([input]) => input.path.endsWith('/42/reviews'))).toHaveLength(1);
+  });
+  it('does not count another reviewer or a personal pending draft as a submitted personal review', async () => {
+    const ctx = feedbackFixture({ reviews: [review(1, 'APPROVED', newer, 'other'), review(2, 'PENDING')] });
+    expect((await list(ctx)).items[0]?.viewerHasReviewed).toBe(false);
+  });
+  it('finds a personal review beyond the first page of submitted history', async () => {
+    const ctx = feedbackFixture();
+    const request = ctx.http.request.getMockImplementation()!;
+    ctx.http.request.mockImplementation(async input => input.path.endsWith('/42/reviews')
+      ? { status: 200, body: input.query.page === '1' ? Array.from({ length: 100 }, (_, index) => review(index + 1, 'COMMENTED', newer, 'other')) : [review(101, 'DISMISSED')] }
+      : request(input));
+    expect((await list(ctx)).items[0]?.viewerHasReviewed).toBe(true);
+    expect(ctx.http.request.mock.calls.filter(([input]) => input.path.endsWith('/42/reviews'))).toHaveLength(2);
+  });
+  it.each(['failed', 'partial', 'malformed'] as const)('keeps personal review history unknown when evidence is %s', async failure => {
+    const ctx = feedbackFixture({ reviewFailure: failure === 'failed', reviewsPartial: failure === 'partial', reviews: failure === 'malformed' ? [{ id: 1, state: 'APPROVED' }] : [review(1, 'APPROVED', newer, 'other')] });
+    expect((await list(ctx)).items[0]?.viewerHasReviewed).toBeNull();
+  });
+  it.each([{}, 42, 'author\nname', 'a'.repeat(129)])('keeps malformed author identity unknown without dropping the PR row', async author => {
+    expect((await list(feedbackFixture({ author }))).items[0]).toMatchObject({ number: 42, authorLogin: null });
+  });
   it.each(['issues','inline','review'] as const)('finds external %s feedback created after the immutable head committer time',async kind=>{
     const ctx=feedbackFixture(kind==='issues'?{issues:[comment(1)]}:kind==='inline'?{inline:[comment(1)]}:{reviews:[{...review(1,'COMMENTED',newer),body:'New feedback'}]});
     expect((await list(ctx)).items[0]?.feedback).toEqual({changesRequested:false,newComments:true,latestCommitAt:commitAt});

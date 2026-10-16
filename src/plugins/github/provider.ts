@@ -471,24 +471,26 @@ function readItem(value: unknown, fallbackRepo: string, reviewDecision: 'REVIEW_
   const raw = object(value); const repo = typeof raw?.repository_url === 'string' && raw.repository_url.startsWith(`${api}/repos/`) ? raw.repository_url.slice(`${api}/repos/`.length) : fallbackRepo;
   const mergedAt = (raw?.pull_request ? object(raw.pull_request)?.merged_at : undefined) ?? raw?.merged_at;
   const state = mergedAt ? 'merged' : raw?.state === 'closed' ? 'closed' : 'open';
+  const authorLogin = object(raw?.user)?.login;
   return parsePullRequestReadItemV1({ repo, number: raw?.number, title: raw?.title, url: `https://github.com/${repo}/pull/${String(raw?.number)}`,
     status: state, createdAt: raw?.created_at, mergedAt: mergedAt ?? null, draft: typeof raw?.draft === 'boolean' ? raw.draft : null,
-    ticketId: null, reviewDecision, comments: integer(raw?.comments) ? raw.comments : null, reviews: null });
+    ticketId: null, authorLogin: text(authorLogin, 128) ? authorLogin : null, viewerHasReviewed: null, reviewDecision, comments: integer(raw?.comments) ? raw.comments : null, reviews: null });
 }
 
 type ListCandidate = { item: ReturnType<typeof readItem>; requested: number | null };
-type ListReviewEvidence = { counts: ReturnType<typeof readItem>['reviews']; items: readonly unknown[] | null };
+type ListReviewEvidence = { counts: ReturnType<typeof readItem>['reviews']; items: readonly unknown[] | null; viewerHasReviewed: boolean | null };
 
 async function listReviews(item: ReturnType<typeof readItem>, requested: number | null, context: PullRequestProviderContextV1): Promise<ListReviewEvidence> {
   try {
     const result = await collection(context, `/repos/${item.repo}/pulls/${item.number}/reviews`, {});
-    if (result.quality !== 'complete') return { counts: null, items: null };
-    const values = effectiveReviews(submittedReviews(result.items));
+    if (result.quality !== 'complete') return { counts: null, items: null, viewerHasReviewed: null };
+    const submitted = submittedReviews(result.items); const values = effectiveReviews(submitted);
+    const viewerLogin = configuredAuthor(context).trim().toLowerCase();
     return { counts: { approved: values.filter(value => value.state === 'APPROVED').length, changesRequested: values.filter(value => value.state === 'CHANGES_REQUESTED').length,
-      commented: values.filter(value => value.state === 'COMMENTED').length, requested }, items: result.items };
+      commented: values.filter(value => value.state === 'COMMENTED').length, requested }, items: result.items, viewerHasReviewed: submitted.some(review => review.login === viewerLogin) };
   } catch {
     context.signal.throwIfAborted();
-    return { counts: null, items: null };
+    return { counts: null, items: null, viewerHasReviewed: null };
   }
 }
 
@@ -546,7 +548,7 @@ async function withListReviews(candidates: readonly ListCandidate[], context: Pu
       const firstMetadata = requested && !candidate.item.reviewRequest ? metadata(candidate.item, boundedContext) : undefined;
       const origin = requested && firstMetadata ? firstMetadata.then(value => reviewRequestOrigin(value.raw, requested.author, requested.memberships)).catch(() => undefined) : undefined;
       const [reviews, feedback, reviewRequest] = await Promise.all([evidence, order < listFeedbackLimit ? listFeedback(candidate.item, evidence, boundedContext, firstMetadata) : Promise.resolve(null), origin]);
-      enriched[index] = { ...candidate.item, ...(reviewRequest ? { reviewRequest } : {}), reviews: reviews.counts, feedback: feedback ?? { changesRequested: reviews.counts?.changesRequested == null ? null : reviews.counts.changesRequested > 0, newComments: null, latestCommitAt: null } };
+      enriched[index] = { ...candidate.item, ...(reviewRequest ? { reviewRequest } : {}), reviews: reviews.counts, viewerHasReviewed: reviews.viewerHasReviewed, feedback: feedback ?? { changesRequested: reviews.counts?.changesRequested == null ? null : reviews.counts.changesRequested > 0, newComments: null, latestCommitAt: null } };
     }
   })); } finally { clearTimeout(timer); }
   return enriched;

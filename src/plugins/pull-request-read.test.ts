@@ -1,6 +1,23 @@
 import {describe,expect,it} from 'vitest';
 import {parsePullRequestReadItemV1,parsePullRequestReadQueryV1,parsePullRequestReadPageV1} from './pull-request-read';
 const item={repo:'owner/project',number:1,title:'Work',url:null,status:'open',createdAt:'2026-10-14T00:00:00Z',mergedAt:null,draft:false,ticketId:null,reviewDecision:null,comments:null,reviews:null};
+describe('optional pull request author and personal review history', () => {
+  it('preserves older providers and nullable personal review evidence', () => {
+    const legacy = parsePullRequestReadItemV1(item);
+    expect(legacy).not.toHaveProperty('authorLogin');
+    expect(legacy).not.toHaveProperty('viewerHasReviewed');
+    for (const viewerHasReviewed of [true, false, null]) {
+      expect(parsePullRequestReadItemV1({ ...item, authorLogin: 'contributor', viewerHasReviewed })).toMatchObject({ authorLogin: 'contributor', viewerHasReviewed });
+    }
+    expect(parsePullRequestReadItemV1({ ...item, authorLogin: null }).authorLogin).toBeNull();
+  });
+  it.each(['', '  ', 'a'.repeat(129), 'author\nname', 42, {}])('rejects an invalid author %j', authorLogin => {
+    expect(() => parsePullRequestReadItemV1({ ...item, authorLogin })).toThrow('Invalid pull request read data');
+  });
+  it.each(['false', 0, {}, []])('rejects invalid personal review evidence %j', viewerHasReviewed => {
+    expect(() => parsePullRequestReadItemV1({ ...item, viewerHasReviewed })).toThrow('Invalid pull request read data');
+  });
+});
 describe('optional pull request feedback',()=>{
   it('preserves backward compatible rows and freezes nullable evidence flags',()=>{
     expect(parsePullRequestReadItemV1(item)).not.toHaveProperty('feedback');
