@@ -1,28 +1,30 @@
-import { beforeEach, expect, it } from 'vitest';
-import { PrStorage } from './storage';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { PrStorage, type SavedPrResult } from './storage';
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => { localStorage.clear(); vi.spyOn(Date, 'now').mockReturnValue(1000); });
+afterEach(() => vi.restoreAllMocks());
 const storage = () => new PrStorage('core/pull-requests');
 const input = { repo: 'org/project', launch: { prNumber: 42 } };
+const result = (fields: Partial<SavedPrResult> = {}): SavedPrResult => ({ id: expect.any(String), kind: 'run', status: 'rejected', runId: null, actor: null, message: null, savedAt: 1000, action: null, mode: null, event: null, ...fields });
 
 it('shows the rejection explanation from previously saved run receipts', () => {
   localStorage.setItem('helmsman.pull-request.v1:core/pull-requests:result:run:legacy', JSON.stringify({ version: 1, value: {
     input, receipt: { status: 'rejected', runId: 'original-run', message: 'Branch ownership is retained by failed run old-run. Reconcile its ownership before retrying.' },
   } }));
-  expect(storage().results(input.repo, 42)).toEqual(['Saved run result: rejected · original-run — Branch ownership is retained by failed run old-run. Reconcile its ownership before retrying.']);
+  expect(storage().results(input.repo, 42)).toEqual([result({ runId: 'original-run', savedAt: null, message: 'Branch ownership is retained by failed run old-run. Reconcile its ownership before retrying.' })]);
 });
 
-it('keeps legacy saved labels when explanations are absent', () => {
+it('returns run admissions and review publication results independently', () => {
   const saved = storage();
   saved.result('run', input.repo, 'run', { input, receipt: { status: 'accepted', runId: 'run-id' } });
   saved.result('review', input.repo, 'review', { input: { repo: input.repo, number: 42 }, status: 'succeeded', result: { actor: 'reviewer' } });
-  expect(saved.results(input.repo, 42)).toEqual(['Saved run result: accepted · run-id', 'Saved review result: succeeded by reviewer']);
+  expect(saved.results(input.repo, 42)).toEqual([result({ status: 'accepted', runId: 'run-id' }), result({ kind: 'review', status: 'succeeded', actor: 'reviewer' })]);
 });
 
 it('shows review failure reasons as literal text', () => {
   const saved = storage();
   saved.result('review', input.repo, 'review', { input: { repo: input.repo, number: 42 }, status: 'rejected', reason: ' Head changed: <b>refresh</b> & try again. ' });
-  expect(saved.results(input.repo, 42)).toEqual(['Saved review result: rejected — Head changed: <b>refresh</b> & try again.']);
+  expect(saved.results(input.repo, 42)).toEqual([result({ kind: 'review', message: 'Head changed: <b>refresh</b> & try again.' })]);
 });
 
 it('ignores invalid and empty explanations while bounding retained output', () => {
@@ -30,7 +32,7 @@ it('ignores invalid and empty explanations while bounding retained output', () =
   saved.result('run', input.repo, 'invalid', { input, receipt: { status: 'rejected', message: { text: 'unsafe' } } });
   saved.result('run', input.repo, 'blank', { input, receipt: { status: 'rejected', message: '   ' } });
   saved.result('run', input.repo, 'long', { input, receipt: { status: 'rejected', message: 'x'.repeat(3000) } });
-  expect(saved.results(input.repo, 42)).toEqual(['Saved run result: rejected', 'Saved run result: rejected', `Saved run result: rejected — ${'x'.repeat(2048)}`]);
+  expect(saved.results(input.repo, 42)).toEqual([result(), result(), result({ message: 'x'.repeat(2048) })]);
 });
 
 it('keeps saved explanations scoped to their contribution, galleon, and pull request', () => {
@@ -39,7 +41,7 @@ it('keeps saved explanations scoped to their contribution, galleon, and pull req
   saved.result('run', input.repo, 'other-pr', { input: { ...input, launch: { prNumber: 43 } }, receipt: { status: 'rejected', message: 'Other pull request' } });
   saved.result('run', 'org/other', 'other-repo', { input: { ...input, repo: 'org/other' }, receipt: { status: 'rejected', message: 'Other galleon' } });
   new PrStorage('other/pull-requests').result('run', input.repo, 'other-plugin', { input, receipt: { status: 'rejected', message: 'Other contribution' } });
-  expect(saved.results(input.repo, 42)).toEqual(['Saved run result: rejected — Matching request']);
+  expect(saved.results(input.repo, 42)).toEqual([result({ message: 'Matching request' })]);
 });
 
 it('loads old drafts and retains independent review guidance', () => {
@@ -75,4 +77,54 @@ it('prefills new and legacy empty update feedback while preserving edited or exp
   saved.edit(input.repo, 42, 'feedback', '');
   saved.edit(input.repo, 42, 'model', 'opus');
   expect(storage().draft(input.repo, 42).feedback).toBe('');
+});
+
+
+it('includes request intent without confusing admission with execution or recommendation', () => {
+  const saved = storage();
+  saved.result('run', input.repo, 'run', { input: { ...input, action: 'launch', launch: { ...input.launch, mode: 'rerun' } }, receipt: { status: 'accepted', runId: 'run-id' } });
+  saved.result('review', input.repo, 'review', { input: { repo: input.repo, number: 42, event: 'REQUEST_CHANGES' }, status: 'succeeded', result: { actor: 'reviewer' } });
+  expect(saved.results(input.repo, 42)).toEqual([
+    result({ status: 'accepted', runId: 'run-id', action: 'launch', mode: 'rerun' }),
+    result({ kind: 'review', status: 'succeeded', actor: 'reviewer', event: 'REQUEST_CHANGES' }),
+  ]);
+});
+
+it('sorts all matching records newest first before keeping the latest fifty', () => {
+  const saved = storage();
+  for (let index = 0; index < 60; index++) {
+    vi.mocked(Date.now).mockReturnValue(index + 1);
+    saved.result('run', input.repo, String(index), { input, receipt: { status: 'accepted', runId: `run-${index}` } });
+  }
+  const results = saved.results(input.repo, 42);
+  expect(results).toHaveLength(50);
+  expect(results[0]).toEqual(result({ status: 'accepted', runId: 'run-59', savedAt: 60 }));
+  expect(results.at(-1)).toEqual(result({ status: 'accepted', runId: 'run-10', savedAt: 11 }));
+});
+
+it('skips individually malformed entries and keeps valid legacy records without timestamps', () => {
+  const prefix = 'helmsman.pull-request.v1:core/pull-requests:result:run:';
+  for (const [key, value] of Object.entries({ broken: '{', null: 'null', array: '[]', future: JSON.stringify({ version: 2, value: { input } }) })) localStorage.setItem(`${prefix}${key}`, value);
+  localStorage.setItem(`${prefix}legacy`, JSON.stringify({ version: 1, savedAt: 'yesterday', value: { input, receipt: { status: {}, runId: 123, message: [] } } }));
+  const saved = storage();
+  saved.result('run', input.repo, 'valid', { input, receipt: { status: 'accepted', runId: 'run-id' } });
+  expect(saved.results(input.repo, 42)).toEqual([
+    result({ status: 'accepted', runId: 'run-id' }),
+    result({ status: 'unknown', savedAt: null }),
+  ]);
+});
+
+
+it('uses the immutable storage key as identity when newer results reorder history', () => {
+  const saved = storage();
+  const first = { input, receipt: { status: 'accepted', runId: 'run-id' } };
+  saved.result('run', input.repo, 'first', first);
+  const original = saved.results(input.repo, 42)[0];
+  expect(original?.id).toBe('helmsman.pull-request.v1:core/pull-requests:result:run:["org/project","first"]');
+  vi.mocked(Date.now).mockReturnValue(2000);
+  saved.result('run', input.repo, 'newer', { input, receipt: { status: 'rejected' } });
+  expect(saved.results(input.repo, 42)[1]).toEqual(original);
+  expect(saved.results(input.repo, 42)[0]?.id).not.toBe(original?.id);
+  saved.result('run', input.repo, 'first', first);
+  expect(saved.results(input.repo, 42)[1]).toEqual(original);
 });

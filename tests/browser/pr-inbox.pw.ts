@@ -285,11 +285,60 @@ test('shows the saved launch rejection reason as literal text after reload',asyn
   const f=await mockInbox(page);
   await page.addInitScript(()=>localStorage.setItem('helmsman.pull-request.v1:helmsman.compat-pr/panel:result:run:legacy-rejection',JSON.stringify({version:1,value:{input:{repo:'org/b',action:'launch',launch:{mode:'rerun',prNumber:42}},receipt:{status:'rejected',runId:'blocked-run',message:'Retained <worktree> & branch ownership blocks this launch.'}}})));
   await page.goto('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42');
-  const result=page.locator('.pr-saved-result');
-  await expect(result).toHaveText('Saved run result: rejected · blocked-run — Retained <worktree> & branch ownership blocks this launch.');
+  const history=page.locator('.pr-panel .pr-request-history'); const result=history.locator('.pr-saved-result');
+  await expect(history).not.toHaveAttribute('open','');
+  await history.locator(':scope > summary').click(); await expect(result).toContainText('Request rejected');
+  await expect(result.getByRole('button',{name:'Open run',exact:true})).toHaveCount(0);
+  await result.getByText('Request details',{exact:true}).click();
+  await expect(result).toContainText('Retained <worktree> & branch ownership blocks this launch.');
   await expect(result.locator('worktree')).toHaveCount(0);
-  await page.reload(); await expect(result).toContainText('Retained <worktree> & branch ownership blocks this launch.');
+  await page.reload(); await history.locator(':scope > summary').click(); await result.getByText('Request details',{exact:true}).click();
+  await expect(result).toContainText('Retained <worktree> & branch ownership blocks this launch.');
   expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
+});
+
+for (const width of [1440, 390]) test(`keeps saved request evidence scoped and collapsible at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1100 });
+  const f = await mockInbox(page);
+  await page.addInitScript(() => {
+    const prefix = 'helmsman.pull-request.v1:helmsman.compat-pr/panel:result:';
+    const entries = [
+      ['run:accepted', { savedAt: 1791547200000, value: { input: { repo: 'org/b', action: 'launch', launch: { mode: 'review', prNumber: 42 } }, receipt: { status: 'accepted', runId: 'accepted-run', message: 'Review queued for processing.' } } }],
+      ['run:rejected', { savedAt: 1791547260000, value: { input: { repo: 'org/b', action: 'launch', launch: { mode: 'rerun', prNumber: 42 } }, receipt: { status: 'rejected', runId: 'allocated-rejected-run', message: 'Execution resources remain owned by <older-run> & cannot be reused.' } } }],
+      ['review:published', { savedAt: 1791547320000, value: { input: { repo: 'org/b', number: 42, action: 'review', event: 'REQUEST_CHANGES' }, status: 'succeeded', result: { actor: 'reviewer' } } }],
+      ['run:other-scope', { savedAt: 1791547380000, value: { input: { repo: 'org/a', action: 'launch', launch: { mode: 'review', prNumber: 42 } }, receipt: { status: 'accepted', runId: 'other-scope-run' } } }],
+    ] as const;
+    for (const [key, receipt] of entries) localStorage.setItem(`${prefix}${key}`, JSON.stringify({ version: 1, ...receipt }));
+  });
+  await page.goto('/prs?repo=org%2Fa&prRepo=org%2Fb&pr=42');
+  const detail = page.locator('.pr-panel'); const history = detail.locator('.pr-request-history');
+  const summary = history.locator(':scope > summary');
+  await expect(history).not.toHaveAttribute('open', ''); await expect(summary).toContainText('Request history'); await expect(summary.locator('.pr-list-count')).toHaveText('3');
+  await expect(history.locator('.pr-request-body')).toBeHidden(); await expect(page.locator('.plugin-public-pr > .pr-saved-result')).toHaveCount(0);
+  await summary.focus(); await summary.press('Enter'); await expect(history).toHaveAttribute('open', '');
+  const rows = history.locator('.pr-saved-result');
+  await expect(rows).toHaveCount(3); await expect(rows.locator('.pr-request-status')).toHaveText(['Review submitted', 'Request rejected', 'Request accepted']);
+  await expect(rows.nth(0)).toContainText('Submitted to GitHub by reviewer.');
+  await expect(rows.nth(1)).toContainText('Another run still owned this branch or workspace');
+  await expect(history.getByRole('button', { name: 'Open run', exact: true })).toHaveCount(1);
+  await expect(rows.nth(2).getByRole('button', { name: 'Open run', exact: true })).toHaveAttribute('data-run', 'accepted-run');
+  await expect(history).not.toContainText('other-scope-run');
+  const evidence = rows.nth(1).locator('.pr-request-evidence'); const evidenceSummary = evidence.locator(':scope > summary');
+  await expect(evidence).not.toHaveAttribute('open', ''); await expect(evidence.locator('code')).toBeHidden();
+  await evidenceSummary.focus(); await evidenceSummary.press('Space');
+  await expect(evidence).toContainText('Execution resources remain owned by <older-run> & cannot be reused.'); await expect(evidence.locator('older-run')).toHaveCount(0);
+  await expect(evidence.locator('code')).toHaveText('allocated-rejected-run');
+  const refresh = page.getByRole('button', { name: 'Refresh page', exact: true });
+  await refresh.evaluate(element => (element as HTMLButtonElement).click()); await expect(page.locator('.plugin-public-pr')).toHaveAttribute('aria-busy', 'false');
+  await expect(history).toHaveAttribute('open', ''); await expect(evidence).toHaveAttribute('open', ''); await expect(evidenceSummary).toBeFocused();
+  await expectReadableSurfaces(history, ['.pr-request-status', '.pr-request-explanation', '.pr-request-evidence p', '.pr-request-open']);
+  expect(await history.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.setViewportSize({ width, height: 1800 });
+  await history.screenshot({ path: `/tmp/helmsman-request-history-${width}.png` });
+  await summary.focus(); await summary.press('Space');
+  await refresh.evaluate(element => (element as HTMLButtonElement).click()); await expect(page.locator('.plugin-public-pr')).toHaveAttribute('aria-busy', 'false');
+  await expect(history).not.toHaveAttribute('open', ''); await expect(summary).toBeFocused();
+  expect(f.writes).toEqual([]); expect(f.errors).toEqual([]); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 for (const width of [1440, 390]) test(`keeps uncertain review recovery beside launch and emphasizes diff counts at ${width}px`, async ({ page }) => {
@@ -373,12 +422,15 @@ test('reconciles a request acknowledged in another tab without losing the focuse
   const otherRetained = other.locator('[data-pr-retained-actions]');
   await expect(otherRetained).toContainText('Uncertain result');
   await otherRetained.getByRole('button', { name: 'Check original receipt', exact: true }).click();
-  await expect(other.locator('.pr-saved-result')).toContainText('Saved run result: rejected');
+  await other.locator('.pr-request-history > summary').click();
+  await expect(other.locator('.pr-saved-result')).toContainText('Request rejected');
   await expect(otherRetained).toBeHidden();
   await page.bringToFront();
   await expect(retained).toBeHidden({ timeout: 15_000 }); await expect(launch).toBeEnabled();
-  await expect(page.locator('.pr-saved-result')).toContainText('Original request resolved in another tab.');
   await expect(draft).toHaveValue('Keep my current review instructions.'); await expect(draft).toBeFocused();
+  await page.locator('.pr-request-history > summary').click();
+  await page.locator('.pr-request-evidence > summary').click();
+  await expect(page.locator('.pr-saved-result')).toContainText('Original request resolved in another tab.');
   expect(checks).toEqual([`/api/run-commands/${requestId}`]);
   expect(f.writes).toEqual([]); expect(otherFixture.writes).toEqual([]); expect(f.errors).toEqual([]); expect(otherFixture.errors).toEqual([]);
 });

@@ -167,6 +167,23 @@ export const styles = `
 .plugin-public-pr [data-tone=neutral]>.pr-phosphor { color:var(--text-dim); }
 .plugin-public-pr .pr-list-stat { display:inline-flex; align-items:center; gap:5px; }
 .plugin-public-pr .pr-list-notice>.pr-phosphor { margin-right:6px; }
+.plugin-public-pr .pr-request-body { margin-top:12px; }
+.plugin-public-pr .pr-request-list { list-style:none; padding:0; }
+.plugin-public-pr .pr-saved-result { padding:14px 0; min-width:0; }
+.plugin-public-pr .pr-saved-result+.pr-saved-result { border-top:1px solid var(--line); }
+.plugin-public-pr .pr-request-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; }
+.plugin-public-pr .pr-request-row :is(strong,.pr-request-status) { display:inline-flex; align-items:center; gap:6px; }
+.plugin-public-pr .pr-request-status { font-size:13px; font-weight:600; }
+.plugin-public-pr .pr-request-status[data-tone=bad] { color:var(--bad-text,var(--bad)); }
+.plugin-public-pr .pr-request-status[data-tone=good] { color:var(--good-text,var(--good)); }
+.plugin-public-pr .pr-request-status[data-tone=review] { color:var(--review-text,var(--review)); }
+.plugin-public-pr .pr-request-row :is(time,.pr-request-date) { margin-left:auto; color:var(--text-dim); font-size:12px; }
+.plugin-public-pr .pr-request-explanation { margin-top:6px; font-size:14px; }
+.plugin-public-pr .pr-request-open { display:inline-flex; align-items:center; gap:6px; margin-top:8px; font-size:14px; }
+.plugin-public-pr .pr-request-evidence { margin-top:6px; font-size:13px; }
+.plugin-public-pr .pr-request-evidence>summary { min-height:32px; width:fit-content; color:var(--text-dim); gap:6px; }
+.plugin-public-pr .pr-request-evidence p { margin-top:6px; white-space:pre-wrap; }
+.plugin-public-pr .pr-request-evidence code { overflow-wrap:anywhere; }
 @media(max-width:700px) { .plugin-public-pr .pr-inbox { grid-template-columns:1fr; } .plugin-public-pr .pr-lookup-form { flex-wrap:wrap; } .plugin-public-pr .pr-lookup-form label { flex-basis:100%; } .plugin-public-pr .pr-evidence-row { gap:6px; } .plugin-public-pr .pr-evidence-row h4 { flex-basis:100%; } }
 @media(any-pointer:coarse) { .plugin-public-pr :is(button,input,select,summary),.plugin-public-pr .pr-provenance summary,.plugin-public-pr .pr-stat-preview>summary,.plugin-public-pr .pr-evidence-more>summary { min-height:44px; } }
 `;

@@ -1,5 +1,9 @@
 export interface Draft { body: string; feedback: string; guidance?: string; model: string; effort: string; }
 export interface ReviewSettings { model: string; effort: string; }
+export interface SavedPrResult {
+  id: string; kind: 'run' | 'review'; status: string; runId: string | null; actor: string | null; message: string | null;
+  savedAt: number | null; action: string | null; mode: string | null; event: string | null;
+}
 export const DEFAULT_BRANCH_FEEDBACK = 'update the pr using the provided comment feedback.';
 const empty = (): Draft => ({ body: '', feedback: DEFAULT_BRANCH_FEEDBACK, guidance: '', model: '', effort: '' });
 const listeners = new Set<(source: PrStorage | null) => void>();
@@ -28,20 +32,27 @@ export class PrStorage {
     localStorage.setItem(this.key(repo, number), JSON.stringify({ version: 2, draft }));
     for (const listener of listeners) listener(this); return draft;
   }
-  results(repo: string, number: number): string[] {
-    const result: string[] = [];
+  results(repo: string, number: number): SavedPrResult[] {
+    const result: SavedPrResult[] = [];
+    const text = (value: unknown, maximum: number): string | null => typeof value === 'string' && value.trim() ? value.trim().slice(0, maximum) : null;
     for (let index = 0; index < localStorage.length; index++) {
-      const key = localStorage.key(index); if (!key?.startsWith(`${this.prefix}result:`)) continue;
+      const key = localStorage.key(index);
+      const kind = key?.startsWith(`${this.prefix}result:run:`) ? 'run' : key?.startsWith(`${this.prefix}result:review:`) ? 'review' : null;
+      if (!kind || !key) continue;
       const raw = localStorage.getItem(key); if (!raw || raw.length > 200_000) continue;
-      const saved = JSON.parse(raw) as { version?: number; value?: { input?: { repo?: string; number?: number; launch?: { prNumber?: number } }; status?: string; reason?: unknown; result?: { actor?: string }; receipt?: { status?: string; runId?: string | null; message?: unknown } } };
-      const value = saved?.version === 1 ? saved.value : null;
+      let saved: unknown; try { saved = JSON.parse(raw); } catch { continue; }
+      if (!saved || typeof saved !== 'object' || Array.isArray(saved)) continue;
+      const data = saved as { version?: unknown; savedAt?: unknown; value?: { input?: { repo?: unknown; number?: unknown; action?: unknown; event?: unknown; launch?: { prNumber?: unknown; mode?: unknown } }; status?: unknown; reason?: unknown; result?: { actor?: unknown }; receipt?: { status?: unknown; runId?: unknown; message?: unknown } } };
+      const value = data.version === 1 ? data.value : null;
       if (value?.input?.repo !== repo || (value.input.number ?? value.input.launch?.prNumber) !== number) continue;
-      const reason = value.receipt ? value.receipt.message : value.reason;
-      const explanation = typeof reason === 'string' && reason.trim() ? ` — ${reason.trim().slice(0, 2048)}` : '';
-      result.push((value.receipt ? `Saved run result: ${value.receipt.status ?? 'unknown'}${value.receipt.runId ? ` · ${value.receipt.runId}` : ''}` : `Saved review result: ${value.status ?? 'unknown'}${value.result?.actor ? ` by ${value.result.actor}` : ''}`) + explanation);
-      if (result.length >= 50) break;
+      result.push({ id: key, kind, status: text(kind === 'run' ? value.receipt?.status : value.status, 64) ?? 'unknown',
+        runId: kind === 'run' ? text(value.receipt?.runId, 128) : null,
+        actor: kind === 'review' ? text(value.result?.actor, 256) : null,
+        message: text(kind === 'run' ? value.receipt?.message : value.reason, 2048),
+        savedAt: typeof data.savedAt === 'number' && Number.isFinite(data.savedAt) && data.savedAt >= 0 ? data.savedAt : null,
+        action: text(value.input.action, 64), mode: text(value.input.launch?.mode, 64), event: text(value.input.event, 64) });
     }
-    return result;
+    return result.sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0)).slice(0, 50);
   }
   result(kind: 'review' | 'run', repo: string, requestId: string, value: unknown): void {
     const key = `${this.prefix}result:${kind}:${JSON.stringify([repo, requestId])}`;

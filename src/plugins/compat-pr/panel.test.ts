@@ -133,7 +133,7 @@ it('pins original review input through uncertain result, changed draft/head and 
   vi.mocked(service.acknowledge).mockImplementation(async () => { expect(Object.values(localStorage).some(value => value.includes('authenticated-user'))).toBe(true); f.reviewPending.splice(0); });
   click(f.container, '[data-retry="true"][data-pending-kind="review"]'); await vi.waitFor(() => expect(service.acknowledge).toHaveBeenCalled());
   expect(service.retry).toHaveBeenCalledWith({ repo: 'org/b', requestId }, expect.any(AbortSignal)); expect(input.expectedHeadSha).toBe(head); expect(input.body).toBe('Original review');
-  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Newer unsent draft'); expect(f.container.textContent).toContain('Saved review result: succeeded by authenticated-user');
+  expect(f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')?.value).toBe('Newer unsent draft'); expect(f.container.textContent).toContain('Submitted to GitHub by authenticated-user.');
 });
 it('retains terminal receipt without acknowledgment when result storage fails', async () => {
   const f = await fixture(); await ready(f); const service = f.context.services.pullRequestCommands!;
@@ -571,7 +571,7 @@ it.each(['run', 'review'] as const)('reconciles another tab’s acknowledged %s 
   const control = f.container.querySelector<HTMLTextAreaElement>('.pr-review-body')!; control.setSelectionRange(5, 7);
   localStorage.setItem('helmsman.pull-request.v1:helmsman.compat-pr/panel:result:run:other-tab', JSON.stringify({ version: 1, value: { input: { repo: 'org/b', launch: { prNumber: 42 } }, receipt: { status: 'accepted', runId: 'other-tab-run' } } }));
   pollRequests(f);
-  await vi.waitFor(() => expect(f.container.textContent).toContain('Saved run result: accepted'));
+  await vi.waitFor(() => expect(f.container.textContent).toContain('Request accepted'));
   expect(f.container.querySelector('[data-pr-retained-actions]')?.textContent).toContain('Uncertain result');
   expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true);
   pending = false; pollRequests(f);
@@ -642,4 +642,25 @@ it('keeps explicitly cleared update feedback empty through refresh and reload an
   expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled();
   f.lifetime.abort(); const next = await fixture(); await ready(next);
   expect(next.container.querySelector<HTMLTextAreaElement>('.pr-rerun-feedback')?.value).toBe('');
+});
+
+
+it('groups saved request acknowledgments inside the selected PR and preserves disclosure state', async () => {
+  const prefix = 'helmsman.pull-request.v1:helmsman.compat-pr/panel:result:run:';
+  localStorage.setItem(`${prefix}accepted`, JSON.stringify({ version: 1, savedAt: 200, value: { input: { repo: 'org/b', launch: { mode: 'review', prNumber: 42 } }, receipt: { status: 'accepted', runId: 'accepted-run' } } }));
+  localStorage.setItem(`${prefix}rejected`, JSON.stringify({ version: 1, savedAt: 100, value: { input: { repo: 'org/b', launch: { mode: 'rerun', prNumber: 42 } }, receipt: { status: 'rejected', runId: 'unlaunched-id', message: 'Execution resources remain owned by old-run' } } }));
+  const f = await fixture(); await ready(f);
+  const history = f.container.querySelector<HTMLDetailsElement>('.pr-panel .pr-request-history')!;
+  expect(history).not.toBeNull(); expect(history.open).toBe(false);
+  expect(history.textContent).toContain('not current run status');
+  const rows = history.querySelectorAll('.pr-saved-result');
+  expect(rows[0]?.textContent).toContain('Agent review'); expect(rows[0]?.textContent).toContain('Request accepted');
+  expect(rows[1]?.textContent).toContain('Another run still owned this branch or workspace when this request was sent.');
+  expect(rows[1]?.querySelector('[data-run]')).toBeNull();
+  history.open = true;
+  click(f.container, '.pr-request-history [data-run]');
+  expect(f.context.selectPresentation).toHaveBeenCalledWith({ version: 1, kind: 'run', repo: 'org/b', runId: 'accepted-run' });
+  await f.instance.update({ ...f.state() });
+  expect(f.container.querySelector<HTMLDetailsElement>('.pr-request-history')?.open).toBe(true);
+  expect(f.container.textContent).not.toContain('Saved run result:');
 });

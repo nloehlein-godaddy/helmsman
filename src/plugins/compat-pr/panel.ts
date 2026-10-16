@@ -7,6 +7,7 @@ import { styles } from './styles.js';
 import { attachEvidenceInteractions } from './evidence-interactions.js';
 import { readRecommendation, clearRecommendation, type ReviewRecommendation } from './recommendation.js';
 import { latestRecommendation } from './latest-recommendation.js';
+import { renderRequestHistory } from './request-history.js';
 function selection(state: PluginPanelState): { target: Identity; mode: 'review' | 'rerun' | null; pane: string | null; recommendationId?: string | null } | null {
   const value = state.routeState?.version === 1 ? state.routeState.value : null;
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -384,7 +385,7 @@ class PrPanel implements PluginPanelInstance {
   }
   private savedResults() {
     if (!this.selected) return '';
-    try { return this.storage.results(this.selected.repo, this.selected.number).map(value => `<p class="pr-saved-result">${esc(value)}</p>`).join(''); }
+    try { return renderRequestHistory(this.storage.results(this.selected.repo, this.selected.number), this.selected); }
     catch { return '<p role="alert">Saved command results unavailable. Existing evidence is kept.</p>'; }
   }
   private reviewLaunchBlocked() {
@@ -425,7 +426,8 @@ class PrPanel implements PluginPanelInstance {
       ${this.unsupported ? '<p role="alert">Saved panel state uses an unsupported format. Its original data is kept.</p>' : ''}<p role="alert" data-storage-error>${esc(this.storageError)}</p><button data-save-draft${this.storageError ? '' : ' hidden'}>Save current draft</button>${this.error ? `<p role="alert" class="pr-review-error">${prIcon('bad')}${esc(this.error)}</p>` : ''}${this.result ? `<p role="status" class="pr-command-result">${esc(this.result)}</p>` : ''}
       <section class="pr-lookup-panel panel" data-pr-pane="lookup"><div class="pr-lookup-heading"><h3>${prIcon('inspect')}${this.state.pirateMode ? 'Inspect a bounty' : 'Review a PR'}</h3>${this.selected || this.closePending ? '<button data-close-inspection>Close inspection</button>' : ''}</div>${this.state.activity.repo !== headerRepo ? `<p class="pr-scope-override">Inspection scope: ${esc(this.state.activity.repo ?? (this.state.pirateMode ? 'All galleons' : 'All repositories'))}</p>` : ''}<div class="pr-lookup-form"><label class="interface-field">Pull request number, URL or owner/name#number<input class="pr-lookup-input" data-pr-compat-lookup placeholder="PR number, #number, URL or owner/name#number" value="${esc(this.lookup)}"></label><button class="pr-lookup-go" data-load>${prIcon('inspect')}Load ${this.state.pirateMode ? 'bounty' : 'PR'}</button></div><div class="pr-lookup-result">${this.detail ? renderDetail(this.detail, this.draft, headerRepo, this.state.pirateMode, this.slackConnected, this.diff) : this.selected ? `<p class="empty-note" role="status">${this.loading ? 'Loading pull request…' : `Pull request unavailable. ${refreshLabel} to retry.`}</p>` : ''}</div></section>
       <div class="pr-inbox">${renderList('review-requested', this.lists.requested, this.listErrors.requested, this.state.pirateMode, refreshLabel)}${renderList('authored-recent', this.lists.authored, this.listErrors.authored, this.state.pirateMode, refreshLabel, this.authoredState)}</div>${renderRuns(this.runs, this.moreRuns, this.runsError, this.state.pirateMode)}
-      <section aria-label="Retained pull request commands">${this.pendingMarkup()}</section><section aria-label="Saved command results">${this.savedResults()}</section></section>`;
+      <section aria-label="Retained pull request commands">${this.pendingMarkup()}</section></section>`;
+    (this.container.querySelector('.pr-panel') ?? this.container.querySelector('.pr-lookup-result'))?.insertAdjacentHTML('beforeend', this.savedResults());
     const retained = this.container.querySelector<HTMLElement>('[data-pr-retained-actions]'); if (retained) { retained.innerHTML = this.pendingMarkup(true); retained.hidden = !retained.innerHTML; }
     const recent = this.runsError ? null : latestRecommendation(this.recommendationRuns, this.selected);
     if (recent?.review && this.detail) {
