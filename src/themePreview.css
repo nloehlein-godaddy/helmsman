@@ -96,6 +96,8 @@
 
 .custom-theme-editor { display: grid; gap: 20px; padding-block: 20px; border-block: 1px solid var(--line-faint); }
 .custom-theme-heading { display: grid; gap: 6px; }
+.custom-theme-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.custom-theme-title button { min-height: 44px; }
 .custom-theme-heading h3 { margin: 0; font: 600 15px/1.4 var(--sans); color: var(--text); }
 .custom-theme-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .custom-theme-harmony-row { display: flex; gap: 8px; align-items: center; }

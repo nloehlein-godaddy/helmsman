@@ -321,6 +321,8 @@ export class DashboardView {
       const output = this.root.querySelector<HTMLOutputElement>(`[data-custom-theme-setting-output="${key}"]`);
       if (output) output.textContent = `${this.customTheme.recipe.settings[key]}${key === 'hue' ? '°' : '%'}`;
     }
+    const harmony = this.root.querySelector<HTMLSelectElement>('[data-custom-theme-harmony]');
+    if (harmony) harmony.value = this.customTheme.recipe.settings.harmony;
     this.themeColorWheel.sync();
   }
 
@@ -967,6 +969,20 @@ export class DashboardView {
     const pirateToggle = target.closest<HTMLButtonElement>('[data-pirate-mode]');
     if (pirateToggle) {
       if (!pirateToggle.disabled) this.changePirateMode(!isPirateMode(), pirateToggle.dataset.pirateMode);
+      return;
+    }
+    const randomTheme = target.closest<HTMLButtonElement>('[data-custom-theme-random]');
+    if (randomTheme) {
+      if (!randomTheme.disabled) {
+        const harmonies = THEME_HARMONIES.filter(({ value }) => value !== 'palette' || this.customTheme.recipe.sourcePalette);
+        this.customTheme.recipe.settings = {
+          hue: Math.floor(Math.random() * 360),
+          saturation: Math.floor(Math.random() * 101),
+          brightness: Math.floor(Math.random() * 101),
+          harmony: harmonies[Math.floor(Math.random() * harmonies.length)]?.value ?? DEFAULT_THEME_GENERATOR_SETTINGS.harmony,
+        };
+        this.previewCustomTheme();
+      }
       return;
     }
     const appearance = target.closest<HTMLButtonElement>('[data-custom-theme-mode]');

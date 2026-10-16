@@ -69,6 +69,37 @@ async function themeVars(page: Page) {
   return page.evaluate(() => Object.fromEntries(['--bg', '--accent', '--secondary', '--text', '--control-bg', '--input-text', '--input-placeholder', '--input-accent', '--bad', '--good', '--review', '--queued'].map(key => [key, document.documentElement.style.getPropertyValue(key)])));
 }
 
+for (const width of [1440, 390]) test(`random theme previews and saves synchronized settings at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1100 });
+  await mockConfig(page);
+  await page.goto('/config?repo=org%2Fa');
+  const editor = page.locator('[data-custom-theme-editor]');
+  const random = editor.getByRole('button', { name: 'Random theme', exact: true });
+  const before = await themeVars(page);
+  await random.focus();
+  await random.evaluate(button => {
+    if (!(button instanceof HTMLButtonElement)) throw new Error('Missing Random theme button');
+    const original = Math.random; const values = [0.75, 0.7, 0.6, 0.5];
+    Math.random = () => values.shift() ?? 0;
+    try { button.click(); } finally { Math.random = original; }
+  });
+  await expect(random).toBeFocused();
+  await expectWheelSelection(editor, 270, 60);
+  await expect(editor.locator('[data-custom-theme-setting="saturation"]')).toHaveValue('70');
+  await expect(editor.locator('[data-custom-theme-harmony]')).toHaveValue('square');
+  await expect(editor.locator('[data-custom-theme-mode]')).toHaveAttribute('aria-pressed', 'true');
+  expect(await themeVars(page)).not.toEqual(before);
+  expect(await storedTheme(page)).toBeNull();
+  await expect(editor.locator('[data-custom-theme-discard]')).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await editor.locator('.custom-theme-heading').screenshot({ path: `test-results/browser/random-theme-${width}.png` });
+  await editor.getByRole('button', { name: 'Save theme', exact: true }).click();
+  expect((await storedTheme(page))?.recipe?.settings).toEqual({ hue: 270, saturation: 70, brightness: 60, harmony: 'square' });
+  await page.reload();
+  await expectWheelSelection(editor, 270, 60);
+  await expect(editor.locator('[data-custom-theme-harmony]')).toHaveValue('square');
+});
+
 for (const width of [1440, 390]) test(`color wheel drag, keyboard, rendering and saved recipe stay synchronized at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1100 });
   await page.addInitScript(() => {
