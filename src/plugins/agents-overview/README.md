@@ -4,12 +4,10 @@ Config → Agents overview opens `/agents-overview`, a read-only guide to Helmsm
 
 This page-only plugin imports the public SDK and its own modules. It requires no host services, backend provider, panels, or composition layout. The shipped page slot is `helmsman/agents-overview-page`; the canonical contribution is `helmsman.agents-overview/page`.
 
-The distribution includes this source at `plugin-sources/agents-overview`. To build an independent copy, install the distributed SDK and TypeScript, then run:
+The distribution includes this source at `plugin-sources/agents-overview`. To build an independent copy, first change the source `plugin-package.json` descriptor's `helmsman.*` ID to your own namespace. The built-in namespace is reserved and cannot be packed as an external plugin. Then install the distributed SDK and TypeScript, build, and pack:
 
 ```sh
 npm install --save-dev /absolute/path/to/release/sdk typescript
 npm run build
 node /absolute/path/to/release/server/helmsman/plugins/cli.js pack ./dist ./agents-overview.hmp
 ```
-
-Change the descriptor's `helmsman.*` ID to your own namespace before installing an external copy. The built-in namespace is reserved.
