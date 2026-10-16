@@ -416,7 +416,7 @@ class PrPanel implements PluginPanelInstance {
     const disclosureKey = (detail: HTMLDetailsElement) => detail.dataset.prDisclosure ?? detail.querySelector('.diff-file-name')?.textContent ?? null;
     const disclosures = new Map([...this.container.querySelectorAll<HTMLDetailsElement>('details')].flatMap(detail => { const key = disclosureKey(detail); return key === null ? [] : [[key, detail.open] as const]; }));
     const selectedFocus = focused?.dataset.selectRepo ? [focused.dataset.selectRepo, focused.dataset.selectNumber] : null;
-    const runFocus = focused?.dataset.run;
+    const runFocus = focused?.dataset.run ? { runId: focused.dataset.run, historyEntry: focused.dataset.historyEntry } : null;
     const authoredFocus = focused?.dataset.authoredState;
     const disclosureFocus = focused?.matches('summary') && focused.parentElement instanceof HTMLDetailsElement ? disclosureKey(focused.parentElement) : null;
     const composed = this.container.closest('[data-composition-page]') !== null;
@@ -462,7 +462,7 @@ class PrPanel implements PluginPanelInstance {
     const next = field ? this.container.querySelector<HTMLTextAreaElement>(`[data-draft="${field}"]`) : lookupFocus ? this.container.querySelector<HTMLInputElement>('[data-pr-compat-lookup]') : null;
     if (next) { next.focus({ preventScroll: true }); if (selection && (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement)) next.setSelectionRange(...selection); }
     if (selectedFocus) [...this.container.querySelectorAll<HTMLElement>('[data-select-repo]')].find(control => control.dataset.selectRepo === selectedFocus[0] && control.dataset.selectNumber === selectedFocus[1])?.focus({ preventScroll: true });
-    if (runFocus) [...this.container.querySelectorAll<HTMLElement>('[data-run]')].find(control => control.dataset.run === runFocus)?.focus({ preventScroll: true });
+    if (runFocus) [...this.container.querySelectorAll<HTMLElement>('[data-run]')].find(control => control.dataset.run === runFocus.runId && control.dataset.historyEntry === runFocus.historyEntry)?.focus({ preventScroll: true });
     if (authoredFocus) [...this.container.querySelectorAll<HTMLElement>('[data-authored-state]')].find(control => control.dataset.authoredState === authoredFocus)?.focus({ preventScroll: true });
     if (disclosureFocus) [...this.container.querySelectorAll<HTMLDetailsElement>('details')].find(detail => disclosureKey(detail) === disclosureFocus)?.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
     if (action) [...this.container.querySelectorAll<HTMLElement>(`[${action[0]}]`)].find(control => control.getAttribute(action[0]!) === action[1])?.focus({ preventScroll: true });

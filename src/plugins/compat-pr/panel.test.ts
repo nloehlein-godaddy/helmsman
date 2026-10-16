@@ -664,3 +664,20 @@ it('groups saved request acknowledgments inside the selected PR and preserves di
   expect(f.container.querySelector<HTMLDetailsElement>('.pr-request-history')?.open).toBe(true);
   expect(f.container.textContent).not.toContain('Saved run result:');
 });
+
+it('keeps run-button focus in its original section when history contains the same run', async () => {
+  localStorage.setItem('helmsman.pull-request.v1:helmsman.compat-pr/panel:result:run:duplicate', JSON.stringify({ version: 1, value: { input: { repo: 'org/b', launch: { prNumber: 42 } }, receipt: { status: 'accepted', runId: 'shared-run' } } }));
+  const f = await fixture({}, context => {
+    vi.mocked(context.services.runs!.list).mockImplementation(async query => available({ version: 1, repo: query.repo, items: [{ version: 1, id: 'shared-run', repo: 'org/b', prNumber: 42, displayKey: 'review', status: 'succeeded', attempt: 1, startedAt: detail.observedAt, endedAt: detail.observedAt, costUsd: null, sourceSettlement: null, review: null }], nextCursor: null }));
+  });
+  await ready(f);
+  const recent = f.container.querySelector<HTMLDetailsElement>('.pr-recent-runs')!; recent.open = true;
+  f.container.querySelector<HTMLButtonElement>('.pr-recent-runs [data-run]')!.focus();
+  await f.instance.update({ ...f.state() });
+  expect(document.activeElement).toBe(f.container.querySelector('.pr-recent-runs [data-run]'));
+  const history = f.container.querySelector<HTMLDetailsElement>('.pr-request-history')!;
+  expect(history.open).toBe(false); history.open = true;
+  f.container.querySelector<HTMLButtonElement>('.pr-request-history [data-run]')!.focus();
+  await f.instance.update({ ...f.state() });
+  expect(document.activeElement).toBe(f.container.querySelector('.pr-request-history [data-run]'));
+});
