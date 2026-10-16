@@ -17,8 +17,6 @@
   },
   "include": [
     "page.ts",
-    "panel.ts",
-    "state.ts",
-    "styles.ts"
+    "panel.ts"
   ]
 }

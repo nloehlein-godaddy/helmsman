@@ -10,6 +10,7 @@ import type { PluginPageServices } from './services';
 import type { PresentationLocatorV1, PullRequestRouteV1 } from './presentation';
 export * from './presentation';
 export * from './loading-wheel';
+export * from './agent-prompt-editor';
 import type { CompositionServiceV1, PageCompositionDefinitionV1, PanelOpaqueStateV1, PluginPanelDefinition, PluginServiceRequirementV1 } from './composition';
 export * from './composition';
 export type { PluginPageServices } from './services';

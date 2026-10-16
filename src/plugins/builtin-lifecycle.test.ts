@@ -21,11 +21,11 @@ beforeEach(() => { vi.resetModules(); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('shipped frontend plugin lifecycle', () => {
-  it('registers the read-only Agents overview without panels and retains its route when disabled', async () => {
+  it('registers Agents overview with prompt settings and no panels, retaining its route when disabled', async () => {
     const app = await setup(); const metadata = entries(['helmsman.agents-overview']);
     app.syncBuiltinFrontend(metadata, false);
     expect(app.appPages.resolvePath('/agents-overview')).toMatchObject({ contributionId: app.AGENTS_OVERVIEW_PAGE_ID,
-      slotId: app.AGENTS_OVERVIEW_PAGE_SLOT, page: { title: 'Agents overview', requires: [] } });
+      slotId: app.AGENTS_OVERVIEW_PAGE_SLOT, page: { title: 'Agents overview', requires: [{ id: 'helmsman/agent-prompts', version: 1 }] } });
     expect(app.appPages.resolvePath(`/plugins/${app.AGENTS_OVERVIEW_PAGE_ID}`)?.page?.title).toBe('Agents overview');
     expect(app.appPageModules.get(app.AGENTS_OVERVIEW_PAGE_ID)).not.toBeNull();
     expect(app.panels.get('helmsman.agents-overview/panel')).toBeNull();

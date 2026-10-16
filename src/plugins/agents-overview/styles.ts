@@ -42,6 +42,20 @@ export const styles = `
 .agents-overview .overview-loop { display:flex; align-items:flex-start; gap:10px; color:var(--text-dim); font-size:13px; }
 .agents-overview .overview-loop svg { width:18px; height:18px; margin-top:2px; }
 .agents-overview .overview-role-detail { background:var(--panel-2); padding:22px; border:1px solid var(--line); border-radius:12px; display:grid; gap:16px; }
+.agents-overview .overview-detail-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+.agents-overview .overview-edit-prompt { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 12px; font-size:14px; }
+.agents-overview .overview-edit-prompt svg { width:17px; height:17px; }
+.overview-prompt-dialog { width:min(880px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); padding:0; box-sizing:border-box; border:1px solid var(--line-strong); border-radius:12px; background:var(--panel); color:var(--text); }
+.overview-prompt-dialog[open] { display:flex; flex-direction:column; }
+.overview-prompt-dialog::backdrop { background:rgb(0 0 0 / .65); }
+.overview-prompt-header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; border-bottom:1px solid var(--line); background:var(--panel-hi); }
+.overview-prompt-header h2 { margin:0; font-size:20px; line-height:1.35; }
+.overview-prompt-header>div { display:flex; gap:8px; flex-shrink:0; }
+.overview-prompt-header button { display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px; padding:10px; }
+.overview-prompt-header svg { width:20px; height:20px; }
+.overview-prompt-dialog :is(button,textarea,summary):focus-visible { outline:2px solid var(--accent-text,var(--accent)); outline-offset:3px; }
+.overview-prompt-body { overflow:auto; min-height:0; overscroll-behavior:contain; }
+@media(max-width:560px) { .overview-prompt-header { padding:12px; gap:12px; } .overview-prompt-header h2 { font-size:18px; } }
 .agents-overview .overview-role-detail>p { font-size:14px; color:var(--text-dim); }
 .agents-overview .overview-role-detail dl { display:grid; gap:16px; margin:0; }
 .agents-overview dt { font-weight:600; font-size:13px; margin-bottom:4px; }

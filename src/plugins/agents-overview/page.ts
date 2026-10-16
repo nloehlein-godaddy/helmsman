@@ -1,4 +1,5 @@
-import type { PluginPageModule } from '@helmsman/plugin-sdk';
+import { createAgentPromptEditorV1 } from '@helmsman/plugin-sdk';
+import type { AgentPromptEditorV1, PluginPageModule } from '@helmsman/plugin-sdk';
 import { flows, roles, type FlowId, type RoleId } from './content.js';
 import { styles } from './styles.js';
 
@@ -14,6 +15,9 @@ const paths = {
   chevron: '<path d="m9 5 7 7-7 7"/>',
   board: '<path d="M3 3h18v14H3zm9 14v5m-5 0h10M7 12l3-3 3 2 4-5"/>',
   search: '<circle cx="10" cy="10" r="7"/><path d="m15 15 7 7"/>',
+  edit: '<path d="m15 4 5 5M4 20l4-1L20 7a2 2 0 0 0-3-3L5 16l-1 4Z"/>',
+  refresh: '<path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
 } as const;
 const icon = (name: keyof typeof paths, className = '') => `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
 const roleIcon = (id: RoleId) => id === 'coding.implement' || id === 'branch.author' ? 'code' : id === 'coding.fix' ? 'fix' : 'review';
@@ -25,14 +29,45 @@ const page: PluginPageModule = { mount(container, context) {
   let flow: FlowId = 'coding';
   let selected: RoleId = 'coding.implement';
   let disposed = false;
+  let modal: { dialog: HTMLDialogElement; editor: AgentPromptEditorV1; controller: AbortController } | null = null;
   const detailId = `agent-role-${crypto.randomUUID()}`;
   const scope = () => state.repo ? `?repo=${encodeURIComponent(state.repo)}` : '';
   function paintDetail() {
     const detail = container.querySelector<HTMLElement>('[data-role-detail]');
     if (!detail) return;
     const role = roles[selected];
-    detail.innerHTML = `<h3>${role.title}</h3><p>${role.job}</p><dl><div><dt>Starts with</dt><dd>${role.input}</dd></div><div><dt>Produces</dt><dd>${role.output}</dd></div><div><dt>What happens next</dt><dd>${role.handoff}</dd></div></dl>`;
+    detail.innerHTML = `<div class="overview-detail-header"><h3>${role.title}</h3><button type="button" class="overview-edit-prompt" data-edit-prompt${context.services?.agentPrompts?.version === 1 ? '' : ' disabled title="Prompt settings are unavailable"'}>${icon('edit')}Edit prompt</button></div><p>${role.job}</p><dl><div><dt>Starts with</dt><dd>${role.input}</dd></div><div><dt>Produces</dt><dd>${role.output}</dd></div><div><dt>What happens next</dt><dd>${role.handoff}</dd></div></dl>`;
     for (const button of container.querySelectorAll<HTMLButtonElement>('[data-role]')) button.setAttribute('aria-pressed', String(button.dataset.role === selected));
+  }
+  function closePrompt(restoreFocus = true) {
+    const current = modal;
+    if (!current) return;
+    modal = null;
+    current.controller.abort(); current.editor.dispose(); current.dialog.close(); current.dialog.remove();
+    if (restoreFocus && !disposed && state.visible) container.querySelector<HTMLButtonElement>('[data-edit-prompt]')?.focus({ preventScroll: true });
+  }
+  function editPrompt() {
+    const service = context.services?.agentPrompts;
+    if (modal || service?.version !== 1) return;
+    const dialog = document.createElement('dialog');
+    dialog.className = 'overview-prompt-dialog';
+    const titleId = `${detailId}-prompt-title`;
+    dialog.setAttribute('aria-labelledby', titleId);
+    dialog.innerHTML = `<header class="overview-prompt-header"><h2 id="${titleId}">Edit ${roles[selected].title} prompt</h2><div><button type="button" data-refresh-prompt title="Refresh prompt" aria-label="Refresh prompt">${icon('refresh')}</button><button type="button" data-close-prompt title="Close prompt editor" aria-label="Close prompt editor" autofocus>${icon('close')}</button></div></header><div class="overview-prompt-body" data-prompt-editor></div>`;
+    const host = dialog.querySelector<HTMLElement>('[data-prompt-editor]');
+    if (!host) return;
+    const controller = new AbortController();
+    const editor = createAgentPromptEditorV1(host, { service, signal: AbortSignal.any([context.signal, controller.signal]), contributionId: context.contributionId ?? 'helmsman.agents-overview/page', instanceId: 'role-prompt', fixedRoleId: selected, state: { active: state.visible, pirateMode: state.pirateMode, signal: controller.signal } });
+    modal = { dialog, editor, controller };
+    dialog.querySelector('[data-close-prompt]')?.addEventListener('click', () => closePrompt());
+    dialog.querySelector('[data-refresh-prompt]')?.addEventListener('click', () => { void editor.refresh(); });
+    dialog.addEventListener('close', () => closePrompt());
+    dialog.addEventListener('click', event => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) closePrompt();
+    });
+    container.append(dialog); dialog.showModal();
   }
   function paintFlow() {
     const map = container.querySelector<HTMLElement>('[data-flow-map]');
@@ -60,7 +95,8 @@ const page: PluginPageModule = { mount(container, context) {
   function click(event: MouseEvent) {
     if (!(event.target instanceof Element) || disposed || context.signal.aborted || !state.visible) return;
     const button = event.target.closest<HTMLButtonElement>('button');
-    if (button?.dataset.flow && Object.hasOwn(flows, button.dataset.flow)) {
+    if (button?.hasAttribute('data-edit-prompt') && !button.disabled) editPrompt();
+    else if (button?.dataset.flow && Object.hasOwn(flows, button.dataset.flow)) {
       flow = button.dataset.flow as FlowId;
       selected = flows[flow].stages[0] ?? 'coding.implement';
       paintFlow();
@@ -75,11 +111,11 @@ const page: PluginPageModule = { mount(container, context) {
   }
   function dispose() {
     if (disposed) return;
-    disposed = true; container.removeEventListener('click', click); context.signal.removeEventListener('abort', dispose); container.replaceChildren();
+    disposed = true; closePrompt(false); container.removeEventListener('click', click); context.signal.removeEventListener('abort', dispose); container.replaceChildren();
   }
   container.addEventListener('click', click);
   context.onDispose(dispose); context.signal.addEventListener('abort', dispose, { once: true });
   if (context.signal.aborted) dispose(); else paint();
-  return { update(next) { const changed = state.repo !== next.repo; state = next; if (changed) paint(); }, dispose };
+  return { update(next) { const changed = state.repo !== next.repo; state = next; if (changed || !state.visible) closePrompt(false); else if (modal) modal.editor.update({ active: state.visible, pirateMode: state.pirateMode, signal: modal.controller.signal }); if (changed) paint(); }, dispose };
 } };
 export default page;

@@ -10,7 +10,7 @@
       "title": "Agents overview",
       "slots": ["helmsman/agents-overview-page"],
       "panes": [],
-      "requires": []
+      "requires": [{ "id": "helmsman/agent-prompts", "version": 1 }]
     }],
     "panels": []
   },
