@@ -185,7 +185,7 @@ it('highlights both feedback states with labels, icons, semantic roles and an ac
   const node = mount(renderList('authored-recent', { ...feedbackPage, items: [item] }, '', true));
   expect(node.querySelector('.pr-list-row')?.getAttribute('data-feedback')).toBe('changes');
   const badges = [...node.querySelectorAll('.pr-feedback-badge')]; expect(badges.map(badge => badge.textContent)).toEqual(['Changes requested', 'New comments']);
-  expect(badges.map(badge => badge.getAttribute('data-tone'))).toEqual(['bad', 'review']);
+  expect(badges.map(badge => badge.getAttribute('data-tone'))).toEqual(['bad', 'queued']);
   expect(badges[1]?.getAttribute('title')).toContain('after the latest commit');
   expect(node.querySelector('.pr-list-select')?.getAttribute('aria-label')).toContain('Changes requested · New comments');
   expect(badges.every(badge => badge.querySelector('.pr-phosphor')?.getAttribute('aria-hidden') === 'true')).toBe(true);

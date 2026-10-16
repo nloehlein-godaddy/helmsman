@@ -59,4 +59,4 @@ PR REQUEST HISTORY: Browser-saved acknowledgments sit in a collapsed Request his
 
 VOYAGE CHOOSER: Empty-viewer choices have distinct Phosphor run-kind icons, semantic worker status badges, subordinate galleon metadata and separate review/feedback outcome labels. Preserve literal titles, full-row keyboard selection, header scope and existing selection restoration. Mobile rows wrap without horizontal overflow.
 
-REVIEW-REQUEST CONTEXT: Review-request rows show the PR author beside the number. Open requests with complete personal review history and no submitted review use a blue “Not reviewed” badge instead of “New comments”; reviewed requests retain comment freshness, and unavailable history never implies an unreviewed PR. Changes requested remains independent.
+REVIEW-REQUEST CONTEXT: Review-request rows show the PR author beside the number. Open requests with complete personal review history and no submitted review use a blue “Not reviewed” badge instead of “New comments”; reviewed requests retain comment freshness with a queued-color “New comments” badge, and unavailable history never implies an unreviewed PR. Changes requested remains independent.

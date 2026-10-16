@@ -48,6 +48,7 @@ export const styles = `
 .plugin-public-pr .pr-feedback-badge { display:inline-flex; align-items:center; gap:5px; padding:2px 6px; border:1px solid color-mix(in srgb,var(--feedback-color) 45%,var(--line)); border-radius:4px; font-size:13px; line-height:1.4; color:var(--feedback-color); background:color-mix(in srgb,var(--feedback-color) 6%,var(--panel)); }
 .plugin-public-pr .pr-feedback-badge[data-tone=bad] { --feedback-color:var(--bad); }
 .plugin-public-pr .pr-feedback-badge[data-tone=review] { --feedback-color:var(--review); }
+.plugin-public-pr .pr-feedback-badge[data-tone=queued] { --feedback-color:var(--queued); }
 .plugin-public-pr .pr-list-title { font-size:17px; line-height:1.4; font-weight:600; overflow-wrap:anywhere; }
 .plugin-public-pr :is(.pr-list-meta,.pr-list-stats) { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; font-size:14px; color:var(--text-dim); overflow-wrap:anywhere; }
 .plugin-public-pr :is(.pr-list-status,.pr-draft) { display:inline-flex; align-items:center; gap:5px; color:var(--text); }
