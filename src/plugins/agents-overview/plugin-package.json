@@ -1,0 +1,20 @@
+{
+  "packageVersion": 1,
+  "manifest": {
+    "manifestVersion": 2,
+    "id": "helmsman.agents-overview",
+    "version": "0.1.0",
+    "sdkVersion": 1,
+    "pages": [{
+      "id": "page",
+      "title": "Agents overview",
+      "slots": ["helmsman/agents-overview-page"],
+      "panes": [],
+      "requires": []
+    }],
+    "panels": []
+  },
+  "node": { "minMajor": 22, "maxMajorExclusive": 30 },
+  "entries": { "page": "page.js" },
+  "panelEntries": {}
+}

@@ -21,6 +21,21 @@ beforeEach(() => { vi.resetModules(); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('shipped frontend plugin lifecycle', () => {
+  it('registers the read-only Agents overview without panels and retains its route when disabled', async () => {
+    const app = await setup(); const metadata = entries(['helmsman.agents-overview']);
+    app.syncBuiltinFrontend(metadata, false);
+    expect(app.appPages.resolvePath('/agents-overview')).toMatchObject({ contributionId: app.AGENTS_OVERVIEW_PAGE_ID,
+      slotId: app.AGENTS_OVERVIEW_PAGE_SLOT, page: { title: 'Agents overview', requires: [] } });
+    expect(app.appPages.resolvePath(`/plugins/${app.AGENTS_OVERVIEW_PAGE_ID}`)?.page?.title).toBe('Agents overview');
+    expect(app.appPageModules.get(app.AGENTS_OVERVIEW_PAGE_ID)).not.toBeNull();
+    expect(app.panels.get('helmsman.agents-overview/panel')).toBeNull();
+    app.syncBuiltinFrontend(metadata.map(entry => ({ ...entry, enabled: false })), false);
+    expect(app.appPageModules.get(app.AGENTS_OVERVIEW_PAGE_ID)).toBeNull();
+    expect(app.appPages.resolvePath('/agents-overview')).toMatchObject({ contributionId: app.AGENTS_OVERVIEW_PAGE_ID, page: null });
+    app.syncBuiltinFrontend(metadata, false);
+    expect(app.appPageModules.get(app.AGENTS_OVERVIEW_PAGE_ID)).not.toBeNull();
+  });
+
   it('registers enabled contributions without importing implementations and loads only the mounted page', async () => {
     const costsLoaded = vi.fn(); const backlogLoaded = vi.fn();
     const mount = vi.fn(() => ({ update() {}, dispose() {} }));

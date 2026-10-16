@@ -1,0 +1,6 @@
+{
+  "name": "helmsman-agents-overview-source",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
+}

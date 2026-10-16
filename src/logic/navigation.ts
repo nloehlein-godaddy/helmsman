@@ -25,6 +25,7 @@ const sections: readonly NavigationSection[] = [
     { pane: 'plugins', label: 'Plugins' },
     { slot: 'helmsman/source-settings-page', label: 'Task sources' },
     { slot: 'helmsman/execution-settings-page', label: 'Execution' },
+    { slot: 'helmsman/agents-overview-page', label: 'Agents overview' },
     { slot: 'helmsman/agent-prompts-page', label: 'Agent prompts' },
     { slot: 'helmsman/feedback-settings-page', label: 'Product feedback' },
     { slot: 'helmsman/jira-settings-page', label: 'Jira' },
