@@ -11,6 +11,7 @@ import { codexAgentProvider as codexAdapter } from '../../src/plugins/agent-code
 import { claudeAgentProvider as claudeCodeAdapter } from '../../src/plugins/agent-claude/provider';
 import type { AgentCommandInputV1 } from '../../src/plugins/agent-provider';
 import { createScopedGateway } from './scoped-gateway';
+import { boundedAgentProvider } from './agent-providers';
 
 const directories: string[] = [];
 const agents: AbortController[] = [];
@@ -338,8 +339,26 @@ describe('interactive agent protocol characterization', () => {
     await agent.promise;
     expect(agent.output.map(line => JSON.parse(line))).toEqual([
       { type: 'item.started', item: { id: 'cmd-1', type: 'command_execution', command: 'ls', status: 'inProgress' } },
-      { type: 'item.completed', item: { id: 'cmd-1', type: 'command_execution', command: 'ls', aggregated_output: 'a', exit_code: 0, status: 'completed' } },
+      { type: 'item.completed', item: { id: 'cmd-1', type: 'command_execution', command: 'ls', exit_code: 0, status: 'completed' } },
       { type: 'turn.completed', turn_id: 'turn-1' },
+    ]);
+  });
+
+  it('keeps large command output out of the bounded agent event stream', async () => {
+    const agent = run(await task(), 'codex', codexScript(`
+      if (message.method === 'initialize') send({ id: message.id, result: {} });
+      if (message.method === 'thread/start') send({ id: message.id, result: { thread: { id: 'thread-1' } } });
+      if (message.method === 'turn/start') {
+        send({ id: message.id, result: { turn: { id: 'turn-1' } } });
+        send({ method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'cmd-1', type: 'commandExecution', command: 'pnpm test', aggregatedOutput: '\\n'.repeat(600_000), exitCode: 0, status: 'completed' } } });
+        send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } } });
+      }
+    `));
+    await agent.promise;
+    const provider = boundedAgentProvider(codexAdapter);
+    expect(agent.output.map(line => provider.parseLine(line))).toEqual([
+      { kind: 'tool', text: 'pnpm test', eventId: 'cmd-1' },
+      { kind: 'log', text: JSON.stringify({ type: 'turn.completed', turn_id: 'turn-1' }) },
     ]);
   });
 

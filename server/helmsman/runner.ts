@@ -622,6 +622,13 @@ function reachedCostCap(cost: number | null | undefined, maxCostUsd: number | nu
   return maxCostUsd != null && cost != null && cost >= maxCostUsd;
 }
 
+function drainDurableLog(row: RunRow, logPath: string, deps: RunnerDeps,
+  events: ReturnType<typeof durableEvents>, check: () => void, final = false): void {
+  check();
+  const offset = readLogLines(logPath, deps.db.getRun(row.id)?.logOffset ?? row.logOffset ?? 0, events.consume, final);
+  deps.db.updateRun(row.id, { logOffset: offset });
+}
+
 async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt, spec: LaunchSpec,
   ref: HostRef, deps: RunnerDeps, check: () => void, events: ReturnType<typeof durableEvents>) {
   let tailError: unknown;
@@ -645,8 +652,7 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
         deps.pollClarifications?.(row.id, row.attempt, true);
         check();
         tail.stop();
-        const offset = readLogLines(spec.logPath, deps.db.getRun(row.id)?.logOffset ?? row.logOffset ?? 0, events.consume, true);
-        deps.db.updateRun(row.id, { logOffset: offset });
+        drainDurableLog(row, spec.logPath, deps, events, check, true);
         capped ||= reachedCostCap(events.cost(), deps.maxCostUsd);
         const failed = events.failed() || clarificationFailed || (deps.hasRequiredUnanswered?.(row.id, row.attempt) ?? false);
         session.terminal({ status: recordedStatus ?? (stopped ? 'stopped' : exit.exitCode === 0 && !failed ? 'succeeded' : 'failed'), exitCode: exit.exitCode, evidence: exit });
@@ -668,7 +674,11 @@ async function monitorDurableAttempt(row: RunRow, session: DurableRunnerAttempt,
       if (Date.now() >= nextDiscovery) {
         const found = await discoverRunHost(deps.host, spec, ref);
         check();
-        if (found.status !== 'found') throw new Error(found.status === 'unknown' ? found.reason : 'Process disappeared without terminal evidence');
+        if (found.status !== 'found') {
+          tail.stop();
+          drainDurableLog(row, spec.logPath, deps, events, check);
+          throw new Error(found.status === 'unknown' ? found.reason : 'Process disappeared without terminal evidence');
+        }
         nextDiscovery = Date.now() + 1000;
       }
       await new Promise(resolve => setTimeout(resolve, deps.pollIntervalMs ?? 250));
@@ -821,7 +831,10 @@ async function reattachDurableRun(row: RunRow, deps: RunnerDeps): Promise<Attach
       session.launched(ref, discovered.evidence);
       discovered = await attachOwnedHost(spec, ref, deps, heartbeat.check, true);
     }
-    if (discovered.status !== 'found') throw new Error(discovered.status === 'unknown' ? discovered.reason : 'Prepared launch has no verified process');
+    if (discovered.status !== 'found') {
+      drainDurableLog(row, spec.logPath, deps, durableEvents(row, task, deps), heartbeat.check);
+      throw new Error(discovered.status === 'unknown' ? discovered.reason : 'Prepared launch has no verified process');
+    }
     if (!session.hostRef) session.launched(discovered.ref, discovered.evidence);
     session.attachment('attached');
     const ref = discovered.ref;

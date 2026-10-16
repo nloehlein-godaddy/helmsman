@@ -131,6 +131,7 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
     const grouped = process.platform !== 'win32';
     const child = spawn(command.cmd, command.args, { cwd, env: process.env, detached: grouped, stdio: ['ignore', 'pipe', 'pipe'] });
     let failure: Error | undefined;
+    let exited = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     const killStage = (signal: NodeJS.Signals) => {
       try {
@@ -140,11 +141,13 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
         if ((error as NodeJS.ErrnoException)?.code !== 'ESRCH') {
           containmentFailed = true;
           failure ??= error instanceof Error ? error : new Error(String(error));
+          emit({ kind: 'error', text: `Agent stage cleanup failed (${signal}): ${error instanceof Error ? error.message : String(error)}` });
         }
       }
     };
     const stop = (message: string) => {
       failure ??= new Error(message);
+      if (exited) return;
       if (isolated) void isolated.stop().catch(() => undefined);
       killStage('SIGTERM');
       killTimer ??= setTimeout(() => killStage('SIGKILL'), 5000);
@@ -182,7 +185,11 @@ export async function executePrePrStage(adapter: AgentAdapter, task: AgentTask, 
     child.stdout.setEncoding('utf8').on('data', chunk => consume(chunk, false));
     child.stderr.setEncoding('utf8').on('data', chunk => consume(chunk, true));
     child.once('error', error => { failure = error; });
-    child.once('exit', () => killStage('SIGKILL'));
+    child.once('exit', () => {
+      exited = true;
+      if (killTimer) clearTimeout(killTimer);
+      killStage('SIGKILL');
+    });
     child.once('close', (code, exitSignal) => {
       clearTimeout(timer);
       if (killTimer) clearTimeout(killTimer);

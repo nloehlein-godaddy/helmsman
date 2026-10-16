@@ -228,4 +228,19 @@ describe('pre-PR runtime boundaries', () => {
       await expect.poll(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, { timeout: 2000 }).toBe(true);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+
+  it.skipIf(!hasProcessGroups)('does not signal a released group when parsing trailing output fails', async () => {
+    const originalKill = process.kill.bind(process);
+    const cleaned = new Set<number>();
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (cleaned.has(pid)) throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+      if (pid < 0 && signal === 'SIGKILL') cleaned.add(pid);
+      return originalKill(pid, signal);
+    });
+    try {
+      await expect(executePrePrStage(adapter('process.stdout.write("malformed")'), task, tmpdir(), () => {}, new AbortController().signal))
+        .rejects.toThrow('malformed output');
+      expect(kill.mock.calls.filter(([pid]) => pid < 0)).toHaveLength(1);
+    } finally { kill.mockRestore(); }
+  });
 });

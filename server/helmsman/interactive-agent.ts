@@ -140,7 +140,7 @@ export async function runInteractiveAgent(config: InteractiveAgentConfig, option
       const type = message.method === 'item/completed' ? 'item.completed' : 'item.started';
       if (item?.type === 'agentMessage' && type === 'item.completed') emit({ type, item: { id: item.id, type: 'agent_message', text: item.text } });
       if (item?.type === 'commandExecution') emit({ type, item: { id: item.id, type: 'command_execution', command: item.command,
-        aggregated_output: item.aggregatedOutput, exit_code: item.exitCode, status: item.status } });
+        exit_code: item.exitCode, status: item.status } });
     }
     if (message.method === 'error') {
       const error = record(params.error);

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb, type Db, type RunRow } from './db';
@@ -147,6 +147,50 @@ it('returns an attachment handshake before completion and leaves unknown hosts u
   f.deps.host.discover = vi.fn(async () => ({ status: 'unknown' as const, reason: 'host unavailable' }));
   expect(await reattachRun({ ...f.db.getRun('run1')!, status: 'running' }, f.deps)).toEqual({ status: 'blocked', reason: 'host unavailable' });
   expect(f.deps.host.stop).not.toHaveBeenCalled();
+});
+
+it('drains completed log records when an active worker loses ownership without inventing an exit', async () => {
+  const f = fixture();
+  f.deps.adapter.parseLine = line => JSON.parse(line);
+  f.deps.host.launch = vi.fn(async spec => { f.specs.push(spec); writeFileSync(spec.logPath, ''); return ref; });
+  let discoveries = 0;
+  f.deps.host.discover = vi.fn(async spec => {
+    if (++discoveries === 1) return { status: 'found' as const, ref,
+      evidence: { launchId: spec.launchId!, runId: spec.runId, attempt: spec.attempt!, state: 'running' as const } };
+    writeFileSync(f.specs[0]!.logPath, JSON.stringify({ kind: 'error', text: 'Feedback audit failed' }) + '\n');
+    return { status: 'unknown' as const, reason: 'Wrapper disappeared without an exit receipt' };
+  });
+
+  await startRun(task, f.deps);
+
+  expect(f.db.listEvents('run1')).toContainEqual(expect.objectContaining({ kind: 'error', text: 'Feedback audit failed' }));
+  expect(f.db.getRun('run1')).toMatchObject({ status: 'running', logOffset: Buffer.byteLength(readFileSync(f.specs[0]!.logPath)) });
+  expect(f.sessions[0]?.attachment).toHaveBeenCalledWith('blocked', 'Wrapper disappeared without an exit receipt');
+  expect(f.sessions[0]?.terminal).not.toHaveBeenCalled();
+  expect(f.deps.host.stop).not.toHaveBeenCalled();
+  expect(f.deps.removeWorktree).not.toHaveBeenCalled();
+});
+
+it('drains blocked recovery logs once and preserves partial records for later attachment', async () => {
+  const f = fixture();
+  f.deps.adapter.parseLine = line => JSON.parse(line);
+  const row: RunRow = { id: 'run1', ticketId: task.ticketId, repo: task.repo, adapter: 'test', status: 'running', attempt: 1,
+    prNumber: null, startedAt: '2026-09-20T12:00:00.000Z', endedAt: null, costUsd: null, worktreePath: f.root, taskJson: JSON.stringify(task) };
+  const session = f.create(row);
+  const complete = JSON.stringify({ kind: 'error', text: 'Feedback audit failed' }) + '\n';
+  writeFileSync(session.paths.logPath, complete + '{"kind":"text","text":"Still');
+  f.deps.host.discover = vi.fn(async () => ({ status: 'unknown' as const, reason: 'Ownership unavailable' }));
+
+  await reattachRun(f.db.getRun(row.id)!, f.deps);
+  expect(f.db.getRun(row.id)?.logOffset).toBe(Buffer.byteLength(complete));
+  appendFileSync(session.paths.logPath, ' writing"}\n');
+  await reattachRun(f.db.getRun(row.id)!, f.deps);
+
+  expect(f.db.listEvents(row.id).filter(event => event.text === 'Feedback audit failed')).toHaveLength(1);
+  expect(f.db.listEvents(row.id)).toContainEqual(expect.objectContaining({ kind: 'text', text: 'Still writing' }));
+  expect(f.db.getRun(row.id)?.status).toBe('running');
+  expect(session.terminal).not.toHaveBeenCalled();
+  expect(f.deps.removeWorktree).not.toHaveBeenCalled();
 });
 
 it('does not clean retained resources even after verified process completion', async () => {

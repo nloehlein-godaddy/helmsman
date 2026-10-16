@@ -36,6 +36,41 @@ describe.skipIf(process.platform === 'win32')('run-wrapper', () => {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
+  it('records failure after malformed trailing stage output is cleaned up', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wrap-stage-malformed-'));
+    try {
+      const worker = join(dir, 'feedback-update-cli.ts'); const specPath = join(dir, 'spec.json');
+      const logPath = join(dir, 'run.log'); const exitPath = join(dir, 'run.exit');
+      const identity = { runId: 'malformed-run', launchId: 'malformed-launch', attempt: 1 };
+      writeFileSync(worker, `
+        import { executePrePrStage } from ${JSON.stringify(join(__dirname, 'pre-pr-runtime.ts'))};
+        import { acknowledgeCoordinatorSettlement } from ${JSON.stringify(join(__dirname, 'coordinator-settlement.ts'))};
+        async function main() {
+          const originalKill = process.kill.bind(process);
+          const cleaned = new Set();
+          process.kill = (pid, signal) => {
+            if (cleaned.has(pid)) throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+            if (pid < 0 && signal === 'SIGKILL') cleaned.add(pid);
+            return originalKill(pid, signal);
+          };
+          try {
+            await executePrePrStage({ id: 'test', buildCommand: () => ({ cmd: process.execPath, args: ['-e', 'process.stdout.write("malformed")'] }),
+              parseLine: line => JSON.parse(line) }, { ticketId: 'T-1', title: 'Task', repo: 'org/repo', jiraBaseUrl: '' },
+              process.cwd(), event => console.log(JSON.stringify(event)), new AbortController().signal);
+          } catch (error) { console.log(error.message); process.exitCode = 1; }
+          await acknowledgeCoordinatorSettlement();
+        }
+        main();
+      `);
+      writeFileSync(specPath, JSON.stringify({ ...identity, cmd: process.execPath,
+        args: ['--import', import.meta.resolve('tsx'), worker], cwd: dir, logPath, exitPath, receiptPath: join(dir, 'receipt.json') }));
+      const wrapper = spawnSync(process.execPath, [WRAPPER, specPath], { encoding: 'utf8', timeout: 15_000 });
+      expect(wrapper.error).toBeUndefined(); expect(wrapper.status).toBe(0);
+      expect(readFileSync(logPath, 'utf8')).toContain('Agent emitted malformed output');
+      expect(JSON.parse(readFileSync(exitPath, 'utf8'))).toMatchObject({ ...identity, exitCode: 1 });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it('captures stdout+stderr to the log and the exit code to the sentinel', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wrap-'));
     const specPath = join(dir, 'spec.json');
