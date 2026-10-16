@@ -1,3 +1,4 @@
+import { apiFetch } from './api-client';
 export interface TaskSourceView {
   id: string;
   sourceId: string;
@@ -15,7 +16,7 @@ export interface SourceScheduleView { repo: string; instanceIds: string[]; revis
 const object = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
 async function request(path: string, body?: unknown): Promise<unknown> {
-  const response = await fetch(path, { signal: AbortSignal.timeout(10_000), ...(body === undefined ? {} : {
+  const response = await apiFetch(path, { signal: AbortSignal.timeout(10_000), ...(body === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }) });
   const value: unknown = await response.json().catch(() => null);

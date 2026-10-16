@@ -97,7 +97,7 @@ export class AuxiliaryPageHost {
     this.render();
   }
 
-  refresh(): Promise<void> { return this.host.refresh(); }
+  refresh(force = true): Promise<void> { return this.host.refresh(force); }
 
   dispose(): void {
     if (this.disposed) return;

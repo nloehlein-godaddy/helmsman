@@ -1,3 +1,4 @@
+import { apiFetch } from '../data/api-client';
 import { SourceContractValidationError } from './source-contract-validation';
 import { createSourceCommandJournal, SourceCommandJournalValidationError, type SourceCommandJournal } from './source-command-journal';
 import { parseSourceCommandInputV1, parseSourceCommandReceiptQueryV1, parseSourceCommandReceiptV1, SOURCE_COMMAND_LIMITS } from './source-command';
@@ -37,7 +38,7 @@ export function createHostSourceCommandService(lifetime: AbortSignal, options: {
   caller: string; scope(): RunReadScopeV1; fetch?: typeof globalThis.fetch; journal?: SourceCommandJournal;
 }): SourceCommandServiceV1 {
   const journal = options.journal ?? createSourceCommandJournal(options.caller);
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   function operation(caller?: AbortSignal) {
     const scope = { ...options.scope() };
     function check() {

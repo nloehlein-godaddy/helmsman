@@ -1,3 +1,4 @@
+import { apiFetch } from './data/api-client';
 import './plugin-manager.css';
 import { appPages } from './plugins/builtins';
 import { routeHref } from './logic/routes';
@@ -53,7 +54,7 @@ export function mountPluginManager(container: HTMLElement, options: { repo: stri
     const controller = new AbortController(); requests.add(controller);
     const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
-      const response = await fetch(endpoint, body ? { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal } : { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: controller.signal });
+      const response = await apiFetch(endpoint, body ? { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal } : { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: controller.signal });
       const data: unknown = await response.json().catch(() => null);
       if (!response.ok) throw new Error(isRecord(data) && typeof data.error === 'string' ? data.error : `Plugin manager request failed (${response.status}).`);
       if (!isRecord(data) || data.version !== 1) throw new Error('Plugin manager returned an invalid response. Refresh and try again.');

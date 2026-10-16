@@ -1,3 +1,4 @@
+import { apiFetch, rejectApiCache } from './api-client';
 import { ASSESSMENT_STATES, TASK_OUTCOMES, type OutcomeAssessment, type OutcomeSummary } from './outcomes';
 
 export const OUTCOME_WINDOWS = [7, 30, 90, 365] as const;
@@ -71,17 +72,18 @@ function validSummary(value: unknown): value is OutcomeSummary {
     && Array.isArray(source.recentRuns) && source.recentRuns.every(validRun);
 }
 
-export async function fetchOutcomes(repo: string | null, days: OutcomeWindow, signal?: AbortSignal, endpoint = '/api/outcomes'): Promise<OutcomeSummary> {
+export async function fetchOutcomes(repo: string | null, days: OutcomeWindow, signal?: AbortSignal, endpoint = '/api/outcomes', fetcher: typeof fetch = apiFetch): Promise<OutcomeSummary> {
   const params = new URLSearchParams({ days: String(days) });
   if (repo) params.set('repo', repo);
   const timeout = AbortSignal.timeout(10_000);
-  const response = await fetch(`${endpoint}?${params}`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+  const path = `${endpoint}?${params}`;
+  const response = await fetcher(path, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const error = record(body)?.error;
     throw new Error(typeof error === 'string' ? error : `Could not load outcomes (${response.status}).`);
   }
-  if (!validSummary(body)) throw new Error('Outcomes response was invalid.');
+  if (!validSummary(body)) { rejectApiCache(path); throw new Error('Outcomes response was invalid.'); }
   return body;
 }
 
@@ -108,8 +110,8 @@ function validAssessment(value: unknown, runId: string): value is OutcomeAssessm
     && (assessment.source === undefined || assessment.source === 'manual' || assessment.source === 'telemetry');
 }
 
-export async function saveOutcomeAssessment(runId: string, input: AssessmentInput, signal?: AbortSignal, endpoint = '/api/outcomes'): Promise<OutcomeAssessment> {
-  const response = await fetch(`${endpoint}/${encodeURIComponent(runId)}/assessment`, {
+export async function saveOutcomeAssessment(runId: string, input: AssessmentInput, signal?: AbortSignal, endpoint = '/api/outcomes', fetcher: typeof fetch = apiFetch): Promise<OutcomeAssessment> {
+  const response = await fetcher(`${endpoint}/${encodeURIComponent(runId)}/assessment`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
   });
   const body: unknown = await response.json().catch(() => null);

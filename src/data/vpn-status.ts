@@ -1,3 +1,4 @@
+import { apiFetch } from './api-client';
 export type VpnState = 'connected' | 'disconnected' | 'unknown';
 export interface VpnStatusSnapshot {
   version: 1;
@@ -24,7 +25,7 @@ export function parseVpnStatus(input: unknown): VpnStatusSnapshot | null {
 export function createVpnStatusController(onChange: (status: VpnNavigationStatus) => void, options: {
   fetcher?: typeof fetch; now?: () => number;
 } = {}) {
-  const fetcher = options.fetcher ?? fetch;
+  const fetcher = options.fetcher ?? apiFetch;
   const now = options.now ?? Date.now;
   let pending: Promise<void> | null = null;
   let checkedAt = -Infinity;

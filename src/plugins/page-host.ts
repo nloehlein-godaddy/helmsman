@@ -1,3 +1,4 @@
+import { createApiReadScope } from '../data/api-client';
 import { parseTerminalRouteV1, sameTerminalRouteV1 } from './terminal-route';
 import { parsePullRequestRouteV1, samePullRequestRouteV1, parsePresentationLocatorV1, samePresentationLocatorV1, scopedPresentationLocatorV1, type PresentationLocatorV1 } from './presentation';
 import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from './sdk';
@@ -9,6 +10,7 @@ interface PageSession {
   module: PluginPageModule;
   element: HTMLElement;
   controller: AbortController;
+  readScope: ReturnType<typeof createApiReadScope>;
   cleanups: Set<() => void>;
   instance: PluginPageInstance | null;
   state: PluginPageState;
@@ -17,6 +19,8 @@ interface PageSession {
   mounting: Promise<void>;
   updating: Promise<void> | null;
   refreshing: Promise<void> | null;
+  refreshingForce: boolean;
+  cacheRefreshQueued: boolean;
   composition: PluginCompositionHost | null;
   activityController: AbortController;
   activityEpoch: number;
@@ -73,10 +77,14 @@ export class PluginPageHost {
       return;
     }
     this.clear();
+    const controller = new AbortController();
+    const readScope = createApiReadScope(controller.signal, () => {
+      if (this.session?.controller === controller) this.readUpdated(this.session);
+    });
     const session: PageSession = {
-      id, module, element: document.createElement('div'), controller: new AbortController(), cleanups: new Set(),
+      id, module, element: document.createElement('div'), controller, readScope, cleanups: new Set(),
       instance: null, state: Object.freeze({ ...state, ...(state.terminal === undefined ? {} : { terminal: parseTerminalRouteV1(state.terminal) }), ...(state.pullRequest === undefined ? {} : { pullRequest: parsePullRequestRouteV1(state.pullRequest) }), ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }) }), revision: 0, applied: 0,
-      mounting: Promise.resolve(), updating: null, refreshing: null,
+      mounting: Promise.resolve(), updating: null, refreshing: null, refreshingForce: false, cacheRefreshQueued: false,
       composition: null,
       activityController: new AbortController(), activityEpoch: 0,
     };
@@ -88,6 +96,7 @@ export class PluginPageHost {
     catch { this.fail(session); return; }
     const context: PluginPageContext = Object.freeze({
       contributionId: id,
+      refresh: () => this.active(session) ? this.refresh() : Promise.resolve(),
       state: session.state,
       ...(this.options.selectPresentation ? { selectPresentation: (input: PresentationLocatorV1 | null) => {
         if (!this.active(session) || !session.state.visible || session.activityController.signal.aborted) throw new DOMException('Page is inactive.', 'AbortError');
@@ -96,7 +105,7 @@ export class PluginPageHost {
       } } : {}),
       signal: session.controller.signal,
       services: createHostPageServices(session.controller.signal, () => ({ repo: session.state.repo, active: session.state.visible,
-        epoch: session.activityEpoch, signal: session.activityController.signal }), id),
+        epoch: session.activityEpoch, signal: session.activityController.signal }), id, session.readScope.fetch),
       ...(session.composition ? { composition: session.composition.service } : {}),
       navigate: (href: string) => { if (this.active(session)) this.options.navigate(href); },
       onDispose: (cleanup: () => void) => {
@@ -109,7 +118,7 @@ export class PluginPageHost {
     session.mounting = this.mount(session, context, loading);
   }
 
-  async refresh(): Promise<void> {
+  async refresh(force = true): Promise<void> {
     const session = this.session;
     if (!session || !this.active(session) || !session.state.visible) return;
     const signal = session.controller.signal;
@@ -117,21 +126,37 @@ export class PluginPageHost {
     const cancelled = new Promise<void>(resolve => { cancel = resolve; });
     signal.addEventListener('abort', cancel, { once: true });
     try {
-      await Promise.race([this.refreshSession(session), cancelled]);
+      await Promise.race([this.refreshSession(session, force), cancelled]);
     } finally {
       signal.removeEventListener('abort', cancel);
     }
   }
 
-  private async refreshSession(session: PageSession): Promise<void> {
-    if (session.refreshing) return session.refreshing;
+  private async refreshSession(session: PageSession, force: boolean): Promise<void> {
     await session.mounting;
     await this.update(session);
     if (!this.active(session) || !session.state.visible || !session.instance) return;
-    if (!session.refreshing) {
-      session.refreshing = this.refreshInstance(session).finally(() => { session.refreshing = null; });
+    if (session.refreshing) {
+      const pendingForce = session.refreshingForce;
+      await session.refreshing;
+      if (force && !pendingForce && this.active(session)) return this.refreshSession(session, true);
+      return;
     }
+    session.refreshingForce = force;
+    session.refreshing = this.refreshInstance(session, force).finally(() => { session.refreshing = null; });
     await session.refreshing;
+  }
+
+  private readUpdated(session: PageSession): void {
+    if (!this.active(session) || !session.state.visible || session.activityController.signal.aborted) return;
+    if (!session.refreshing) { void this.refresh(false); return; }
+    if (session.cacheRefreshQueued) return;
+    session.cacheRefreshQueued = true;
+    const epoch = session.activityEpoch;
+    void session.refreshing.finally(() => {
+      session.cacheRefreshQueued = false;
+      if (this.active(session) && session.activityEpoch === epoch) void this.refresh(false);
+    });
   }
 
   dispose(): void {
@@ -188,8 +213,11 @@ export class PluginPageHost {
     }
   }
 
-  private async refreshInstance(session: PageSession): Promise<void> {
-    try { await session.instance?.refresh?.(); } catch { this.fail(session); }
+  private async refreshInstance(session: PageSession, force: boolean): Promise<void> {
+    try {
+      const operation = async () => { await session.instance?.refresh?.(); };
+      if (force) await session.readScope.fresh(operation); else await operation();
+    } catch { this.fail(session); }
   }
 
   clear(): void {

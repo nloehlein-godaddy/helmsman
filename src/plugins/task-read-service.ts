@@ -1,3 +1,4 @@
+import { apiFetch, rejectApiCache } from '../data/api-client';
 import { parseTaskRepo } from './tasks';
 import { parseTaskReadGalleons, parseTaskReadItem, parseTaskReadListQueryV1, parseTaskReadLoadQueryV1, parseTaskReadLookupQueryV1, parseTaskReadLookupRef, parseTaskReadUnderwayQueryV1, parseTaskReadPage,
   parseTaskReadSelectionV1, parseTaskReadSources, TASK_READ_LIMITS } from './task-read';
@@ -49,7 +50,7 @@ async function responseBody(response: Response, signal: AbortSignal): Promise<st
 }
 
 export function createHostTaskReadService(lifetime: AbortSignal, options: { scope(): TaskReadScopeV1; fetch?: typeof globalThis.fetch }): TaskReadServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   function operation(caller?: AbortSignal) {
     const current = options.scope();
     const scope = { repo: current.repo === null ? null : parseTaskRepo(current.repo), epoch: current.epoch, signal: current.signal, active: current.active };
@@ -75,11 +76,11 @@ export function createHostTaskReadService(lifetime: AbortSignal, options: { scop
         if (response.status === 404) return available({ status: 404, body: null });
         if (!response.ok) return unavailable('service-unavailable');
         const length = Number(response.headers.get('content-length'));
-        if (Number.isFinite(length) && length > TASK_READ_LIMITS.responseBytes) return unavailable('invalid-response');
+        if (Number.isFinite(length) && length > TASK_READ_LIMITS.responseBytes) { rejectApiCache(path); return unavailable('invalid-response'); }
         const body = await responseBody(response, signal);
         check(); signal.throwIfAborted();
-        if (body === null) return unavailable('invalid-response');
-        try { return available({ status: response.status, body: JSON.parse(body) as unknown }); } catch { return unavailable('invalid-response'); }
+        if (body === null) { rejectApiCache(path); return unavailable('invalid-response'); }
+        try { return available({ status: response.status, body: JSON.parse(body) as unknown }); } catch { rejectApiCache(path); return unavailable('invalid-response'); }
       } catch {
         check();
         return unavailable(timeout.aborted ? 'timeout' : 'connection-failed');
@@ -89,7 +90,7 @@ export function createHostTaskReadService(lifetime: AbortSignal, options: { scop
       const response = await request(path);
       if (response.status === 'unavailable') return response;
       check();
-      try { return available(parse(response.value.body, response.value.status)); } catch { return unavailable('invalid-response'); }
+      try { return available(parse(response.value.body, response.value.status)); } catch { rejectApiCache(path); return unavailable('invalid-response'); }
     }
     async function permitted(repo?: string) {
       if (repo !== undefined && scope.repo !== null && repo !== scope.repo) return unavailable('forbidden');

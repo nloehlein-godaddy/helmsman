@@ -148,7 +148,7 @@ class ActivityPanel implements PluginPanelInstance {
     if (focused === 'refresh' && this.pending) this.refreshFocusPending = true;
     const root = element('section'); root.className = 'plugin-activity'; root.append(element('style', styles));
     const header = element('header'); header.append(element('h2', this.state.pirateMode ? "Ship's log" : 'Activity log'));
-    const refresh = element('button'); refresh.setAttribute('aria-label', 'Refresh'); refresh.title = 'Refresh'; refresh.append(createIcon('refresh')); refresh.type = 'button'; refresh.dataset.activityFocus = 'refresh'; refresh.disabled = Boolean(this.pending) || !this.active(); refresh.addEventListener('click', () => { this.refreshFocusPending = true; void this.refresh(); }); root.append(header);
+    const refresh = element('button'); refresh.setAttribute('aria-label', 'Refresh'); refresh.title = 'Refresh'; refresh.append(createIcon('refresh')); refresh.type = 'button'; refresh.dataset.activityFocus = 'refresh'; refresh.disabled = Boolean(this.pending) || !this.active(); refresh.addEventListener('click', () => { this.refreshFocusPending = true; void (this.context.refresh?.() ?? this.refresh()); }); root.append(header);
     for (const message of this.messages) root.append(this.notice({ title: message, detail: 'Some activity may be missing from this view. Refresh to retry.' }, message));
     if (this.prNotice) root.append(this.notice(this.prNotice, 'pr-history'));
     const events = new Map<string, EventView>(this.prEvents.map(event => [event.id, event]));

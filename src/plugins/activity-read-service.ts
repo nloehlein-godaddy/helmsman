@@ -1,3 +1,4 @@
+import { apiFetch, rejectApiCache } from '../data/api-client';
 import { ACTIVITY_READ_LIMITS, parseActivityReadSnapshotV1, type ActivityReadServiceV1 } from './activity-read';
 import { createHostTaskReadService, type TaskReadScopeV1 } from './task-read-service';
 import { parseTaskReadSelectionV1, type TaskReadUnavailableReasonV1 } from './task-read';
@@ -22,7 +23,7 @@ async function body(response: Response, signal: AbortSignal): Promise<unknown> {
   } finally { if (!complete) void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 export function createHostActivityReadService(lifetime: AbortSignal, options: { scope(): TaskReadScopeV1; fetch?: typeof globalThis.fetch }): ActivityReadServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   return Object.freeze<ActivityReadServiceV1>({ version: 1, async query(input, caller) {
     const selection = parseTaskReadSelectionV1(input); const scope = { ...options.scope() };
     function check() {
@@ -32,6 +33,8 @@ export function createHostActivityReadService(lifetime: AbortSignal, options: { 
     check();
     if (scope.repo !== null && scope.repo !== selection.repo) return unavailable('forbidden');
     const timeout = AbortSignal.timeout(30_000); const signal = AbortSignal.any([lifetime, scope.signal, timeout, ...(caller ? [caller] : [])]);
+    const params = new URLSearchParams({ repo: selection.repo, revision: String(selection.instanceRevision), sourceId: selection.sourceId });
+    const path = `/api/activity-read/${encodeURIComponent(selection.instanceId)}?${params}`;
     let response: Response | undefined;
     try {
       const tasks = createHostTaskReadService(lifetime, { fetch: fetcher, scope: () => ({ ...options.scope(), repo: options.scope().repo ?? selection.repo }) });
@@ -44,8 +47,7 @@ export function createHostActivityReadService(lifetime: AbortSignal, options: { 
       if (!source || source.sourceId !== selection.sourceId || source.instanceRevision !== selection.instanceRevision) return unavailable('selection-changed');
       if (source.availability !== 'available') return unavailable(source.availability === 'disabled' ? 'disabled' : 'source-unavailable');
       if (!source.readViews?.includes('history')) return unavailable('view-unavailable');
-      const params = new URLSearchParams({ repo: selection.repo, revision: String(selection.instanceRevision), sourceId: selection.sourceId });
-      response = await abortable<Response>(fetcher(`/api/activity-read/${encodeURIComponent(selection.instanceId)}?${params}`, { method: 'GET', signal, credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(value => {
+      response = await abortable<Response>(fetcher(path, { method: 'GET', signal, credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(value => {
         try { check(); signal.throwIfAborted(); return value; } catch (error) { discard(value); throw error; }
       }), signal);
       check(); signal.throwIfAborted();
@@ -55,7 +57,7 @@ export function createHostActivityReadService(lifetime: AbortSignal, options: { 
       if (!response.ok) return unavailable('service-unavailable');
       let result;
       try { result = parseActivityReadSnapshotV1(await body(response, signal), selection); }
-      catch { check(); signal.throwIfAborted(); return unavailable('invalid-response'); }
+      catch { check(); signal.throwIfAborted(); rejectApiCache(path); return unavailable('invalid-response'); }
       check(); signal.throwIfAborted(); return Object.freeze({ status: 'available', value: result });
     } catch { check(); return unavailable(timeout.aborted ? 'timeout' : 'connection-failed'); }
     finally { discard(response); }

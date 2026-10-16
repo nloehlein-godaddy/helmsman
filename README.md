@@ -260,6 +260,19 @@ compiled installation, use `node /absolute/path/to/release/server/helmsman/plugi
 The client loads repository metadata from the local `/api/context` endpoint.
 Visible PR lists and run summaries poll the local server every five seconds; GitHub
 list reads share a server-side cache of up to five minutes. Hidden panels pause polling.
+
+All frontend API services use the shared client in `src/data/api-client.ts`. Its
+central policy registry (`src/data/api-cache-policy.ts`) caches successful list and
+report reads in browser memory: PR lists for 30 seconds, run summaries for five,
+task lists and views for 15, activity for 10, and usage/outcomes/pricing for 60.
+Repeated reads share in-flight requests. Briefly stale snapshots remain visible
+while the client revalidates them and updates the active panel when data changes.
+The cache is bounded to 64 entries and 16 MiB, is never persisted, and separates
+queries, contribution headers, and credentials. Writes and integration changes
+invalidate it. Explicit Refresh bypasses the browser cache; server-side GitHub
+cache limits still apply. Permissions, PR details/diffs, individual runs/logs,
+command receipts, editable settings, and connection checks remain live reads.
+
 Notifications poll every 15 seconds while visible, and the open log viewer polls every
 two seconds while following output. Config does not repeatedly
 reload settings or scan local worktrees. The selected cmux screen refreshes every two

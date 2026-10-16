@@ -40,7 +40,7 @@ class JiraSettingsPanel implements PluginPanelInstance {
   private click = (event: MouseEvent) => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null; if (!button || button.disabled || !this.active()) return; event.stopPropagation();
     const hadFocus = document.activeElement === button;
-    if (button.hasAttribute('data-refresh')) void this.refresh();
+    if (button.hasAttribute('data-refresh')) void (this.context.refresh?.() ?? this.refresh());
     else if (button.hasAttribute('data-rebase') && this.snapshot) { this.revision = this.snapshot.revision; this.error = 'The entered token now uses the latest revision. Select Update Jira token to apply it.'; this.draw(); this.focusAfterHiddenAction(button,'[data-save]',hadFocus); }
     else if (button.hasAttribute('data-discard')) { this.token = ''; this.input.value = ''; this.revision = this.snapshot?.revision ?? null; this.error = ''; this.draw(); this.focusAfterHiddenAction(button,'[data-token]',hadFocus); }
   };

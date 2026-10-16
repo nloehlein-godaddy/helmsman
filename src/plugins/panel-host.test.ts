@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as apiClient from '../data/api-client';
 import { PluginPanelHost, type PanelHostOptions } from './panel-host';
 import type { PluginPanelContext, PluginPanelInstance, PluginPanelState } from './composition';
 import type { PluginPageServices, PluginPageState } from './sdk';
@@ -21,7 +22,7 @@ function setup(instance: PluginPanelInstance = { update() {}, dispose() {} }, op
   hosts.push(host);
   return { host, container, context, cleanup };
 }
-afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); });
+afterEach(() => { hosts.splice(0).forEach(host => host.dispose()); document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 describe('panel lifecycle', () => {
   it('selects presentation with effective scope and suspends stale callbacks without remounting', async () => {
@@ -120,4 +121,57 @@ it('provides immutable mounted contribution identity independently of instance o
   expect(context.contributionId).toBe('example.pr/panel'); expect(Object.isFrozen(context)).toBe(true);
   host.update(state({ repo: 'org/second', visible: false })); await settle();
   expect(context.contributionId).toBe('example.pr/panel');
+});
+
+it('replays changed stale panel reads from cache while explicit refresh forces the network', async () => {
+  let now = 0; let version = 1;
+  const transport = vi.fn(async () => Response.json({ version }));
+  const client = apiClient.createApiClient({ fetch: transport, now: () => now });
+  vi.spyOn(apiClient, 'createApiReadScope').mockImplementation(client.createReadScope);
+  let fetcher!: typeof fetch; const values: number[] = [];
+  const refresh = vi.fn(async () => {
+    const response = await fetcher('/api/run-read?repo=org%2Ffirst&kind=all&limit=10');
+    values.push((await response.json()).version);
+  });
+  const { host, context } = setup({ update() {}, dispose() {}, refresh }, { services: (_lifetime, _activity, supplied) => { fetcher = supplied!; return services; } });
+  await host.refresh(); await host.refresh(false);
+  expect(values).toEqual([1, 1]); expect(transport).toHaveBeenCalledTimes(1);
+  now = 6000; version = 2;
+  await host.refresh(false);
+  await vi.waitFor(() => expect(values.at(-1)).toBe(2));
+  expect(transport).toHaveBeenCalledTimes(2);
+  version = 3; await context.refresh?.();
+  expect(values.at(-1)).toBe(3); expect(transport).toHaveBeenCalledTimes(3);
+});
+
+it('does not replay cache changes after the panel becomes inactive', async () => {
+  let changed!: () => void;
+  const fetcher = vi.fn<typeof fetch>();
+  vi.spyOn(apiClient, 'createApiReadScope').mockImplementation((_signal, update) => { changed = update; return { fetch: fetcher, fresh: operation => operation() }; });
+  const refresh = vi.fn(); const { host } = setup({ update() {}, dispose() {}, refresh }); await settle();
+  host.update(state({ visible: false })); changed(); await settle(); expect(refresh).not.toHaveBeenCalled();
+  host.dispose(); changed(); await settle(); expect(refresh).not.toHaveBeenCalled();
+});
+
+it('replays one cache update after an in-progress panel refresh settles', async () => {
+  let changed!: () => void; let complete!: () => void;
+  vi.spyOn(apiClient, 'createApiReadScope').mockImplementation((_signal, update) => { changed = update; return { fetch: vi.fn<typeof fetch>(), fresh: operation => operation() }; });
+  const refresh = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { complete = resolve; })).mockResolvedValue(undefined);
+  const { host } = setup({ update() {}, dispose() {}, refresh });
+  const pending = host.refresh(false); await settle();
+  changed(); changed(); expect(refresh).toHaveBeenCalledTimes(1);
+  complete(); await pending;
+  await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+});
+
+it('follows an in-progress background read with one fresh read for an explicit refresh', async () => {
+  const fresh = vi.fn();
+  vi.spyOn(apiClient, 'createApiReadScope').mockReturnValue({ fetch: vi.fn<typeof fetch>(), fresh: async operation => { fresh(); return operation(); } });
+  let complete!: () => void;
+  const refresh = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { complete = resolve; })).mockResolvedValue(undefined);
+  const { host, context } = setup({ update() {}, dispose() {}, refresh });
+  const background = host.refresh(false); await settle();
+  const first = context.refresh?.(); const second = context.refresh?.(); complete();
+  await Promise.all([background, first, second]);
+  expect(refresh).toHaveBeenCalledTimes(2); expect(fresh).toHaveBeenCalledOnce();
 });

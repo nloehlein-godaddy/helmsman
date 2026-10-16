@@ -48,12 +48,13 @@ async function mockInbox(page: Page) {
   return { state, scopes, listStates, writes, errors };
 }
 
-for (const width of [1440, 390]) test(`restores bounty lists on return while refreshing in the background at ${width}px`, async ({ page }) => {
+for (const width of [1440, 390]) test(`reuses shared cached bounty lists and bypasses them on refresh at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });
   const f = await mockInbox(page); f.state.requestOrigins = true;
   await page.goto('/prs?repo=org%2Fa');
   await expect(page.locator('.plugin-public-pr')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('[data-pr-pane="authored"] [data-select-number="42"]')).toBeVisible();
+  const reads = f.scopes.length;
   const navigate = (path: string) => page.evaluate(path => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, path);
   await navigate('/config?repo=org%2Fa');
   await expect(page.locator('.plugin-public-pr')).toHaveCount(0);
@@ -62,7 +63,10 @@ for (const width of [1440, 390]) test(`restores bounty lists on return while ref
   await page.route('**/api/pull-request-read?**', hold); await page.route('**/api/run-read?**', hold);
   try {
     await navigate('/prs?repo=org%2Fa');
-    const panel = page.locator('.plugin-public-pr'); await expect(panel).toHaveAttribute('aria-busy', 'true');
+    const panel = page.locator('.plugin-public-pr'); await expect(panel).toHaveAttribute('aria-busy', 'false');
+    expect(f.scopes.length).toBe(reads);
+    await page.getByRole('button', { name: 'Refresh page', exact: true }).click();
+    await expect(panel).toHaveAttribute('aria-busy', 'true');
     await expect(panel.locator('[data-select-number="51"]')).toBeVisible();
     await expect(panel.locator('[data-pr-pane="authored"] [data-select-number="42"]')).toBeVisible();
     await expect(panel.locator('[data-run="recent-pr-run"]')).toHaveCount(1);

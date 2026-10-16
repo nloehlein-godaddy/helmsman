@@ -1,3 +1,4 @@
+import { apiFetch, rejectApiCache } from '../data/api-client';
 import { parseTaskRepo } from './tasks';
 import { parseTaskReadGalleons } from './task-read';
 import { parsePullRequestInspectDetailQueryV1, parsePullRequestInspectDetailV1, parsePullRequestInspectDiffQueryV1, parsePullRequestInspectDiffV1, PULL_REQUEST_INSPECT_LIMITS } from './pull-request-inspect';
@@ -25,7 +26,7 @@ async function body(response: Response, signal: AbortSignal): Promise<unknown> {
   } finally { if (!complete) void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 export function createHostPullRequestInspectService(lifetime: AbortSignal, options: { scope(): PullRequestInspectScopeV1; fetch?: typeof globalThis.fetch }): PullRequestInspectServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   function operation(caller?: AbortSignal) {
     const current = options.scope(); const scope = { ...current, repo: current.repo === null ? null : parseTaskRepo(current.repo) };
     const timeout = AbortSignal.timeout(30_000); const signal = AbortSignal.any([lifetime, scope.signal, timeout, ...(caller ? [caller] : [])]);
@@ -54,7 +55,7 @@ export function createHostPullRequestInspectService(lifetime: AbortSignal, optio
           return unavailable('service-unavailable');
         }
         try { const value = await body(response, signal); check(); signal.throwIfAborted(); return Object.freeze({ status: 'available', value: parse(value) }); }
-        catch { check(); signal.throwIfAborted(); return unavailable('invalid-response'); }
+        catch { check(); signal.throwIfAborted(); rejectApiCache(path); return unavailable('invalid-response'); }
       } catch { check(); return unavailable(timeout.aborted ? 'timeout' : 'connection-failed'); }
       finally { discard(response); }
     }

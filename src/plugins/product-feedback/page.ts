@@ -24,7 +24,7 @@ const page: PluginPageModule = { mount(container, context) {
       ${selected && !matches ? `<button type="button" data-destination ${busy ? 'disabled' : ''}>Use current destination</button>` : ''}
       <button type="submit" ${!ready || busy || !matches || !saved.title.trim() || !saved.body.trim() ? 'disabled' : ''}>Submit feedback</button></form>` : ''}
       <p><a href="/feedback-settings${state.repo ? `?repo=${encodeURIComponent(state.repo)}` : ''}">Feedback settings</a></p></section>`;
-    container.querySelector('[data-refresh]')?.addEventListener('click', () => { void refresh(); });
+    container.querySelector('[data-refresh]')?.addEventListener('click', () => { void (context.refresh?.() ?? refresh()); });
     const form = container.querySelector('form');
     form?.addEventListener('input', () => {
       if (!saved || !storage || busy) return;

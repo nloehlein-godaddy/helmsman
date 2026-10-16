@@ -1,3 +1,4 @@
+import { apiFetch, rejectApiCache } from '../data/api-client';
 import { TASK_VIEW_LIMITS, parseTaskTriageReadQueryV1, parseTaskTriageReadSnapshotV1, parseTaskBugsReadSnapshotV1,
   type TaskViewsReadServiceV1, type TaskTriageReadQueryV1 } from './task-views';
 import { createHostTaskReadService, type TaskReadScopeV1 } from './task-read-service';
@@ -23,8 +24,9 @@ async function body(response: Response, signal: AbortSignal): Promise<unknown> {
   } finally { if (!complete) void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 export function createHostTaskViewsReadService(lifetime: AbortSignal, options: { scope(): TaskReadScopeV1; fetch?: typeof globalThis.fetch }): TaskViewsReadServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   async function read<T>(selection: TaskReadSelectionV1, view: 'triage' | 'bugs', params: URLSearchParams, parse: (value: unknown) => T, caller?: AbortSignal): Promise<TaskReadResultV1<T>> {
+    const path = `/api/task-views-read/${encodeURIComponent(selection.instanceId)}/${view}?${params}`;
     const scope = { ...options.scope() };
     function check() {
       lifetime.throwIfAborted(); caller?.throwIfAborted(); scope.signal.throwIfAborted(); const latest = options.scope();
@@ -44,7 +46,7 @@ export function createHostTaskViewsReadService(lifetime: AbortSignal, options: {
       if (!source || source.sourceId !== selection.sourceId || source.instanceRevision !== selection.instanceRevision) return unavailable('selection-changed');
       if (source.availability !== 'available') return unavailable(source.availability === 'disabled' ? 'disabled' : 'source-unavailable');
       if (!source.readViews?.includes(view)) return unavailable('view-unavailable');
-      response = await abortable<Response>(fetcher(`/api/task-views-read/${encodeURIComponent(selection.instanceId)}/${view}?${params}`, {
+      response = await abortable<Response>(fetcher(path, {
         method: 'GET', signal, credentials: 'same-origin', headers: { Accept: 'application/json' },
       }).then(value => { try { check(); signal.throwIfAborted(); return value; } catch (error) { discard(value); throw error; } }), signal);
       check(); signal.throwIfAborted();
@@ -54,7 +56,7 @@ export function createHostTaskViewsReadService(lifetime: AbortSignal, options: {
       if (!response.ok) return unavailable('service-unavailable');
       let result: T;
       try { result = parse(await body(response, signal)); }
-      catch { check(); signal.throwIfAborted(); return unavailable('invalid-response'); }
+      catch { check(); signal.throwIfAborted(); rejectApiCache(path); return unavailable('invalid-response'); }
       check(); signal.throwIfAborted(); return Object.freeze({ status: 'available', value: result });
     } catch { check(); return unavailable(timeout.aborted ? 'timeout' : 'connection-failed'); }
     finally { discard(response); }

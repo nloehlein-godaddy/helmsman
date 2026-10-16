@@ -1,3 +1,4 @@
+import { apiFetch } from '../data/api-client';
 import { parseTaskContextQueryV1, parseTaskContextSnapshotV1, TASK_CONTEXT_LIMITS } from './task-context';
 import type { TaskContextQueryV1, TaskContextResultV1, TaskContextServiceV1, TaskContextUnavailableReasonV1 } from './task-context';
 import type { TaskReadScopeV1 } from './task-read-service';
@@ -17,7 +18,7 @@ async function body(response: Response, signal: AbortSignal): Promise<unknown> {
 }
 
 export function createHostTaskContextService(lifetime: AbortSignal, options: { scope(): TaskReadScopeV1; fetch?: typeof globalThis.fetch }): TaskContextServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   return Object.freeze<TaskContextServiceV1>({ version: 1, async resolve(input: TaskContextQueryV1, caller?: AbortSignal) {
     const query = parseTaskContextQueryV1(input); const current = options.scope(); const scope = { ...current };
     const check = () => { lifetime.throwIfAborted(); caller?.throwIfAborted(); scope.signal.throwIfAborted(); const latest = options.scope(); if (!scope.active || !latest.active || latest.epoch !== scope.epoch || latest.repo !== scope.repo || latest.signal !== scope.signal) throw cancelled(); };

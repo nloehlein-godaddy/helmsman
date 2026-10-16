@@ -436,7 +436,7 @@ class TodosPanel implements PluginPanelInstance {
     source.value = this.saved.selectedSource ? sourceKey(this.saved.selectedSource) : '';
     source.addEventListener('change', () => { this.saved.selectedSource = this.sources.find(value => sourceKey(value.selection) === source.value)?.selection ?? null; this.change(); void this.refresh(); });
     this.tools.replaceChildren(source, this.button('New Todo', () => { void this.open(null); }, this.busy || this.unsupported || !this.selected() || !this.active()),
-      this.button('Refresh Todos', () => { void this.refresh(); }, this.loading || this.busy || !this.active()), this.button('Save drafts', () => { void this.save(); }, this.unsupported));
+      this.button('Refresh Todos', () => { void (this.context.refresh?.() ?? this.refresh()); }, this.loading || this.busy || !this.active()), this.button('Save drafts', () => { void this.save(); }, this.unsupported));
     this.drawList(); this.drawEditor(); this.updateLaunch(); this.drawRequests(); void this.followRoute();
   }
   private drawList() {

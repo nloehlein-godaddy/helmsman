@@ -17,6 +17,13 @@ function fixture() {
 }
 afterEach(() => document.body.replaceChildren());
 describe('standalone Bugs presentation', () => {
+  it('routes the Refresh button through the host without forcing initial reads', async () => {
+    const f = fixture(); const refresh = vi.fn(async () => {}); await panel.mount(f.container, { ...f.context, refresh });
+    await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
+    expect(refresh).not.toHaveBeenCalled(); const reads = f.bugs.mock.calls.length;
+    f.container.querySelector<HTMLButtonElement>('[data-bugs-focus="refresh"]')!.click();
+    expect(refresh).toHaveBeenCalledOnce(); expect(f.bugs).toHaveBeenCalledTimes(reads); f.lifetime.abort();
+  });
   it('preserves null, exact-zero and approximate counts alongside sample coverage and actual dates', async () => {
     const f = fixture(); await panel.mount(f.container, f.context); await vi.waitFor(() => expect(f.container.textContent).toContain('Actual bug'));
     const values = [...f.container.querySelectorAll('dd')].map(value => value.textContent); expect(values.slice(0, 4)).toEqual(['≈ 25,000', 'Unavailable', '0', 'Unavailable']);

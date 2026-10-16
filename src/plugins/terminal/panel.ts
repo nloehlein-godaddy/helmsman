@@ -206,7 +206,7 @@ class TerminalPanel implements PluginPanelInstance {
   private click = (event: MouseEvent) => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null; if (!button || button.disabled || !this.active()) return; event.stopPropagation();
     if (button.dataset.surface) this.select(button.dataset.surface);
-    else if (button.hasAttribute('data-refresh')) void this.refresh();
+    else if (button.hasAttribute('data-refresh')) void (this.context.refresh?.() ?? this.refresh());
     else if (button.hasAttribute('data-save-draft')) { this.persist(); this.draw(); }
     else if (button.dataset.collapse === 'tabs' || button.dataset.collapse === 'screen') { const pane = button.dataset.collapse; this.saved.collapsed[pane] = !this.saved.collapsed[pane]; if (pane === 'screen' && this.saved.collapsed.screen) this.cancelControls(); this.persist(); this.draw(); if (!this.saved.collapsed[pane]) void this.refresh(); }
     else if (button.hasAttribute('data-capture')) { this.capture = !this.capture; this.draw(); (this.capture ? this.screen : this.captureButton).focus({preventScroll:true}); }

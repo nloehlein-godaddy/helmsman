@@ -1,3 +1,4 @@
+import { apiFetch, rejectApiCache } from '../data/api-client';
 import { isContributionId } from './manifest';
 import { parseTaskRepo } from './tasks';
 import { parseTaskReadGalleons } from './task-read';
@@ -32,7 +33,7 @@ export function createClarificationTransport(lifetime: AbortSignal, options: Cla
   request<T>(path: string, parse: (value: unknown) => T, payload?: unknown): Promise<ClarificationReadResultV1<T>>;
 } {
   if (!isContributionId(options.caller)) throw new TypeError('Invalid clarification contribution');
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   return caller => {
     const current = options.scope(); const scope = { ...current, repo: current.repo === null ? null : parseTaskRepo(current.repo) };
     function check() {
@@ -60,7 +61,7 @@ export function createClarificationTransport(lifetime: AbortSignal, options: Cla
             return clarificationUnavailable(reason === 'cursor-invalid' ? 'cursor-invalid' : reason === 'conflict' ? 'conflict' : 'invalid-response');
           }
           return clarificationAvailable(parse(value));
-        } catch { check(); signal.throwIfAborted(); return clarificationUnavailable('invalid-response'); }
+        } catch { check(); signal.throwIfAborted(); rejectApiCache(path); return clarificationUnavailable('invalid-response'); }
       } catch { check(); return clarificationUnavailable(timeout.aborted ? 'timeout' : 'connection-failed'); }
       finally { discard(response); }
     }

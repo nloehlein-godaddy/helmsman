@@ -75,7 +75,7 @@ export class NotificationView implements PluginPageInstance {
     else if (button.matches('[data-clear-notifications]')) void this.clearNotifications();
     else if (button.matches('[data-slack-close]')) this.close(true);
     else if (button.dataset.slackRead && button.dataset.repo) void this.markRead(button.dataset.repo, button.dataset.slackRead);
-    else if (button.matches('[data-refresh]')) void this.refresh();
+    else if (button.matches('[data-refresh]')) void (this.context.refresh?.() ?? this.refresh());
   };
   private async clearNotifications() {
     const service = this.context.services?.communication;

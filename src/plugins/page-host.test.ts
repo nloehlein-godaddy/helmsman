@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as apiClient from '../data/api-client';
 import { PluginPageHost, type PluginPageHostOptions } from './page-host';
 import type { PluginPageContext, PluginPageInstance, PluginPageModule, PluginPageState } from './sdk';
 
@@ -34,6 +35,7 @@ function setup(options: Partial<PluginPageHostOptions> = {}) {
 afterEach(() => {
   hosts.splice(0).forEach(host => host.dispose());
   document.body.replaceChildren();
+  vi.restoreAllMocks();
 });
 
 describe('plugin page host', () => {
@@ -506,4 +508,40 @@ describe('plugin page host', () => {
     expect(container.textContent).toBe('org/third');
     expect(container.hasAttribute('aria-busy')).toBe(false);
   });
+});
+
+it('injects page read scopes and replays stale changed data without forcing a network loop', async () => {
+  let now = 0; let runId = 'run-1';
+  const transport = vi.fn(async (input: RequestInfo | URL) => String(input) === '/api/context' ? Response.json({ repos: ['org/first'] }) : Response.json({ version: 1, repo: 'org/first', items: [{ version: 1, id: runId, repo: 'org/first', displayKey: runId, status: 'succeeded', attempt: 1, startedAt: '2026-09-20T00:00:00Z', endedAt: '2026-09-20T00:01:00Z', prNumber: null, costUsd: null, review: null, sourceSettlement: null }], nextCursor: null }));
+  const client = apiClient.createApiClient({ fetch: transport, now: () => now });
+  vi.spyOn(apiClient, 'createApiReadScope').mockImplementation(client.createReadScope);
+  const values: string[] = []; const { host } = setup(); let mountedContext!: PluginPageContext;
+  host.show('example.runs/page', { mount(_container, context) {
+    mountedContext = context;
+    return { update() {}, dispose() {}, async refresh() {
+      const result = await context.services!.runs!.list({ version: 1, repo: 'org/first', kind: 'all', limit: 10, cursor: null });
+      if (result.status === 'available') values.push(result.value.items[0]?.id ?? '');
+    } };
+  } }, state());
+  await host.refresh(); await host.refresh(false);
+  expect(values).toEqual(['run-1', 'run-1']);
+  const readCalls = () => transport.mock.calls.filter(([input]) => String(input).startsWith('/api/run-read')).length;
+  expect(readCalls()).toBe(1);
+  now = 6000; runId = 'run-2'; await host.refresh(false);
+  await vi.waitFor(() => expect(values.at(-1)).toBe('run-2')); expect(readCalls()).toBe(2);
+  runId = 'run-3'; await mountedContext.refresh?.(); expect(values.at(-1)).toBe('run-3'); expect(readCalls()).toBe(3);
+  const replacement = lifecycle(); host.show('example.other/page', { mount: () => replacement }, state()); await settle();
+  await mountedContext.refresh?.(); expect(replacement.refresh).not.toHaveBeenCalled();
+});
+
+it('follows a background page refresh with one forced refresh when explicitly requested', async () => {
+  const fresh = vi.fn();
+  vi.spyOn(apiClient, 'createApiReadScope').mockReturnValue({ fetch: vi.fn<typeof fetch>(), fresh: async operation => { fresh(); return operation(); } });
+  const pending = deferred<void>(); let context!: PluginPageContext;
+  const refresh = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue(undefined); const { host } = setup();
+  host.show('example.runs/page', { mount(_element, supplied) { context = supplied; return { update() {}, dispose() {}, refresh }; } }, state());
+  const background = host.refresh(false); await settle();
+  const first = context.refresh?.(); const second = context.refresh?.(); pending.resolve();
+  await Promise.all([background, first, second]);
+  expect(refresh).toHaveBeenCalledTimes(2); expect(fresh).toHaveBeenCalledOnce();
 });

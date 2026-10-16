@@ -114,6 +114,7 @@ export interface PluginPanelState extends PluginPageState {
 }
 
 export interface PluginPanelContext {
+  readonly refresh?: () => Promise<void>;
   readonly contributionId?: string;
   readonly selectPresentation?: (locator: PresentationLocatorV1 | null) => void;
   readonly state: PluginPanelState;

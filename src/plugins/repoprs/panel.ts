@@ -89,7 +89,7 @@ class PullRequestPanel implements PluginPanelInstance {
     const focused = document.activeElement instanceof HTMLElement && this.container.contains(document.activeElement) ? document.activeElement.dataset.prFocus : undefined;
     const root = node('section'); root.className = `plugin-pr-list plugin-${presentation.name}`; root.setAttribute('aria-busy', String(this.loading)); root.append(node('style', styles));
     const header = node('header'); header.append(node('h2', presentation.kind === 'repo-open' ? this.state.pirateMode ? 'Galleon pull requests' : 'Repository pull requests' : this.state.pirateMode ? 'Out to sea' : 'Recent authored PRs'));
-    const refresh = node('button', 'Refresh'); refresh.type = 'button'; refresh.disabled = !this.active(); refresh.addEventListener('click', () => this.refresh()); root.append(header);
+    const refresh = node('button', 'Refresh'); refresh.type = 'button'; refresh.disabled = !this.active(); refresh.addEventListener('click', () => this.context.refresh?.() ?? this.refresh()); root.append(header);
     if (presentation.kind === 'authored-recent') root.append(node('small', 'Recent authored pull requests, including open, closed, and merged work.'));
     const status = (text: string) => { const message = node('p', text); message.setAttribute('role', 'status'); root.append(message); };
     if (presentation.kind === 'repo-open' && this.state.repo === null) status(this.state.pirateMode ? 'Select a galleon to see its open bounties.' : 'Select a repository to see its open PRs.');

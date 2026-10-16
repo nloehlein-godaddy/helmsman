@@ -427,7 +427,7 @@ class ViewerPanel implements PluginPanelInstance {
     const keep = (element: HTMLElement) => { const marker = document.createComment(''); retained.set(marker, element); return marker; };
     const root = node('section'); root.className = 'plugin-run-viewer'; root.append(node('style', styles));
     if (!this.container.closest('[data-composition-page]')) {
-      const header = node('div'); header.className = 'run-tools'; header.append(node('h2', this.state.pirateMode ? 'Voyage viewer' : 'Run viewer'), this.button('Refresh', () => { void this.refresh(); }, this.busy)); root.append(header);
+      const header = node('div'); header.className = 'run-tools'; header.append(node('h2', this.state.pirateMode ? 'Voyage viewer' : 'Run viewer'), this.button('Refresh', () => { void (this.context.refresh?.() ?? this.refresh()); }, this.busy)); root.append(header);
     }
     const tabs = node('div'); tabs.className = 'run-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Open runs');
     const visibleTabs = this.tabs.filter(item => this.inScope(item.repo));

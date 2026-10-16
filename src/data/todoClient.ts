@@ -1,3 +1,4 @@
+import { apiFetch } from './api-client';
 import { TODO_PRIORITIES, TODO_STATES, type Todo, type TodoInput } from './todos';
 
 const mutationStorageKey = 'helmsman.todos.pending-mutations.v1';
@@ -52,7 +53,7 @@ export function isTodo(value: unknown): value is Todo {
 }
 
 async function request(path: string, init?: RequestInit, pending?: ReturnType<typeof mutation>): Promise<Record<string, unknown>> {
-  const response = await fetch(path, { ...init, signal: AbortSignal.timeout(10_000) });
+  const response = await apiFetch(path, { ...init, signal: AbortSignal.timeout(10_000) });
   const payload: unknown = await response.json().catch(() => null);
   const data = payload && typeof payload === 'object' && !Array.isArray(payload)
     ? payload as Record<string, unknown> : null;

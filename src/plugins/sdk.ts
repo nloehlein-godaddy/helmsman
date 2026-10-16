@@ -103,6 +103,7 @@ export interface PluginPageState {
 }
 
 export interface PluginPageContext {
+  readonly refresh?: () => Promise<void>;
   readonly contributionId?: string;
   readonly selectPresentation?: (locator: PresentationLocatorV1 | null) => void;
   readonly state: PluginPageState;

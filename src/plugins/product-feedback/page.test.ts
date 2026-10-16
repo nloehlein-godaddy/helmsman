@@ -16,6 +16,12 @@ async function fixture(module: PluginPageModule = page, configure?: (context: Pl
   return { container, service, instance, state, lifetime, context, pending };
 }
 function fill(root: HTMLElement, name: string, value: string) { const input = root.querySelector<HTMLInputElement>(`[name=${name}]`)!; input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }
+it('routes explicit refresh through the host while lifecycle reads stay local', async () => {
+  const refresh = vi.fn(async () => {}); const f = await fixture(page, context => { Object.assign(context, { refresh }); });
+  expect(refresh).not.toHaveBeenCalled(); const reads = vi.mocked(f.service.destination).mock.calls.length;
+  f.container.querySelector<HTMLButtonElement>('[data-refresh]')!.click();
+  expect(refresh).toHaveBeenCalledOnce(); expect(f.service.destination).toHaveBeenCalledTimes(reads);
+});
 it('preserves unsent drafts through reload and destination disable', async () => {
   const f = await fixture(); fill(f.container, 'title', 'My bug'); fill(f.container, 'body', 'My reproduction'); f.lifetime.abort();
   const next = await fixture(page, context => { vi.mocked(context.services!.feedbackCommands!.destination).mockResolvedValue(available(null)); });

@@ -3,6 +3,7 @@ import { createHostPageServices } from './host-services';
 import type { UsageQuery, UsageSnapshot } from './usage';
 
 afterEach(() => vi.unstubAllGlobals());
+const hostServices = (lifetime = new AbortController().signal) => createHostPageServices(lifetime, undefined, undefined, globalThis.fetch);
 const query: UsageQuery = { version: 1, repo: 'org/a', from: '2026-09-01T00:00:00.000Z', to: '2026-09-20T00:00:00.000Z' };
 const snapshot = (): UsageSnapshot => ({ version: 1, currency: 'USD', repo: query.repo, window: { from: query.from, to: query.to },
   runs: [{ runId: 'run_1', repo: 'org/a', status: 'succeeded', startedAt: query.from, endedAt: query.to, reportedCostUsd: null }],
@@ -14,7 +15,7 @@ const snapshot = (): UsageSnapshot => ({ version: 1, currency: 'USD', repo: quer
 it('queries versioned usage with exact scope and retains unknown measured spend', async () => {
   const fetch = vi.fn().mockResolvedValue(Response.json(snapshot()));
   vi.stubGlobal('fetch', fetch);
-  const services = createHostPageServices(new AbortController().signal);
+  const services = hostServices();
   expect(await services.usage.query(query)).toEqual(snapshot());
   const url = new URL(fetch.mock.calls[0]?.[0] as string, 'http://localhost');
   expect(url.pathname).toBe('/api/usage/v1');
@@ -31,13 +32,13 @@ it.each([
 ])('rejects malformed or mismatched scope/usage responses', async change => {
   const data = snapshot(); change(data);
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(data)));
-  await expect(createHostPageServices(new AbortController().signal).usage.query(query)).rejects.toThrow('Usage response was invalid');
+  await expect(hostServices().usage.query(query)).rejects.toThrow('Usage response was invalid');
 });
 
 it('accepts equivalent UTC instants normalized by the host', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(snapshot())));
   const input = { ...query, from: query.from.replace('.000Z', 'Z'), to: query.to.replace('.000Z', 'Z') };
-  expect(await createHostPageServices(new AbortController().signal).usage.query(input)).toEqual(snapshot());
+  expect(await hostServices().usage.query(input)).toEqual(snapshot());
 });
 
 it('preserves Claude usage whose cached reads are separate from newly read input tokens', async () => {
@@ -45,7 +46,7 @@ it('preserves Claude usage whose cached reads are separate from newly read input
   data.records[0] = { ...data.records[0]!, provider: 'claude-code', model: 'claude-sonnet', inputTokens: 10, cachedInputTokens: 1000, totalTokens: 1020, costUsd: 0.25 };
   data.reported = { ...data.reported, inputTokens: 10, cachedInputTokens: 1000, totalTokens: 1020, observedCostUsd: 0.25, knownCostUsd: 0.25, runsWithKnownCost: 1 };
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(data)));
-  expect(await createHostPageServices(new AbortController().signal).usage.query(query)).toEqual(data);
+  expect(await hostServices().usage.query(query)).toEqual(data);
 });
 
 it('propagates plugin lifetime cancellation to active host service calls', async () => {
@@ -55,7 +56,7 @@ it('propagates plugin lifetime cancellation to active host service calls', async
     observed = init.signal ?? undefined;
     observed?.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true });
   })));
-  const pending = createHostPageServices(lifetime.signal).usage.query(query);
+  const pending = hostServices(lifetime.signal).usage.query(query);
   lifetime.abort();
   await expect(pending).rejects.toThrow('Cancelled');
   expect(observed?.aborted).toBe(true);
@@ -66,7 +67,7 @@ it('keeps missing pricing distinct from zero or malformed estimates', async () =
     .mockResolvedValueOnce(Response.json({ error: 'Selected pricing provider is disabled' }, { status: 503 }))
     .mockResolvedValueOnce(Response.json({ version: 1, currency: 'USD', estimatedUnreportedCostUsd: 0 }));
   vi.stubGlobal('fetch', fetch);
-  const pricing = createHostPageServices(new AbortController().signal).pricing;
+  const pricing = hostServices().pricing;
   expect(await pricing.estimate(query)).toBeNull();
   await expect(pricing.estimate(query)).rejects.toThrow('Selected pricing provider is disabled');
   await expect(pricing.estimate(query)).rejects.toThrow('Pricing response was invalid');
@@ -85,5 +86,5 @@ it.each(['duplicate', 'wrong-sum', 'wrong-count', 'zero-attempt', 'overflow'])('
     result.estimatedUsageEvents = 2; result.unreportedUsageEvents = 2; result.estimatedUnreportedCostUsd = 1e308;
   }
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(result)));
-  await expect(createHostPageServices(new AbortController().signal).pricing.estimate(query)).rejects.toThrow('Pricing response was invalid');
+  await expect(hostServices().pricing.estimate(query)).rejects.toThrow('Pricing response was invalid');
 });

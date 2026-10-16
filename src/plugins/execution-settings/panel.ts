@@ -55,7 +55,7 @@ const panel: PluginPanelModule = { mount(container, context) {
         if (pending) root.append(node('p', `Saved request: limit ${pending.maxConcurrentRuns}, based on revision ${pending.expectedRevision}. Retry checks the same request without applying it twice.`));
         if (pending && conflicted) root.append(button('Discard conflicted request', () => { try { localStorage.removeItem(key(pending!.repo)); restore(); message = ''; void read(); } catch { storageError = true; draw(); } }, busy));
       }
-      root.append(button('Refresh', () => { void read(); }, busy));
+      root.append(button('Refresh', () => { void (context.refresh?.() ?? read()); }, busy));
     }
     if (message) { const status = node('p', message); status.setAttribute('role', 'alert'); root.append(status); }
     container.replaceChildren(root);

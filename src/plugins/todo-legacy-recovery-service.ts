@@ -1,3 +1,4 @@
+import { apiFetch } from '../data/api-client';
 import { legacyTodoPending, parseLegacyTodoCommandQuery, parseLegacyTodoCommandReceipt,
   type LegacyTodoCommandQuery, type TodoLegacyRecoveryResultV1, type TodoLegacyRecoveryServiceV1 } from './todo-legacy-recovery';
 import type { TaskReadScopeV1 } from './task-read-service';
@@ -38,7 +39,7 @@ async function readBody(response: Response, signal: AbortSignal): Promise<unknow
 export function createHostTodoLegacyRecoveryService(lifetime: AbortSignal, options: {
   scope(): TaskReadScopeV1; fetch?: typeof globalThis.fetch; storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 }): TodoLegacyRecoveryServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   const confirmed = new Map<string, string>();
   const storage = () => {
     try { return options.storage ?? globalThis.sessionStorage; } catch { throw new RecoveryUnavailable('storage-unavailable'); }

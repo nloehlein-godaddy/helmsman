@@ -1,3 +1,4 @@
+import { apiFetch } from './api-client';
 export interface UiConfig {
   config: Record<string, unknown>;
   overridden: string[];
@@ -18,7 +19,7 @@ function isUiConfig(value: unknown): value is UiConfig {
 
 export async function getConfig(): Promise<UiConfig | null> {
   try {
-    const res: Response = await fetch('/api/config', { signal: AbortSignal.timeout(10_000) });
+    const res: Response = await apiFetch('/api/config', { signal: AbortSignal.timeout(10_000) });
     if (!res.ok) return null;
     const payload: unknown = await res.json();
     return isUiConfig(payload) ? payload : null;
@@ -29,7 +30,7 @@ export async function getConfig(): Promise<UiConfig | null> {
 
 export async function setConfig(key: string, value: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res: Response = await fetch('/api/config', {
+    const res: Response = await apiFetch('/api/config', {
       method: 'PUT',
       signal: AbortSignal.timeout(10_000),
       headers: { 'Content-Type': 'application/json' },

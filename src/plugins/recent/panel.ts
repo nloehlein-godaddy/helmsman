@@ -348,7 +348,7 @@ class RunListPanel implements PluginPanelInstance {
     if (pending.length) { const saved = node('section'); saved.append(node('h3', `Saved requests (${pending.length})`)); for (const [, command] of pending) { const row = node('div', `${command.runId} · ${command.repo} · Attempt ${command.attempt}`); row.dataset.runKey = key({ repo: command.repo, id: command.runId, attempt: command.attempt }); this.commandFeedback(row, command); saved.append(row); } root.append(saved); }
     if (this.truncated) root.append(node('small', `Showing the first ${presentation.limit} ${presentation.kind === 'running' ? 'active' : 'recent'} runs.`));
     const history = new URLSearchParams({ pane: 'recent' }); if (this.state.repo) history.set('repo', this.state.repo);
-    const footer = node('footer'); footer.className = 'run-actions'; footer.append(this.link(this.state.pirateMode ? 'All voyages' : 'All runs', `/runs?${history}`), this.iconButton('Refresh', 'refresh', () => { void this.refresh(); }, !this.active())); root.append(footer);
+    const footer = node('footer'); footer.className = 'run-actions'; footer.append(this.link(this.state.pirateMode ? 'All voyages' : 'All runs', `/runs?${history}`), this.iconButton('Refresh', 'refresh', () => { void (this.context.refresh?.() ?? this.refresh()); }, !this.active())); root.append(footer);
     const controls = Array.from(root.querySelectorAll<HTMLElement>('a,button'));
     for (const control of controls) control.dataset.runFocus = JSON.stringify([control.closest<HTMLElement>('[data-run-key]')?.dataset.runKey ?? '', control.tagName, control.dataset.runInfo ?? control.getAttribute('aria-label') ?? control.textContent, control.getAttribute('href')]);
     this.container.replaceChildren(root);

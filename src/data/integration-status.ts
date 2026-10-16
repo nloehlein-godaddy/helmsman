@@ -1,3 +1,4 @@
+import { apiFetch } from './api-client';
 export type IntegrationState = 'available' | 'unavailable' | 'not-configured' | 'unknown';
 export interface IntegrationStatusSnapshot {
   version: 1;
@@ -25,7 +26,7 @@ export function parseIntegrationStatus(input: unknown, repo: string | null): Int
 export function createIntegrationStatusController(onChange: (status: IntegrationNavigationStatus) => void, options: {
   fetcher?: typeof fetch; now?: () => number;
 } = {}) {
-  const fetcher = options.fetcher ?? fetch;
+  const fetcher = options.fetcher ?? apiFetch;
   const now = options.now ?? Date.now;
   let active: { repo: string | null; controller: AbortController; promise: Promise<void> } | null = null;
   let cached: { value: IntegrationStatusSnapshot; at: number } | null = null;

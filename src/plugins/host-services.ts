@@ -1,3 +1,4 @@
+import { apiFetch, rejectApiCache } from '../data/api-client';
 import { createHostAgentPromptSettingsService } from './agent-prompts-service';
 import { createHostWhiteboardService } from './whiteboard-service';
 import { createHostRunInstructionService } from './run-instruction-service';
@@ -102,59 +103,59 @@ function pricingEstimate(value: unknown): value is PricingEstimate | null {
     && (priced === 0 || Math.abs(sum - Number(data.estimatedUnreportedCostUsd)) <= Math.max(1e-9, sum * 1e-9));
 }
 
-export function createHostPageServices(lifetime: AbortSignal, scope?: () => TaskReadScopeV1, caller?: string): PluginPageServices {
+export function createHostPageServices(lifetime: AbortSignal, scope?: () => TaskReadScopeV1, caller?: string, fetcher: typeof fetch = apiFetch): PluginPageServices {
   const signalFor = (signal?: AbortSignal) => AbortSignal.any([lifetime, AbortSignal.timeout(10_000), ...(signal ? [signal] : [])]);
   async function request(endpoint: string, input: UsageQuery, signal?: AbortSignal): Promise<unknown> {
     const params = new URLSearchParams({ version: String(input.version), from: input.from, to: input.to });
     if (input.repo !== null) params.set('repo', input.repo);
-    const response = await fetch(`${endpoint}?${params}`, { signal: signalFor(signal) });
+    const response = await fetcher(`${endpoint}?${params}`, { signal: signalFor(signal) });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) throw new Error(typeof object(body)?.error === 'string' ? String(object(body)?.error) : `Plugin service failed (${response.status}).`);
     return body;
   }
   return Object.freeze({
     version: 1,
-    ...(scope ? { tasks: createHostTaskReadService(lifetime, { scope }), runs: createHostRunReadService(lifetime, { scope }), runInspect: createHostRunInspectService(lifetime, { scope }), downloads: createHostDownloadService(lifetime, scope),
-      todoLegacyRecovery: createHostTodoLegacyRecoveryService(lifetime, { scope }),
-      taskEdit: createHostTaskEditService(lifetime, { scope }), taskViews: createHostTaskViewsReadService(lifetime, { scope }), taskContext: createHostTaskContextService(lifetime, { scope }),
-      pullRequests: createHostPullRequestReadService(lifetime, { scope }),
-      pullRequestInspect: createHostPullRequestInspectService(lifetime, { scope }),
-      activity: createHostActivityReadService(lifetime, { scope }),
-      ...(caller ? { runCommands: createHostRunCommandService(lifetime, { scope, caller }),
-        clarifications: createHostClarificationReadService(lifetime, { scope, caller }),
-        clarificationCommands: createHostClarificationCommandService(lifetime, { scope, caller }),
-        runInstructions: createHostRunInstructionService(lifetime, { scope, caller }),
-        postmortem: createHostPostmortemService(lifetime, { scope, caller }),
-        whiteboard: createHostWhiteboardService(lifetime, { scope, caller }),
-        pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope, caller }),
-        terminal: createHostTerminalService(lifetime, { scope, caller }),
-        campaigns: createHostCampaignService(lifetime, { scope, caller }),
-        jiraSettings: createHostJiraSettingsService(lifetime, { scope, caller }),
-        githubSettings: createHostGithubSettingsService(lifetime, { scope, caller }),
-        profile: createHostProfileService(lifetime, { scope, caller }),
-        executionPolicy: createHostExecutionPolicyService(lifetime, { scope, caller }),
-        localGit: createHostLocalGitService(lifetime, { scope, caller }),
-        communication: createHostCommunicationService(lifetime, { scope, caller }),
-        communicationCommands: createHostCommunicationCommandService(lifetime, { scope, caller }),
-        feedbackCommands: createHostFeedbackCommandService(lifetime, { scope, caller }),
-        feedbackSettings: createHostFeedbackSettingsService(lifetime, { scope, caller }),
-        agentPrompts: createHostAgentPromptSettingsService(lifetime, { scope, caller }),
-        suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope, caller }),
-        sourceAdmin: createHostSourceAdminService(lifetime, { scope, caller }),
-        taskActions: createHostTaskActionService(lifetime, { scope, caller }),
-        sourceCommands: createHostSourceCommandService(lifetime, { scope, caller }) } : {}) } : {}),
+    ...(scope ? { tasks: createHostTaskReadService(lifetime, { scope, fetch: fetcher }), runs: createHostRunReadService(lifetime, { scope, fetch: fetcher }), runInspect: createHostRunInspectService(lifetime, { scope, fetch: fetcher }), downloads: createHostDownloadService(lifetime, scope),
+      todoLegacyRecovery: createHostTodoLegacyRecoveryService(lifetime, { scope, fetch: fetcher }),
+      taskEdit: createHostTaskEditService(lifetime, { scope, fetch: fetcher }), taskViews: createHostTaskViewsReadService(lifetime, { scope, fetch: fetcher }), taskContext: createHostTaskContextService(lifetime, { scope, fetch: fetcher }),
+      pullRequests: createHostPullRequestReadService(lifetime, { scope, fetch: fetcher }),
+      pullRequestInspect: createHostPullRequestInspectService(lifetime, { scope, fetch: fetcher }),
+      activity: createHostActivityReadService(lifetime, { scope, fetch: fetcher }),
+      ...(caller ? { runCommands: createHostRunCommandService(lifetime, { scope, caller, fetch: fetcher }),
+        clarifications: createHostClarificationReadService(lifetime, { scope, caller, fetch: fetcher }),
+        clarificationCommands: createHostClarificationCommandService(lifetime, { scope, caller, fetch: fetcher }),
+        runInstructions: createHostRunInstructionService(lifetime, { scope, caller, fetch: fetcher }),
+        postmortem: createHostPostmortemService(lifetime, { scope, caller, fetch: fetcher }),
+        whiteboard: createHostWhiteboardService(lifetime, { scope, caller, fetch: fetcher }),
+        pullRequestCommands: createHostPullRequestCommandService(lifetime, { scope, caller, fetch: fetcher }),
+        terminal: createHostTerminalService(lifetime, { scope, caller, fetch: fetcher }),
+        campaigns: createHostCampaignService(lifetime, { scope, caller, fetch: fetcher }),
+        jiraSettings: createHostJiraSettingsService(lifetime, { scope, caller, fetch: fetcher }),
+        githubSettings: createHostGithubSettingsService(lifetime, { scope, caller, fetch: fetcher }),
+        profile: createHostProfileService(lifetime, { scope, caller, fetch: fetcher }),
+        executionPolicy: createHostExecutionPolicyService(lifetime, { scope, caller, fetch: fetcher }),
+        localGit: createHostLocalGitService(lifetime, { scope, caller, fetch: fetcher }),
+        communication: createHostCommunicationService(lifetime, { scope, caller, fetch: fetcher }),
+        communicationCommands: createHostCommunicationCommandService(lifetime, { scope, caller, fetch: fetcher }),
+        feedbackCommands: createHostFeedbackCommandService(lifetime, { scope, caller, fetch: fetcher }),
+        feedbackSettings: createHostFeedbackSettingsService(lifetime, { scope, caller, fetch: fetcher }),
+        agentPrompts: createHostAgentPromptSettingsService(lifetime, { scope, caller, fetch: fetcher }),
+        suggestedContacts: createHostSuggestedContactAdminService(lifetime, { scope, caller, fetch: fetcher }),
+        sourceAdmin: createHostSourceAdminService(lifetime, { scope, caller, fetch: fetcher }),
+        taskActions: createHostTaskActionService(lifetime, { scope, caller, fetch: fetcher }),
+        sourceCommands: createHostSourceCommandService(lifetime, { scope, caller, fetch: fetcher }) } : {}) } : {}),
     usage: Object.freeze({ async query(input: UsageQuery, signal?: AbortSignal) {
       const body = await request('/api/usage/v1', input, signal);
-      if (!usageSnapshot(body, input)) throw new Error('Usage response was invalid.');
+      if (!usageSnapshot(body, input)) { rejectApiCache('/api/usage/v1'); throw new Error('Usage response was invalid.'); }
       return body;
     } }),
     outcomes: Object.freeze({
-      summary: (repo, days, signal) => fetchOutcomes(repo, days, signalFor(signal), '/api/reports/outcomes/v1'),
-      assessment: (runId, input, signal) => saveOutcomeAssessment(runId, input, signalFor(signal), '/api/reports/outcomes/v1'),
+      summary: (repo, days, signal) => fetchOutcomes(repo, days, signalFor(signal), '/api/reports/outcomes/v1', fetcher),
+      assessment: (runId, input, signal) => saveOutcomeAssessment(runId, input, signalFor(signal), '/api/reports/outcomes/v1', fetcher),
     } satisfies PluginPageServices['outcomes']),
     pricing: Object.freeze({ async estimate(input: UsageQuery, signal?: AbortSignal) {
       const body = await request('/api/pricing/v1', input, signal);
-      if (!pricingEstimate(body)) throw new Error('Pricing response was invalid.');
+      if (!pricingEstimate(body)) { rejectApiCache('/api/pricing/v1'); throw new Error('Pricing response was invalid.'); }
       return body;
     } }),
   });

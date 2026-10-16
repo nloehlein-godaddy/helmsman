@@ -3,6 +3,8 @@ import { DashboardView } from './main';
 import { loadDashboard as loadMockSnapshot } from './data/mock';
 import { LOCAL_POLL_MS, POLL_MS } from './data/live';
 import type { RunSummary } from './data/agents';
+import * as apiClient from './data/api-client';
+import { PluginPageHost } from './plugins/page-host';
 
 const json = (data: unknown): Response => new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
 let view: DashboardView | null = null;
@@ -56,6 +58,18 @@ afterEach(() => {
 });
 
 describe('view-aware polling', () => {
+  it('uses cached reads during polling and bypasses them for explicit refresh', async () => {
+    const invalidate = vi.spyOn(apiClient, 'invalidateApiCache');
+    const refresh = vi.spyOn(PluginPageHost.prototype, 'refresh');
+    await setup('/outcomes?repo=org/a'); await vi.advanceTimersByTimeAsync(0);
+    invalidate.mockClear(); refresh.mockClear();
+    await vi.advanceTimersByTimeAsync(LOCAL_POLL_MS);
+    expect(invalidate).not.toHaveBeenCalled(); expect(refresh).toHaveBeenCalled();
+    expect(refresh.mock.calls.every(([force]) => force === false)).toBe(true);
+    refresh.mockClear(); await view!.refresh();
+    expect(invalidate).toHaveBeenCalledOnce(); expect(refresh).toHaveBeenCalledWith(true);
+  });
+
   it('refreshes local status every 30 seconds without legacy PR or dashboard reads', async () => {
     const { count } = await setup();
     expect(count('/api/dashboard')).toBe(0);
@@ -138,5 +152,21 @@ describe('view-aware polling', () => {
     const before = count('/api/agents');
     await vi.advanceTimersByTimeAsync(POLL_MS * 2);
     expect(count('/api/agents')).toBe(before);
+  });
+
+  it('runs one explicit refresh after an in-progress automatic refresh', async () => {
+    const { fetcher } = await setup(); const original = fetcher.getMockImplementation()!;
+    let resolve!: (response: Response) => void;
+    const response = new Promise<Response>(done => { resolve = done; });
+    let waiting = true;
+    fetcher.mockImplementation(async input => {
+      if (String(input).startsWith('/api/agents') && waiting) { waiting = false; return response; }
+      return original(input);
+    });
+    const invalidate = vi.spyOn(apiClient, 'invalidateApiCache'); invalidate.mockClear();
+    vi.setSystemTime(Date.now() + LOCAL_POLL_MS);
+    const background = view!.refresh(false); const first = view!.refresh(); const second = view!.refresh();
+    resolve(json({ runs: [], autoClaim: [], caps: { maxAttempts: 1, maxCostUsd: null } }));
+    await Promise.all([background, first, second]); expect(invalidate).toHaveBeenCalledOnce();
   });
 });

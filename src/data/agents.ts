@@ -1,3 +1,4 @@
+import { apiFetch } from './api-client';
 import { term } from '../logic/terminology';
 import { RUN_LOG_LINE_LIMIT } from '../logic/runLog';
 
@@ -22,7 +23,7 @@ export interface LaunchRunBody {
 }
 
 export async function launchRun(body: LaunchRunBody): Promise<LaunchResult> {
-  const res: Response = await fetch('/api/agents/launch', {
+  const res: Response = await apiFetch('/api/agents/launch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -40,7 +41,7 @@ export async function launchAgent(ticketId: string, title: string, repo: string)
 
 export async function retryRun(runId: string): Promise<LaunchResult> {
   if (typeof runId !== 'string' || !/^[a-z\d_-]{1,128}$/i.test(runId)) throw new Error(term('invalidRunId'));
-  const response = await fetch(`/api/agents/${encodeURIComponent(runId)}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+  const response = await apiFetch(`/api/agents/${encodeURIComponent(runId)}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   const result: unknown = await response.json().catch(() => null);
   const body = result && typeof result === 'object' ? result as Record<string, unknown> : null;
   if (!response.ok) throw new Error(typeof body?.error === 'string' ? body.error : `Retry failed (${response.status}).`);
@@ -94,7 +95,7 @@ interface AgentsListResponse {
 export async function getRun(runId: string): Promise<RunStatusSummary | null> {
   if (typeof runId !== 'string' || !/^[a-z\d_-]{1,128}$/i.test(runId)) return null;
   try {
-    const res: Response = await fetch(`/api/agents/${encodeURIComponent(runId)}`);
+    const res: Response = await apiFetch(`/api/agents/${encodeURIComponent(runId)}`);
     if (!res.ok) return null;
     const run = (await res.json()) as Partial<RunSummary> | null;
     if (!run || run.id !== runId || typeof run.status !== 'string' || typeof run.repo !== 'string') return null;
@@ -112,7 +113,7 @@ export async function getRun(runId: string): Promise<RunStatusSummary | null> {
 
 export async function fetchAgents(): Promise<{ runs: RunSummary[]; autoClaim: string[]; caps: AgentCaps }> {
   try {
-    const res: Response = await fetch('/api/agents');
+    const res: Response = await apiFetch('/api/agents');
     if (!res.ok) return { runs: [], autoClaim: [], caps: DEFAULT_CAPS };
     const payload: AgentsListResponse = (await res.json()) as AgentsListResponse;
     return { runs: payload.runs ?? [], autoClaim: payload.autoClaim ?? [], caps: payload.caps ?? DEFAULT_CAPS };
@@ -123,14 +124,14 @@ export async function fetchAgents(): Promise<{ runs: RunSummary[]; autoClaim: st
 
 export async function stopAgent(runId: string): Promise<void> {
   try {
-    await fetch(`/api/agents/${encodeURIComponent(runId)}/stop`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    await apiFetch(`/api/agents/${encodeURIComponent(runId)}/stop`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   } catch {
     return;
   }
 }
 
 export async function setAutoClaim(repo: string, enabled: boolean): Promise<void> {
-  const response = await fetch(`/api/repos/${encodeURIComponent(repo)}/auto-claim`, {
+  const response = await apiFetch(`/api/repos/${encodeURIComponent(repo)}/auto-claim`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled }),

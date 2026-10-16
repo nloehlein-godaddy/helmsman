@@ -34,6 +34,43 @@ async function mockBugs(page: Page, state: 'mixed' | 'empty' | 'errors' = 'mixed
   });
   return { queries, mutations, recover: () => { failed = false; } };
 }
+for (const width of [1440, 390]) test(`uses the shared read cache for bug navigation and stale revalidation at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1100 });
+  await page.addInitScript(() => {
+    const original = Date.now; const clock = { offset: 0 };
+    Object.assign(window, { cacheTestClock: clock }); Date.now = () => original() + clock.offset;
+  });
+  const f = await mockBugs(page);
+  let permissions = 0; page.on('request', request => { if (new URL(request.url()).pathname === '/api/context') permissions++; });
+  await page.goto('/bugs?repo=org%2Fa');
+  const panel = page.locator('.plugin-bugs:not([data-composition-page])');
+  await expect(panel).toContainText('Keep customer content out of analytics events');
+  await expect(panel).toContainText('service-unavailable');
+  const initial = f.queries.filter(query => query.instanceId === 'issues').length; const initialPermissions = permissions;
+  const navigate = (path: string) => page.evaluate(path => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, path);
+  await navigate('/config?repo=org%2Fa'); await expect(panel).toHaveCount(0);
+  await navigate('/bugs?repo=org%2Fa');
+  await expect(panel).toContainText('Keep customer content out of analytics events');
+  expect(f.queries.filter(query => query.instanceId === 'issues')).toHaveLength(initial);
+  expect(permissions).toBeGreaterThan(initialPermissions);
+  await navigate('/config?repo=org%2Fa'); await expect(panel).toHaveCount(0);
+  await page.evaluate(() => { (window as unknown as { cacheTestClock: { offset: number } }).cacheTestClock.offset += 20_000; });
+  let release!: () => void; const blocked = new Promise<void>(resolve => { release = resolve; }); let updates = 0;
+  await page.route('**/api/task-views-read/issues/bugs?**', async route => {
+    updates++; await blocked; const value = report('org/a'); value.rows[0]!.title = 'Fresh metrics after background refresh';
+    await route.fulfill({ json: { selection: selected('org/a'), report: value } });
+  });
+  try {
+    await navigate('/bugs?repo=org%2Fa');
+    await expect(panel).toContainText('Keep customer content out of analytics events');
+    await expect.poll(() => updates).toBe(1);
+    await expectReadableSurfaces(panel, ['.bugs-title', '.bugs-report']);
+    await panel.screenshot({ path: `test-results/browser/shared-cache-bugs-${width}.png` });
+  } finally { release(); }
+  await expect(panel).toContainText('Fresh metrics after background refresh');
+  expect(updates).toBe(1); expect(f.mutations).toEqual([]);
+});
+
 async function waitForDescriptionSave(page: Page) {
   await expect.poll(() => page.evaluate(async () => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open('helmsman.composition-layouts', 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });

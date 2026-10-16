@@ -147,7 +147,7 @@ class Questions implements PluginPanelInstance {
     const root = node('section'); root.className = 'plugin-clarifications plugin-clarifications-panel'; root.setAttribute('aria-busy', String(this.loading || this.busy)); root.append(node('style', styles));
     if (!composed) { const heading = node('h2', 'Agent questions'); heading.prepend(icon('question')); root.append(heading); }
     const controls = node('div'); controls.className = 'question-tools';
-    if (!composed) { const refresh = this.button('Refresh questions', () => { void this.refresh(); }, this.loading); refresh.prepend(icon('refresh')); controls.append(refresh); }
+    if (!composed) { const refresh = this.button('Refresh questions', () => { void (this.context.refresh?.() ?? this.refresh()); }, this.loading); refresh.prepend(icon('refresh')); controls.append(refresh); }
     if (this.page > 0 || /cursor/i.test(this.error)) controls.append(this.button('First page', () => { void this.loadPage(0, [null]); }, this.loading));
     if (controls.childElementCount) root.append(controls);
     const observation = node('small', `${this.total === null ? 'Total unknown' : `${this.total} matching questions observed`}`); observation.className = 'question-observation';

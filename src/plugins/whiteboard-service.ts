@@ -1,3 +1,4 @@
+import { apiFetch } from '../data/api-client';
 import { isContributionId } from './manifest';
 import { parseWhiteboardSnapshotV1, parseWhiteboardTargetV1, type WhiteboardResultV1, type WhiteboardServiceV1, type WhiteboardTargetV1 } from './whiteboard';
 import type { RunReadScopeV1 } from './run-read-service';
@@ -10,7 +11,7 @@ async function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T
 
 export function createHostWhiteboardService(lifetime: AbortSignal, options: { caller: string; scope(): RunReadScopeV1; fetch?: typeof globalThis.fetch }): WhiteboardServiceV1 {
   if (!isContributionId(options.caller)) throw new TypeError('Invalid Whiteboard contribution');
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   async function request(method: 'read' | 'explain' | 'open', raw: WhiteboardTargetV1, caller?: AbortSignal): Promise<WhiteboardResultV1> {
     const target = parseWhiteboardTargetV1(raw); const scope = options.scope();
     const check = () => {

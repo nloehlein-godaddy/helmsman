@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import panel from './panel';
-import { listSnapshots, runSnapshots } from './read-cache';
 import { prepareRecommendation } from '../run-viewer/recommendation';
 import type { PluginPanelContext, PluginPanelInstance, PluginPanelState, PullRequestCommandInputV1, PullRequestCommandPendingV1, PullRequestCommandReceiptV1, PullRequestInspectDetailV1, PullRequestInspectDiffV1, RunReadPageV1, RunCommandPendingV1, RunCommandReceiptV1 } from '../sdk';
 
@@ -10,7 +9,7 @@ const detail: PullRequestInspectDetailV1 = { version: 1, target: { repo: 'org/b'
 const available = <T>(value: T) => ({ status: 'available' as const, value });
 const requestId = 'b0ef36b8-e7a2-4b24-a343-2dac4b561824';
 const lifetimes: AbortController[] = [];
-beforeEach(() => { listSnapshots.clear(); runSnapshots.clear(); localStorage.clear(); sessionStorage.clear(); history.replaceState(null, '', '/prs?repo=org/a'); });
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); history.replaceState(null, '', '/prs?repo=org/a'); });
 afterEach(() => { lifetimes.splice(0).forEach(value => value.abort()); vi.restoreAllMocks(); document.body.replaceChildren(); });
 async function fixture(overrides: Partial<PluginPanelState> = {}, configure?: (context: PluginPanelContext) => void, contributionId = 'helmsman.compat-pr/panel') {
   const container = document.createElement('div'); document.body.append(container); const lifetime = new AbortController(); lifetimes.push(lifetime);
@@ -681,91 +680,4 @@ it('keeps run-button focus in its original section when history contains the sam
   f.container.querySelector<HTMLButtonElement>('.pr-request-history [data-run]')!.focus();
   await f.instance.update({ ...f.state() });
   expect(document.activeElement).toBe(f.container.querySelector('.pr-request-history [data-run]'));
-});
-
-type ListQuery = Parameters<NonNullable<PluginPanelContext['services']['pullRequests']>['list']>[0];
-type ListResult = Awaited<ReturnType<NonNullable<PluginPanelContext['services']['pullRequests']>['list']>>;
-type RunsResult = Awaited<ReturnType<NonNullable<PluginPanelContext['services']['runs']>['list']>>;
-function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
-const snapshotList = (query: ListQuery, title: string): ListResult => available({ version: 1, repo: query.repo, kind: query.kind, quality: 'complete', truncated: false, browseUrl: null,
-  items: [{ repo: query.repo ?? 'org/b', number: 42, title, url: null, status: 'open', createdAt: detail.observedAt, mergedAt: null, draft: false, ticketId: null, reviewDecision: null, comments: null, reviews: null }] });
-const snapshotRuns = (id: string): RunsResult => available({ version: 1, repo: 'org/b', items: [{ version: 1, id, repo: 'org/b', prNumber: 42, displayKey: id, status: 'succeeded', attempt: 1, startedAt: detail.observedAt, endedAt: detail.observedAt, costUsd: null, review: null, sourceSettlement: null }], nextCursor: null });
-async function seedReadSnapshots() {
-  const f = await fixture({}, context => {
-    vi.mocked(context.services.pullRequests!.list).mockImplementation(async query => snapshotList(query, `Saved ${query.kind}`));
-    vi.mocked(context.services.runs!.list).mockResolvedValue(snapshotRuns('saved-run'));
-  });
-  await ready(f); f.lifetime.abort(); return f;
-}
-
-it('restores display snapshots on remount and replaces each section as its live read completes', async () => {
-  await seedReadSnapshots();
-  const requested = deferred<ListResult>(); const authored = deferred<ListResult>(); const runs = deferred<RunsResult>();
-  const currentDetail = deferred<Awaited<ReturnType<NonNullable<PluginPanelContext['services']['pullRequestInspect']>['detail']>>>();
-  const f = await fixture({}, context => {
-    vi.mocked(context.services.pullRequests!.list).mockImplementation(query => query.kind === 'review-requested' ? requested.promise : authored.promise);
-    vi.mocked(context.services.runs!.list).mockReturnValue(runs.promise);
-    vi.mocked(context.services.pullRequestInspect!.detail).mockReturnValue(currentDetail.promise);
-  });
-  expect(f.container.textContent).toContain('Saved review-requested'); expect(f.container.textContent).toContain('Saved authored-recent'); expect(f.container.querySelector('[data-run="saved-run"]')).not.toBeNull();
-  expect(f.container.querySelector('.pr-panel')).toBeNull();
-  expect(f.context.services.pullRequests!.list).toHaveBeenCalledTimes(2); expect(f.context.services.runs!.list).toHaveBeenCalledTimes(1); expect(f.context.services.pullRequestInspect!.detail).toHaveBeenCalledTimes(1);
-  requested.resolve(snapshotList({ version: 1, repo: 'org/b', kind: 'review-requested', limit: 50 }, 'Fresh requested'));
-  await vi.waitFor(() => expect(f.container.textContent).toContain('Fresh requested'));
-  expect(f.container.textContent).toContain('Saved authored-recent'); expect(f.container.querySelector('.plugin-public-pr')?.getAttribute('aria-busy')).toBe('true');
-  runs.resolve(snapshotRuns('fresh-run')); await vi.waitFor(() => expect(f.container.querySelector('[data-run="fresh-run"]')).not.toBeNull()); expect(f.container.querySelector('[data-run="saved-run"]')).toBeNull();
-  authored.resolve(snapshotList({ version: 1, repo: 'org/b', kind: 'authored-recent', state: 'open', limit: 50 }, 'Fresh authored'));
-  currentDetail.resolve(available(detail)); await ready(f); expect(f.container.textContent).toContain('Fresh authored'); expect(f.container.textContent).not.toContain('Saved authored-recent'); expect(f.context.services.pullRequestInspect!.diff).toHaveBeenCalledTimes(1);
-});
-
-it('isolates display snapshots by contribution, galleon and authored status filter', async () => {
-  await seedReadSnapshots();
-  const blocked = deferred<ListResult>(); const blockedRuns = deferred<RunsResult>();
-  const configure = (context: PluginPanelContext) => { vi.mocked(context.services.pullRequests!.list).mockReturnValue(blocked.promise); vi.mocked(context.services.runs!.list).mockReturnValue(blockedRuns.promise); };
-  const copy = await fixture({}, configure, 'example.other-pr/panel'); expect(copy.container.textContent).not.toContain('Saved review-requested'); expect(copy.container.querySelector('[data-run="saved-run"]')).toBeNull(); copy.lifetime.abort();
-  const other = await fixture({ repo: 'org/c', savedState: null, activity: { epoch: 1, signal: new AbortController().signal, active: true, repo: 'org/c' } }, configure);
-  expect(other.container.textContent).not.toContain('Saved authored-recent'); expect(other.container.querySelector('[data-run="saved-run"]')).toBeNull(); other.lifetime.abort();
-  const same = await fixture({}, configure); expect(same.container.textContent).toContain('Saved authored-recent');
-  click(same.container, '[data-authored-state="all"]'); expect(same.container.textContent).not.toContain('Saved authored-recent'); expect(same.container.textContent).toContain('Saved review-requested');
-  click(same.container, '[data-authored-state="open"]'); expect(same.container.textContent).toContain('Saved authored-recent');
-  expect(same.state().headerRepo).toBe('org/a'); expect(same.context.setScope).not.toHaveBeenCalled();
-});
-
-it('evicts forbidden list and run snapshots instead of restoring them on another mount', async () => {
-  await seedReadSnapshots();
-  const denied = await fixture({}, context => {
-    vi.mocked(context.services.pullRequests!.list).mockResolvedValue({ status: 'unavailable', reason: 'forbidden' });
-    vi.mocked(context.services.runs!.list).mockResolvedValue({ status: 'unavailable', reason: 'forbidden' });
-  });
-  await vi.waitFor(() => expect(denied.container.querySelector('.plugin-public-pr')?.getAttribute('aria-busy')).toBe('false'));
-  expect(denied.container.textContent).not.toContain('Saved review-requested'); expect(denied.container.textContent).not.toContain('Saved authored-recent'); expect(denied.container.querySelector('[data-run="saved-run"]')).toBeNull(); denied.lifetime.abort();
-  const fresh = await fixture({}, context => { vi.mocked(context.services.pullRequests!.list).mockReturnValue(deferred<ListResult>().promise); vi.mocked(context.services.runs!.list).mockReturnValue(deferred<RunsResult>().promise); });
-  expect(fresh.container.textContent).not.toContain('Saved review-requested'); expect(fresh.container.querySelector('[data-run="saved-run"]')).toBeNull();
-});
-
-it('expires display snapshots after sixty seconds without changing request timers', async () => {
-  const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000); await seedReadSnapshots();
-  now.mockReturnValue(1_060_000);
-  const f = await fixture({}, context => { vi.mocked(context.services.pullRequests!.list).mockReturnValue(deferred<ListResult>().promise); vi.mocked(context.services.runs!.list).mockReturnValue(deferred<RunsResult>().promise); });
-  expect(f.container.textContent).not.toContain('Saved review-requested'); expect(f.container.textContent).not.toContain('Saved authored-recent'); expect(f.container.querySelector('[data-run="saved-run"]')).toBeNull();
-});
-
-it('keeps commands blocked until live journals settle even when cached lists and runs are visible', async () => {
-  await seedReadSnapshots();
-  const journal = deferred<RunCommandPendingV1[]>(); const requested = deferred<ListResult>(); const authored = deferred<ListResult>(); const runs = deferred<RunsResult>();
-  const f = await fixture({}, context => {
-    vi.mocked(context.services.runCommands!.pending).mockReturnValue(journal.promise);
-    vi.mocked(context.services.pullRequests!.list).mockImplementation(query => query.kind === 'review-requested' ? requested.promise : authored.promise);
-    vi.mocked(context.services.runs!.list).mockReturnValue(runs.promise);
-  });
-  await vi.waitFor(() => expect(f.container.querySelector('.pr-panel')).not.toBeNull());
-  expect(f.container.textContent).toContain('Saved requests must be loaded'); expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(true);
-  expect(f.container.textContent).toContain('Saved review-requested'); expect(f.container.querySelector('[data-run="saved-run"]')).not.toBeNull();
-  fill(f.container, '.pr-review-body', 'Current draft'); click(f.container, '.pr-comment'); click(f.container, '.pr-review-agent');
-  expect(f.context.services.runCommands!.submit).not.toHaveBeenCalled(); expect(f.context.services.pullRequestCommands!.submit).not.toHaveBeenCalled();
-  expect(f.context.services.runCommands!.pending).toHaveBeenCalledTimes(1); expect(f.context.services.pullRequestCommands!.pending).toHaveBeenCalledTimes(1);
-  journal.resolve([]); requested.resolve(snapshotList({ version: 1, repo: 'org/b', kind: 'review-requested', limit: 50 }, 'Current requested'));
-  authored.resolve(snapshotList({ version: 1, repo: 'org/b', kind: 'authored-recent', state: 'open', limit: 50 }, 'Current authored')); runs.resolve(snapshotRuns('current-run'));
-  await ready(f); expect(f.container.querySelector<HTMLButtonElement>('.pr-review-agent')?.disabled).toBe(false);
-  expect(f.context.services.pullRequestInspect!.detail).toHaveBeenCalledTimes(1); expect(f.context.services.pullRequestInspect!.diff).toHaveBeenCalledTimes(1);
 });

@@ -1,3 +1,4 @@
+import { apiFetch } from '../data/api-client';
 import { isContributionId } from './manifest';
 import { parsePostmortemEventV1, parsePostmortemSnapshotV1, type PostmortemResultV1, type PostmortemServiceV1, type PostmortemSnapshotV1 } from './postmortem';
 import type { RunReadScopeV1 } from './run-read-service';
@@ -7,7 +8,7 @@ const unavailable = (code: number, message: string): PostmortemResultV1<never> =
 
 export function createHostPostmortemService(lifetime: AbortSignal, options: { caller: string; scope(): RunReadScopeV1; fetch?: typeof globalThis.fetch }): PostmortemServiceV1 {
   if (!isContributionId(options.caller)) throw new TypeError('Invalid post-mortem contribution');
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   const allowed = (repo: string) => { const scope = options.scope(); return scope.active && !scope.signal.aborted && (scope.repo === null || scope.repo === repo); };
   const headers = (accept: string, body: boolean) => ({ Accept: accept, 'X-Helmsman-Contribution': options.caller, ...(body ? { 'Content-Type': 'application/json' } : {}) });
   async function request(repo: string, path: string, payload: unknown, signal?: AbortSignal): Promise<PostmortemResultV1<PostmortemSnapshotV1>> {

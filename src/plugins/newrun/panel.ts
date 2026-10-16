@@ -287,7 +287,7 @@ class NewRunPanel implements PluginPanelInstance {
       ? { start: focused.selectionStart, end: focused.selectionEnd } : null;
     const root = node('section'); root.className = 'plugin-newrun'; root.append(node('style', styles));
     const header = node('header'); header.append(node('h2', this.state.pirateMode ? 'New voyage' : 'New run')); root.append(header);
-    const refresh = this.button('Refresh', () => { void this.refresh(); }, this.busy || !this.active()); refresh.setAttribute('aria-label', 'Refresh');
+    const refresh = this.button('Refresh', () => { void (this.context.refresh?.() ?? this.refresh()); }, this.busy || !this.active()); refresh.setAttribute('aria-label', 'Refresh');
     for (const text of [this.error, this.sourceError, this.unsupported ? 'Saved drafts use an unsupported format. Restore a compatible panel to edit them.' : '']) {
       if (text) { const error = node('p', text); error.setAttribute('role', 'alert'); root.append(error); }
     }

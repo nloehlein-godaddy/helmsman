@@ -110,7 +110,7 @@ class HistoryPanel implements PluginPanelInstance {
     for (const [value, label] of [['all', this.state.pirateMode ? 'All voyages' : 'All runs'], ['running', 'Running'], ['terminal', 'Finished']]) { const option = node('option', label); option.value = value!; filter.append(option); }
     filter.value = this.saved.kind;
     filter.addEventListener('change', () => { this.saved.kind = filter.value as HistoryState['kind']; this.page = null; this.cursors = [null]; this.index = 0; this.expanded.clear(); this.persist(); void this.refresh(); });
-    const refresh = this.button('Refresh', () => { this.persist(); void this.refresh(); }, this.loading); refresh.prepend(icon('refresh')); refresh.dataset.focus = 'refresh';
+    const refresh = this.button('Refresh', () => { this.persist(); void (this.context.refresh?.() ?? this.refresh()); }, this.loading); refresh.prepend(icon('refresh')); refresh.dataset.focus = 'refresh';
     if (!composed) tools.append(refresh); if (tools.childElementCount) root.append(tools);
     const filters = node('div'); filters.className = 'run-filters'; const label = node('label', 'Status'); label.append(filter); filters.append(label); root.append(filters);
     for (const message of [this.error, this.saveError, this.unsupported ? 'Saved history state uses an unsupported version. It is preserved.' : '']) if (message) { const alert = node('p', `${message}${message === this.error && this.page ? ' Showing the last observed page.' : ''}`); alert.setAttribute('role', 'alert'); root.append(alert); }

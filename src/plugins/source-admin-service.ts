@@ -1,3 +1,4 @@
+import { apiFetch } from '../data/api-client';
 import { parseSourceAdminInputV1, parseSourceAdminReceiptQueryV1, parseSourceAdminReceiptV1, parseSourceAdminSnapshotV1, parseSourceAdminValidationInputV1, parseSourceAdminValidationV1,
   type SourceAdminServiceV1, type SourceAdminReceiptV1, type SourceAdminValidationDiagnosticV1 } from './source-admin';
 import { createSourceAdminJournal, SourceAdminJournalValidationError, type SourceAdminJournal } from './source-admin-journal';
@@ -26,7 +27,7 @@ async function body(response: Response, signal: AbortSignal): Promise<unknown> {
   } finally { if (!complete) void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 export function createHostSourceAdminService(lifetime: AbortSignal, options: { caller: string; scope(): TaskReadScopeV1; fetch?: typeof globalThis.fetch; journal?: SourceAdminJournal }): SourceAdminServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch; const journal = options.journal ?? createSourceAdminJournal(options.caller);
+  const fetcher = options.fetch ?? apiFetch; const journal = options.journal ?? createSourceAdminJournal(options.caller);
   function operation(caller?: AbortSignal) {
     const scope = { ...options.scope() }; const timeout = AbortSignal.timeout(30_000);
     const signal = AbortSignal.any([lifetime, scope.signal, timeout, ...(caller ? [caller] : [])]);

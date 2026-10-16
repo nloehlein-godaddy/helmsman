@@ -8,6 +8,7 @@ import { scopedPresentationLocatorV1, type PresentationLocatorV1 } from './plugi
 import { applyBootTerminology } from './logic/bootTerminology';
 import { term, setPirateMode, isPirateMode } from './logic/terminology';
 import { getContext } from './data/context';
+import { invalidateApiCache } from './data/api-client';
 import './style.css';
 import { isAppPagePath, parseRoute, routeHref, type AppRoute, type PageView } from './logic/routes';
 import { escapeHtml } from './logic/html';
@@ -71,7 +72,7 @@ export class DashboardView {
   private refreshSeq: number = 0;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private vpnRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private refreshPending: { repo: string | null; promise: Promise<void> } | null = null;
+  private refreshPending: { repo: string | null; force: boolean; promise: Promise<void> } | null = null;
   private lastLocalRefresh: number = -Infinity;
   private readonly onVisibilityChange = (): void => {
     this.refreshVpnStatus();
@@ -489,13 +490,17 @@ export class DashboardView {
     if (!force && document.hidden) return Promise.resolve();
     if (this.refreshPending?.repo === this.selectedRepo) {
       const pending = this.refreshPending;
+      if (force && !pending.force) return pending.promise.then(() => {
+        if (!this.destroyed && this.selectedRepo === pending.repo) return this.refresh(true);
+      });
       return pending.promise;
     }
     const repo = this.selectedRepo;
+    if (force) invalidateApiCache();
     const promise = this.performRefresh(force).finally(() => {
       if (this.refreshPending?.promise === promise) this.refreshPending = null;
     });
-    this.refreshPending = { repo, promise };
+    this.refreshPending = { repo, force, promise };
     return promise;
   }
 
@@ -532,7 +537,7 @@ export class DashboardView {
       const compositionId = appPages.getPage(this.route.pluginPage ?? '')?.composition?.id;
       const managesRefresh = [HELM_PAGE_SLOT, RUN_VIEWER_PAGE_SLOT, RUN_HISTORY_PAGE_SLOT, RUNS_PAGE_SLOT, PR_PAGE_SLOT]
         .some(slot => this.route.pluginSlot === slot || compositionId === slot);
-      if (force || !managesRefresh) void (this.isRunViewerPage() ? this.auxiliary.refresh() : this.pageHost?.refresh());
+      if (force || !managesRefresh) void (this.isRunViewerPage() ? this.auxiliary.refresh(force) : this.pageHost?.refresh(force));
     }
   }
 

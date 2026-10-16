@@ -1,3 +1,4 @@
+import { apiFetch } from './api-client';
 import type { Clarification, ClarificationOwner, TrustedContact } from './clarifications';
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -5,7 +6,7 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 async function request(path: string, init?: RequestInit): Promise<Record<string, unknown>> {
-  const response = await fetch(path, { ...init, signal: AbortSignal.timeout(10_000) });
+  const response = await apiFetch(path, { ...init, signal: AbortSignal.timeout(10_000) });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) throw new Error(typeof record(body)?.error === 'string' ? record(body)!.error as string : `Request failed (${response.status}).`);
   const result = record(body);

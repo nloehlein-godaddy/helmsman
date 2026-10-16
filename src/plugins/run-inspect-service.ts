@@ -1,3 +1,4 @@
+import { apiFetch, rejectApiCache } from '../data/api-client';
 import { parseTaskRepo } from './tasks';
 import { parseTaskReadGalleons } from './task-read';
 import { parseRunReadListQueryV1 } from './run-read';
@@ -40,7 +41,7 @@ async function responseFailure(response: Response, signal: AbortSignal): Promise
   return unavailable('service-unavailable');
 }
 export function createHostRunInspectService(lifetime: AbortSignal, options: { scope(): RunReadScopeV1; fetch?: typeof globalThis.fetch }): RunInspectServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   function operation(caller?: AbortSignal) {
     const original = options.scope(); const scope = { ...original, repo: original.repo === null ? null : parseTaskRepo(original.repo) };
     const signal = AbortSignal.any([lifetime, scope.signal, ...(caller ? [caller] : [])]);
@@ -61,7 +62,7 @@ export function createHostRunInspectService(lifetime: AbortSignal, options: { sc
         value = await response(path, requestSignal);
         if (!value.ok) return await responseFailure(value, requestSignal);
         try { const result = parse(await json(value, requestSignal)); check(); requestSignal.throwIfAborted(); return available(result); }
-        catch { check(); requestSignal.throwIfAborted(); return unavailable('invalid-response'); }
+        catch { check(); requestSignal.throwIfAborted(); rejectApiCache(path); return unavailable('invalid-response'); }
       } catch { check(); return unavailable(timeout.aborted ? 'timeout' : 'connection-failed'); }
       finally { discard(value); }
     }

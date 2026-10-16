@@ -47,7 +47,7 @@ class GithubSettingsPanel implements PluginPanelInstance {
   private click = (event: MouseEvent) => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null; if (!button || button.disabled || !this.active()) return; event.stopPropagation();
     const hadFocus = document.activeElement === button;
-    if (button.hasAttribute('data-refresh')) void this.refresh();
+    if (button.hasAttribute('data-refresh')) void (this.context.refresh?.() ?? this.refresh());
     else if (button.hasAttribute('data-save-draft')) { this.persist(); this.draw(); this.focusAfterHiddenAction(button,'[data-save]',hadFocus); }
     else if (button.hasAttribute('data-rebase') && this.snapshot && this.draft && !this.unsupported) { this.draft = {...this.draft,revision:this.snapshot.revision}; this.persist(); this.error = 'Your changes now use the latest revision. Select Save GitHub settings to apply them.'; this.saved = false; this.draw(); this.focusAfterHiddenAction(button,'[data-save]',hadFocus); }
     else if (button.hasAttribute('data-discard') && this.snapshot && !this.unsupported) { this.draft = fromSnapshot(this.snapshot); this.persist(); this.error = ''; this.saved = false; this.draw(); this.focusAfterHiddenAction(button,'[data-setting="defaultRepo"]',hadFocus); }

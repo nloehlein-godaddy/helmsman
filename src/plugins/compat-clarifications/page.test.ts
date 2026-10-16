@@ -18,6 +18,14 @@ function fixture(contributionId: string | undefined) {
 }
 afterEach(() => { lifetimes.splice(0).forEach(value => value.abort()); document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); });
 
+it('routes explicit refresh through the host without forcing lifecycle reads', async () => {
+  const f = fixture('helmsman.compat-clarifications/page'); const refresh = vi.fn(async () => {});
+  const instance = await page.mount(f.container, { ...f.context, refresh }); await instance.refresh?.();
+  expect(refresh).not.toHaveBeenCalled(); const reads = f.services.clarifications.list.mock.calls.length;
+  f.container.querySelector<HTMLButtonElement>('[data-refresh-questions]')!.click();
+  expect(refresh).toHaveBeenCalledOnce(); expect(f.services.clarifications.list).toHaveBeenCalledTimes(reads);
+});
+
 it.each([undefined, '', 'example/page', 'example.recovery/page:legacy'])('fails closed for missing or invalid host identity %s', async identity => {
   const f = fixture(identity); const read = vi.spyOn(Storage.prototype, 'getItem');
   await expect(async () => page.mount(f.container, f.context)).rejects.toThrow('contribution identity');

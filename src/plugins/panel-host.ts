@@ -1,3 +1,4 @@
+import { createApiReadScope } from '../data/api-client';
 import { parseTerminalRouteV1, sameTerminalRouteV1 } from './terminal-route';
 import type { PanelActivityV1, PanelOpaqueStateV1, PanelScopeV1, PluginPanelContext, PluginPanelInstance, PluginPanelModule, PluginPanelState, PluginPanelServicesV1 } from './composition';
 import type { PluginPageState } from './sdk';
@@ -7,7 +8,7 @@ export interface PanelHostOptions {
   readonly contributionId?: string;
   readonly selectPresentation?: (locator: PresentationLocatorV1 | null, scopeRepo: string | null) => void;
   readonly instanceId: string;
-  readonly services: (lifetime: AbortSignal, activity: () => PanelActivityV1) => PluginPanelServicesV1;
+  readonly services: (lifetime: AbortSignal, activity: () => PanelActivityV1, fetcher?: typeof fetch) => PluginPanelServicesV1;
   readonly navigate: (href: string) => void;
   readonly saveState: (state: PanelOpaqueStateV1 | null, signal: AbortSignal) => Promise<void>;
   readonly compareAndSetState?: (expected: PanelOpaqueStateV1 | null, state: PanelOpaqueStateV1 | null, signal: AbortSignal) => Promise<void>;
@@ -18,13 +19,15 @@ export interface PanelHostOptions {
 export class PluginPanelHost {
   private readonly lifetime = new AbortController();
   private scope = new AbortController();
+  private readonly readScope: ReturnType<typeof createApiReadScope>;
   private readonly cleanups = new Set<() => void>();
   private readonly element = document.createElement('div');
   private instance: PluginPanelInstance | null = null;
   private state: PluginPanelState;
   private revision = 0;
   private mounting: Promise<void>;
-  private refreshing: { epoch: number; promise: Promise<void> } | null = null;
+  private refreshing: { epoch: number; force: boolean; promise: Promise<void> } | null = null;
+  private cacheRefreshQueued = false;
   private readonly container: HTMLElement;
   private readonly options: PanelHostOptions;
 
@@ -35,6 +38,7 @@ export class PluginPanelHost {
     if (!state.visible) this.scope.abort();
     this.state = Object.freeze({ ...state, ...(state.terminal === undefined ? {} : { terminal: parseTerminalRouteV1(state.terminal) }), ...(state.pullRequest === undefined ? {} : { pullRequest: parsePullRequestRouteV1(state.pullRequest) }), ...(state.presentation === undefined ? {} : { presentation: parsePresentationLocatorV1(state.presentation) }), panelRouteState: undefined, instanceId: options.instanceId, savedState, routeState,
       activity: Object.freeze({ epoch: 0, signal: this.scope.signal, active: state.visible, repo: state.repo }) });
+    this.readScope = createApiReadScope(this.lifetime.signal, () => this.readUpdated());
     this.element.dataset.panelInstance = options.instanceId;
     this.element.hidden = !state.visible;
     container.replaceChildren(this.element);
@@ -43,6 +47,7 @@ export class PluginPanelHost {
     const compareAndSetState = options.compareAndSetState;
     const context = Object.freeze<PluginPanelContext>({
       contributionId: options.contributionId,
+      refresh: () => this.refresh(),
       state: this.state, signal: this.lifetime.signal,
       ...(options.selectPresentation ? { selectPresentation: (input: PresentationLocatorV1 | null) => {
         if (this.lifetime.signal.aborted || !this.state.activity.active || this.state.activity.signal.aborted) throw new DOMException('Panel is inactive.', 'AbortError');
@@ -50,7 +55,7 @@ export class PluginPanelHost {
         options.selectPresentation?.(locator, this.state.activity.repo);
       } } : {}),
       get activity() { return host.state.activity; },
-      services: options.services(this.lifetime.signal, () => this.state.activity),
+      services: options.services(this.lifetime.signal, () => this.state.activity, this.readScope.fetch),
       navigate: href => { if (!this.lifetime.signal.aborted && this.state.activity.active) options.navigate(href); },
       saveState: async value => {
         if (this.lifetime.signal.aborted) throw new DOMException('Panel disposed.', 'AbortError');
@@ -95,19 +100,39 @@ export class PluginPanelHost {
     if (this.instance) void this.deliver(this.state, revision);
   }
 
-  async refresh(): Promise<void> {
+  async refresh(force = true): Promise<void> {
     const activity = this.state.activity;
     if (this.lifetime.signal.aborted || !activity.active) return;
-    if (this.refreshing?.epoch === activity.epoch) return this.refreshing.promise;
+    if (this.refreshing?.epoch === activity.epoch) {
+      const pending = this.refreshing;
+      await pending.promise;
+      if (force && !pending.force && this.state.activity === activity) return this.refresh(true);
+      return;
+    }
     const promise = this.untilAbort((async () => {
       await this.mounting;
       if (this.lifetime.signal.aborted || activity.signal.aborted) return;
-      try { await this.instance?.refresh?.(); }
+      try {
+        const operation = async () => { await this.instance?.refresh?.(); };
+        if (force) await this.readScope.fresh(operation); else await operation();
+      }
       catch { if (!activity.signal.aborted) this.fail(); }
     })(), activity.signal);
-    const refresh = { epoch: activity.epoch, promise };
+    const refresh = { epoch: activity.epoch, force, promise };
     this.refreshing = refresh;
     try { await promise; } finally { if (this.refreshing === refresh) this.refreshing = null; }
+  }
+
+  private readUpdated(): void {
+    const activity = this.state.activity;
+    if (this.lifetime.signal.aborted || !activity.active || activity.signal.aborted) return;
+    if (!this.refreshing) { void this.refresh(false); return; }
+    if (this.cacheRefreshQueued) return;
+    this.cacheRefreshQueued = true;
+    void this.refreshing.promise.finally(() => {
+      this.cacheRefreshQueued = false;
+      if (this.state.activity === activity) void this.refresh(false);
+    });
   }
 
   dispose(): void {

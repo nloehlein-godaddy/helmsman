@@ -1,3 +1,4 @@
+import { apiFetch, rejectApiCache } from '../data/api-client';
 import { parseTaskRepo } from './tasks';
 import { parseTaskReadGalleons } from './task-read';
 import { parseRunReadItemV1, parseRunReadListQueryV1, parseRunReadLoadQueryV1, parseRunReadLogPageV1, parseRunReadLogQueryV1,
@@ -29,7 +30,7 @@ async function body(response: Response, signal: AbortSignal): Promise<unknown> {
 }
 
 export function createHostRunReadService(lifetime: AbortSignal, options: { scope(): RunReadScopeV1; fetch?: typeof globalThis.fetch; pollIntervalMs?: number }): RunReadServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   const interval = options.pollIntervalMs ?? 5000;
   if (!Number.isSafeInteger(interval) || interval < 100 || interval > 60_000) throw new RangeError('Invalid run polling interval');
   function fence(caller?: AbortSignal) {
@@ -58,7 +59,7 @@ export function createHostRunReadService(lifetime: AbortSignal, options: { scope
         if (response.status === 404) return unavailable('not-found');
         if (!response.ok) return unavailable('service-unavailable');
         try { const value = await body(response, signal); check(); signal.throwIfAborted(); return available(parse(value)); }
-        catch { check(); signal.throwIfAborted(); return unavailable('invalid-response'); }
+        catch { check(); signal.throwIfAborted(); rejectApiCache(path); return unavailable('invalid-response'); }
       } catch { check(); return unavailable(timeout.aborted ? 'timeout' : 'connection-failed'); }
       finally { discard(response); }
     }

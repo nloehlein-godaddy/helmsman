@@ -1,3 +1,4 @@
+import { apiFetch } from '../data/api-client';
 import { isBuiltinPageSlot, builtinFrontendManifests } from './frontend-manifests';
 import { isContributionId, PluginManifestError } from './manifest';
 import { parsePluginPackage } from './package';
@@ -202,7 +203,7 @@ export async function loadPluginCatalog(
   try {
     const timeoutMs = options.timeoutMs ?? 5_000;
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('Invalid catalog timeout.');
-    catalog = await fetchCatalog(options.fetch ?? globalThis.fetch, timeoutMs);
+    catalog = await fetchCatalog(options.fetch ?? apiFetch, timeoutMs);
   } catch {
     return { safeMode: true, errors: Object.freeze(['Plugin catalog unavailable; optional pages were not loaded.']), dispose };
   }
@@ -261,7 +262,7 @@ export async function loadPluginCatalog(
     timer = setInterval(() => {
       if (refreshing || disposed) return;
       refreshing = true;
-      void fetchCatalog(options.fetch ?? globalThis.fetch, options.timeoutMs ?? 5_000)
+      void fetchCatalog(options.fetch ?? apiFetch, options.timeoutMs ?? 5_000)
         .then(next => { apply(next); catalog = next; })
         .catch(() => {}).finally(() => { refreshing = false; });
     }, options.pollIntervalMs);

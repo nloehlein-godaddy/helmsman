@@ -1,3 +1,4 @@
+import { apiFetch } from './api-client';
 export interface AppContext {
   repos: string[];
   jiraBaseUrl: string | null;
@@ -6,7 +7,7 @@ export interface AppContext {
 
 export async function getContext(): Promise<AppContext | null> {
   try {
-    const response = await fetch('/api/context');
+    const response = await apiFetch('/api/context');
     if (!response.ok) return null;
     const data = await response.json() as Partial<AppContext> | null;
     if (!data || !Array.isArray(data.repos) || !data.repos.every(repo => typeof repo === 'string' && /^[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+$/i.test(repo))) return null;

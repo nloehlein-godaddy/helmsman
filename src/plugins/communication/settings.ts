@@ -57,7 +57,7 @@ class SettingsPanel implements PluginPanelInstance {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null; if (!button || button.disabled || !this.active()) return; event.stopPropagation();
     if (button.matches('[data-save-settings]')) void this.save();
     else if (button.matches('[data-connection-action]')) void this.connectionAction(button.dataset.connectionAction);
-    else if (button.matches('[data-refresh]')) void this.refresh();
+    else if (button.matches('[data-refresh]')) void (this.context.refresh?.() ?? this.refresh());
     else if (button.matches('[data-save-draft]')) { this.persist(); this.paintSafety(); }
     else if (button.matches('[data-reload-settings]') && this.snapshot && !this.unsupported) { this.draft = { version: 1, revision: this.snapshot.revision, values: { ...this.snapshot.values } }; this.persist(); this.error = ''; this.draw(); }
   };

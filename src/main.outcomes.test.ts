@@ -107,7 +107,7 @@ describe('Costs & Outcomes', () => {
     await vi.waitFor(() => expect(signal).toBeDefined());
     appPages.select(COSTS_PAGE_SLOT, 'missing.costs/page');
     await vi.waitFor(() => expect(document.body.textContent).toContain('Page unavailable'));
-    expect(signal?.aborted).toBe(true);
+    await vi.waitFor(() => expect(signal?.aborted).toBe(true));
     resolve(json(summary('org/a', 'late_run')));
     await starting;
     expect(document.body.textContent).not.toContain('late_run');

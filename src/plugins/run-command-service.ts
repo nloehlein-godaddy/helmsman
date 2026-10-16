@@ -1,3 +1,4 @@
+import { apiFetch } from '../data/api-client';
 import { createRunCommandJournal, RunCommandJournalValidationError, type RunCommandJournal } from './run-command-journal';
 import { parseRunCommandInputV1, parseRunCommandReceiptQueryV1, parseRunCommandReceiptV1, RunCommandValidationError, RUN_COMMAND_LIMITS } from './run-command';
 import type { RunCommandInputV1, RunCommandReceiptQueryV1, RunCommandReceiptV1, RunCommandResultV1, RunCommandServiceV1, RunCommandUnavailableReasonV1 } from './run-command';
@@ -36,7 +37,7 @@ export function createHostRunCommandService(lifetime: AbortSignal, options: {
   caller: string; scope(): RunReadScopeV1; fetch?: typeof globalThis.fetch; journal?: RunCommandJournal;
 }): RunCommandServiceV1 {
   const journal = options.journal ?? createRunCommandJournal(options.caller);
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   function operation(caller?: AbortSignal) {
     const scope = { ...options.scope() };
     function check() {

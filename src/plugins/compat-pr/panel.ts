@@ -4,7 +4,6 @@ import { PrStorage, subscribeStorage, type Draft } from './storage.js';
 import { esc, target, sameTarget, parseLookup, renderDetail, renderList, renderRuns, prIcon, type Identity } from './render.js';
 import { validDetail, validDiff, validList, validRun, validPending } from './validation.js';
 import { styles } from './styles.js';
-import { listSnapshots, runSnapshots } from './read-cache.js';
 import { attachEvidenceInteractions } from './evidence-interactions.js';
 import { readRecommendation, clearRecommendation, type ReviewRecommendation } from './recommendation.js';
 import { latestRecommendation } from './latest-recommendation.js';
@@ -82,7 +81,7 @@ class PrPanel implements PluginPanelInstance {
     this.container.addEventListener('click', this.click); this.container.addEventListener('input', this.input); this.container.addEventListener('change', this.input); this.container.addEventListener('keydown', this.keydown);
     this.stopEvidence = attachEvidenceInteractions(this.container, this.context.signal);
     this.context.signal.addEventListener('abort', this.dispose, { once: true }); this.state.activity.signal.addEventListener('abort', this.cancel, { once: true }); this.context.onDispose(this.dispose);
-    if (context.signal.aborted) this.dispose(); else { this.restoreSnapshots(); this.draw(); void this.refresh(); }
+    if (context.signal.aborted) this.dispose(); else { this.draw(); void this.refresh(); }
   }
   private active(generation = this.generation) { return !this.disposed && !this.context.signal.aborted && this.state.visible && this.state.activity.active && !this.state.activity.signal.aborted && generation === this.generation; }
   private cancel = () => { ++this.generation; this.controller?.abort(); this.controller = null; this.slackConnected = false; this.loading = false; for (const stop of this.watches) stop(); this.watches = []; this.watchKey = ''; };
@@ -108,7 +107,7 @@ class PrPanel implements PluginPanelInstance {
       this.readDraft();
       this.receiveRecommendation();
     }
-    if (changed) { this.cancel(); if (scopeChanged) { this.lists = { requested: null, authored: null }; this.listErrors = { requested: '', authored: '' }; this.runs = []; this.recommendationRuns = []; this.moreRuns = false; this.runsError = ''; this.detail = null; this.diff = null; this.restoreSnapshots(); } void this.refresh(); }
+    if (changed) { this.cancel(); if (scopeChanged) { this.lists = { requested: null, authored: null }; this.listErrors = { requested: '', authored: '' }; this.runs = []; this.recommendationRuns = []; this.moreRuns = false; this.runsError = ''; this.detail = null; this.diff = null; } void this.refresh(); }
     this.draw();
   }
   private readDraft() {
@@ -173,11 +172,11 @@ class PrPanel implements PluginPanelInstance {
     else if (button.dataset.recommendationRun) this.prepareMetadataRecommendation(button.dataset.recommendationRun);
     else if (button.matches('[data-append-recommendation]')) { this.importRecommendation(); this.draw(); }
     else if (button.matches('[data-save-draft]')) this.saveDraft();
-    else if (button.matches('[data-refresh]')) void this.refresh();
+    else if (button.matches('[data-refresh]')) void (this.context.refresh?.() ?? this.refresh());
     else if (button.matches('[data-close-inspection]')) void this.closeInspection();
     else if (button.dataset.authoredState === 'open' || button.dataset.authoredState === 'all') {
       if (this.authoredState === button.dataset.authoredState) return;
-      this.authoredState = button.dataset.authoredState; this.lists.authored = null; this.listErrors.authored = ''; this.restoreSnapshots(); void this.refresh();
+      this.authoredState = button.dataset.authoredState; this.lists.authored = null; this.listErrors.authored = ''; void this.refresh();
     }
     else if (button.dataset.selectRepo) { const next = target({ repo: button.dataset.selectRepo, number: Number(button.dataset.selectNumber) }); if (next) void this.select(next); }
     else if (button.dataset.run && button.dataset.repo) this.context.selectPresentation?.({ version: 1, kind: 'run', repo: button.dataset.repo, runId: button.dataset.run });
@@ -254,15 +253,6 @@ class PrPanel implements PluginPanelInstance {
     if (this.error === 'Command journal unavailable. Existing requests are kept.') this.error = '';
     return true;
   }
-  private snapshotKey(kind: 'review-requested' | 'authored-recent' | 'runs') {
-    return JSON.stringify([this.context.contributionId ?? '', this.state.activity.repo, kind, kind === 'authored-recent' ? this.authoredState : null]);
-  }
-  private restoreSnapshots() {
-    this.lists.requested ??= listSnapshots.get(this.snapshotKey('review-requested'));
-    this.lists.authored ??= listSnapshots.get(this.snapshotKey('authored-recent'));
-    const runs = runSnapshots.get(this.snapshotKey('runs'));
-    if (runs) { this.recommendationRuns = runs.items; this.runs = runs.items.slice(0, 10); this.moreRuns = runs.more; }
-  }
   refresh = async () => {
     if (!this.active()) return;
     const routed = this.localTarget ? this.selected : selection(this.state)?.target ?? this.selected;
@@ -274,12 +264,11 @@ class PrPanel implements PluginPanelInstance {
     this.cancel(); const generation = this.generation; const controller = new AbortController(); this.controller = controller; this.loading = true; this.error = ''; this.journalsReady = false; this.draw();
     const current = this.selected; const repo = this.state.activity.repo;
     const list = async (kind: 'review-requested' | 'authored-recent', name: 'requested' | 'authored') => {
-      const cacheKey = this.snapshotKey(kind);
       try { const result = await this.context.services.pullRequests!.list({ version: 1, repo, kind, limit: 50, ...(kind === 'authored-recent' ? { state: this.authoredState } : {}) }, controller.signal);
         if (!this.active(generation)) return;
-        if (result?.status === 'unavailable' && ['forbidden', 'selection-changed', 'selection-required', 'disabled'].includes(result.reason)) { this.lists[name] = null; listSnapshots.delete(cacheKey); }
+        if (result?.status === 'unavailable' && ['forbidden', 'selection-changed', 'selection-required', 'disabled'].includes(result.reason)) { this.lists[name] = null; }
         if (result?.status !== 'available' || !validList(result.value, repo)) throw new Error(`Pull request list unavailable: ${result?.status === 'unavailable' ? result.reason : 'invalid response'}`);
-        this.lists[name] = result.value; this.listErrors[name] = ''; listSnapshots.set(cacheKey, result.value);
+        this.lists[name] = result.value; this.listErrors[name] = '';
       } catch (error) { if (this.active(generation)) this.listErrors[name] = this.lists[name] ? 'Could not refresh pull requests. Showing previous results.' : 'Could not load pull requests.'; }
       if (this.active(generation)) this.draw();
     };
@@ -298,12 +287,11 @@ class PrPanel implements PluginPanelInstance {
       } catch (error) { if (this.active(generation)) { this.diff = null; this.error = error instanceof Error ? error.message : 'Pull request unavailable.'; } }
     };
     const runs = async () => {
-      const cacheKey = this.snapshotKey('runs');
       try { const result = await this.context.services.runs!.list({ version: 1, repo, kind: 'all', limit: 100, cursor: null }, controller.signal);
         if (!this.active(generation)) return;
-        if (result?.status === 'unavailable' && ['forbidden', 'selection-changed', 'disabled'].includes(result.reason)) { this.runs = []; this.recommendationRuns = []; this.moreRuns = false; runSnapshots.delete(cacheKey); }
+        if (result?.status === 'unavailable' && ['forbidden', 'selection-changed', 'disabled'].includes(result.reason)) { this.runs = []; this.recommendationRuns = []; this.moreRuns = false; }
         if (result?.status !== 'available' || !Array.isArray(result.value?.items) || result.value.items.some(run => !validRun(run, repo))) throw new Error('Recent PR runs unavailable.');
-        const matches = result.value.items.filter(run => run && run.prNumber !== null && (repo === null || run.repo === repo)); this.recommendationRuns = matches; this.runs = matches.slice(0, 10); this.moreRuns = result.value.nextCursor !== null || matches.length > 10; this.runsError = ''; runSnapshots.set(cacheKey, { items: matches, more: this.moreRuns });
+        const matches = result.value.items.filter(run => run && run.prNumber !== null && (repo === null || run.repo === repo)); this.recommendationRuns = matches; this.runs = matches.slice(0, 10); this.moreRuns = result.value.nextCursor !== null || matches.length > 10; this.runsError = '';
       } catch { if (this.active(generation)) this.runsError = this.runs.length ? 'Could not refresh recent PR runs. Showing previous results.' : 'Recent PR runs unavailable.'; }
       if (this.active(generation)) this.draw();
     };
@@ -323,8 +311,8 @@ class PrPanel implements PluginPanelInstance {
     const repo = this.state.activity.repo; const generation = this.generation;
     for (const [kind, name] of [['review-requested', 'requested'], ['authored-recent', 'authored']] as const) this.watches.push(this.context.services.pullRequests!.watchList({ version: 1, repo, kind, limit: 50, ...(kind === 'authored-recent' ? { state: this.authoredState } : {}) }, result => {
       if (!this.active(generation)) return;
-      if (result?.status === 'unavailable' && ['forbidden', 'selection-changed', 'selection-required', 'disabled'].includes(result.reason)) { this.lists[name] = null; listSnapshots.delete(this.snapshotKey(kind)); }
-      if (result?.status === 'available' && validList(result.value, repo)) { this.lists[name] = result.value; this.listErrors[name] = ''; listSnapshots.set(this.snapshotKey(kind), result.value); } else this.listErrors[name] = this.lists[name] ? 'Could not refresh pull requests. Showing previous results.' : 'Could not load pull requests.';
+      if (result?.status === 'unavailable' && ['forbidden', 'selection-changed', 'selection-required', 'disabled'].includes(result.reason)) { this.lists[name] = null; }
+      if (result?.status === 'available' && validList(result.value, repo)) { this.lists[name] = result.value; this.listErrors[name] = ''; } else this.listErrors[name] = this.lists[name] ? 'Could not refresh pull requests. Showing previous results.' : 'Could not load pull requests.';
       this.draw();
       if (kind === 'review-requested' && !this.busy) void this.syncJournals(generation);
     }, this.state.activity.signal));
@@ -362,7 +350,6 @@ class PrPanel implements PluginPanelInstance {
   private async consumeReview(receipt: PullRequestCommandReceiptV1) {
     this.result = receipt.reason ?? `Review ${receipt.status}${receipt.result ? ` by ${receipt.result.actor}` : ''}.`;
     if (receipt.status !== 'succeeded' && receipt.status !== 'rejected') return;
-    if (receipt.status === 'succeeded') { listSnapshots.clear(); runSnapshots.clear(); }
     if (receipt.status === 'succeeded' && this.detail && sameTarget(receipt.input, this.selected) && sameTarget(receipt.result, this.detail.target)
       && receipt.result?.headSha === this.detail.target.headSha && receipt.input.expectedHeadSha === receipt.result.headSha) {
       const viewerReview = { APPROVE: 'APPROVED', REQUEST_CHANGES: 'CHANGES_REQUESTED', COMMENT: 'COMMENTED' } as const;
@@ -375,7 +362,6 @@ class PrPanel implements PluginPanelInstance {
   private async consumeRun(receipt: RunCommandReceiptV1, input: RunCommandInputV1) {
     this.result = receipt.message ?? `Run command ${receipt.status}.`;
     if (receipt.status !== 'accepted' && receipt.status !== 'rejected') return;
-    if (receipt.status === 'accepted') runSnapshots.clear();
     if (this.storageError) throw new Error('Save the current draft before saving the terminal result and acknowledging its request.');
     this.storage.result('run', receipt.repo, receipt.requestId, { input, receipt });
     await this.context.services.runCommands!.acknowledge({ repo: receipt.repo, requestId: receipt.requestId });

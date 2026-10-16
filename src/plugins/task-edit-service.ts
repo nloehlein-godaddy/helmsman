@@ -1,3 +1,4 @@
+import { apiFetch } from '../data/api-client';
 import { parseTaskEditQueryV1, parseTaskEditLoadQueryV1, parseTaskEditListQueryV1, parseTaskEditEnvelopeV1, parseTaskEditorDeclarationV1, parseTaskEditPageV1,
   type TaskEditServiceV1, type TaskEditDiscoveryV1 } from './task-edit';
 import { parseTaskReadSelectionV1, type TaskReadResultV1, type TaskReadUnavailableReasonV1 } from './task-read';
@@ -40,7 +41,7 @@ function discovery(input: unknown, repo: string | null): TaskEditDiscoveryV1 {
   return Object.freeze({ version: 1, repo, sources: Object.freeze(sources) });
 }
 export function createHostTaskEditService(lifetime: AbortSignal, options: { scope(): TaskReadScopeV1; fetch?: typeof globalThis.fetch }): TaskEditServiceV1 {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const fetcher = options.fetch ?? apiFetch;
   function operation(caller?: AbortSignal) {
     const scope = { ...options.scope() }; const timeout = AbortSignal.timeout(30_000);
     const signal = AbortSignal.any([lifetime, scope.signal, timeout, ...(caller ? [caller] : [])]);

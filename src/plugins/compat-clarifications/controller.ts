@@ -9,7 +9,7 @@ export interface ClarificationViewServices {
   clarifications: ClarificationReadServiceV1; clarificationCommands: ClarificationCommandServiceV1; suggestedContacts: SuggestedContactAdminServiceV1;
 }
 export function mountClarifications(container: HTMLElement, options: {
-  contributionId: string; repo(): string | null; pirateMode?(): boolean; navigate?(href: string): void;
+  contributionId: string; repo(): string | null; refresh?(): Promise<void>; pirateMode?(): boolean; navigate?(href: string): void;
   services: ClarificationViewServices; signal?: AbortSignal; visible?: boolean; drafts?: ClarificationDraftStore;
 }): { refresh(): Promise<void>; setVisible(visible: boolean): void; destroy(): void } {
   let activity = new AbortController(); let visible = options.visible ?? true; let destroyed = false;
@@ -174,7 +174,7 @@ export function mountClarifications(container: HTMLElement, options: {
       event.preventDefault(); event.stopPropagation(); options.navigate(link.getAttribute('href') ?? '/clarifications'); return;
     }
     const button = event.target.closest<HTMLButtonElement>('button'); if (!button || button.disabled) return;
-    if (button.hasAttribute('data-refresh-questions')) { void refresh(); return; }
+    if (button.hasAttribute('data-refresh-questions')) { void (options.refresh?.() ?? refresh()); return; }
     const holder = button.closest<HTMLElement>('[data-request]');
     if (holder) { void action(token => reconcile(holder.dataset.pendingKind, holder.dataset.request, button.dataset.pendingAction, token)); return; }
     if (button.hasAttribute('data-remove-draft') || button.hasAttribute('data-remove-contact-draft') || button.hasAttribute('data-remove-result')) {
