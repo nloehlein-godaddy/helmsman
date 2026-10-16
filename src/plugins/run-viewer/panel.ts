@@ -470,7 +470,8 @@ class ViewerPanel implements PluginPanelInstance {
     if (this.message) { const status = node('p', this.message); status.setAttribute('role', 'status'); root.append(status); }
     const tab = this.selected();
     if (!tab) {
-      const empty = node('section'); empty.className = 'run-picker'; empty.append(node('h3', this.state.pirateMode ? 'Choose a voyage' : 'Choose a run'));
+      const empty = node('section'); empty.className = 'run-picker';
+      const heading = node('h3', this.state.pirateMode ? 'Choose a voyage' : 'Choose a run'); heading.prepend(icon('tray')); empty.append(heading);
       const message = node('p', this.busy ? 'Resolving selected run…' : this.recentLoading ? 'Loading recent runs…' : this.recentError
         || (!this.recentLoaded || this.recentRuns.length ? 'Select a run to see its log and controls.' : 'No runs in this scope yet. Start a run, then open its log here.'));
       message.className = 'run-picker-state'; message.setAttribute('role', this.recentError ? 'alert' : 'status'); empty.append(message);
@@ -481,8 +482,26 @@ class ViewerPanel implements PluginPanelInstance {
             () => this.selectRecent(run), !this.context.selectPresentation);
           const title = node('span', item.textContent ?? ''); title.className = 'run-picker-title'; item.replaceChildren(title);
           item.className = 'run-picker-row'; item.dataset.runKey = tabKey({ repo: run.repo, runId: run.id }); item.dataset.selectRun = run.id; item.dataset.runStatus = run.status;
-          const meta = node('span', `${run.repo} · ${run.status}`); meta.className = 'run-picker-meta'; item.append(meta);
-          if (typeof run.title === 'string' && run.title) item.append(node('span', run.title)); const row = node('li'); row.append(item); list.append(row);
+          const kind = node('span'); kind.className = 'run-picker-kind'; kind.dataset.kind = run.displayKey === 'review' ? 'review' : 'work';
+          kind.append(icon(run.displayKey === 'review' ? 'magnifying-glass' : run.displayKey === 'rerun' ? 'git-branch' : 'robot'));
+          const content = node('span'); content.className = 'run-picker-content';
+          const identity = node('span'); identity.className = 'run-picker-identity'; identity.append(title);
+          const status = node('span', run.status); status.className = 'run-picker-status'; status.setAttribute('aria-label', `Worker: ${run.status}`);
+          status.dataset.tone = run.status === 'succeeded' ? 'good' : run.status === 'failed' ? 'bad' : run.status === 'running' ? 'review' : 'neutral';
+          status.prepend(icon(run.status === 'succeeded' ? 'check-circle' : run.status === 'failed' ? 'x-circle' : run.status === 'running' ? 'clock-counter-clockwise' : 'stop'));
+          identity.append(status); content.append(identity);
+          if (typeof run.title === 'string' && run.title) { const subject = node('span', run.title); subject.className = 'run-picker-subject'; content.append(subject); }
+          const meta = node('span', run.repo); meta.className = 'run-picker-meta'; meta.prepend(icon('git-branch')); content.append(meta);
+          const feedback = feedbackLabel(run);
+          const outcome = run.status === 'succeeded' ? run.review?.outcome : null;
+          const recommendation = outcome === 'APPROVE' ? 'Recommend approval' : outcome === 'REQUEST_CHANGES' ? 'Recommend changes' : outcome === 'COMMENT' ? 'Comment only' : null;
+          if (feedback || recommendation) {
+            const result = node('span', feedback ?? recommendation ?? ''); result.className = 'run-picker-outcome';
+            result.dataset.tone = feedback ? feedback === 'Feedback completed' ? 'good' : feedback === 'Awaiting decision' ? 'review' : 'bad' : outcome === 'APPROVE' ? 'good' : outcome === 'REQUEST_CHANGES' ? 'bad' : 'review';
+            result.prepend(icon(result.dataset.tone === 'good' ? 'check-circle' : result.dataset.tone === 'bad' ? 'warning-circle' : 'chat-circle-text')); content.append(result);
+          }
+          const affordance = icon('caret-right'); affordance.classList.add('run-picker-open');
+          item.replaceChildren(kind, content, affordance); const row = node('li'); row.append(item); list.append(row);
         }
         empty.append(list);
       }

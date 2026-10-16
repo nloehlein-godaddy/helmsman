@@ -27,6 +27,7 @@ const glyphs = {
   'x-circle': '\ue4f8',
   'receipt': '\ue3ec',
   'sliders-horizontal': '\ue434',
+  'magnifying-glass': '\ue30c',
 } as const;
 export type IconName = keyof typeof glyphs;
 export function icon(name: IconName): HTMLSpanElement {

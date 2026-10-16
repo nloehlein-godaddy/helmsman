@@ -3,7 +3,14 @@ import { builtinCatalog } from './builtin-catalog';
 import { expectReadableSurfaces } from './theme-contrast';
 
 const at = '2026-10-14T12:00:00.000Z';
-const makeRun = (repo: string, index: number) => ({ version: 1, id: `run-${index}`, repo, displayKey: `TASK-${index}`, title: index === 0 ? 'Preserve customer evidence through feedback updates' : 'Restore scoped terminal connections', status: index === 0 ? 'running' : 'failed', attempt: 1, startedAt: at, endedAt: index === 0 ? null : at, prNumber: null, costUsd: null, review: null, sourceSettlement: null });
+const makeRun = (repo: string, index: number) => {
+  const status = (['running', 'succeeded', 'failed', 'stopped', 'succeeded', 'succeeded', 'running', 'succeeded', 'failed', 'stopped'] as const)[index] ?? 'stopped';
+  const recommendation = index === 4 ? 'APPROVE' : index === 5 ? 'REQUEST_CHANGES' : null;
+  const feedback = index === 6 ? 'awaiting_decision' : index === 7 ? 'completed' : null;
+  return { version: 1, id: `run-${index}`, repo, displayKey: index === 4 || index === 5 ? 'review' : index === 6 || index === 7 ? 'rerun' : `TASK-${index}`, title: index === 0 ? 'Preserve customer evidence through feedback updates' : 'Restore scoped terminal connections', status, attempt: 1, startedAt: at, endedAt: status === 'running' ? null : at,
+    prNumber: null, costUsd: null, review: recommendation ? { outcome: recommendation, verdict: recommendation } : null, sourceSettlement: null,
+    ...(feedback ? { feedbackOutcome: { state: feedback, headSha: 'a'.repeat(40), summary: feedback === 'completed' ? 'All feedback verified.' : 'Waiting for the requested decision.' } } : {}) };
+};
 
 async function mockViewer(page: Page) {
   const writes: string[] = []; const errors: string[] = []; const lists: URLSearchParams[] = []; const selections: string[] = [];
@@ -56,7 +63,29 @@ for (const width of [1440, 390]) test.describe(`Empty voyage viewer at ${width}p
     await expect(panel.locator('.run-picker-row')).toHaveCount(10); await expect(panel.getByRole('heading', { name: 'Choose a voyage', exact: true })).toBeVisible(); await expectUnboundControlsHidden(page);
     await expect(page.getByRole('heading', { name: 'Voyage viewer', exact: true })).toHaveCount(1); await expect(page.getByRole('button', { name: 'Refresh page', exact: true })).toHaveCount(1); await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
     expect(f.lists.some(query => query.get('repo') === 'org/a' && query.get('kind') === 'all' && query.get('limit') === '10')).toBe(true); expect(f.selections).toEqual([]); await expect(page).not.toHaveURL(/run=/);
-    await expectReadableSurfaces(panel, ['.run-picker-title', '.run-picker-meta', '.run-picker-state']); await page.mouse.move(0, 0); await expect(page).toHaveScreenshot(`viewer-choose-${width}.png`);
+    const expectedStatuses = [
+      ['running', 'review'], ['succeeded', 'good'], ['failed', 'bad'], ['stopped', 'neutral'],
+      ['succeeded', 'good'], ['succeeded', 'good'], ['running', 'review'], ['succeeded', 'good'],
+    ];
+    for (const [index, [label, tone]] of expectedStatuses.entries()) {
+      const choice = panel.locator(`[data-select-run="run-${index}"]`); const status = choice.locator('.run-picker-status');
+      await expect(status).toHaveText(label ?? ''); await expect(status).toHaveAttribute('data-tone', tone ?? '');
+      await expect(status.locator('.run-icon')).toHaveCount(1); await expect(status.locator('.run-icon')).toHaveAttribute('aria-hidden', 'true');
+      await expectReadableSurfaces(choice, ['.run-picker-status']);
+    }
+    for (const [index, label, tone] of [[4, 'Recommend approval', 'good'], [5, 'Recommend changes', 'bad'], [6, 'Awaiting decision', 'review'], [7, 'Feedback completed', 'good']] as const) {
+      const choice = panel.locator(`[data-select-run="run-${index}"]`); const outcome = choice.locator('.run-picker-outcome');
+      await expect(outcome).toHaveText(label); await expect(outcome).toHaveAttribute('data-tone', tone); await expect(outcome.locator('.run-icon')).toHaveCount(1);
+      await expectReadableSurfaces(choice, ['.run-picker-outcome']);
+    }
+    await expect(panel.locator('[data-select-run="run-4"] .run-picker-kind')).toHaveAttribute('data-kind', 'review');
+    await expect(panel.locator('[data-select-run="run-0"] .run-picker-kind')).toHaveAttribute('data-kind', 'work');
+    await expect(panel.locator('.run-picker h3 .run-icon')).toHaveAttribute('aria-hidden', 'true');
+    const colors = await panel.locator('.run-picker-status').evaluateAll(nodes => nodes.slice(0, 4).map(node => getComputedStyle(node).color));
+    expect(new Set(colors).size).toBe(4);
+    await expectReadableSurfaces(panel, ['.run-picker-title', '.run-picker-meta', '.run-picker-state']); await page.mouse.move(0, 0);
+    await expect(page).toHaveScreenshot(`viewer-choose-${width}.png`);
+    await page.setViewportSize({ width, height: 2400 }); await panel.locator('.run-picker').screenshot({ path: `/tmp/helmsman-voyage-picker-${width}.png` }); await page.setViewportSize({ width, height: 1100 });
     await page.locator('.repo-select').selectOption('org/b'); await expect(panel.locator('.run-picker-row')).toHaveCount(10); await expectUnboundControlsHidden(page); await expect(panel.locator('.run-picker-meta').first()).toContainText('org/b'); expect(f.lists.some(query => query.get('repo') === 'org/b')).toBe(true);
     await page.locator('.repo-select').selectOption('org/a'); await expect(panel.locator('.run-picker-meta').first()).toContainText('org/a');
     const choice = panel.locator('[data-select-run="run-0"]'); await choice.focus(); await choice.press('Enter'); await expect(panel.locator('.run-log')).toContainText('Literal customer evidence <img src=x>'); await expect(panel.locator('.run-log img, .run-log script')).toHaveCount(0); await expect(page.locator('.repo-select')).toHaveValue('org/a'); await expect(page).toHaveURL(url => url.searchParams.get('run') === 'run-0' && url.searchParams.get('runRepo') === 'org/a');

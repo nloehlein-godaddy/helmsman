@@ -74,11 +74,29 @@ export const styles = `
 .plugin-run-viewer .run-saved-results>summary{cursor:pointer;font-weight:600;font-size:16px}.plugin-run-viewer .run-saved-results>summary>.run-icon{margin-right:8px;color:var(--accent-text,var(--accent))}
 .plugin-run-viewer .run-saved-results[open]>.run-row:first-of-type{margin-top:12px}
 .plugin-run-viewer .run-picker{padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.plugin-run-viewer .run-picker>h3{display:flex;align-items:center}
 .plugin-run-viewer .run-picker-list{display:grid;margin:0;padding:0;list-style:none}
 .plugin-run-viewer .run-picker-list>li+li{border-top:1px solid var(--line-faint)}
-.plugin-run-viewer .run-picker-row{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;padding:12px 8px;text-align:left;background:transparent;border:0}
+.plugin-run-viewer .run-picker-row{display:grid;grid-template-columns:36px minmax(0,1fr) 18px;align-items:start;gap:12px;width:100%;padding:16px 8px;text-align:left;background:transparent;border:0}
 .plugin-run-viewer .run-picker-row:hover:not(:disabled){background:var(--panel-hi)}
-.plugin-run-viewer .run-picker-title{font-weight:600}.plugin-run-viewer .run-picker-meta{font-size:14px;color:var(--text-dim)}.plugin-run-viewer .run-picker-state{color:var(--text-dim)}
+.plugin-run-viewer .run-picker-kind{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:6px;color:var(--accent-text,var(--accent));background:color-mix(in srgb,var(--accent) 10%,var(--panel))}
+.plugin-run-viewer .run-picker-kind[data-kind=review]{color:var(--review-text,var(--review));background:color-mix(in srgb,var(--review) 10%,var(--panel))}
+.plugin-run-viewer .run-picker-kind>.run-icon{width:20px;height:20px;font-size:20px}
+.plugin-run-viewer .run-picker-content{display:grid;gap:6px;min-width:0}
+.plugin-run-viewer .run-picker-identity{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px}
+.plugin-run-viewer .run-picker-title{font-weight:600}
+.plugin-run-viewer :is(.run-picker-status,.run-picker-outcome){display:inline-flex;align-items:center;gap:5px;width:fit-content;font-size:13px;font-weight:600}
+.plugin-run-viewer .run-picker-status{margin-left:auto;padding:2px 6px;border-radius:4px;background:var(--panel-hi)}
+.plugin-run-viewer .run-picker-row [data-tone=good]{color:var(--good-text,var(--good))}
+.plugin-run-viewer .run-picker-row [data-tone=bad]{color:var(--bad-text,var(--bad))}
+.plugin-run-viewer .run-picker-row [data-tone=review]{color:var(--review-text,var(--review))}
+.plugin-run-viewer .run-picker-row [data-tone=neutral]{color:var(--text-dim)}
+.plugin-run-viewer .run-picker-subject{font-size:15px;overflow-wrap:anywhere}
+.plugin-run-viewer .run-picker-meta{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-dim);overflow-wrap:anywhere;min-width:0}
+.plugin-run-viewer .run-picker-meta>.run-icon{width:14px;height:14px;font-size:14px}
+.plugin-run-viewer .run-picker-open{margin-top:7px;color:var(--text-dim)}
+.plugin-run-viewer .run-picker-state{color:var(--text-dim);font-size:14px}
+@media(max-width:600px){.plugin-run-viewer .run-picker{padding:12px}.plugin-run-viewer .run-picker-row{grid-template-columns:28px minmax(0,1fr) 16px;gap:8px;padding:14px 0}.plugin-run-viewer .run-picker-kind{width:28px;height:28px}.plugin-run-viewer .run-picker-identity{align-items:flex-start}.plugin-run-viewer .run-picker-status{margin-left:0}.plugin-run-viewer .run-picker-meta{font-size:12px}}
 @media(max-width:600px){.plugin-run-viewer .run-overview-identity>strong{flex:1;min-width:0;overflow-wrap:anywhere}.plugin-run-viewer .run-identity-details{flex-basis:100%;margin:0}.plugin-run-viewer .run-log-toolbar .whiteboard-companion{margin-left:0}.plugin-run-viewer :is(.run-saved-requests,.run-saved-results){padding:12px}.plugin-run-viewer .run-log-heading{gap:8px}.plugin-run-viewer .run-preview-details{max-width:50%}}
 @media(any-pointer:coarse){.plugin-run-viewer :is(button,select,summary,.run-log-resize){min-height:44px;min-width:44px}.plugin-run-viewer .run-tab-open,.plugin-run-viewer .run-tab>button:not([role=tab]){width:44px;height:44px;min-height:44px}.plugin-run-viewer .run-log-toolbar button{min-height:44px}.plugin-run-viewer summary{align-content:center}}
 @media(prefers-reduced-motion:reduce){.plugin-run-viewer button{transition:none}}
